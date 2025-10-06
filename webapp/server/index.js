@@ -193,7 +193,7 @@ app.get("/api/sessions/:session_id/records", async (req, res) => {
 });
 
 // Static frontend
-app.use(express.static(path.resolve(STATIC_DIR)));
+app.use(express.static(path.resolve(__dirname, '..', 'public')));
 
 app.listen(PORT, () => {
   console.log(`EcoTele Web listening on http://localhost:${PORT}`);
