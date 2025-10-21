@@ -196,15 +196,10 @@ app.get("/api/sessions/:session_id/records", async (req, res) => {
 const publicPath = path.join(__dirname, 'public');
 app.use(express.static(publicPath));
 
-// AÑADE este bloque para manejar explícitamente la ruta raíz
+// All other routes are handled by the frontend
 app.get('/*', (req, res) => {
   res.sendFile(path.join(publicPath, 'index.html'));
 });
 
-
-// Static frontend
-app.use(express.static(path.resolve(STATIC_DIR)));
-
-app.listen(PORT, () => {
-  console.log(`EcoTele Web listening on http://localhost:${PORT}`);
-});
+// Export the app for Vercel
+module.exports = app;
