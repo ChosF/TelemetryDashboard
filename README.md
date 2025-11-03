@@ -2,6 +2,12 @@
 
 A real-time telemetry dashboard for monitoring vehicle performance during Shell Eco-marathon competitions. Built with Express.js, Ably for real-time data streaming, and Supabase for data persistence.
 
+## 🚀 Quick Links
+
+- **[Quick Start Guide](./QUICKSTART.md)** - Deploy to Vercel in 5 minutes
+- **[Deployment Guide](./DEPLOYMENT.md)** - Comprehensive deployment instructions
+- **[Local Development](#getting-started)** - Run locally for development
+
 ## Features
 
 - 📊 Real-time telemetry monitoring
