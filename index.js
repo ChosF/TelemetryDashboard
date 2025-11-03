@@ -195,6 +195,12 @@ app.get("/api/sessions/:session_id/records", async (req, res) => {
 // Static frontend
 app.use(express.static(path.resolve(STATIC_DIR)));
 
-app.listen(PORT, () => {
-  console.log(`EcoTele Web listening on http://localhost:${PORT}`);
-});
+// Export for Vercel serverless
+module.exports = app;
+
+// Start server in local development
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`EcoTele Web listening on http://localhost:${PORT}`);
+  });
+}

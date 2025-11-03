@@ -1,0 +1,7 @@
+# .vercelignore
+node_modules
+.git
+.env
+.env.local
+*.log
+.DS_Store

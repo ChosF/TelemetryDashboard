@@ -3,9 +3,14 @@
   "version": "0.8.0",
   "private": true,
   "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "dev": "node index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "build": "echo 'Build complete - static files in public/'",
+    "vercel-build": "echo 'Vercel build complete'"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
