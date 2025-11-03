@@ -3,6 +3,9 @@
   "version": "0.8.0",
   "private": true,
   "main": "index.js",
+  "engines": {
+    "node": ">=18.x"
+  },
   "scripts": {
     "dev": "node index.js",
     "start": "node index.js",
