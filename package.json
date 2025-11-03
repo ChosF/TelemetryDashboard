@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "node index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "build": "echo 'Build complete - static files in public/'",
+    "vercel-build": "echo 'Vercel build complete'"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
