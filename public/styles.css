@@ -532,6 +532,62 @@ table.dataTable tbody td {
   );
 }
 
+/* Sidebar backdrop for mobile */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  opacity: 0;
+  transition: opacity 300ms var(--ease-glass);
+  pointer-events: none;
+}
+
+.sidebar-backdrop.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Sidebar close button for mobile */
+.sidebar-close-btn {
+  display: none;
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline);
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--glass-tint-strong) 90%, transparent),
+    color-mix(in oklab, var(--glass-tint) 70%, transparent)
+  );
+  color: var(--text);
+  font-size: 1.5rem;
+  font-weight: 300;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 300ms var(--ease-glass);
+  line-height: 1;
+  padding: 0;
+}
+
+.sidebar-close-btn:hover {
+  transform: rotate(90deg) scale(1.1);
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--error) 20%, transparent),
+    color-mix(in oklab, var(--glass-tint) 70%, transparent)
+  );
+  border-color: var(--error);
+  color: var(--error);
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
   .split {
@@ -554,6 +610,14 @@ table.dataTable tbody td {
   }
   .sidebar.show {
     left: 0;
+  }
+  .sidebar-backdrop {
+    display: block;
+  }
+  .sidebar-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .tabs {
     overflow-x: auto;

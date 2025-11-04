@@ -57,6 +57,8 @@
   const layout = el("layout");
   const sidebar = el("sidebar");
   const sidebarToggle = el("sidebar-toggle");
+  const sidebarClose = el("sidebar-close");
+  const sidebarBackdrop = el("sidebar-backdrop");
 
   const statusPill = el("status-pill");
   const headerConnStatus = el("connection-status");
@@ -144,15 +146,36 @@
   infoChannel.textContent = ABLY_CHANNEL_NAME;
 
   // Sidebar toggle (desktop collapse / mobile slide-in)
-  sidebarToggle?.addEventListener("click", () => {
+  const toggleSidebar = () => {
     const mobile = window.innerWidth <= 768;
-    if (mobile) sidebar.classList.toggle("show");
-    else layout.classList.toggle("sidebar-collapsed");
+    if (mobile) {
+      sidebar.classList.toggle("show");
+      sidebarBackdrop.classList.toggle("show");
+    } else {
+      layout.classList.toggle("sidebar-collapsed");
+    }
+  };
+
+  sidebarToggle?.addEventListener("click", toggleSidebar);
+  
+  // Close sidebar when clicking backdrop or close button (mobile)
+  sidebarClose?.addEventListener("click", () => {
+    sidebar.classList.remove("show");
+    sidebarBackdrop.classList.remove("show");
   });
+  
+  sidebarBackdrop?.addEventListener("click", () => {
+    sidebar.classList.remove("show");
+    sidebarBackdrop.classList.remove("show");
+  });
+  
   window.addEventListener(
     "resize",
     () => {
-      if (window.innerWidth > 768) sidebar.classList.remove("show");
+      if (window.innerWidth > 768) {
+        sidebar.classList.remove("show");
+        sidebarBackdrop.classList.remove("show");
+      }
     },
     { passive: true }
   );
