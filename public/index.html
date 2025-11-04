@@ -46,8 +46,16 @@
   </head>
   <body>
     <div id="layout" class="app-container">
+      <!-- Backdrop overlay for mobile -->
+      <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+      
       <!-- Sidebar -->
       <aside id="sidebar" class="sidebar">
+        <!-- Close button for mobile -->
+        <button id="sidebar-close" class="sidebar-close-btn" aria-label="Close sidebar">
+          ✕
+        </button>
+        
         <div class="glass-panel" style="padding: 1.2rem; margin-bottom: 1rem">
           <h2
             style="
