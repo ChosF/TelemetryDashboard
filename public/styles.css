@@ -588,6 +588,18 @@ table.dataTable tbody td {
   color: var(--error);
 }
 
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-close-btn,
+  .sidebar-close-btn:hover {
+    transform: none;
+  }
+  .sidebar-backdrop,
+  .sidebar {
+    transition: none;
+  }
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
   .split {
