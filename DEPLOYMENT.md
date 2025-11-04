@@ -17,9 +17,13 @@ You'll need to set the following environment variables in Vercel:
 | Variable Name | Description | Where to Find It |
 |---------------|-------------|------------------|
 | `ABLY_API_KEY` | Your Ably API key for server-side authentication | [Ably Dashboard](https://ably.com/dashboard) → Your App → API Keys |
+| `ABLY_CHANNEL_NAME` | Channel name for Ably (optional) | Default: `telemetry-dashboard-channel` |
 | `SUPABASE_URL` | Your Supabase project URL | [Supabase Dashboard](https://supabase.com/dashboard) → Settings → API → Project URL |
+| `SUPABASE_ANON_KEY` | Your Supabase anon/public key (safe to expose) | Supabase Dashboard → Settings → API → Project API keys → anon/public |
 | `SUPABASE_SERVICE_ROLE` | Your Supabase service role key | Supabase Dashboard → Settings → API → Service Role Key (⚠️ Keep this secret!) |
 | `SESSIONS_SCAN_LIMIT` | Max rows to scan for sessions (optional) | Default: `10000`, adjust based on your data volume |
+
+**🔒 Security Note:** All configuration is now loaded securely from Vercel environment variables through the `/api/config` endpoint. No secrets are hardcoded in the repository.
 
 ## Deployment Steps
 
@@ -46,9 +50,11 @@ You'll need to set the following environment variables in Vercel:
 
 5. **Add Environment Variables**
    Click "Environment Variables" and add each variable:
-   - `ABLY_API_KEY` → Paste your key
-   - `SUPABASE_URL` → Paste your URL
-   - `SUPABASE_SERVICE_ROLE` → Paste your service role key
+   - `ABLY_API_KEY` → Paste your Ably API key
+   - `ABLY_CHANNEL_NAME` → `telemetry-dashboard-channel` (or your custom channel)
+   - `SUPABASE_URL` → Paste your Supabase project URL
+   - `SUPABASE_ANON_KEY` → Paste your Supabase anon/public key
+   - `SUPABASE_SERVICE_ROLE` → Paste your Supabase service role key
    - `SESSIONS_SCAN_LIMIT` → `10000` (or your preferred value)
 
 6. **Deploy**
@@ -83,7 +89,9 @@ You'll need to set the following environment variables in Vercel:
 5. **Set Environment Variables**
    ```bash
    vercel env add ABLY_API_KEY
+   vercel env add ABLY_CHANNEL_NAME
    vercel env add SUPABASE_URL
+   vercel env add SUPABASE_ANON_KEY
    vercel env add SUPABASE_SERVICE_ROLE
    vercel env add SESSIONS_SCAN_LIMIT
    ```
@@ -258,18 +266,27 @@ Consider adding:
 ⚠️ **Important Security Considerations**:
 
 1. **Never commit secrets to Git**
-   - `.env` is in `.gitignore`
-   - Use Vercel's environment variables
+   - `.env` is in `.gitignore` and contains only placeholder values
+   - Real secrets should ONLY be stored in Vercel's environment variables
+   - Configuration is dynamically loaded from `/api/config` endpoint
 
 2. **Use Service Role Key Server-Side Only**
-   - Only in `index.js` (serverless functions)
-   - Never expose in frontend code
+   - Only used in `index.js` (serverless functions)
+   - Never exposed in frontend code or public endpoints
+   - Required for server-side database operations
 
 3. **Frontend Uses Anon Key**
-   - Safe to expose in `public/config.js`
+   - Anon key is served through `/api/config` endpoint (safe to expose)
    - Limited by Supabase Row Level Security policies
+   - Frontend never has access to service role key
 
-4. **Enable CORS Properly**
+4. **Configuration Architecture**
+   - `/api/config` endpoint serves safe-to-expose config from environment variables
+   - Frontend fetches config dynamically on load
+   - No secrets are hardcoded in static files
+   - All sensitive keys remain in Vercel environment variables only
+
+5. **Enable CORS Properly**
    - Current setup allows all origins (good for development)
    - Consider restricting in production
 

@@ -50,7 +50,7 @@ npm install
 
 3. Set up environment variables:
 
-Create a `.env` file in the root directory:
+Create a `.env` file in the root directory (use `.env.example.txt` as a template):
 
 ```env
 PORT=5173
@@ -59,15 +59,23 @@ STATIC_DIR=public
 # Ably API key (server side)
 ABLY_API_KEY=your_ably_api_key
 
+# Ably channel name (optional)
+ABLY_CHANNEL_NAME=telemetry-dashboard-channel
+
 # Supabase project URL
 SUPABASE_URL=your_supabase_url
 
-# Supabase service role key (server-side only)
+# Supabase anon/public key (safe to expose to frontend)
+SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# Supabase service role key (server-side only - KEEP SECRET!)
 SUPABASE_SERVICE_ROLE=your_supabase_service_role_key
 
 # Optional: limit rows when scanning for sessions
 SESSIONS_SCAN_LIMIT=10000
 ```
+
+**Note:** The `.env` file should never be committed to version control. It's included in `.gitignore`.
 
 4. Run the development server:
 ```bash
@@ -102,7 +110,9 @@ vercel
 4. Import your GitHub repository
 5. Configure environment variables in the Vercel dashboard:
    - `ABLY_API_KEY`
+   - `ABLY_CHANNEL_NAME` (optional)
    - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE`
    - `SESSIONS_SCAN_LIMIT` (optional)
 6. Click "Deploy"
@@ -114,7 +124,9 @@ Make sure to set the following environment variables in your Vercel project sett
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `ABLY_API_KEY` | Your Ably API key for real-time messaging | Yes |
+| `ABLY_CHANNEL_NAME` | Channel name for Ably (optional) | No (default: telemetry-dashboard-channel) |
 | `SUPABASE_URL` | Your Supabase project URL | Yes |
+| `SUPABASE_ANON_KEY` | Your Supabase anon/public key | Yes |
 | `SUPABASE_SERVICE_ROLE` | Your Supabase service role key | Yes |
 | `SESSIONS_SCAN_LIMIT` | Maximum rows to scan when loading sessions | No (default: 10000) |
 
@@ -124,13 +136,13 @@ Make sure to set the following environment variables in your Vercel project sett
 TelemetryDashboard/
 ├── public/              # Static frontend files
 │   ├── index.html      # Main HTML file
-│   ├── app.js          # Frontend JavaScript
+│   ├── app.js          # Frontend JavaScript (fetches config from /api/config)
 │   ├── styles.css      # Styling
-│   └── config.js       # Frontend configuration
+│   └── config.js       # Deprecated - config now loaded from API
 ├── index.js            # Express server and API routes
 ├── vercel.json         # Vercel configuration
 ├── package.json        # Node.js dependencies
-├── .env                # Environment variables (not in git)
+├── .env                # Environment variables (not in git, use placeholders)
 ├── .env.example.txt    # Environment variables template
 └── README.md           # This file
 ```
@@ -138,6 +150,7 @@ TelemetryDashboard/
 ## API Endpoints
 
 - `GET /api/health` - Health check endpoint
+- `GET /api/config` - Get frontend configuration (secure, from environment variables)
 - `GET /api/ably/token` - Get Ably authentication token
 - `GET /api/sessions` - List available telemetry sessions
 - `GET /api/sessions/:session_id/records` - Get records for a specific session
@@ -153,11 +166,21 @@ The server will start on port 5173 (or the port specified in your `.env` file).
 
 ## Configuration
 
+### Secure Configuration Architecture
+
+The application uses a secure configuration system:
+
+1. **Environment Variables**: All secrets are stored in environment variables (`.env` for local, Vercel dashboard for production)
+2. **API Endpoint**: The `/api/config` endpoint serves safe-to-expose configuration from environment variables
+3. **Dynamic Loading**: Frontend fetches configuration from `/api/config` on startup
+4. **No Hardcoded Secrets**: No sensitive data is committed to the repository
+
 ### Frontend Configuration
 
-Edit `public/config.js` to configure the frontend:
+Configuration is automatically fetched from `/api/config` endpoint. For local development with custom config:
 
 ```javascript
+// Define this in index.html BEFORE app.js loads (optional override)
 window.CONFIG = {
   ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
   ABLY_AUTH_URL: "/api/ably/token",
@@ -166,9 +189,11 @@ window.CONFIG = {
 };
 ```
 
+**Note:** This is only needed for custom overrides. In normal operation, configuration is loaded automatically from `/api/config`.
+
 ### Backend Configuration
 
-Backend configuration is handled through environment variables in the `.env` file.
+Backend configuration is handled through environment variables in the `.env` file. See `.env.example.txt` for a template.
 
 ## Troubleshooting
 

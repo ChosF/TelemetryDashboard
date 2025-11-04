@@ -4,17 +4,36 @@
    - Driver Inputs: horizontal bar (Brake / Throttle), values come from publisher
      Fields used: throttle_pct / brake_pct (0–100) or throttle / brake (0..1 or 0..100)
    - DataTable default pageLength = 10; quality metrics moved below table
+   - Config loaded dynamically from /api/config endpoint
 */
 
-(() => {
+(async () => {
   "use strict";
 
-  // Config
-  const cfg = window.CONFIG || {};
+  // Fetch configuration from backend API (secure, pulls from Vercel env vars)
+  let cfg = {};
+  try {
+    const response = await fetch("/api/config");
+    if (!response.ok) {
+      throw new Error(`Config fetch failed: ${response.status}`);
+    }
+    cfg = await response.json();
+    console.log("✅ Configuration loaded from /api/config");
+  } catch (error) {
+    console.error("❌ Failed to load configuration:", error);
+    // Fallback to window.CONFIG if available (for backwards compatibility)
+    cfg = window.CONFIG || {};
+    if (Object.keys(cfg).length === 0) {
+      alert("Failed to load application configuration. Please check your environment variables.");
+    }
+  }
+
   const ABLY_CHANNEL_NAME =
     cfg.ABLY_CHANNEL_NAME || "telemetry-dashboard-channel";
   const ABLY_AUTH_URL = cfg.ABLY_AUTH_URL || "/api/ably/token";
   const ABLY_API_KEY = cfg.ABLY_API_KEY || null;
+  const SUPABASE_URL = cfg.SUPABASE_URL || "";
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
 
   // Shortcuts
   const el = (id) => document.getElementById(id);
