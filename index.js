@@ -15,6 +15,8 @@ const STATIC_DIR = process.env.STATIC_DIR || "public";
 const ABLY_API_KEY = process.env.ABLY_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+const ABLY_CHANNEL_NAME = process.env.ABLY_CHANNEL_NAME || "telemetry-dashboard-channel";
 const SESSIONS_SCAN_LIMIT = parseInt(
   process.env.SESSIONS_SCAN_LIMIT || "10000",
   10
@@ -30,6 +32,11 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
     "[WARN] Supabase server envs missing. Historical endpoints won't work."
   );
 }
+if (!SUPABASE_ANON_KEY) {
+  console.warn(
+    "[WARN] SUPABASE_ANON_KEY is missing. Frontend may not work properly."
+  );
+}
 
 const supabaseServer = SUPABASE_URL
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE)
@@ -43,6 +50,20 @@ app.use(morgan("dev"));
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
+});
+
+/**
+ * Config endpoint for frontend.
+ * Returns only safe-to-expose configuration from environment variables.
+ * This allows frontend to get config from Vercel without hardcoding secrets.
+ */
+app.get("/api/config", (_req, res) => {
+  res.json({
+    SUPABASE_URL: SUPABASE_URL || "",
+    SUPABASE_ANON_KEY: SUPABASE_ANON_KEY || "",
+    ABLY_CHANNEL_NAME: ABLY_CHANNEL_NAME,
+    ABLY_AUTH_URL: "/api/ably/token",
+  });
 });
 
 /**

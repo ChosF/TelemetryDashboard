@@ -1,7 +1,15 @@
-window.CONFIG = {
-  SUPABASE_URL: "https://dsfmdziehhgmrconjcns.supabase.co",
-  // ✅ This is safe to expose (anon key only)
-  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRzZm1kemllaGhnbXJjb25qY25zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE5MDEyOTIsImV4cCI6MjA2NzQ3NzI5Mn0.P41bpLkP0tKpTktLx6hFOnnyrAB9N_yihQP1v6zTRwc",
+// Configuration is now loaded dynamically from /api/config endpoint
+// This ensures that secrets are only stored in Vercel environment variables
+// and never committed to the repository.
+//
+// The /api/config endpoint returns:
+// - SUPABASE_URL
+// - SUPABASE_ANON_KEY (safe to expose)
+// - ABLY_CHANNEL_NAME
+// - ABLY_AUTH_URL
+//
+// This file is kept for backwards compatibility but is no longer used.
+// If you need to override config for local development, set window.CONFIG
+// before app.js loads in index.html.
 
-  ABLY_CHANNEL_NAME: "telemetry-dashboard-channel"
-};
+window.CONFIG = window.CONFIG || {};
