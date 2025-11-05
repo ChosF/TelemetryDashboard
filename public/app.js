@@ -1,10 +1,11 @@
-/* app.js — compact Driver Inputs, smaller KPI cards, Data quality below table
-   - Dynamic Ably loader (fixes "Ably library missing")
-   - Minimal Friction Circle in last gauge tile
-   - Driver Inputs: horizontal bar (Brake / Throttle), values come from publisher
-     Fields used: throttle_pct / brake_pct (0–100) or throttle / brake (0..1 or 0..100)
-   - DataTable default pageLength = 10; quality metrics moved below table
-   - Config loaded dynamically from /api/config endpoint
+/* app.js — Redesigned for award-winning dashboard without sidebar
+   - Floating Action Button (FAB) menu for controls
+   - View Transitions API support
+   - Modal dialogs for settings
+   - Enhanced animations and smooth transitions
+   - Optimized for performance (SPEED)
+   - Beautiful glass morphism design (BEAUTY)
+   - Intuitive UX with easy access to important info (UX)
 */
 
 (async () => {
@@ -53,30 +54,19 @@
     return `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
   };
 
-  // UI
-  const layout = el("layout");
-  const sidebar = el("sidebar");
-  const sidebarToggle = el("sidebar-toggle");
-  const sidebarClose = el("sidebar-close");
-  const sidebarBackdrop = el("sidebar-backdrop");
+  // UI - FAB Menu
+  const fabMenu = el("fab-menu");
+  const fabToggle = el("fab-toggle");
+  const fabOptions = el("fab-options");
+  const fabConnect = el("fab-connect");
+  const fabMode = el("fab-mode");
+  const fabExport = el("fab-export");
+  const fabSessions = el("fab-sessions");
 
-  const statusPill = el("status-pill");
+  // UI - Status
   const headerConnStatus = el("connection-status");
-  const btnConnect = el("btn-connect");
-  const btnDisconnect = el("btn-disconnect");
-  const modeSelect = el("mode-select");
-  const histPanel = el("historical-panel");
-  const btnRefreshSessions = el("btn-refresh-sessions");
-  const sessionSelect = el("session-select");
-  const btnLoadSession = el("btn-load-session");
-  const sessionInfo = el("session-info");
-  const infoChannel = el("info-channel");
   const statMsg = el("stat-msg");
-  const statErr = el("stat-err");
   const statLast = el("stat-last");
-  const btnDownloadCsv = el("btn-download-csv");
-  const btnDownloadSample = el("btn-download-sample");
-  const maxPointsInput = el("max-points");
 
   // KPIs
   const kpiDistance = el("kpi-distance");
@@ -141,42 +131,18 @@
     dyn: { axBias: 0, ayBias: 0, axEma: 0, ayEma: 0 },
     _raf: null,
   };
-  infoChannel.textContent = ABLY_CHANNEL_NAME;
 
-  // Sidebar toggle (desktop collapse / mobile slide-in)
-  const toggleSidebar = () => {
-    const mobile = window.innerWidth <= 768;
-    if (mobile) {
-      sidebar.classList.toggle("show");
-      sidebarBackdrop.classList.toggle("show");
-    } else {
-      layout.classList.toggle("sidebar-collapsed");
+  // FAB Menu Toggle
+  fabToggle?.addEventListener("click", () => {
+    fabMenu.classList.toggle("active");
+  });
+
+  // Close FAB menu when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!fabMenu.contains(e.target)) {
+      fabMenu.classList.remove("active");
     }
-  };
-
-  sidebarToggle?.addEventListener("click", toggleSidebar);
-
-  // Close sidebar when clicking backdrop or close button (mobile)
-  sidebarClose?.addEventListener("click", () => {
-    sidebar.classList.remove("show");
-    sidebarBackdrop.classList.remove("show");
   });
-
-  sidebarBackdrop?.addEventListener("click", () => {
-    sidebar.classList.remove("show");
-    sidebarBackdrop.classList.remove("show");
-  });
-
-  window.addEventListener(
-    "resize",
-    () => {
-      if (window.innerWidth > 768) {
-        sidebar.classList.remove("show");
-        sidebarBackdrop.classList.remove("show");
-      }
-    },
-    { passive: true }
-  );
 
   // Merge & dedupe
   function mergeTelemetry(existing, incoming) {
@@ -1398,8 +1364,29 @@
     setStatus("❌ Disconnected");
   }
   function setStatus(t) {
-    statusPill && (statusPill.textContent = t);
-    headerConnStatus && (headerConnStatus.textContent = t);
+    if (headerConnStatus) {
+      const statusText = headerConnStatus.querySelector(".status-text");
+      const statusDot = headerConnStatus.querySelector(".status-dot");
+      if (statusText) {
+        statusText.textContent = t.replace(/[⚡✅❌💥⏳]/g, "").trim();
+      }
+      // Update dot color based on status
+      if (statusDot) {
+        if (t.includes("✅") || t.includes("Connected")) {
+          statusDot.style.background = "var(--success)";
+          statusDot.style.boxShadow = "0 0 12px var(--success)";
+        } else if (t.includes("❌") || t.includes("Disconnected")) {
+          statusDot.style.background = "var(--error)";
+          statusDot.style.boxShadow = "0 0 12px var(--error)";
+        } else if (t.includes("⏳")) {
+          statusDot.style.background = "var(--warning)";
+          statusDot.style.boxShadow = "0 0 12px var(--warning)";
+        } else {
+          statusDot.style.background = "var(--accent)";
+          statusDot.style.boxShadow = "0 0 12px var(--accent)";
+        }
+      }
+    }
   }
 
   async function onTelemetryMessage(msg) {
@@ -1842,36 +1829,148 @@
     );
   }
 
-  // Events
-  function initEvents() {
-    btnConnect?.addEventListener("click", async () => {
-      if (state.mode === "realtime") await connectRealtime();
-      else await refreshSessionsUI();
-    });
-    btnDisconnect?.addEventListener("click", async () => {
-      await disconnectRealtime();
-    });
-    modeSelect?.addEventListener("change", async () => {
-      state.mode = modeSelect.value;
-      const isHist = state.mode !== "realtime";
-      histPanel.style.display = isHist ? "block" : "none";
-      if (isHist) await refreshSessionsUI();
-    });
-    btnRefreshSessions?.addEventListener("click", async () => {
-      await refreshSessionsUI();
-    });
-    btnLoadSession?.addEventListener("click", async () => {
-      await loadSelectedSession();
-    });
+  // Modal Dialog Functions
+  function createModal(title, content) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    
+    const modalContent = document.createElement("div");
+    modalContent.className = "modal-content";
+    
+    const header = document.createElement("h2");
+    header.textContent = title;
+    header.style.marginTop = "0";
+    
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "✕ Close";
+    closeBtn.className = "liquid-hover";
+    closeBtn.style.marginTop = "1rem";
+    closeBtn.style.width = "100%";
+    
+    modalContent.appendChild(header);
+    modalContent.appendChild(content);
+    modalContent.appendChild(closeBtn);
+    overlay.appendChild(modalContent);
+    document.body.appendChild(overlay);
+    
+    setTimeout(() => overlay.classList.add("active"), 10);
+    
+    const close = () => {
+      overlay.classList.remove("active");
+      setTimeout(() => overlay.remove(), 300);
+    };
+    
+    closeBtn.onclick = close;
+    overlay.onclick = (e) => {
+      if (e.target === overlay) close();
+    };
+    
+    return { overlay, close };
+  }
 
-    btnDownloadCsv?.addEventListener("click", () => {
+  async function showSessionsModal() {
+    const content = document.createElement("div");
+    content.innerHTML = `
+      <p style="margin-bottom: 1rem; color: var(--text-muted);">Select a historical session to load:</p>
+      <button id="modal-refresh-sessions" class="liquid-hover" style="width: 100%; margin-bottom: 1rem;">
+        🔄 Refresh Sessions
+      </button>
+      <select id="modal-session-select" multiple class="listbox liquid-hover" style="width: 100%; height: 200px; margin-bottom: 1rem;">
+        <option value="">Loading sessions...</option>
+      </select>
+      <button id="modal-load-session" class="liquid-hover" style="width: 100%;">
+        📥 Load Selected Session
+      </button>
+      <div id="modal-session-info" class="fine" style="margin-top: 0.75rem;"></div>
+    `;
+    
+    const { overlay, close } = createModal("📊 Historical Sessions", content);
+    
+    const sessionSelect = content.querySelector("#modal-session-select");
+    const sessionInfo = content.querySelector("#modal-session-info");
+    const refreshBtn = content.querySelector("#modal-refresh-sessions");
+    const loadBtn = content.querySelector("#modal-load-session");
+    
+    const loadSessions = async () => {
+      sessionSelect.innerHTML = "";
+      try {
+        const { sessions } = await fetchSessions();
+        state.sessions = sessions || [];
+        for (const s of state.sessions) {
+          const o = document.createElement("option");
+          o.value = s.session_id;
+          const name = s.session_name || "Unnamed";
+          const st = new Date(s.start_time);
+          o.textContent = `${name} — ${s.session_id.slice(0, 8)} — ${st.toISOString().slice(0, 16)} — ${s.record_count}`;
+          sessionSelect.appendChild(o);
+        }
+        sessionInfo.textContent = `Found ${state.sessions.length} sessions`;
+      } catch (e) {
+        sessionInfo.textContent = "Failed to load sessions";
+      }
+    };
+    
+    refreshBtn.onclick = loadSessions;
+    
+    loadBtn.onclick = async () => {
+      const opt = sessionSelect.options[sessionSelect.selectedIndex];
+      if (!opt) return;
+      const sid = opt.value;
+      sessionInfo.textContent = "Loading session data...";
+      try {
+        const data = await loadFullSession(sid);
+        state.telemetry = data;
+        state.currentSessionId = sid;
+        sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
+        scheduleRender();
+        setTimeout(close, 1500);
+      } catch (e) {
+        sessionInfo.textContent = `Error: ${e.message}`;
+      }
+    };
+    
+    await loadSessions();
+  }
+
+  function showExportModal() {
+    const content = document.createElement("div");
+    content.innerHTML = `
+      <p style="margin-bottom: 1rem; color: var(--text-muted);">Export telemetry data:</p>
+      <button id="modal-download-csv" class="liquid-hover" style="width: 100%; margin-bottom: 0.75rem;">
+        📄 Download Full CSV
+      </button>
+      <button id="modal-download-sample" class="liquid-hover" style="width: 100%; margin-bottom: 1rem;">
+        🔬 Download Sample (1000 random rows)
+      </button>
+      <label class="label small" style="display: block; margin-bottom: 0.5rem;">Max Points in Memory:</label>
+      <input
+        id="modal-max-points"
+        type="number"
+        value="${state.maxPoints}"
+        min="1000"
+        max="100000"
+        step="1000"
+        class="liquid-hover"
+        style="width: 100%; margin-bottom: 0.75rem;"
+      />
+      <button id="modal-apply-max" class="liquid-hover" style="width: 100%;">
+        ✅ Apply Max Points
+      </button>
+      <p class="fine" style="margin-top: 0.75rem;">Current data points: ${state.telemetry.length.toLocaleString()}</p>
+    `;
+    
+    const { overlay, close } = createModal("💾 Export Data", content);
+    
+    content.querySelector("#modal-download-csv").onclick = () => {
       const csv = toCSV(state.telemetry);
       download(
         `telemetry_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
         csv
       );
-    });
-    btnDownloadSample?.addEventListener("click", () => {
+      close();
+    };
+    
+    content.querySelector("#modal-download-sample").onclick = () => {
       const rows = state.telemetry;
       if (!rows.length) return;
       const sample = [];
@@ -1882,10 +1981,12 @@
         `telemetry_sample_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
         csv
       );
-    });
-
-    maxPointsInput?.addEventListener("change", () => {
-      const v = parseInt(maxPointsInput.value || "50000", 10);
+      close();
+    };
+    
+    content.querySelector("#modal-apply-max").onclick = () => {
+      const input = content.querySelector("#modal-max-points");
+      const v = parseInt(input.value || "50000", 10);
       state.maxPoints = Math.max(1000, v);
       if (state.telemetry.length > state.maxPoints) {
         state.telemetry = state.telemetry.slice(
@@ -1893,6 +1994,46 @@
         );
       }
       scheduleRender();
+      close();
+    };
+  }
+
+  // Events
+  function initEvents() {
+    // FAB Connect button - Toggle connection
+    fabConnect?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (state.isConnected) {
+        await disconnectRealtime();
+      } else {
+        if (state.mode === "realtime") await connectRealtime();
+        else await refreshSessionsUI();
+      }
+      fabMenu.classList.remove("active");
+    });
+
+    // FAB Mode button - Toggle between realtime and historical
+    fabMode?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      state.mode = state.mode === "realtime" ? "historical" : "realtime";
+      if (state.mode === "historical") {
+        await showSessionsModal();
+      }
+      fabMenu.classList.remove("active");
+    });
+
+    // FAB Export button - Show export menu
+    fabExport?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showExportModal();
+      fabMenu.classList.remove("active");
+    });
+
+    // FAB Sessions button - Show sessions list
+    fabSessions?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await showSessionsModal();
+      fabMenu.classList.remove("active");
     });
 
     initTabs();

@@ -6,6 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
+    <meta name="view-transition" content="same-origin" />
     <title>🏎️ Shell Eco-marathon Telemetry Dashboard</title>
 
     <!-- App styles -->
@@ -45,165 +46,98 @@
     </script>
   </head>
   <body>
-    <div id="layout" class="app-container">
-      <!-- Backdrop overlay for mobile -->
-      <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
-      
-      <!-- Sidebar -->
-      <aside id="sidebar" class="sidebar">
-        <!-- Close button for mobile -->
-        <button id="sidebar-close" class="sidebar-close-btn" aria-label="Close sidebar">
-          ✕
+    <!-- Floating Action Menu -->
+    <div id="fab-menu" class="fab-menu">
+      <button id="fab-toggle" class="fab-button liquid-hover" aria-label="Menu">
+        <span class="fab-icon">⚡</span>
+      </button>
+      <div id="fab-options" class="fab-options">
+        <button id="fab-connect" class="fab-option liquid-hover" data-tooltip="Connect">
+          <span>🔗</span>
         </button>
-        
-        <div class="glass-panel" style="padding: 1.2rem; margin-bottom: 1rem">
-          <h2
-            style="
-              margin: 0 0 0.25rem 0;
-              font-size: 1.2rem;
-              font-weight: 800;
-            "
-          >
-            🏎️ Telemetry Control
-          </h2>
-          <p class="fine" style="margin: 0">Real-time vehicle monitoring</p>
-        </div>
+        <button id="fab-mode" class="fab-option liquid-hover" data-tooltip="Toggle Mode">
+          <span>📡</span>
+        </button>
+        <button id="fab-export" class="fab-option liquid-hover" data-tooltip="Export">
+          <span>💾</span>
+        </button>
+        <button id="fab-sessions" class="fab-option liquid-hover" data-tooltip="Sessions">
+          <span>📊</span>
+        </button>
+      </div>
+    </div>
 
-        <!-- Connection -->
-        <div class="card glass-panel">
-          <h3>Connection</h3>
-          <div class="row">
-            <span id="status-pill" class="status-indicator">Disconnected</span>
+    <!-- Main Container -->
+    <div id="layout" class="app-container">
+      <!-- Hero Header -->
+      <header class="hero-header">
+        <div class="hero-content">
+          <div class="hero-title-wrapper">
+            <h1 class="hero-title">Shell Eco-marathon</h1>
+            <p class="hero-subtitle">Real-time Telemetry Dashboard</p>
           </div>
-          <div class="row">
-            <button id="btn-connect" class="liquid-hover">Connect</button>
-            <button id="btn-disconnect" class="liquid-hover">Disconnect</button>
-          </div>
-          <div class="row">
-            <span class="label small">Channel:</span>
-            <span id="info-channel" class="metric">-</span>
-          </div>
-        </div>
-
-        <!-- Mode -->
-        <div class="card glass-panel">
-          <h3>Data Mode</h3>
-          <select id="mode-select" class="liquid-hover">
-            <option value="realtime">📡 Real-time</option>
-            <option value="historical">📊 Historical</option>
-          </select>
-        </div>
-
-        <!-- Historical sessions -->
-        <div
-          id="historical-panel"
-          class="card glass-panel"
-          style="display: none"
-        >
-          <h3>📈 Historical Sessions</h3>
-          <div class="row">
-            <button id="btn-refresh-sessions" class="liquid-hover">
-              🔄 Refresh
-            </button>
-          </div>
-          <select id="session-select" multiple class="listbox liquid-hover">
-            <option value="">Loading sessions...</option>
-          </select>
-          <div class="row">
-            <button id="btn-load-session" class="liquid-hover">
-              📥 Load Session
-            </button>
-          </div>
-          <div id="session-info" class="fine" style="margin-top: 0.5rem"></div>
-        </div>
-
-        <!-- Stats -->
-        <div class="card glass-panel">
-          <h3>📊 Statistics</h3>
-          <div class="row">
-            <span class="label">Messages:</span>
-            <span id="stat-msg" class="metric">0</span>
-          </div>
-          <div class="row">
-            <span class="label">Errors:</span>
-            <span id="stat-err" class="metric">0</span>
-          </div>
-          <div class="row">
-            <span class="label small">Last Update:</span>
-            <span id="stat-last" class="fine">Never</span>
+          <div class="hero-status">
+            <div class="status-badge" id="connection-status">
+              <span class="status-dot"></span>
+              <span class="status-text">Ready</span>
+            </div>
+            <div class="stats-mini">
+              <div class="stat-mini">
+                <span class="stat-mini-value" id="stat-msg">0</span>
+                <span class="stat-mini-label">Messages</span>
+              </div>
+              <div class="stat-mini">
+                <span class="stat-mini-value" id="stat-last">Never</span>
+                <span class="stat-mini-label">Last Update</span>
+              </div>
+            </div>
           </div>
         </div>
+      </header>
 
-        <!-- Export -->
-        <div class="card glass-panel">
-          <h3>💾 Export</h3>
-          <div class="row">
-            <button id="btn-download-csv" class="liquid-hover">
-              📄 Download CSV
-            </button>
-          </div>
-          <div class="row">
-            <button id="btn-download-sample" class="liquid-hover">
-              🔬 Sample Data
-            </button>
-          </div>
-          <div class="row">
-            <label class="label small">Max Points:</label>
-            <input
-              id="max-points"
-              type="number"
-              value="50000"
-              min="1000"
-              max="100000"
-              step="1000"
-              class="liquid-hover"
-            />
-          </div>
-        </div>
-      </aside>
-
-      <!-- Main -->
+      <!-- Main Content -->
       <main class="main-content">
-        <header class="header">
-          <div style="display: flex; align-items: center; gap: 1rem">
-            <button
-              id="sidebar-toggle"
-              class="liquid-hover"
-              style="
-                background: none;
-                border: 1px solid var(--hairline);
-                padding: 0.5rem;
-                border-radius: 8px;
-              "
-            >
-              ☰
-            </button>
-            <h1 class="title">Shell Eco-marathon Telemetry Dashboard</h1>
-          </div>
-          <div class="status-indicator" id="connection-status">⚡ Ready</div>
-        </header>
 
         <div class="main">
-          <!-- Tabs -->
-          <div class="tabs">
+          <!-- Navigation Tabs -->
+          <nav class="tabs-nav">
             <button class="tab active liquid-hover" data-panel="overview">
-              📊 Overview
+              <span class="tab-icon">📊</span>
+              <span class="tab-label">Overview</span>
             </button>
-            <button class="tab liquid-hover" data-panel="speed">🚗 Speed</button>
-            <button class="tab liquid-hover" data-panel="power">⚡ Power</button>
-            <button class="tab liquid-hover" data-panel="imu">🧭 IMU</button>
+            <button class="tab liquid-hover" data-panel="speed">
+              <span class="tab-icon">🚗</span>
+              <span class="tab-label">Speed</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="power">
+              <span class="tab-icon">⚡</span>
+              <span class="tab-label">Power</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="imu">
+              <span class="tab-icon">🧭</span>
+              <span class="tab-label">IMU</span>
+            </button>
             <button class="tab liquid-hover" data-panel="imu-detail">
-              🎮 IMU Detail
+              <span class="tab-icon">🎮</span>
+              <span class="tab-label">IMU Detail</span>
             </button>
             <button class="tab liquid-hover" data-panel="efficiency">
-              📈 Efficiency
+              <span class="tab-icon">📈</span>
+              <span class="tab-label">Efficiency</span>
             </button>
-            <button class="tab liquid-hover" data-panel="gps">🗺️ GPS</button>
+            <button class="tab liquid-hover" data-panel="gps">
+              <span class="tab-icon">🗺️</span>
+              <span class="tab-label">GPS</span>
+            </button>
             <button class="tab liquid-hover" data-panel="custom">
-              🎨 Custom
+              <span class="tab-icon">🎨</span>
+              <span class="tab-label">Custom</span>
             </button>
-            <button class="tab liquid-hover" data-panel="data">📋 Data</button>
-          </div>
+            <button class="tab liquid-hover" data-panel="data">
+              <span class="tab-icon">📋</span>
+              <span class="tab-label">Data</span>
+            </button>
+          </nav>
 
           <!-- Overview -->
           <section id="panel-overview" class="panel active">
