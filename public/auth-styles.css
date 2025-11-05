@@ -348,8 +348,9 @@
   border: 1px solid var(--hairline);
   border-radius: var(--glass-radius);
   box-shadow: var(--shadow-2);
-  overflow: hidden;
+  overflow: visible;
   animation: dropdownSlideIn 0.2s var(--ease-glass);
+  z-index: 9999;
 }
 
 .user-menu-header {

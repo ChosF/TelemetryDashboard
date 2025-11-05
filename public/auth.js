@@ -154,22 +154,29 @@
   }
 
   // Create user profile with default role
-  async function createUserProfile(user, requestedRole = USER_ROLES.GUEST) {
+  async function createUserProfile(user, requestedRole = USER_ROLES.GUEST, name = null) {
     try {
       // External users are auto-approved, internal users need approval
       const role = requestedRole === USER_ROLES.INTERNAL ? USER_ROLES.EXTERNAL : requestedRole;
       const needsApproval = requestedRole === USER_ROLES.INTERNAL;
 
+      const profileData = {
+        user_id: user.id,
+        email: user.email,
+        role: role,
+        requested_role: requestedRole,
+        approval_status: needsApproval ? 'pending' : 'approved',
+        created_at: new Date().toISOString()
+      };
+
+      // Add name if provided
+      if (name) {
+        profileData.name = name;
+      }
+
       const { data, error } = await supabaseClient
         .from('user_profiles')
-        .insert([{
-          user_id: user.id,
-          email: user.email,
-          role: role,
-          requested_role: requestedRole,
-          approval_status: needsApproval ? 'pending' : 'approved',
-          created_at: new Date().toISOString()
-        }])
+        .insert([profileData])
         .select()
         .single();
 
@@ -187,7 +194,7 @@
   }
 
   // Sign up with email and password
-  async function signUp(email, password, requestedRole = USER_ROLES.EXTERNAL) {
+  async function signUp(email, password, requestedRole = USER_ROLES.EXTERNAL, name = null) {
     if (!supabaseClient) {
       throw new Error('Auth not initialized');
     }
@@ -204,7 +211,7 @@
 
       // Create user profile
       if (data.user) {
-        await createUserProfile(data.user, requestedRole);
+        await createUserProfile(data.user, requestedRole, name);
       }
 
       return { success: true, data, needsApproval: requestedRole === USER_ROLES.INTERNAL };

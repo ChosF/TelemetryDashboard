@@ -309,7 +309,7 @@ body::before {
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
   border-bottom: 1px solid var(--hairline);
   box-shadow: var(--shadow-1);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .hero-header::before {

@@ -132,6 +132,20 @@
         </div>
 
         <form class="auth-form" id="auth-form">
+          ${!isLogin ? `
+            <div class="form-group">
+              <label for="auth-name" class="form-label">Name</label>
+              <input 
+                type="text" 
+                id="auth-name" 
+                class="form-input" 
+                placeholder="Your full name"
+                required
+                autocomplete="name"
+              />
+            </div>
+          ` : ''}
+          
           <div class="form-group">
             <label for="auth-email" class="form-label">Email</label>
             <input 
@@ -246,7 +260,8 @@
           result = await window.AuthModule.signIn(email, password, rememberMe);
         } else {
           const role = modal.querySelector('#auth-role').value;
-          result = await window.AuthModule.signUp(email, password, role);
+          const name = modal.querySelector('#auth-name')?.value || null;
+          result = await window.AuthModule.signUp(email, password, role, name);
         }
 
         if (result.success) {
@@ -628,17 +643,18 @@
 
     if (isAuth && user) {
       // Show user menu
+      const displayName = profile?.name || user.email.split('@')[0];
       const authButtons = document.createElement('div');
       authButtons.className = 'header-auth-buttons';
       authButtons.innerHTML = `
         <div class="user-menu">
           <button class="user-menu-toggle liquid-hover" id="user-menu-toggle">
-            <span class="user-avatar">${user.email.charAt(0).toUpperCase()}</span>
-            <span class="user-email">${user.email}</span>
+            <span class="user-avatar">${(profile?.name || user.email).charAt(0).toUpperCase()}</span>
+            <span class="user-email">${displayName}</span>
           </button>
           <div class="user-menu-dropdown" id="user-menu-dropdown" style="display: none;">
             <div class="user-menu-header">
-              <div class="user-menu-email">${user.email}</div>
+              <div class="user-menu-email">${profile?.name || user.email}</div>
               <div class="user-menu-role">${getRoleLabel(profile?.role)}</div>
             </div>
             ${window.AuthModule.hasPermission('canAccessAdmin') ? `
