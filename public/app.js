@@ -1,10 +1,11 @@
-/* app.js — compact Driver Inputs, smaller KPI cards, Data quality below table
-   - Dynamic Ably loader (fixes "Ably library missing")
-   - Minimal Friction Circle in last gauge tile
-   - Driver Inputs: horizontal bar (Brake / Throttle), values come from publisher
-     Fields used: throttle_pct / brake_pct (0–100) or throttle / brake (0..1 or 0..100)
-   - DataTable default pageLength = 10; quality metrics moved below table
-   - Config loaded dynamically from /api/config endpoint
+/* app.js — Redesigned for award-winning dashboard without sidebar
+   - Floating Action Button (FAB) menu for controls
+   - View Transitions API support
+   - Modal dialogs for settings
+   - Enhanced animations and smooth transitions
+   - Optimized for performance (SPEED)
+   - Beautiful glass morphism design (BEAUTY)
+   - Intuitive UX with easy access to important info (UX)
 */
 
 (async () => {
@@ -35,7 +36,7 @@
   const SUPABASE_URL = cfg.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
 
-  // Shortcuts
+  // Shortcuts & Utilities
   const el = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const toNum = (x, d = null) => {
@@ -53,30 +54,44 @@
     return `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
   };
 
-  // UI
-  const layout = el("layout");
-  const sidebar = el("sidebar");
-  const sidebarToggle = el("sidebar-toggle");
-  const sidebarClose = el("sidebar-close");
-  const sidebarBackdrop = el("sidebar-backdrop");
+  // Performance optimization: debounce function
+  const debounce = (func, wait) => {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  };
 
-  const statusPill = el("status-pill");
+  // Throttle function for high-frequency events
+  const throttle = (func, limit) => {
+    let inThrottle;
+    return function(...args) {
+      if (!inThrottle) {
+        func.apply(this, args);
+        inThrottle = true;
+        setTimeout(() => inThrottle = false, limit);
+      }
+    };
+  };
+
+  // UI - FAB Menu
+  const fabMenu = el("fab-menu");
+  const fabToggle = el("fab-toggle");
+  const fabOptions = el("fab-options");
+  const fabConnect = el("fab-connect");
+  const fabMode = el("fab-mode");
+  const fabExport = el("fab-export");
+  const fabSessions = el("fab-sessions");
+
+  // UI - Status
   const headerConnStatus = el("connection-status");
-  const btnConnect = el("btn-connect");
-  const btnDisconnect = el("btn-disconnect");
-  const modeSelect = el("mode-select");
-  const histPanel = el("historical-panel");
-  const btnRefreshSessions = el("btn-refresh-sessions");
-  const sessionSelect = el("session-select");
-  const btnLoadSession = el("btn-load-session");
-  const sessionInfo = el("session-info");
-  const infoChannel = el("info-channel");
   const statMsg = el("stat-msg");
-  const statErr = el("stat-err");
   const statLast = el("stat-last");
-  const btnDownloadCsv = el("btn-download-csv");
-  const btnDownloadSample = el("btn-download-sample");
-  const maxPointsInput = el("max-points");
 
   // KPIs
   const kpiDistance = el("kpi-distance");
@@ -109,7 +124,8 @@
     chartEfficiency,
     chartAltitude,
     chartPedals,
-    chartGGMini;
+    chartGGMini,
+    chartQualityScore;
 
   // Gauges
   let gaugeSpeed, gaugeBattery, gaugePower, gaugeEfficiency;
@@ -140,43 +156,20 @@
     customCharts: [],
     dyn: { axBias: 0, ayBias: 0, axEma: 0, ayEma: 0 },
     _raf: null,
+    activePanel: 'overview', // Track active panel for performance
   };
-  infoChannel.textContent = ABLY_CHANNEL_NAME;
 
-  // Sidebar toggle (desktop collapse / mobile slide-in)
-  const toggleSidebar = () => {
-    const mobile = window.innerWidth <= 768;
-    if (mobile) {
-      sidebar.classList.toggle("show");
-      sidebarBackdrop.classList.toggle("show");
-    } else {
-      layout.classList.toggle("sidebar-collapsed");
+  // FAB Menu Toggle
+  fabToggle?.addEventListener("click", () => {
+    fabMenu.classList.toggle("active");
+  });
+
+  // Close FAB menu when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!fabMenu.contains(e.target)) {
+      fabMenu.classList.remove("active");
     }
-  };
-
-  sidebarToggle?.addEventListener("click", toggleSidebar);
-
-  // Close sidebar when clicking backdrop or close button (mobile)
-  sidebarClose?.addEventListener("click", () => {
-    sidebar.classList.remove("show");
-    sidebarBackdrop.classList.remove("show");
   });
-
-  sidebarBackdrop?.addEventListener("click", () => {
-    sidebar.classList.remove("show");
-    sidebarBackdrop.classList.remove("show");
-  });
-
-  window.addEventListener(
-    "resize",
-    () => {
-      if (window.innerWidth > 768) {
-        sidebar.classList.remove("show");
-        sidebarBackdrop.classList.remove("show");
-      }
-    },
-    { passive: true }
-  );
 
   // Merge & dedupe
   function mergeTelemetry(existing, incoming) {
@@ -625,6 +618,106 @@
     if (dataCount) {
       dataCount.textContent = `(${rows.length.toLocaleString()} rows)`;
     }
+
+    // Render quality score visualization
+    if (chartQualityScore && rows.length > 0) {
+      renderQualityScoreChart(rows, rpt);
+    }
+  }
+
+  // Render quality score chart
+  function renderQualityScoreChart(rows, report) {
+    // Take last 50 data points and compute rolling quality score
+    const windowSize = Math.min(50, rows.length);
+    const step = Math.max(1, Math.floor(rows.length / windowSize));
+    const dataPoints = [];
+    
+    for (let i = step; i <= rows.length; i += step) {
+      const subset = rows.slice(Math.max(0, i - step), i);
+      const subReport = computeDataQualityReport(subset);
+      const timestamp = subset.length ? new Date(subset[subset.length - 1].timestamp) : new Date();
+      dataPoints.push({
+        time: timestamp,
+        score: subReport.quality_score,
+      });
+    }
+
+    const opt = {
+      title: { show: false },
+      tooltip: {
+        trigger: "axis",
+        formatter: (params) => {
+          const p = params[0];
+          const date = new Date(p.value[0]);
+          return `${date.toLocaleTimeString()}<br/>Quality: <strong>${p.value[1].toFixed(1)}%</strong>`;
+        },
+      },
+      grid: { left: "8%", right: "6%", top: "10%", bottom: "15%", containLabel: true },
+      xAxis: {
+        type: "time",
+        axisLabel: { fontSize: 10 },
+        axisLine: { lineStyle: { color: "var(--hairline)" } },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 100,
+        name: "Score (%)",
+        nameTextStyle: { fontSize: 11 },
+        axisLabel: { fontSize: 10 },
+        axisLine: { lineStyle: { color: "var(--hairline)" } },
+        splitLine: { lineStyle: { color: "var(--hairline)", opacity: 0.3 } },
+      },
+      series: [
+        {
+          type: "line",
+          data: dataPoints.map((d) => [d.time, d.score]),
+          smooth: true,
+          showSymbol: false,
+          lineStyle: {
+            width: 3,
+            color: {
+              type: "linear",
+              x: 0,
+              y: 0,
+              x2: 1,
+              y2: 0,
+              colorStops: [
+                { offset: 0, color: "#ef4444" },
+                { offset: 0.5, color: "#f59e0b" },
+                { offset: 1, color: "#22c55e" },
+              ],
+            },
+          },
+          areaStyle: {
+            opacity: 0.2,
+            color: {
+              type: "linear",
+              x: 0,
+              y: 0,
+              x2: 0,
+              y2: 1,
+              colorStops: [
+                { offset: 0, color: "#22c55e" },
+                { offset: 1, color: "transparent" },
+              ],
+            },
+          },
+          markLine: {
+            silent: true,
+            symbol: "none",
+            lineStyle: { color: "#f59e0b", type: "dashed", width: 2 },
+            data: [{ yAxis: 80, name: "Target" }],
+            label: { show: true, formatter: "Target: 80%", fontSize: 10 },
+          },
+        },
+      ],
+      animation: true,
+      animationDuration: 300,
+      animationEasing: "cubicOut",
+    };
+    
+    chartQualityScore.setOption(opt);
   }
 
   // Gauges (speed, battery, power, efficiency)
@@ -1398,8 +1491,29 @@
     setStatus("❌ Disconnected");
   }
   function setStatus(t) {
-    statusPill && (statusPill.textContent = t);
-    headerConnStatus && (headerConnStatus.textContent = t);
+    if (headerConnStatus) {
+      const statusText = headerConnStatus.querySelector(".status-text");
+      const statusDot = headerConnStatus.querySelector(".status-dot");
+      if (statusText) {
+        statusText.textContent = t.replace(/[⚡✅❌💥⏳]/g, "").trim();
+      }
+      // Update dot color based on status
+      if (statusDot) {
+        if (t.includes("✅") || t.includes("Connected")) {
+          statusDot.style.background = "var(--success)";
+          statusDot.style.boxShadow = "0 0 12px var(--success)";
+        } else if (t.includes("❌") || t.includes("Disconnected")) {
+          statusDot.style.background = "var(--error)";
+          statusDot.style.boxShadow = "0 0 12px var(--error)";
+        } else if (t.includes("⏳")) {
+          statusDot.style.background = "var(--warning)";
+          statusDot.style.boxShadow = "0 0 12px var(--warning)";
+        } else {
+          statusDot.style.background = "var(--accent)";
+          statusDot.style.boxShadow = "0 0 12px var(--accent)";
+        }
+      }
+    }
   }
 
   async function onTelemetryMessage(msg) {
@@ -1426,10 +1540,9 @@
       statMsg.textContent = String(state.msgCount);
       statLast.textContent = "0s ago";
 
-      scheduleRender();
+      throttledRender();
     } catch (e) {
       state.errCount += 1;
-      statErr.textContent = String(state.errCount);
       console.error("Message error:", e);
     }
   }
@@ -1492,6 +1605,11 @@
     });
   }
 
+  // Throttled render for better performance - renders max once every 100ms
+  const throttledRender = throttle(() => {
+    scheduleRender();
+  }, 100);
+
   function doRender() {
     if (state.lastMsgTs) {
       const age = ((new Date() - state.lastMsgTs) / 1000) | 0;
@@ -1501,32 +1619,47 @@
     const rows = state.telemetry;
     const k = computeKPIs(rows);
 
-    // KPIs
-    kpiDistance.textContent = `${k.total_distance_km.toFixed(2)} km`;
-    kpiMaxSpeed.textContent = `${k.max_speed_kmh.toFixed(1)} km/h`;
-    kpiAvgSpeed.textContent = `${k.avg_speed_kmh.toFixed(1)} km/h`;
-    kpiEnergy.textContent = `${k.total_energy_kwh.toFixed(2)} kWh`;
-    kpiVoltage.textContent = `${k.battery_voltage_v.toFixed(2)} V`;
-    kpiCurrent.textContent = `${k.c_current_a.toFixed(2)} A`;
-    kpiAvgPower.textContent = `${k.avg_power_w.toFixed(2)} W`;
-    kpiAvgCurrent.textContent = `${k.avg_current_a.toFixed(2)} A`;
+    // KPIs - update DOM in batch for better performance
+    requestAnimationFrame(() => {
+      kpiDistance.textContent = `${k.total_distance_km.toFixed(2)} km`;
+      kpiMaxSpeed.textContent = `${k.max_speed_kmh.toFixed(1)} km/h`;
+      kpiAvgSpeed.textContent = `${k.avg_speed_kmh.toFixed(1)} km/h`;
+      kpiEnergy.textContent = `${k.total_energy_kwh.toFixed(2)} kWh`;
+      kpiVoltage.textContent = `${k.battery_voltage_v.toFixed(2)} V`;
+      kpiCurrent.textContent = `${k.c_current_a.toFixed(2)} A`;
+      kpiAvgPower.textContent = `${k.avg_power_w.toFixed(2)} W`;
+      kpiAvgCurrent.textContent = `${k.avg_current_a.toFixed(2)} A`;
+    });
 
     renderGauges(k);
 
     if (rows.length) {
-      renderSpeedChart(rows);
-      renderPowerChart(rows);
-      renderIMUChart(rows);
-      renderIMUDetailChart(rows);
-      renderEfficiency(rows);
-
-      // Minimal friction circle in gauge tile
-      chartGGMini.setOption(optionGForcesMini(rows));
-
-      // Driver inputs from publisher
-      renderPedals(rows);
-
-      renderMapAndAltitude(rows);
+      // Only render charts for active panel to improve performance (use cached state)
+      const activePanelName = state.activePanel;
+      
+      // Always render overview charts if on overview
+      if (activePanelName === 'overview') {
+        renderSpeedChart(rows);
+        renderPowerChart(rows);
+        renderIMUChart(rows);
+        renderIMUDetailChart(rows);
+        renderEfficiency(rows);
+        chartGGMini.setOption(optionGForcesMini(rows));
+        renderPedals(rows);
+        renderMapAndAltitude(rows);
+      } else if (activePanelName === 'speed') {
+        renderSpeedChart(rows);
+      } else if (activePanelName === 'power') {
+        renderPowerChart(rows);
+      } else if (activePanelName === 'imu') {
+        renderIMUChart(rows);
+      } else if (activePanelName === 'imu-detail') {
+        renderIMUDetailChart(rows);
+      } else if (activePanelName === 'efficiency') {
+        renderEfficiency(rows);
+      } else if (activePanelName === 'gps') {
+        renderMapAndAltitude(rows);
+      }
 
       if (panels.data.classList.contains("active")) {
         updateDataQualityUI(rows);
@@ -1538,44 +1671,87 @@
     }
   }
 
-  // Tabs
+  // Tabs with View Transitions API
   function initTabs() {
     const buttons = document.querySelectorAll(".tab");
     buttons.forEach((b) => {
       b.addEventListener("click", () => {
-        buttons.forEach((x) => x.classList.remove("active"));
-        b.classList.add("active");
         const name = b.getAttribute("data-panel");
-
-        Object.entries(panels).forEach(([key, node]) => {
-          const active = key === name;
-          node.classList.toggle("active", active);
-          node.style.display = active ? "block" : "none";
-        });
-
-        setTimeout(() => {
-          try {
-            chartSpeed.resize();
-            chartPower.resize();
-            chartIMU.resize();
-            chartIMUDetail.resize();
-            chartEfficiency.resize();
-            chartAltitude.resize();
-            chartPedals.resize();
-            chartGGMini.resize();
-            gaugeSpeed.resize();
-            gaugeBattery.resize();
-            gaugePower.resize();
-            gaugeEfficiency.resize();
-            if (name === "gps") map.invalidateSize();
-            if (name === "data" && dtNeedsRefresh) {
-              updateDataQualityUI(state.telemetry);
-              ensureDataTable(state.telemetry);
-            }
-          } catch {}
-        }, 100);
+        
+        // Use View Transitions API for smooth panel switching
+        if (document.startViewTransition) {
+          document.startViewTransition(() => {
+            switchPanel(name, buttons, b);
+          });
+        } else {
+          switchPanel(name, buttons, b);
+        }
       });
     });
+  }
+
+  function switchPanel(name, buttons, activeBtn) {
+    buttons.forEach((x) => x.classList.remove("active"));
+    activeBtn.classList.add("active");
+    
+    // Update active panel in state for performance
+    state.activePanel = name;
+
+    Object.entries(panels).forEach(([key, node]) => {
+      const active = key === name;
+      node.classList.toggle("active", active);
+      node.style.display = active ? "block" : "none";
+    });
+
+    setTimeout(() => {
+      try {
+        // Render charts for the newly active panel
+        const rows = state.telemetry;
+        if (rows.length) {
+          if (name === 'overview') {
+            renderSpeedChart(rows);
+            renderPowerChart(rows);
+            renderIMUChart(rows);
+            renderIMUDetailChart(rows);
+            renderEfficiency(rows);
+            chartGGMini.setOption(optionGForcesMini(rows));
+            renderPedals(rows);
+            renderMapAndAltitude(rows);
+          } else if (name === 'speed') {
+            renderSpeedChart(rows);
+          } else if (name === 'power') {
+            renderPowerChart(rows);
+          } else if (name === 'imu') {
+            renderIMUChart(rows);
+          } else if (name === 'imu-detail') {
+            renderIMUDetailChart(rows);
+          } else if (name === 'efficiency') {
+            renderEfficiency(rows);
+          } else if (name === 'gps') {
+            renderMapAndAltitude(rows);
+          }
+        }
+        
+        // Resize all charts
+        chartSpeed.resize();
+        chartPower.resize();
+        chartIMU.resize();
+        chartIMUDetail.resize();
+        chartEfficiency.resize();
+        chartAltitude.resize();
+        chartPedals.resize();
+        chartGGMini.resize();
+        gaugeSpeed.resize();
+        gaugeBattery.resize();
+        gaugePower.resize();
+        gaugeEfficiency.resize();
+        if (name === "gps") map.invalidateSize();
+        if (name === "data" && dtNeedsRefresh) {
+          updateDataQualityUI(state.telemetry);
+          ensureDataTable(state.telemetry);
+        }
+      } catch {}
+    }, 100);
   }
 
   // Custom charts
@@ -1819,6 +1995,12 @@
     chartEfficiency = echarts.init(el("chart-efficiency"));
     chartAltitude = echarts.init(el("chart-altitude"));
     chartPedals = echarts.init(el("chart-pedals"));
+    
+    // Initialize quality score chart if element exists
+    const qsEl = el("chart-quality-score");
+    if (qsEl) {
+      chartQualityScore = echarts.init(qsEl);
+    }
 
     window.addEventListener(
       "resize",
@@ -1836,42 +2018,155 @@
           gaugeBattery.resize();
           gaugePower.resize();
           gaugeEfficiency.resize();
+          if (chartQualityScore) chartQualityScore.resize();
         } catch {}
       },
       { passive: true }
     );
   }
 
-  // Events
-  function initEvents() {
-    btnConnect?.addEventListener("click", async () => {
-      if (state.mode === "realtime") await connectRealtime();
-      else await refreshSessionsUI();
-    });
-    btnDisconnect?.addEventListener("click", async () => {
-      await disconnectRealtime();
-    });
-    modeSelect?.addEventListener("change", async () => {
-      state.mode = modeSelect.value;
-      const isHist = state.mode !== "realtime";
-      histPanel.style.display = isHist ? "block" : "none";
-      if (isHist) await refreshSessionsUI();
-    });
-    btnRefreshSessions?.addEventListener("click", async () => {
-      await refreshSessionsUI();
-    });
-    btnLoadSession?.addEventListener("click", async () => {
-      await loadSelectedSession();
-    });
+  // Modal Dialog Functions
+  function createModal(title, content) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    
+    const modalContent = document.createElement("div");
+    modalContent.className = "modal-content";
+    
+    const header = document.createElement("h2");
+    header.textContent = title;
+    header.style.marginTop = "0";
+    
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "✕ Close";
+    closeBtn.className = "liquid-hover";
+    closeBtn.style.marginTop = "1rem";
+    closeBtn.style.width = "100%";
+    
+    modalContent.appendChild(header);
+    modalContent.appendChild(content);
+    modalContent.appendChild(closeBtn);
+    overlay.appendChild(modalContent);
+    document.body.appendChild(overlay);
+    
+    setTimeout(() => overlay.classList.add("active"), 10);
+    
+    const close = () => {
+      overlay.classList.remove("active");
+      setTimeout(() => overlay.remove(), 300);
+    };
+    
+    closeBtn.onclick = close;
+    overlay.onclick = (e) => {
+      if (e.target === overlay) close();
+    };
+    
+    return { overlay, close };
+  }
 
-    btnDownloadCsv?.addEventListener("click", () => {
+  async function showSessionsModal() {
+    const content = document.createElement("div");
+    content.innerHTML = `
+      <p style="margin-bottom: 1rem; color: var(--text-muted);">Select a historical session to load:</p>
+      <button id="modal-refresh-sessions" class="liquid-hover" style="width: 100%; margin-bottom: 1rem;">
+        🔄 Refresh Sessions
+      </button>
+      <select id="modal-session-select" multiple class="listbox liquid-hover" style="width: 100%; height: 200px; margin-bottom: 1rem;">
+        <option value="">Loading sessions...</option>
+      </select>
+      <button id="modal-load-session" class="liquid-hover" style="width: 100%;">
+        📥 Load Selected Session
+      </button>
+      <div id="modal-session-info" class="fine" style="margin-top: 0.75rem;"></div>
+    `;
+    
+    const { overlay, close } = createModal("📊 Historical Sessions", content);
+    
+    const sessionSelect = content.querySelector("#modal-session-select");
+    const sessionInfo = content.querySelector("#modal-session-info");
+    const refreshBtn = content.querySelector("#modal-refresh-sessions");
+    const loadBtn = content.querySelector("#modal-load-session");
+    
+    const loadSessions = async () => {
+      sessionSelect.innerHTML = "";
+      try {
+        const { sessions } = await fetchSessions();
+        state.sessions = sessions || [];
+        for (const s of state.sessions) {
+          const o = document.createElement("option");
+          o.value = s.session_id;
+          const name = s.session_name || "Unnamed";
+          const st = new Date(s.start_time);
+          o.textContent = `${name} — ${s.session_id.slice(0, 8)} — ${st.toISOString().slice(0, 16)} — ${s.record_count}`;
+          sessionSelect.appendChild(o);
+        }
+        sessionInfo.textContent = `Found ${state.sessions.length} sessions`;
+      } catch (e) {
+        sessionInfo.textContent = "Failed to load sessions";
+      }
+    };
+    
+    refreshBtn.onclick = loadSessions;
+    
+    loadBtn.onclick = async () => {
+      const opt = sessionSelect.options[sessionSelect.selectedIndex];
+      if (!opt) return;
+      const sid = opt.value;
+      sessionInfo.textContent = "Loading session data...";
+      try {
+        const data = await loadFullSession(sid);
+        state.telemetry = data;
+        state.currentSessionId = sid;
+        sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
+        scheduleRender();
+        setTimeout(close, 1500);
+      } catch (e) {
+        sessionInfo.textContent = `Error: ${e.message}`;
+      }
+    };
+    
+    await loadSessions();
+  }
+
+  function showExportModal() {
+    const content = document.createElement("div");
+    content.innerHTML = `
+      <p style="margin-bottom: 1rem; color: var(--text-muted);">Export telemetry data:</p>
+      <button id="modal-download-csv" class="liquid-hover" style="width: 100%; margin-bottom: 0.75rem;">
+        📄 Download Full CSV
+      </button>
+      <button id="modal-download-sample" class="liquid-hover" style="width: 100%; margin-bottom: 1rem;">
+        🔬 Download Sample (1000 random rows)
+      </button>
+      <label class="label small" style="display: block; margin-bottom: 0.5rem;">Max Points in Memory:</label>
+      <input
+        id="modal-max-points"
+        type="number"
+        value="${state.maxPoints}"
+        min="1000"
+        max="100000"
+        step="1000"
+        class="liquid-hover"
+        style="width: 100%; margin-bottom: 0.75rem;"
+      />
+      <button id="modal-apply-max" class="liquid-hover" style="width: 100%;">
+        ✅ Apply Max Points
+      </button>
+      <p class="fine" style="margin-top: 0.75rem;">Current data points: ${state.telemetry.length.toLocaleString()}</p>
+    `;
+    
+    const { overlay, close } = createModal("💾 Export Data", content);
+    
+    content.querySelector("#modal-download-csv").onclick = () => {
       const csv = toCSV(state.telemetry);
       download(
         `telemetry_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
         csv
       );
-    });
-    btnDownloadSample?.addEventListener("click", () => {
+      close();
+    };
+    
+    content.querySelector("#modal-download-sample").onclick = () => {
       const rows = state.telemetry;
       if (!rows.length) return;
       const sample = [];
@@ -1882,17 +2177,59 @@
         `telemetry_sample_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
         csv
       );
-    });
-
-    maxPointsInput?.addEventListener("change", () => {
-      const v = parseInt(maxPointsInput.value || "50000", 10);
-      state.maxPoints = Math.max(1000, v);
+      close();
+    };
+    
+    content.querySelector("#modal-apply-max").onclick = () => {
+      const input = content.querySelector("#modal-max-points");
+      const v = toNum(parseInt(input.value || "50000", 10), 50000);
+      state.maxPoints = Math.max(1000, Math.min(100000, v));
       if (state.telemetry.length > state.maxPoints) {
         state.telemetry = state.telemetry.slice(
           state.telemetry.length - state.maxPoints
         );
       }
       scheduleRender();
+      close();
+    };
+  }
+
+  // Events
+  function initEvents() {
+    // FAB Connect button - Toggle connection
+    fabConnect?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (state.isConnected) {
+        await disconnectRealtime();
+      } else {
+        if (state.mode === "realtime") await connectRealtime();
+        else await refreshSessionsUI();
+      }
+      fabMenu.classList.remove("active");
+    });
+
+    // FAB Mode button - Toggle between realtime and historical
+    fabMode?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      state.mode = state.mode === "realtime" ? "historical" : "realtime";
+      if (state.mode === "historical") {
+        await showSessionsModal();
+      }
+      fabMenu.classList.remove("active");
+    });
+
+    // FAB Export button - Show export menu
+    fabExport?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showExportModal();
+      fabMenu.classList.remove("active");
+    });
+
+    // FAB Sessions button - Show sessions list
+    fabSessions?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await showSessionsModal();
+      fabMenu.classList.remove("active");
     });
 
     initTabs();
