@@ -222,7 +222,31 @@
     }
     return rows;
   }
+  // Normalize field names for common variations
+  function normalizeFieldNames(row) {
+    // Map common altitude field variations to 'altitude'
+    if (!('altitude' in row)) {
+      if ('altitude_m' in row) row.altitude = row.altitude_m;
+      else if ('gps_altitude' in row) row.altitude = row.gps_altitude;
+      else if ('elevation' in row) row.altitude = row.elevation;
+      else if ('alt' in row) row.altitude = row.alt;
+    }
+    
+    // Ensure all required fields exist (same as normalizeData)
+    const req = [
+      "speed_ms", "voltage_v", "current_a", "power_w", "energy_j", "distance_m",
+      "latitude", "longitude", "altitude", "gyro_x", "gyro_y", "gyro_z",
+      "accel_x", "accel_y", "accel_z", "total_acceleration", "message_id",
+      "uptime_seconds", "session_id", "throttle_pct", "brake_pct", "throttle", "brake"
+    ];
+    for (const k of req) if (!(k in row)) row[k] = 0;
+    
+    return row;
+  }
+  
   function withDerived(rows) {
+    // Normalize field names first
+    for (const r of rows) normalizeFieldNames(r);
     withRollPitch(rows);
     withGForces(rows);
     return rows;
@@ -627,6 +651,8 @@
 
   // Render quality score chart
   function renderQualityScoreChart(rows, report) {
+    if (!rows || rows.length === 0) return;
+    
     // Take last 50 data points and compute rolling quality score
     const windowSize = Math.min(50, rows.length);
     const step = Math.max(1, Math.floor(rows.length / windowSize));
@@ -634,13 +660,20 @@
     
     for (let i = step; i <= rows.length; i += step) {
       const subset = rows.slice(Math.max(0, i - step), i);
+      if (subset.length === 0) continue;
       const subReport = computeDataQualityReport(subset);
       const timestamp = subset.length ? new Date(subset[subset.length - 1].timestamp) : new Date();
-      dataPoints.push({
-        time: timestamp,
-        score: subReport.quality_score,
-      });
+      // Only add valid data points
+      if (!isNaN(timestamp.getTime()) && typeof subReport.quality_score === 'number') {
+        dataPoints.push({
+          time: timestamp,
+          score: subReport.quality_score,
+        });
+      }
     }
+    
+    // If no valid data points, exit early
+    if (dataPoints.length === 0) return;
 
     const opt = {
       title: { show: false },
