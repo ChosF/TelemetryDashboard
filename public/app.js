@@ -234,10 +234,13 @@
   function normalizeFieldNames(row) {
     // Map common altitude field variations to 'altitude'
     if (!('altitude' in row)) {
-      if ('altitude_m' in row) row.altitude = row.altitude_m;
-      else if ('gps_altitude' in row) row.altitude = row.gps_altitude;
-      else if ('elevation' in row) row.altitude = row.elevation;
-      else if ('alt' in row) row.altitude = row.alt;
+      const altitudeFields = ['altitude_m', 'gps_altitude', 'elevation', 'alt'];
+      for (const field of altitudeFields) {
+        if (field in row) {
+          row.altitude = row[field];
+          break;
+        }
+      }
     }
     
     // Ensure all required fields exist (same as normalizeData)
