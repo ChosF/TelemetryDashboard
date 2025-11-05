@@ -1705,6 +1705,34 @@
 
     setTimeout(() => {
       try {
+        // Render charts for the newly active panel
+        const rows = state.telemetry;
+        if (rows.length) {
+          if (name === 'overview') {
+            renderSpeedChart(rows);
+            renderPowerChart(rows);
+            renderIMUChart(rows);
+            renderIMUDetailChart(rows);
+            renderEfficiency(rows);
+            chartGGMini.setOption(optionGForcesMini(rows));
+            renderPedals(rows);
+            renderMapAndAltitude(rows);
+          } else if (name === 'speed') {
+            renderSpeedChart(rows);
+          } else if (name === 'power') {
+            renderPowerChart(rows);
+          } else if (name === 'imu') {
+            renderIMUChart(rows);
+          } else if (name === 'imu-detail') {
+            renderIMUDetailChart(rows);
+          } else if (name === 'efficiency') {
+            renderEfficiency(rows);
+          } else if (name === 'gps') {
+            renderMapAndAltitude(rows);
+          }
+        }
+        
+        // Resize all charts
         chartSpeed.resize();
         chartPower.resize();
         chartIMU.resize();
