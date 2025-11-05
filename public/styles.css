@@ -1066,6 +1066,12 @@ h3 {
 }
 
 /* Performance Optimizations */
+* {
+  /* Enable hardware acceleration for transforms */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1074,6 +1080,26 @@ h3 {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Optimize animations */
+.liquid-hover,
+.fab-button,
+.fab-option,
+.tab,
+.kpi {
+  will-change: transform;
+}
+
+.glass-panel,
+.card {
+  will-change: transform, box-shadow;
+}
+
+/* Lazy load images and iframes */
+img[loading="lazy"],
+iframe[loading="lazy"] {
+  content-visibility: auto;
 }
 
 /* Print styles */

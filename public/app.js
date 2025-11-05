@@ -36,7 +36,7 @@
   const SUPABASE_URL = cfg.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
 
-  // Shortcuts
+  // Shortcuts & Utilities
   const el = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const toNum = (x, d = null) => {
@@ -52,6 +52,31 @@
     const m = Math.floor((s % 3600) / 60);
     const r = s % 60;
     return `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+  };
+
+  // Performance optimization: debounce function
+  const debounce = (func, wait) => {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  };
+
+  // Throttle function for high-frequency events
+  const throttle = (func, limit) => {
+    let inThrottle;
+    return function(...args) {
+      if (!inThrottle) {
+        func.apply(this, args);
+        inThrottle = true;
+        setTimeout(() => inThrottle = false, limit);
+      }
+    };
   };
 
   // UI - FAB Menu
@@ -1514,10 +1539,9 @@
       statMsg.textContent = String(state.msgCount);
       statLast.textContent = "0s ago";
 
-      scheduleRender();
+      throttledRender();
     } catch (e) {
       state.errCount += 1;
-      statErr.textContent = String(state.errCount);
       console.error("Message error:", e);
     }
   }
@@ -1580,6 +1604,11 @@
     });
   }
 
+  // Throttled render for better performance - renders max once every 100ms
+  const throttledRender = throttle(() => {
+    scheduleRender();
+  }, 100);
+
   function doRender() {
     if (state.lastMsgTs) {
       const age = ((new Date() - state.lastMsgTs) / 1000) | 0;
@@ -1589,32 +1618,48 @@
     const rows = state.telemetry;
     const k = computeKPIs(rows);
 
-    // KPIs
-    kpiDistance.textContent = `${k.total_distance_km.toFixed(2)} km`;
-    kpiMaxSpeed.textContent = `${k.max_speed_kmh.toFixed(1)} km/h`;
-    kpiAvgSpeed.textContent = `${k.avg_speed_kmh.toFixed(1)} km/h`;
-    kpiEnergy.textContent = `${k.total_energy_kwh.toFixed(2)} kWh`;
-    kpiVoltage.textContent = `${k.battery_voltage_v.toFixed(2)} V`;
-    kpiCurrent.textContent = `${k.c_current_a.toFixed(2)} A`;
-    kpiAvgPower.textContent = `${k.avg_power_w.toFixed(2)} W`;
-    kpiAvgCurrent.textContent = `${k.avg_current_a.toFixed(2)} A`;
+    // KPIs - update DOM in batch for better performance
+    requestAnimationFrame(() => {
+      kpiDistance.textContent = `${k.total_distance_km.toFixed(2)} km`;
+      kpiMaxSpeed.textContent = `${k.max_speed_kmh.toFixed(1)} km/h`;
+      kpiAvgSpeed.textContent = `${k.avg_speed_kmh.toFixed(1)} km/h`;
+      kpiEnergy.textContent = `${k.total_energy_kwh.toFixed(2)} kWh`;
+      kpiVoltage.textContent = `${k.battery_voltage_v.toFixed(2)} V`;
+      kpiCurrent.textContent = `${k.c_current_a.toFixed(2)} A`;
+      kpiAvgPower.textContent = `${k.avg_power_w.toFixed(2)} W`;
+      kpiAvgCurrent.textContent = `${k.avg_current_a.toFixed(2)} A`;
+    });
 
     renderGauges(k);
 
     if (rows.length) {
-      renderSpeedChart(rows);
-      renderPowerChart(rows);
-      renderIMUChart(rows);
-      renderIMUDetailChart(rows);
-      renderEfficiency(rows);
-
-      // Minimal friction circle in gauge tile
-      chartGGMini.setOption(optionGForcesMini(rows));
-
-      // Driver inputs from publisher
-      renderPedals(rows);
-
-      renderMapAndAltitude(rows);
+      // Only render charts for active panel to improve performance
+      const activePanel = Object.entries(panels).find(([key, node]) => node.classList.contains("active"));
+      const activePanelName = activePanel ? activePanel[0] : 'overview';
+      
+      // Always render overview charts if on overview
+      if (activePanelName === 'overview') {
+        renderSpeedChart(rows);
+        renderPowerChart(rows);
+        renderIMUChart(rows);
+        renderIMUDetailChart(rows);
+        renderEfficiency(rows);
+        chartGGMini.setOption(optionGForcesMini(rows));
+        renderPedals(rows);
+        renderMapAndAltitude(rows);
+      } else if (activePanelName === 'speed') {
+        renderSpeedChart(rows);
+      } else if (activePanelName === 'power') {
+        renderPowerChart(rows);
+      } else if (activePanelName === 'imu') {
+        renderIMUChart(rows);
+      } else if (activePanelName === 'imu-detail') {
+        renderIMUDetailChart(rows);
+      } else if (activePanelName === 'efficiency') {
+        renderEfficiency(rows);
+      } else if (activePanelName === 'gps') {
+        renderMapAndAltitude(rows);
+      }
 
       if (panels.data.classList.contains("active")) {
         updateDataQualityUI(rows);
