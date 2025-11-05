@@ -99,6 +99,41 @@ CREATE TRIGGER set_updated_at
   BEFORE UPDATE ON public.user_profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_updated_at();
+
+-- ========================================
+-- CRITICAL: Auto-create Profile on Signup
+-- ========================================
+
+-- This function automatically creates a user profile when a new user signs up
+-- This ensures profiles are ALWAYS created, even if the client-side code fails
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.user_profiles (user_id, email, role, approval_status, created_at)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    'guest', -- Default role
+    'approved',
+    NOW()
+  );
+  RETURN NEW;
+EXCEPTION
+  WHEN unique_violation THEN
+    -- Profile already exists, ignore
+    RETURN NEW;
+  WHEN OTHERS THEN
+    -- Log error but don't fail the signup
+    RAISE WARNING 'Failed to create profile for user %: %', NEW.id, SQLERRM;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create trigger to run the function after user signup
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
 ```
 
 ## Step 3: Create the First Admin User
@@ -205,6 +240,47 @@ The system supports four user roles:
 - Look for errors in the browser console
 
 ### New signups aren't creating profiles
+**CRITICAL FIX: Use Database Trigger**
+
+The most reliable way to ensure profiles are created is using a database trigger:
+
+1. **Run the trigger SQL** from Step 2 in SUPABASE_SETUP.md:
+   ```sql
+   CREATE OR REPLACE FUNCTION public.handle_new_user()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     INSERT INTO public.user_profiles (user_id, email, role, approval_status, created_at)
+     VALUES (NEW.id, NEW.email, 'guest', 'approved', NOW());
+     RETURN NEW;
+   EXCEPTION
+     WHEN unique_violation THEN RETURN NEW;
+     WHEN OTHERS THEN
+       RAISE WARNING 'Failed to create profile for user %: %', NEW.id, SQLERRM;
+       RETURN NEW;
+   END;
+   $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+   CREATE TRIGGER on_auth_user_created
+     AFTER INSERT ON auth.users
+     FOR EACH ROW
+     EXECUTE FUNCTION public.handle_new_user();
+   ```
+
+2. **Verify trigger exists**: Run this to check:
+   ```sql
+   SELECT trigger_name, event_object_table, action_statement 
+   FROM information_schema.triggers 
+   WHERE trigger_name = 'on_auth_user_created';
+   ```
+
+3. **Test it**: Sign up a new user and immediately check:
+   ```sql
+   SELECT * FROM public.user_profiles 
+   ORDER BY created_at DESC LIMIT 5;
+   ```
+
+**Alternative fixes if trigger doesn't work:**
+
 1. **Check table exists**: Verify `user_profiles` table exists in Supabase
 2. **Check RLS policies**: Run this SQL to verify policies are working:
    ```sql

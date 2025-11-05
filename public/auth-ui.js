@@ -678,12 +678,28 @@
       menuToggle.addEventListener('click', (e) => {
         e.stopPropagation();
         const isVisible = menuDropdown.style.display !== 'none';
-        menuDropdown.style.display = isVisible ? 'none' : 'block';
+        
+        if (!isVisible) {
+          // Position the dropdown using fixed positioning
+          const rect = menuToggle.getBoundingClientRect();
+          menuDropdown.style.top = `${rect.bottom + 8}px`;
+          menuDropdown.style.left = `${rect.right - 180}px`; // 180px is min-width of dropdown
+          menuDropdown.style.display = 'block';
+        } else {
+          menuDropdown.style.display = 'none';
+        }
       });
 
       // Close menu when clicking outside
       document.addEventListener('click', (e) => {
-        if (!authButtons.contains(e.target)) {
+        if (!authButtons.contains(e.target) && !menuDropdown.contains(e.target)) {
+          menuDropdown.style.display = 'none';
+        }
+      });
+
+      // Close menu on scroll
+      window.addEventListener('scroll', () => {
+        if (menuDropdown.style.display !== 'none') {
           menuDropdown.style.display = 'none';
         }
       });
