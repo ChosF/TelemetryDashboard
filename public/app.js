@@ -156,6 +156,7 @@
     customCharts: [],
     dyn: { axBias: 0, ayBias: 0, axEma: 0, ayEma: 0 },
     _raf: null,
+    activePanel: 'overview', // Track active panel for performance
   };
 
   // FAB Menu Toggle
@@ -1633,9 +1634,8 @@
     renderGauges(k);
 
     if (rows.length) {
-      // Only render charts for active panel to improve performance
-      const activePanel = Object.entries(panels).find(([key, node]) => node.classList.contains("active"));
-      const activePanelName = activePanel ? activePanel[0] : 'overview';
+      // Only render charts for active panel to improve performance (use cached state)
+      const activePanelName = state.activePanel;
       
       // Always render overview charts if on overview
       if (activePanelName === 'overview') {
@@ -1693,6 +1693,9 @@
   function switchPanel(name, buttons, activeBtn) {
     buttons.forEach((x) => x.classList.remove("active"));
     activeBtn.classList.add("active");
+    
+    // Update active panel in state for performance
+    state.activePanel = name;
 
     Object.entries(panels).forEach(([key, node]) => {
       const active = key === name;
@@ -2151,8 +2154,8 @@
     
     content.querySelector("#modal-apply-max").onclick = () => {
       const input = content.querySelector("#modal-max-points");
-      const v = parseInt(input.value || "50000", 10);
-      state.maxPoints = Math.max(1000, v);
+      const v = toNum(parseInt(input.value || "50000", 10), 50000);
+      state.maxPoints = Math.max(1000, Math.min(100000, v));
       if (state.telemetry.length > state.maxPoints) {
         state.telemetry = state.telemetry.slice(
           state.telemetry.length - state.maxPoints
