@@ -214,69 +214,40 @@ app.get("/api/sessions/:session_id/records", async (req, res) => {
 });
 
 /**
- * Middleware to verify authenticated user from Supabase JWT
+ * Note on Authentication and Security:
  * 
- * Note: This is a placeholder middleware. In production, proper JWT verification
- * should be implemented using Supabase's verification methods or a JWT library.
+ * This application relies on Supabase Row Level Security (RLS) for authentication
+ * and authorization. All sensitive database operations are protected by RLS policies
+ * at the database level, which is more secure than application-level middleware.
  * 
- * Current security model:
- * - Frontend uses Supabase client with RLS (Row Level Security) policies
- * - All user data queries are protected by Supabase RLS at the database level
- * - This middleware serves as a basic check, but real security is enforced by RLS
+ * Frontend:
+ * - Uses Supabase client with user JWT tokens
+ * - All queries automatically include user authentication context
+ * - RLS policies enforce access control at the database level
  * 
- * To implement full JWT verification:
+ * Backend:
+ * - Uses service role key for server-side operations (e.g., listing sessions)
+ * - Does not require additional auth middleware
+ * - RLS policies still apply for user-specific operations
+ * 
+ * If you need to add server-side auth for specific endpoints:
  * 1. Install jsonwebtoken: npm install jsonwebtoken
  * 2. Get JWT secret from Supabase project settings
- * 3. Verify and decode JWT to get user ID
- * 4. Attach user to req.user for use in routes
+ * 3. Create middleware to verify JWT and attach user to req.user
+ * 4. Apply middleware to protected routes
  */
-function authMiddleware(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  const token = authHeader.substring(7);
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  // TODO: Implement proper JWT verification
-  // Example:
-  // const jwt = require('jsonwebtoken');
-  // try {
-  //   const decoded = jwt.verify(token, SUPABASE_JWT_SECRET);
-  //   req.user = decoded;
-  //   next();
-  // } catch (error) {
-  //   return res.status(401).json({ error: 'Invalid token' });
-  // }
-  
-  next();
-}
 
 /**
  * Get current user profile
  * GET /api/auth/profile
+ * 
+ * Note: This endpoint is a placeholder. In practice, user profiles are managed
+ * through Supabase client on the frontend with RLS protecting access.
  */
-app.get("/api/auth/profile", authMiddleware, async (req, res) => {
-  try {
-    if (!supabaseServer) {
-      return res.status(500).json({ error: "Supabase not configured" });
-    }
-
-    // Extract user ID from token (simplified - in production, verify JWT properly)
-    const authHeader = req.headers.authorization;
-    const token = authHeader.substring(7);
-
-    // In production, decode and verify JWT to get user ID
-    // For now, this is handled by Supabase RLS policies
-    res.json({ message: "Use Supabase client for profile management" });
-  } catch (err) {
-    console.error("Profile error:", err);
-    res.status(500).json({ error: "Failed to fetch profile" });
-  }
+app.get("/api/auth/profile", async (req, res) => {
+  res.json({ 
+    message: "User profile management is handled by Supabase client with RLS policies"
+  });
 });
 
 // Static frontend

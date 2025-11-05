@@ -13,7 +13,7 @@
   if (!supabaseLib) {
     console.warn('⚠️ Supabase library not loaded. Authentication features will be disabled.');
   }
-  const createClient = supabaseLib ? supabaseLib.createClient : null;
+  const createClient = supabaseLib?.createClient || null;
 
   let supabaseClient = null;
   let currentUser = null;
@@ -120,8 +120,10 @@
   }
 
   // Supabase error codes
+  // Reference: https://postgrest.org/en/stable/errors.html
   const SUPABASE_ERROR_CODES = {
     NO_ROWS: 'PGRST116' // No rows returned from query
+    // Add additional error codes here as needed
   };
 
   // Load user profile from database

@@ -43,6 +43,56 @@
     return notification;
   }
 
+  // Custom confirmation dialog
+  function showConfirm(message, onConfirm, onCancel) {
+    const modal = document.createElement('div');
+    modal.className = 'confirm-modal';
+    modal.innerHTML = `
+      <div class="confirm-modal-overlay"></div>
+      <div class="confirm-modal-content glass-panel">
+        <div class="confirm-modal-icon">⚠️</div>
+        <div class="confirm-modal-message">${message}</div>
+        <div class="confirm-modal-actions">
+          <button class="confirm-cancel liquid-hover">Cancel</button>
+          <button class="confirm-ok liquid-hover">Confirm</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const overlay = modal.querySelector('.confirm-modal-overlay');
+    const cancelBtn = modal.querySelector('.confirm-cancel');
+    const okBtn = modal.querySelector('.confirm-ok');
+
+    const close = (confirmed) => {
+      modal.classList.add('closing');
+      setTimeout(() => {
+        modal.remove();
+        if (confirmed && onConfirm) {
+          onConfirm();
+        } else if (!confirmed && onCancel) {
+          onCancel();
+        }
+      }, 300);
+    };
+
+    overlay.addEventListener('click', () => close(false));
+    cancelBtn.addEventListener('click', () => close(false));
+    okBtn.addEventListener('click', () => close(true));
+
+    // ESC key support
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        close(false);
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    return modal;
+  }
+
   // Create and show login modal
   function showLoginModal() {
     const modal = createAuthModal('login');
@@ -513,20 +563,18 @@
 
   // Reject user
   async function rejectUser(userId, modal) {
-    if (!confirm('Are you sure you want to reject this user request?')) {
-      return;
-    }
-    
-    try {
-      await window.AuthModule.rejectUser(userId);
-      // Reload both panels
-      loadPendingUsers(modal);
-      loadAllUsers(modal);
-      showNotification('User request rejected.', 'success');
-    } catch (error) {
-      console.error('Error rejecting user:', error);
-      showNotification('Failed to reject user: ' + error.message, 'error');
-    }
+    showConfirm('Are you sure you want to reject this user request?', async () => {
+      try {
+        await window.AuthModule.rejectUser(userId);
+        // Reload both panels
+        loadPendingUsers(modal);
+        loadAllUsers(modal);
+        showNotification('User request rejected.', 'success');
+      } catch (error) {
+        console.error('Error rejecting user:', error);
+        showNotification('Failed to reject user: ' + error.message, 'error');
+      }
+    });
   }
 
   // Change user role
@@ -738,6 +786,7 @@
     showApprovalBanner,
     updateHeaderUI,
     initAuthUI,
-    showNotification
+    showNotification,
+    showConfirm
   };
 })();
