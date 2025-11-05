@@ -13,7 +13,7 @@
   if (!supabaseLib) {
     console.warn('⚠️ Supabase library not loaded. Authentication features will be disabled.');
   }
-  const { createClient } = supabaseLib || {};
+  const createClient = supabaseLib ? supabaseLib.createClient : null;
 
   let supabaseClient = null;
   let currentUser = null;
@@ -119,6 +119,11 @@
     }
   }
 
+  // Supabase error codes
+  const SUPABASE_ERROR_CODES = {
+    NO_ROWS: 'PGRST116' // No rows returned from query
+  };
+
   // Load user profile from database
   async function loadUserProfile(user) {
     currentUser = user;
@@ -130,7 +135,7 @@
         .eq('user_id', user.id)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      if (error && error.code !== SUPABASE_ERROR_CODES.NO_ROWS) {
         console.error('Error loading profile:', error);
         return;
       }

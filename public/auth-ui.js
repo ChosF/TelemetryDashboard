@@ -8,6 +8,41 @@
 (function() {
   "use strict";
 
+  // Custom notification system
+  function showNotification(message, type = 'info') {
+    // Remove existing notifications
+    const existing = document.querySelectorAll('.custom-notification');
+    existing.forEach(n => n.remove());
+
+    const notification = document.createElement('div');
+    notification.className = `custom-notification custom-notification-${type}`;
+    
+    const icon = type === 'error' ? '❌' : type === 'warning' ? '⚠️' : type === 'success' ? '✅' : 'ℹ️';
+    
+    notification.innerHTML = `
+      <div class="custom-notification-content">
+        <span class="custom-notification-icon">${icon}</span>
+        <span class="custom-notification-message">${message}</span>
+        <button class="custom-notification-close" aria-label="Close">×</button>
+      </div>
+    `;
+
+    document.body.appendChild(notification);
+
+    const closeBtn = notification.querySelector('.custom-notification-close');
+    const close = () => {
+      notification.classList.add('closing');
+      setTimeout(() => notification.remove(), 300);
+    };
+
+    closeBtn.addEventListener('click', close);
+
+    // Auto-close after 5 seconds
+    setTimeout(close, 5000);
+
+    return notification;
+  }
+
   // Create and show login modal
   function showLoginModal() {
     const modal = createAuthModal('login');
@@ -225,7 +260,7 @@
   // Create and show admin dashboard
   function showAdminDashboard() {
     if (!window.AuthModule.hasPermission('canAccessAdmin')) {
-      alert('You do not have permission to access the admin dashboard.');
+      showNotification('You do not have permission to access the admin dashboard.', 'error');
       return;
     }
 
@@ -469,9 +504,10 @@
       // Reload both panels
       loadPendingUsers(modal);
       loadAllUsers(modal);
+      showNotification('User approved successfully!', 'success');
     } catch (error) {
       console.error('Error approving user:', error);
-      alert('Failed to approve user: ' + error.message);
+      showNotification('Failed to approve user: ' + error.message, 'error');
     }
   }
 
@@ -486,9 +522,10 @@
       // Reload both panels
       loadPendingUsers(modal);
       loadAllUsers(modal);
+      showNotification('User request rejected.', 'success');
     } catch (error) {
       console.error('Error rejecting user:', error);
-      alert('Failed to reject user: ' + error.message);
+      showNotification('Failed to reject user: ' + error.message, 'error');
     }
   }
 
@@ -498,9 +535,10 @@
       await window.AuthModule.updateUserRole(userId, newRole);
       // Reload all users panel
       loadAllUsers(modal);
+      showNotification('User role updated successfully!', 'success');
     } catch (error) {
       console.error('Error changing user role:', error);
-      alert('Failed to change user role: ' + error.message);
+      showNotification('Failed to change user role: ' + error.message, 'error');
       // Reload to reset select
       loadAllUsers(modal);
     }
@@ -699,6 +737,7 @@
     showAdminDashboard,
     showApprovalBanner,
     updateHeaderUI,
-    initAuthUI
+    initAuthUI,
+    showNotification
   };
 })();

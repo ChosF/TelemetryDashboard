@@ -215,6 +215,20 @@ app.get("/api/sessions/:session_id/records", async (req, res) => {
 
 /**
  * Middleware to verify authenticated user from Supabase JWT
+ * 
+ * Note: This is a placeholder middleware. In production, proper JWT verification
+ * should be implemented using Supabase's verification methods or a JWT library.
+ * 
+ * Current security model:
+ * - Frontend uses Supabase client with RLS (Row Level Security) policies
+ * - All user data queries are protected by Supabase RLS at the database level
+ * - This middleware serves as a basic check, but real security is enforced by RLS
+ * 
+ * To implement full JWT verification:
+ * 1. Install jsonwebtoken: npm install jsonwebtoken
+ * 2. Get JWT secret from Supabase project settings
+ * 3. Verify and decode JWT to get user ID
+ * 4. Attach user to req.user for use in routes
  */
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -224,14 +238,21 @@ function authMiddleware(req, res, next) {
 
   const token = authHeader.substring(7);
   
-  // In production, verify the JWT token with Supabase
-  // For now, we'll just check if it exists
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  // TODO: Verify JWT and attach user to req.user
-  // For now, we rely on RLS policies in Supabase
+  // TODO: Implement proper JWT verification
+  // Example:
+  // const jwt = require('jsonwebtoken');
+  // try {
+  //   const decoded = jwt.verify(token, SUPABASE_JWT_SECRET);
+  //   req.user = decoded;
+  //   next();
+  // } catch (error) {
+  //   return res.status(401).json({ error: 'Invalid token' });
+  // }
+  
   next();
 }
 

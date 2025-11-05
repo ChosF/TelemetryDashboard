@@ -881,6 +881,108 @@
   }
 }
 
+@keyframes notificationSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes notificationSlideOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+/* ========================================
+   Custom Notifications
+   ======================================== */
+
+.custom-notification {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  z-index: 10001;
+  min-width: 300px;
+  max-width: 500px;
+  animation: notificationSlideIn 0.3s var(--ease-glass);
+}
+
+.custom-notification.closing {
+  animation: notificationSlideOut 0.3s var(--ease-glass);
+}
+
+.custom-notification-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--glass-tint-strong);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--hairline);
+  border-radius: var(--glass-radius);
+  box-shadow: var(--shadow-2);
+}
+
+.custom-notification-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.custom-notification-message {
+  flex: 1;
+  font-size: 0.95rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.custom-notification-close {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  background: var(--glass-tint);
+  color: var(--text);
+  font-size: 1.25rem;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s var(--ease-glass);
+  flex-shrink: 0;
+}
+
+.custom-notification-close:hover {
+  background: var(--glass-tint-strong);
+  transform: scale(1.1);
+}
+
+.custom-notification-error .custom-notification-content {
+  border-left: 4px solid var(--error);
+}
+
+.custom-notification-warning .custom-notification-content {
+  border-left: 4px solid var(--warning);
+}
+
+.custom-notification-success .custom-notification-content {
+  border-left: 4px solid var(--success);
+}
+
+.custom-notification-info .custom-notification-content {
+  border-left: 4px solid var(--accent);
+}
+
 /* ========================================
    Responsive Design
    ======================================== */
@@ -940,6 +1042,14 @@
   .approval-banner {
     top: 0.5rem;
     width: calc(100% - 1rem);
+  }
+
+  .custom-notification {
+    top: 1rem;
+    right: 1rem;
+    left: 1rem;
+    min-width: auto;
+    max-width: none;
   }
 }
 

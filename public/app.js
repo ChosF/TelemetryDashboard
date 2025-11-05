@@ -25,7 +25,14 @@
     // Fallback to window.CONFIG if available (for backwards compatibility)
     cfg = window.CONFIG || {};
     if (Object.keys(cfg).length === 0) {
-      alert("Failed to load application configuration. Please check your environment variables.");
+      // Show error notification if auth UI is available
+      if (window.AuthUI && window.AuthUI.showNotification) {
+        setTimeout(() => {
+          window.AuthUI.showNotification("Failed to load application configuration. Please check your environment variables.", 'error');
+        }, 1000);
+      } else {
+        console.error("Configuration missing and AuthUI not available");
+      }
     }
   }
 
@@ -2096,7 +2103,9 @@
   async function showSessionsModal() {
     // Check permission to view historical sessions
     if (window.AuthModule && !window.AuthModule.hasPermission('canViewHistorical')) {
-      alert('You do not have permission to view historical sessions. Please sign in or upgrade your account.');
+      if (window.AuthUI && window.AuthUI.showNotification) {
+        window.AuthUI.showNotification('You do not have permission to view historical sessions. Please sign in or upgrade your account.', 'warning');
+      }
       return;
     }
 
@@ -2179,7 +2188,9 @@
   function showExportModal() {
     // Check permission to download CSV
     if (window.AuthModule && !window.AuthModule.hasPermission('canDownloadCSV')) {
-      alert('You do not have permission to download CSV files. Please sign in or upgrade your account.');
+      if (window.AuthUI && window.AuthUI.showNotification) {
+        window.AuthUI.showNotification('You do not have permission to download CSV files. Please sign in or upgrade your account.', 'warning');
+      }
       return;
     }
 
