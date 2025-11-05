@@ -2264,11 +2264,12 @@
         if (state.telemetry.length > state.maxPoints) {
           state.telemetry = state.telemetry.slice(
             state.telemetry.length - state.maxPoints
-        );
-      }
-      scheduleRender();
-      close();
-    };
+          );
+        }
+        scheduleRender();
+        close();
+      };
+    }
   }
 
   // Events
