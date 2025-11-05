@@ -162,11 +162,11 @@
               <label for="auth-role" class="form-label">Account Type</label>
               <select id="auth-role" class="form-select">
                 <option value="external_user">External User</option>
-                <option value="internal_user">Internal User (Requires Approval)</option>
+                <option value="internal_user">Internal User - EcoVolt Members (Requires Approval)</option>
               </select>
               <p class="form-help">
                 <strong>External:</strong> Download up to 400 data points, view last session<br>
-                <strong>Internal:</strong> Full access (pending approval)
+                <strong>Internal (EcoVolt):</strong> Full access (pending approval)
               </p>
             </div>
           ` : ''}
