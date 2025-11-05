@@ -259,6 +259,33 @@
   gap: 0.5rem;
 }
 
+.header-account-icon {
+  width: 44px;
+  height: 44px;
+  padding: 0.625rem;
+  border: 2px solid var(--hairline);
+  background: var(--glass-tint);
+  color: var(--text);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-glass);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-account-icon:hover {
+  background: var(--glass-tint-strong);
+  border-color: var(--hairline-strong);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.header-account-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
 .header-auth-btn {
   padding: 0.625rem 1.25rem;
   border: 2px solid var(--hairline);

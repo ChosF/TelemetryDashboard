@@ -207,7 +207,7 @@
   // Sign up with email and password
   async function signUp(email, password, requestedRole = USER_ROLES.EXTERNAL, name = null) {
     if (!supabaseClient) {
-      throw new Error('Auth not initialized');
+      throw new Error('Supabase not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.');
     }
 
     try {
@@ -246,7 +246,7 @@
   // Sign in with email and password
   async function signIn(email, password, rememberMe = false) {
     if (!supabaseClient) {
-      throw new Error('Auth not initialized');
+      throw new Error('Supabase not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.');
     }
 
     try {
@@ -276,6 +276,7 @@
   // Sign out
   async function signOut() {
     if (!supabaseClient) {
+      showNotification('Supabase not configured', 'error');
       return;
     }
 

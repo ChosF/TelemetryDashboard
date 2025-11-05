@@ -725,23 +725,23 @@
         showApprovalBanner();
       }
     } else {
-      // Show login/signup buttons
+      // Show single account icon button
       const authButtons = document.createElement('div');
       authButtons.className = 'header-auth-buttons';
       authButtons.innerHTML = `
-        <button class="header-auth-btn liquid-hover" id="header-login-btn">Sign In</button>
-        <button class="header-auth-btn primary liquid-hover" id="header-signup-btn">Sign Up</button>
+        <button class="header-account-icon liquid-hover" id="header-account-btn" title="Sign In">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+        </button>
       `;
 
       header.appendChild(authButtons);
 
-      // Login button
-      const loginBtn = authButtons.querySelector('#header-login-btn');
-      loginBtn.addEventListener('click', showLoginModal);
-
-      // Signup button
-      const signupBtn = authButtons.querySelector('#header-signup-btn');
-      signupBtn.addEventListener('click', showSignupModal);
+      // Account button opens login modal
+      const accountBtn = authButtons.querySelector('#header-account-btn');
+      accountBtn.addEventListener('click', showLoginModal);
     }
   }
 
