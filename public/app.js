@@ -2094,9 +2094,19 @@
   }
 
   async function showSessionsModal() {
+    // Check permission to view historical sessions
+    if (!window.AuthModule.hasPermission('canViewHistorical')) {
+      alert('You do not have permission to view historical sessions. Please sign in or upgrade your account.');
+      return;
+    }
+
+    const historicalLimit = window.AuthModule.getPermissionValue('historicalLimit');
+    const isLimitedUser = historicalLimit && historicalLimit < Infinity;
+
     const content = document.createElement("div");
     content.innerHTML = `
       <p style="margin-bottom: 1rem; color: var(--text-muted);">Select a historical session to load:</p>
+      ${isLimitedUser ? `<p class="fine" style="margin-bottom: 1rem; color: var(--warning);">⚠️ Your account is limited to the last ${historicalLimit} session${historicalLimit > 1 ? 's' : ''}.</p>` : ''}
       <button id="modal-refresh-sessions" class="liquid-hover" style="width: 100%; margin-bottom: 1rem;">
         🔄 Refresh Sessions
       </button>
@@ -2120,7 +2130,14 @@
       sessionSelect.innerHTML = "";
       try {
         const { sessions } = await fetchSessions();
-        state.sessions = sessions || [];
+        let sessionsToShow = sessions || [];
+        
+        // Limit sessions for external users
+        if (isLimitedUser && sessionsToShow.length > historicalLimit) {
+          sessionsToShow = sessionsToShow.slice(0, historicalLimit);
+        }
+        
+        state.sessions = sessionsToShow;
         for (const s of state.sessions) {
           const o = document.createElement("option");
           o.value = s.session_id;
@@ -2129,7 +2146,7 @@
           o.textContent = `${name} — ${s.session_id.slice(0, 8)} — ${st.toISOString().slice(0, 16)} — ${s.record_count}`;
           sessionSelect.appendChild(o);
         }
-        sessionInfo.textContent = `Found ${state.sessions.length} sessions`;
+        sessionInfo.textContent = `Found ${state.sessions.length} session${state.sessions.length !== 1 ? 's' : ''}${isLimitedUser ? ` (showing ${historicalLimit} most recent)` : ''}`;
       } catch (e) {
         sessionInfo.textContent = "Failed to load sessions";
       }
@@ -2160,49 +2177,76 @@
   }
 
   function showExportModal() {
+    // Check permission to download CSV
+    if (!window.AuthModule.hasPermission('canDownloadCSV')) {
+      alert('You do not have permission to download CSV files. Please sign in or upgrade your account.');
+      return;
+    }
+
+    const downloadLimit = window.AuthModule.getPermissionValue('downloadLimit');
+    const isLimitedUser = downloadLimit && downloadLimit < Infinity;
+
     const content = document.createElement("div");
     content.innerHTML = `
       <p style="margin-bottom: 1rem; color: var(--text-muted);">Export telemetry data:</p>
-      <button id="modal-download-csv" class="liquid-hover" style="width: 100%; margin-bottom: 0.75rem;">
-        📄 Download Full CSV
-      </button>
+      ${!isLimitedUser ? `
+        <button id="modal-download-csv" class="liquid-hover" style="width: 100%; margin-bottom: 0.75rem;">
+          📄 Download Full CSV
+        </button>
+      ` : ''}
       <button id="modal-download-sample" class="liquid-hover" style="width: 100%; margin-bottom: 1rem;">
-        🔬 Download Sample (1000 random rows)
+        🔬 Download Sample (${isLimitedUser ? downloadLimit : 1000} ${isLimitedUser ? 'max' : 'random'} rows)
       </button>
-      <label class="label small" style="display: block; margin-bottom: 0.5rem;">Max Points in Memory:</label>
-      <input
-        id="modal-max-points"
-        type="number"
-        value="${state.maxPoints}"
-        min="1000"
-        max="100000"
-        step="1000"
-        class="liquid-hover"
-        style="width: 100%; margin-bottom: 0.75rem;"
-      />
-      <button id="modal-apply-max" class="liquid-hover" style="width: 100%;">
-        ✅ Apply Max Points
-      </button>
+      ${!isLimitedUser ? `
+        <label class="label small" style="display: block; margin-bottom: 0.5rem;">Max Points in Memory:</label>
+        <input
+          id="modal-max-points"
+          type="number"
+          value="${state.maxPoints}"
+          min="1000"
+          max="100000"
+          step="1000"
+          class="liquid-hover"
+          style="width: 100%; margin-bottom: 0.75rem;"
+        />
+        <button id="modal-apply-max" class="liquid-hover" style="width: 100%;">
+          ✅ Apply Max Points
+        </button>
+      ` : ''}
       <p class="fine" style="margin-top: 0.75rem;">Current data points: ${state.telemetry.length.toLocaleString()}</p>
+      ${isLimitedUser ? `<p class="fine" style="margin-top: 0.5rem; color: var(--warning);">⚠️ Your account is limited to ${downloadLimit} data points per download.</p>` : ''}
     `;
     
     const { overlay, close } = createModal("💾 Export Data", content);
     
-    content.querySelector("#modal-download-csv").onclick = () => {
-      const csv = toCSV(state.telemetry);
-      download(
-        `telemetry_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
-        csv
-      );
-      close();
-    };
+    const fullCsvBtn = content.querySelector("#modal-download-csv");
+    if (fullCsvBtn) {
+      fullCsvBtn.onclick = () => {
+        const csv = toCSV(state.telemetry);
+        download(
+          `telemetry_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
+          csv
+        );
+        close();
+      };
+    }
     
     content.querySelector("#modal-download-sample").onclick = () => {
       const rows = state.telemetry;
       if (!rows.length) return;
       const sample = [];
-      const n = Math.min(1000, rows.length);
-      for (let i = 0; i < n; i++) sample.push(rows[(Math.random() * rows.length) | 0]);
+      const n = Math.min(isLimitedUser ? downloadLimit : 1000, rows.length);
+      if (isLimitedUser) {
+        // For limited users, take the most recent N points
+        for (let i = Math.max(0, rows.length - n); i < rows.length; i++) {
+          sample.push(rows[i]);
+        }
+      } else {
+        // For unlimited users, random sample
+        for (let i = 0; i < n; i++) {
+          sample.push(rows[(Math.random() * rows.length) | 0]);
+        }
+      }
       const csv = toCSV(sample);
       download(
         `telemetry_sample_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`,
@@ -2211,13 +2255,15 @@
       close();
     };
     
-    content.querySelector("#modal-apply-max").onclick = () => {
-      const input = content.querySelector("#modal-max-points");
-      const v = toNum(parseInt(input.value || "50000", 10), 50000);
-      state.maxPoints = Math.max(1000, Math.min(100000, v));
-      if (state.telemetry.length > state.maxPoints) {
-        state.telemetry = state.telemetry.slice(
-          state.telemetry.length - state.maxPoints
+    const applyMaxBtn = content.querySelector("#modal-apply-max");
+    if (applyMaxBtn) {
+      applyMaxBtn.onclick = () => {
+        const input = content.querySelector("#modal-max-points");
+        const v = toNum(parseInt(input.value || "50000", 10), 50000);
+        state.maxPoints = Math.max(1000, Math.min(100000, v));
+        if (state.telemetry.length > state.maxPoints) {
+          state.telemetry = state.telemetry.slice(
+            state.telemetry.length - state.maxPoints
         );
       }
       scheduleRender();
@@ -2267,7 +2313,14 @@
   }
 
   // Boot
-  function main() {
+  async function main() {
+    // Initialize authentication
+    const authInitialized = await window.AuthModule.initAuth(cfg);
+    if (authInitialized) {
+      console.log('✅ Authentication initialized');
+      window.AuthUI.initAuthUI();
+    }
+
     setStatus("⚡ Ready");
     initCharts();
     initMap();
