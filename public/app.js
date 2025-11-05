@@ -140,6 +140,14 @@
   let dtColumns = [];
   let dtNeedsRefresh = false;
 
+  // Required fields for telemetry data (shared constant)
+  const REQUIRED_FIELDS = [
+    "speed_ms", "voltage_v", "current_a", "power_w", "energy_j", "distance_m",
+    "latitude", "longitude", "altitude", "gyro_x", "gyro_y", "gyro_z",
+    "accel_x", "accel_y", "accel_z", "total_acceleration", "message_id",
+    "uptime_seconds", "session_id", "throttle_pct", "brake_pct", "throttle", "brake"
+  ];
+
   // State
   const state = {
     mode: "realtime",
@@ -233,13 +241,7 @@
     }
     
     // Ensure all required fields exist (same as normalizeData)
-    const req = [
-      "speed_ms", "voltage_v", "current_a", "power_w", "energy_j", "distance_m",
-      "latitude", "longitude", "altitude", "gyro_x", "gyro_y", "gyro_z",
-      "accel_x", "accel_y", "accel_z", "total_acceleration", "message_id",
-      "uptime_seconds", "session_id", "throttle_pct", "brake_pct", "throttle", "brake"
-    ];
-    for (const k of req) if (!(k in row)) row[k] = 0;
+    for (const k of REQUIRED_FIELDS) if (!(k in row)) row[k] = 0;
     
     return row;
   }
@@ -664,7 +666,7 @@
       const subReport = computeDataQualityReport(subset);
       const timestamp = subset.length ? new Date(subset[subset.length - 1].timestamp) : new Date();
       // Only add valid data points
-      if (!isNaN(timestamp.getTime()) && typeof subReport.quality_score === 'number') {
+      if (!isNaN(timestamp.getTime()) && Number.isFinite(subReport.quality_score)) {
         dataPoints.push({
           time: timestamp,
           score: subReport.quality_score,
@@ -1590,33 +1592,7 @@
     }
     out.timestamp = t;
 
-    const req = [
-      "speed_ms",
-      "voltage_v",
-      "current_a",
-      "power_w",
-      "energy_j",
-      "distance_m",
-      "latitude",
-      "longitude",
-      "altitude",
-      "gyro_x",
-      "gyro_y",
-      "gyro_z",
-      "accel_x",
-      "accel_y",
-      "accel_z",
-      "total_acceleration",
-      "message_id",
-      "uptime_seconds",
-      "session_id",
-      // direct driver inputs (publisher-provided)
-      "throttle_pct",
-      "brake_pct",
-      "throttle",
-      "brake",
-    ];
-    for (const k of req) if (!(k in out)) out[k] = 0;
+    for (const k of REQUIRED_FIELDS) if (!(k in out)) out[k] = 0;
 
     if (!out.power_w)
       out.power_w = toNum(out.voltage_v, 0) * toNum(out.current_a, 0);
