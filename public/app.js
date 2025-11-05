@@ -656,7 +656,15 @@
 
   // Render quality score chart
   function renderQualityScoreChart(rows, report) {
-    if (!rows || rows.length === 0) return;
+    if (!rows || rows.length === 0) {
+      console.log("renderQualityScoreChart: no rows");
+      return;
+    }
+    
+    if (!chartQualityScore) {
+      console.log("renderQualityScoreChart: chart not initialized");
+      return;
+    }
     
     // Take last 50 data points and compute rolling quality score
     const windowSize = Math.min(50, rows.length);
@@ -678,7 +686,12 @@
     }
     
     // If no valid data points, exit early
-    if (dataPoints.length === 0) return;
+    if (dataPoints.length === 0) {
+      console.log("renderQualityScoreChart: no valid data points");
+      return;
+    }
+    
+    console.log(`renderQualityScoreChart: rendering ${dataPoints.length} points`);
 
     const opt = {
       title: { show: false },
@@ -755,7 +768,11 @@
       animationEasing: "cubicOut",
     };
     
-    chartQualityScore.setOption(opt);
+    chartQualityScore.setOption(opt, true);
+    // Force resize to ensure chart is properly displayed
+    setTimeout(() => {
+      if (chartQualityScore) chartQualityScore.resize();
+    }, 100);
   }
 
   // Gauges (speed, battery, power, efficiency)
@@ -2131,6 +2148,8 @@
         state.currentSessionId = sid;
         sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
         scheduleRender();
+        // Close both modal and FAB menu
+        fabMenu.classList.remove("active");
         setTimeout(close, 1500);
       } catch (e) {
         sessionInfo.textContent = `Error: ${e.message}`;
