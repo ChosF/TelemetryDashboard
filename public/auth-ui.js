@@ -534,6 +534,12 @@
       existingAuthBtns.remove();
     }
 
+    // Check if AuthModule is available
+    if (!window.AuthModule) {
+      console.warn('⚠️ AuthModule not available');
+      return;
+    }
+
     const isAuth = window.AuthModule.isAuthenticated();
     const user = window.AuthModule.getCurrentUser();
     const profile = window.AuthModule.getCurrentProfile();
@@ -669,6 +675,12 @@
 
   // Initialize auth UI
   function initAuthUI() {
+    // Check if AuthModule is available
+    if (!window.AuthModule) {
+      console.warn('⚠️ AuthModule not available, skipping auth UI initialization');
+      return;
+    }
+
     // Update header on auth state change
     window.addEventListener('auth-state-changed', () => {
       updateHeaderUI();

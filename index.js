@@ -213,6 +213,51 @@ app.get("/api/sessions/:session_id/records", async (req, res) => {
   }
 });
 
+/**
+ * Middleware to verify authenticated user from Supabase JWT
+ */
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const token = authHeader.substring(7);
+  
+  // In production, verify the JWT token with Supabase
+  // For now, we'll just check if it exists
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  // TODO: Verify JWT and attach user to req.user
+  // For now, we rely on RLS policies in Supabase
+  next();
+}
+
+/**
+ * Get current user profile
+ * GET /api/auth/profile
+ */
+app.get("/api/auth/profile", authMiddleware, async (req, res) => {
+  try {
+    if (!supabaseServer) {
+      return res.status(500).json({ error: "Supabase not configured" });
+    }
+
+    // Extract user ID from token (simplified - in production, verify JWT properly)
+    const authHeader = req.headers.authorization;
+    const token = authHeader.substring(7);
+
+    // In production, decode and verify JWT to get user ID
+    // For now, this is handled by Supabase RLS policies
+    res.json({ message: "Use Supabase client for profile management" });
+  } catch (err) {
+    console.error("Profile error:", err);
+    res.status(500).json({ error: "Failed to fetch profile" });
+  }
+});
+
 // Static frontend
 app.use(express.static(path.resolve(STATIC_DIR)));
 

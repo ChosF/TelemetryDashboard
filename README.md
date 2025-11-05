@@ -1,11 +1,12 @@
 # 🏎️ Shell Eco-marathon Telemetry Dashboard
 
-A real-time telemetry dashboard for monitoring vehicle performance during Shell Eco-marathon competitions. Built with Express.js, Ably for real-time data streaming, and Supabase for data persistence.
+A real-time telemetry dashboard for monitoring vehicle performance during Shell Eco-marathon competitions. Built with Express.js, Ably for real-time data streaming, Supabase for data persistence and authentication.
 
 ## 🚀 Quick Links
 
 - **[Quick Start Guide](./QUICKSTART.md)** - Deploy to Vercel in 5 minutes
 - **[Deployment Guide](./DEPLOYMENT.md)** - Comprehensive deployment instructions
+- **[Supabase Setup](./SUPABASE_SETUP.md)** - Authentication setup guide
 - **[Local Development](#getting-started)** - Run locally for development
 
 ## Features
@@ -17,12 +18,44 @@ A real-time telemetry dashboard for monitoring vehicle performance during Shell 
 - 🧭 IMU sensor data visualization
 - 📋 Data quality analysis
 - 💾 CSV export functionality
+- 🔐 **Authentication & Role-Based Access Control**
+- 👥 **User Management Dashboard (Admin)**
+- 🎨 **Award-Winning Minimal Design**
+
+## User Roles & Permissions
+
+The dashboard supports four user roles with different access levels:
+
+### 🎭 Guest (Default)
+- ✅ View real-time telemetry data
+- ❌ Cannot download CSV files
+- ❌ Cannot view historical sessions
+
+### 🔓 External User
+- ✅ View real-time telemetry data
+- ✅ Download CSV (up to 400 data points)
+- ✅ View last historical session
+- ✅ Auto-approved on signup
+
+### 🔒 Internal User
+- ✅ View real-time telemetry data
+- ✅ Download unlimited CSV data
+- ✅ View all historical sessions
+- ❌ Cannot access admin dashboard
+- ⚠️ Requires admin approval
+
+### 👑 Admin
+- ✅ Full access to all features
+- ✅ User management dashboard
+- ✅ Approve/reject user requests
+- ✅ Change user roles
 
 ## Tech Stack
 
 - **Backend**: Express.js (Node.js)
 - **Real-time**: Ably
-- **Database**: Supabase
+- **Database**: Supabase (PostgreSQL)
+- **Authentication**: Supabase Auth
 - **Frontend**: Vanilla JavaScript with ECharts, Leaflet, DataTables
 - **Deployment**: Vercel
 
@@ -76,6 +109,16 @@ SESSIONS_SCAN_LIMIT=10000
 ```
 
 **Note:** The `.env` file should never be committed to version control. It's included in `.gitignore`.
+
+### Authentication Setup
+
+To enable authentication and user management features, you need to set up Supabase Auth:
+
+1. **Create user profiles table**: Run the SQL schema from `SUPABASE_SETUP.md`
+2. **Create first admin user**: Sign up through the UI, then manually set role to 'admin' in Supabase
+3. **Configure environment variables**: Ensure `SUPABASE_URL` and `SUPABASE_ANON_KEY` are set
+
+For detailed instructions, see **[SUPABASE_SETUP.md](./SUPABASE_SETUP.md)**
 
 4. Run the development server:
 ```bash

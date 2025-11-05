@@ -9,7 +9,11 @@
   "use strict";
 
   // Import Supabase from CDN (loaded in HTML)
-  const { createClient } = window.supabase;
+  const supabaseLib = window.supabase;
+  if (!supabaseLib) {
+    console.warn('⚠️ Supabase library not loaded. Authentication features will be disabled.');
+  }
+  const { createClient } = supabaseLib || {};
 
   let supabaseClient = null;
   let currentUser = null;
@@ -59,6 +63,11 @@
 
   // Initialize Supabase client
   async function initAuth(config) {
+    if (!createClient) {
+      console.warn('⚠️ Supabase library not available');
+      return false;
+    }
+
     if (!config.SUPABASE_URL || !config.SUPABASE_ANON_KEY) {
       console.warn('⚠️ Supabase credentials not configured');
       return false;

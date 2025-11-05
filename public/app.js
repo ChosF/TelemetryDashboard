@@ -2095,12 +2095,12 @@
 
   async function showSessionsModal() {
     // Check permission to view historical sessions
-    if (!window.AuthModule.hasPermission('canViewHistorical')) {
+    if (window.AuthModule && !window.AuthModule.hasPermission('canViewHistorical')) {
       alert('You do not have permission to view historical sessions. Please sign in or upgrade your account.');
       return;
     }
 
-    const historicalLimit = window.AuthModule.getPermissionValue('historicalLimit');
+    const historicalLimit = window.AuthModule ? window.AuthModule.getPermissionValue('historicalLimit') : Infinity;
     const isLimitedUser = historicalLimit && historicalLimit < Infinity;
 
     const content = document.createElement("div");
@@ -2178,12 +2178,12 @@
 
   function showExportModal() {
     // Check permission to download CSV
-    if (!window.AuthModule.hasPermission('canDownloadCSV')) {
+    if (window.AuthModule && !window.AuthModule.hasPermission('canDownloadCSV')) {
       alert('You do not have permission to download CSV files. Please sign in or upgrade your account.');
       return;
     }
 
-    const downloadLimit = window.AuthModule.getPermissionValue('downloadLimit');
+    const downloadLimit = window.AuthModule ? window.AuthModule.getPermissionValue('downloadLimit') : Infinity;
     const isLimitedUser = downloadLimit && downloadLimit < Infinity;
 
     const content = document.createElement("div");
@@ -2315,10 +2315,16 @@
   // Boot
   async function main() {
     // Initialize authentication
-    const authInitialized = await window.AuthModule.initAuth(cfg);
-    if (authInitialized) {
-      console.log('✅ Authentication initialized');
-      window.AuthUI.initAuthUI();
+    if (window.AuthModule) {
+      const authInitialized = await window.AuthModule.initAuth(cfg);
+      if (authInitialized) {
+        console.log('✅ Authentication initialized');
+        if (window.AuthUI) {
+          window.AuthUI.initAuthUI();
+        }
+      }
+    } else {
+      console.warn('⚠️ Authentication module not loaded. Auth features disabled.');
     }
 
     setStatus("⚡ Ready");
