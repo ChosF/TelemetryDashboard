@@ -70,6 +70,12 @@
 
     if (!config.SUPABASE_URL || !config.SUPABASE_ANON_KEY) {
       console.warn('⚠️ Supabase credentials not configured');
+      console.warn('   SUPABASE_URL:', config.SUPABASE_URL ? 'SET' : 'MISSING');
+      console.warn('   SUPABASE_ANON_KEY:', config.SUPABASE_ANON_KEY ? 'SET' : 'MISSING');
+      console.warn('   Please create a .env file in the root directory with:');
+      console.warn('   SUPABASE_URL=your_supabase_url');
+      console.warn('   SUPABASE_ANON_KEY=your_anon_key');
+      console.warn('   Then restart the server: npm run dev');
       return false;
     }
 
@@ -207,7 +213,7 @@
   // Sign up with email and password
   async function signUp(email, password, requestedRole = USER_ROLES.EXTERNAL, name = null) {
     if (!supabaseClient) {
-      throw new Error('Supabase not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.');
+      throw new Error('Supabase not configured. Create a .env file with SUPABASE_URL and SUPABASE_ANON_KEY, then restart the server.');
     }
 
     try {
@@ -246,7 +252,7 @@
   // Sign in with email and password
   async function signIn(email, password, rememberMe = false) {
     if (!supabaseClient) {
-      throw new Error('Supabase not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.');
+      throw new Error('Supabase not configured. Create a .env file with SUPABASE_URL and SUPABASE_ANON_KEY, then restart the server.');
     }
 
     try {

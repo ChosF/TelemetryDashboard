@@ -2336,16 +2336,23 @@
     if (window.AuthModule) {
       const authInitialized = await window.AuthModule.initAuth(cfg);
       if (authInitialized) {
-        console.log('✅ Authentication initialized');
+        console.log('✅ Authentication initialized successfully');
         // Refresh UI now that auth is initialized
         if (window.AuthUI) {
           window.AuthUI.updateHeaderUI();
         }
       } else {
-        console.warn('⚠️ Authentication initialization failed. Login buttons available but errors may occur.');
+        console.warn('⚠️ Authentication initialization failed. Login buttons are available but may show errors.');
+        console.warn('   Check the console above for specific configuration issues.');
+        console.warn('   Common issues:');
+        console.warn('   1. .env file missing or incorrectly configured');
+        console.warn('   2. Supabase CDN library not loading');
+        console.warn('   3. Server not restarted after .env changes');
+        console.warn('   See TROUBLESHOOTING.md for detailed help.');
       }
     } else {
-      console.warn('⚠️ Authentication module not loaded. Login buttons available but will error.');
+      console.error('❌ Authentication module (auth.js) not loaded.');
+      console.error('   This usually means auth.js failed to load or has a syntax error.');
     }
 
     setStatus("⚡ Ready");
