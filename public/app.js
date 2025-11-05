@@ -95,7 +95,6 @@
     power: el("panel-power"),
     imu: el("panel-imu"),
     "imu-detail": el("panel-imu-detail"),
-    gforces: el("panel-gforces"),
     efficiency: el("panel-efficiency"),
     gps: el("panel-gps"),
     custom: el("panel-custom"),
@@ -109,7 +108,6 @@
     chartIMUDetail,
     chartEfficiency,
     chartAltitude,
-    chartGForcesPanel,
     chartPedals,
     chartGGMini;
 
@@ -666,7 +664,7 @@
           data: [{ value: v }],
         },
       ],
-      animation: true,
+      animation: false,
     };
   }
   function renderGauges(k) {
@@ -772,7 +770,7 @@
       grid: { left: "4%", right: "4%", top: 60, bottom: 50, containLabel: true },
       xAxis: { type: "time" },
       yAxis: { type: "value" },
-      animation: true,
+      animation: false,
       useDirtyRect: true,
     };
   }
@@ -799,7 +797,7 @@
     const spd = rows.map((r) => toNum(r.speed_ms, 0));
     opt.dataset = { source: ts.map((t, i) => [t, spd[i]]) };
     opt.series = [
-      { type: "line", name: "Speed (m/s)", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#1f77b4" }, sampling: "lttb", smooth: true },
+      { type: "line", name: "Speed (m/s)", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#1f77b4" }, sampling: "lttb", smooth: false },
     ];
     opt.yAxis = { name: "m/s" };
     addDataZoom(opt, [0]);
@@ -825,11 +823,11 @@
         { id: "curr", source: ts.map((t, i) => [t, curr[i]]) },
       ],
       series: [
-        { type: "line", datasetId: "volt", name: "Voltage (V)", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#22c55e" }, sampling: "lttb", xAxisIndex: 0, yAxisIndex: 0, smooth: true },
-        { type: "line", datasetId: "curr", name: "Current (A)", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#ef4444" }, sampling: "lttb", xAxisIndex: 1, yAxisIndex: 1, smooth: true },
+        { type: "line", datasetId: "volt", name: "Voltage (V)", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#22c55e" }, sampling: "lttb", xAxisIndex: 0, yAxisIndex: 0, smooth: false },
+        { type: "line", datasetId: "curr", name: "Current (A)", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#ef4444" }, sampling: "lttb", xAxisIndex: 1, yAxisIndex: 1, smooth: false },
       ],
       axisPointer: { link: [{ xAxisIndex: "all" }] },
-      animation: true,
+      animation: false,
       useDirtyRect: true,
     };
     addDataZoom(opt, [0, 1]);
@@ -844,33 +842,39 @@
     const ax = rows.map((r) => toNum(r.accel_x, null));
     const ay = rows.map((r) => toNum(r.accel_y, null));
     const az = rows.map((r) => toNum(r.accel_z, null));
+    const pitch = rows.map((r) => toNum(r.pitch_deg, null));
+    const roll = rows.map((r) => toNum(r.roll_deg, null));
     const opt = {
       title: { text: "🧭 IMU System Performance", left: "center", top: 6 },
       tooltip: { trigger: "axis" },
       legend: { top: 28 },
       grid: [
-        { left: "6%", right: "4%", top: 60, height: 200, containLabel: true },
-        { left: "6%", right: "4%", top: 300, height: 200, containLabel: true },
+        { left: "6%", right: "4%", top: 60, height: 140, containLabel: true },
+        { left: "6%", right: "4%", top: 220, height: 140, containLabel: true },
+        { left: "6%", right: "4%", top: 380, height: 140, containLabel: true },
       ],
-      xAxis: [{ type: "time", gridIndex: 0 }, { type: "time", gridIndex: 1 }],
-      yAxis: [{ type: "value", gridIndex: 0, name: "Gyro (deg/s)" }, { type: "value", gridIndex: 1, name: "Accel (m/s²)" }],
+      xAxis: [{ type: "time", gridIndex: 0 }, { type: "time", gridIndex: 1 }, { type: "time", gridIndex: 2 }],
+      yAxis: [{ type: "value", gridIndex: 0, name: "Gyro (deg/s)" }, { type: "value", gridIndex: 1, name: "Accel (m/s²)" }, { type: "value", gridIndex: 2, name: "Orientation (deg)" }],
       dataset: [
         { id: "gyro", source: ts.map((t, i) => [t, gx[i], gy[i], gz[i]]) },
         { id: "acc", source: ts.map((t, i) => [t, ax[i], ay[i], az[i]]) },
+        { id: "orient", source: ts.map((t, i) => [t, pitch[i], roll[i]]) },
       ],
       series: [
-        { type: "line", datasetId: "gyro", name: "Gyro X", encode: { x: 0, y: 1 }, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: "#e74c3c" }, sampling: "lttb", smooth: true },
-        { type: "line", datasetId: "gyro", name: "Gyro Y", encode: { x: 0, y: 2 }, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: "#2ecc71" }, sampling: "lttb", smooth: true },
-        { type: "line", datasetId: "gyro", name: "Gyro Z", encode: { x: 0, y: 3 }, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: "#3498db" }, sampling: "lttb", smooth: true },
-        { type: "line", datasetId: "acc", name: "Accel X", encode: { x: 0, y: 1 }, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 2, color: "#f39c12" }, sampling: "lttb", smooth: true },
-        { type: "line", datasetId: "acc", name: "Accel Y", encode: { x: 0, y: 2 }, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 2, color: "#9b59b6" }, sampling: "lttb", smooth: true },
-        { type: "line", datasetId: "acc", name: "Accel Z", encode: { x: 0, y: 3 }, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 2, color: "#34495e" }, sampling: "lttb", smooth: true },
+        { type: "line", datasetId: "gyro", name: "Gyro X", encode: { x: 0, y: 1 }, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: "#e74c3c" }, sampling: "lttb", smooth: false },
+        { type: "line", datasetId: "gyro", name: "Gyro Y", encode: { x: 0, y: 2 }, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: "#2ecc71" }, sampling: "lttb", smooth: false },
+        { type: "line", datasetId: "gyro", name: "Gyro Z", encode: { x: 0, y: 3 }, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: "#3498db" }, sampling: "lttb", smooth: false },
+        { type: "line", datasetId: "acc", name: "Accel X", encode: { x: 0, y: 1 }, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 2, color: "#f39c12" }, sampling: "lttb", smooth: false },
+        { type: "line", datasetId: "acc", name: "Accel Y", encode: { x: 0, y: 2 }, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 2, color: "#9b59b6" }, sampling: "lttb", smooth: false },
+        { type: "line", datasetId: "acc", name: "Accel Z", encode: { x: 0, y: 3 }, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 2, color: "#34495e" }, sampling: "lttb", smooth: false },
+        { type: "line", datasetId: "orient", name: "Pitch", encode: { x: 0, y: 1 }, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { width: 2, color: "#ff6b6b" }, sampling: "lttb", smooth: false },
+        { type: "line", datasetId: "orient", name: "Roll", encode: { x: 0, y: 2 }, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { width: 2, color: "#4ecdc4" }, sampling: "lttb", smooth: false },
       ],
       axisPointer: { link: [{ xAxisIndex: "all" }] },
-      animation: true,
+      animation: false,
       useDirtyRect: true,
     };
-    addDataZoom(opt, [0, 1]);
+    addDataZoom(opt, [0, 1, 2]);
     chartIMU.setOption(opt);
   }
 
@@ -882,6 +886,8 @@
     const ax = rows.map((r) => toNum(r.accel_x, null));
     const ay = rows.map((r) => toNum(r.accel_y, null));
     const az = rows.map((r) => toNum(r.accel_z, null));
+    const pitch = rows.map((r) => toNum(r.pitch_deg, null));
+    const roll = rows.map((r) => toNum(r.roll_deg, null));
 
     const grids = [];
     const xAxes = [];
@@ -913,17 +919,19 @@
       xAxis: xAxes,
       yAxis: yAxes,
       dataset: [
-        { id: "all", source: ts.map((t, i) => [t, gx[i], gy[i], gz[i], ax[i], ay[i], az[i]]) },
+        { id: "all", source: ts.map((t, i) => [t, gx[i], gy[i], gz[i], ax[i], ay[i], az[i], pitch[i], roll[i]]) },
       ],
       series: [
-        { type: "line", name: "Gyro X", datasetId: "all", encode: { x: 0, y: 1 }, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: "#e74c3c" }, sampling: "lttb", smooth: true },
-        { type: "line", name: "Gyro Y", datasetId: "all", encode: { x: 0, y: 2 }, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 2, color: "#2ecc71" }, sampling: "lttb", smooth: true },
-        { type: "line", name: "Gyro Z", datasetId: "all", encode: { x: 0, y: 3 }, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { width: 2, color: "#3498db" }, sampling: "lttb", smooth: true },
-        { type: "line", name: "Accel X", datasetId: "all", encode: { x: 0, y: 4 }, xAxisIndex: 3, yAxisIndex: 3, showSymbol: false, lineStyle: { width: 2, color: "#f39c12" }, sampling: "lttb", smooth: true },
-        { type: "line", name: "Accel Y", datasetId: "all", encode: { x: 0, y: 5 }, xAxisIndex: 4, yAxisIndex: 4, showSymbol: false, lineStyle: { width: 2, color: "#9b59b6" }, sampling: "lttb", smooth: true },
-        { type: "line", name: "Accel Z", datasetId: "all", encode: { x: 0, y: 6 }, xAxisIndex: 5, yAxisIndex: 5, showSymbol: false, lineStyle: { width: 2, color: "#34495e" }, sampling: "lttb", smooth: true },
+        { type: "line", name: "Gyro X", datasetId: "all", encode: { x: 0, y: 1 }, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: "#e74c3c" }, sampling: "lttb", smooth: false },
+        { type: "line", name: "Gyro Y", datasetId: "all", encode: { x: 0, y: 2 }, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 2, color: "#2ecc71" }, sampling: "lttb", smooth: false },
+        { type: "line", name: "Gyro Z", datasetId: "all", encode: { x: 0, y: 3 }, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { width: 2, color: "#3498db" }, sampling: "lttb", smooth: false },
+        { type: "line", name: "Accel X", datasetId: "all", encode: { x: 0, y: 4 }, xAxisIndex: 3, yAxisIndex: 3, showSymbol: false, lineStyle: { width: 2, color: "#f39c12" }, sampling: "lttb", smooth: false },
+        { type: "line", name: "Accel Y", datasetId: "all", encode: { x: 0, y: 5 }, xAxisIndex: 4, yAxisIndex: 4, showSymbol: false, lineStyle: { width: 2, color: "#9b59b6" }, sampling: "lttb", smooth: false },
+        { type: "line", name: "Accel Z", datasetId: "all", encode: { x: 0, y: 6 }, xAxisIndex: 5, yAxisIndex: 5, showSymbol: false, lineStyle: { width: 2, color: "#34495e" }, sampling: "lttb", smooth: false },
+        { type: "line", name: "Pitch", datasetId: "all", encode: { x: 0, y: 7 }, xAxisIndex: 6, yAxisIndex: 6, showSymbol: false, lineStyle: { width: 2, color: "#ff6b6b" }, sampling: "lttb", smooth: false },
+        { type: "line", name: "Roll", datasetId: "all", encode: { x: 0, y: 8 }, xAxisIndex: 7, yAxisIndex: 7, showSymbol: false, lineStyle: { width: 2, color: "#4ecdc4" }, sampling: "lttb", smooth: false },
       ],
-      animation: true,
+      animation: false,
       useDirtyRect: true,
       legend: { top: 28 },
     };
@@ -970,7 +978,7 @@
       },
       series: [{ type: "scatter", symbolSize: 6, encode: { x: 0, y: 1 }, itemStyle: { opacity: 0.85 } }],
       dataset: { source: src },
-      animation: true,
+      animation: false,
       useDirtyRect: true,
     };
     addDataZoom(opt, [0], [0]);
@@ -1028,7 +1036,7 @@
           markPoint: { symbol: "circle", symbolSize: 10, data: [{ coord: [gLat, gLong] }], itemStyle: { color: "#111" } },
         },
       ],
-      animation: true,
+      animation: false,
       useDirtyRect: true,
     };
   }
@@ -1065,7 +1073,7 @@
           label: { show: true, position: "right", formatter: ({ value }) => `${value.toFixed(0)}%` },
         },
       ],
-      animation: true,
+      animation: false,
       useDirtyRect: true,
     };
     chartPedals.setOption(opt);
@@ -1146,6 +1154,28 @@
         fillColor: color,
         fillOpacity: 0.85,
       });
+      
+      // Add tooltip with timestamp, speed, current, brake, and throttle
+      const timestamp = r.timestamp ? new Date(r.timestamp).toLocaleString() : 'N/A';
+      const speed = toNum(r.speed_ms, null);
+      const speedKmh = speed != null ? (speed * 3.6).toFixed(1) : 'N/A';
+      const current = toNum(r.current_a, null);
+      const currentStr = current != null ? current.toFixed(2) : 'N/A';
+      const brakePct = toNum(r.brake_pct, null);
+      const brakeStr = brakePct != null ? brakePct.toFixed(1) : 'N/A';
+      const throttlePct = toNum(r.throttle_pct, null);
+      const throttleStr = throttlePct != null ? throttlePct.toFixed(1) : 'N/A';
+      const powerStr = p != null ? p.toFixed(0) : 'N/A';
+      
+      mk.bindTooltip(`
+        <b>Timestamp:</b> ${timestamp}<br>
+        <b>Speed:</b> ${speedKmh} km/h<br>
+        <b>Current:</b> ${currentStr} A<br>
+        <b>Brake:</b> ${brakeStr}%<br>
+        <b>Throttle:</b> ${throttleStr}%<br>
+        <b>Power:</b> ${powerStr} W
+      `);
+      
       mk.addTo(map);
       trackMarkers.push(mk);
     }
@@ -1156,7 +1186,7 @@
     opt.yAxis.name = "Altitude (m)";
     opt.dataset = { source: ts.map((t, i) => [t, alt[i]]) };
     opt.series = [
-      { type: "line", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#22c55e" }, sampling: "lttb", smooth: true },
+      { type: "line", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#22c55e" }, sampling: "lttb", smooth: false },
     ];
     addDataZoom(opt, [0]);
     chartAltitude.setOption(opt);
@@ -1475,9 +1505,6 @@
       // Minimal friction circle in gauge tile
       chartGGMini.setOption(optionGForcesMini(rows));
 
-      // Full G-G panel
-      chartGForcesPanel.setOption(optionGForcesFull(rows));
-
       // Driver inputs from publisher
       renderPedals(rows);
 
@@ -1516,7 +1543,6 @@
             chartIMUDetail.resize();
             chartEfficiency.resize();
             chartAltitude.resize();
-            chartGForcesPanel.resize();
             chartPedals.resize();
             chartGGMini.resize();
             gaugeSpeed.resize();
@@ -1580,8 +1606,7 @@
       title.value = ch.title;
       title.placeholder = "Chart title";
       title.className = "liquid-hover";
-      title.addEventListener("input", () => (ch.title = title.value));
-
+      
       const typeSel = document.createElement("select");
       typeSel.className = "liquid-hover";
       ["line", "scatter", "bar", "histogram"].forEach((t) => {
@@ -1590,10 +1615,6 @@
         opt.textContent = t;
         if (t === ch.type) opt.selected = true;
         typeSel.appendChild(opt);
-      });
-      typeSel.addEventListener("change", () => {
-        ch.type = typeSel.value;
-        renderCustomCharts();
       });
 
       const xSel = document.createElement("select");
@@ -1606,7 +1627,6 @@
         if (c === ch.x) opt.selected = true;
         xSel.appendChild(opt);
       });
-      xSel.addEventListener("change", () => (ch.x = xSel.value));
 
       const ySel = document.createElement("select");
       ySel.className = "liquid-hover";
@@ -1617,7 +1637,6 @@
         if (c === ch.y) opt.selected = true;
         ySel.appendChild(opt);
       });
-      ySel.addEventListener("change", () => (ch.y = ySel.value));
 
       const del = document.createElement("button");
       del.textContent = "🗑️";
@@ -1644,6 +1663,28 @@
 
       const c = echarts.init(plot, null, { renderer: "canvas" });
       renderCustomChart(c, ch, rows);
+      
+      // Add event listeners that trigger chart updates
+      title.addEventListener("input", () => {
+        ch.title = title.value;
+        renderCustomChart(c, ch, rows);
+      });
+      
+      typeSel.addEventListener("change", () => {
+        ch.type = typeSel.value;
+        renderCustomChart(c, ch, rows);
+      });
+      
+      xSel.addEventListener("change", () => {
+        ch.x = xSel.value;
+        renderCustomChart(c, ch, rows);
+      });
+      
+      ySel.addEventListener("change", () => {
+        ch.y = ySel.value;
+        renderCustomChart(c, ch, rows);
+      });
+      
       window.addEventListener("resize", () => c.resize(), { passive: true });
     }
   }
@@ -1759,7 +1800,6 @@
     chartIMUDetail = echarts.init(el("chart-imu-detail"));
     chartEfficiency = echarts.init(el("chart-efficiency"));
     chartAltitude = echarts.init(el("chart-altitude"));
-    chartGForcesPanel = echarts.init(el("chart-gforces"));
     chartPedals = echarts.init(el("chart-pedals"));
 
     window.addEventListener(
@@ -1772,7 +1812,6 @@
           chartIMUDetail.resize();
           chartEfficiency.resize();
           chartAltitude.resize();
-          chartGForcesPanel.resize();
           chartPedals.resize();
           chartGGMini.resize();
           gaugeSpeed.resize();
