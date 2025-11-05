@@ -664,7 +664,9 @@
           data: [{ value: v }],
         },
       ],
-      animation: false,
+      animation: true,
+      animationDuration: 200,
+      animationEasing: 'linear',
     };
   }
   function renderGauges(k) {
@@ -756,7 +758,9 @@
           z: 0,
         },
       ],
-      animation: false,
+      animation: true,
+      animationDuration: 200,
+      animationEasing: 'linear',
       useDirtyRect: true,
     };
   }
@@ -770,7 +774,9 @@
       grid: { left: "4%", right: "4%", top: 60, bottom: 50, containLabel: true },
       xAxis: { type: "time" },
       yAxis: { type: "value" },
-      animation: false,
+      animation: true,
+      animationDuration: 200,
+      animationEasing: 'linear',
       useDirtyRect: true,
     };
   }
@@ -827,7 +833,9 @@
         { type: "line", datasetId: "curr", name: "Current (A)", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#ef4444" }, sampling: "lttb", xAxisIndex: 1, yAxisIndex: 1, smooth: false },
       ],
       axisPointer: { link: [{ xAxisIndex: "all" }] },
-      animation: false,
+      animation: true,
+      animationDuration: 200,
+      animationEasing: 'linear',
       useDirtyRect: true,
     };
     addDataZoom(opt, [0, 1]);
@@ -871,7 +879,9 @@
         { type: "line", datasetId: "orient", name: "Roll", encode: { x: 0, y: 2 }, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { width: 2, color: "#4ecdc4" }, sampling: "lttb", smooth: false },
       ],
       axisPointer: { link: [{ xAxisIndex: "all" }] },
-      animation: false,
+      animation: true,
+      animationDuration: 200,
+      animationEasing: 'linear',
       useDirtyRect: true,
     };
     addDataZoom(opt, [0, 1, 2]);
@@ -931,7 +941,9 @@
         { type: "line", name: "Pitch", datasetId: "all", encode: { x: 0, y: 7 }, xAxisIndex: 6, yAxisIndex: 6, showSymbol: false, lineStyle: { width: 2, color: "#ff6b6b" }, sampling: "lttb", smooth: false },
         { type: "line", name: "Roll", datasetId: "all", encode: { x: 0, y: 8 }, xAxisIndex: 7, yAxisIndex: 7, showSymbol: false, lineStyle: { width: 2, color: "#4ecdc4" }, sampling: "lttb", smooth: false },
       ],
-      animation: false,
+      animation: true,
+      animationDuration: 200,
+      animationEasing: 'linear',
       useDirtyRect: true,
       legend: { top: 28 },
     };
@@ -978,7 +990,9 @@
       },
       series: [{ type: "scatter", symbolSize: 6, encode: { x: 0, y: 1 }, itemStyle: { opacity: 0.85 } }],
       dataset: { source: src },
-      animation: false,
+      animation: true,
+      animationDuration: 200,
+      animationEasing: 'linear',
       useDirtyRect: true,
     };
     addDataZoom(opt, [0], [0]);
@@ -1036,7 +1050,9 @@
           markPoint: { symbol: "circle", symbolSize: 10, data: [{ coord: [gLat, gLong] }], itemStyle: { color: "#111" } },
         },
       ],
-      animation: false,
+      animation: true,
+      animationDuration: 200,
+      animationEasing: 'linear',
       useDirtyRect: true,
     };
   }
@@ -1073,7 +1089,9 @@
           label: { show: true, position: "right", formatter: ({ value }) => `${value.toFixed(0)}%` },
         },
       ],
-      animation: false,
+      animation: true,
+      animationDuration: 200,
+      animationEasing: 'linear',
       useDirtyRect: true,
     };
     chartPedals.setOption(opt);
