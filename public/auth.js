@@ -156,6 +156,8 @@
   // Create user profile with default role
   async function createUserProfile(user, requestedRole = USER_ROLES.GUEST, name = null) {
     try {
+      console.log('📝 Creating profile for user:', user.id, { requestedRole, name });
+      
       // External users are auto-approved, internal users need approval
       const role = requestedRole === USER_ROLES.INTERNAL ? USER_ROLES.EXTERNAL : requestedRole;
       const needsApproval = requestedRole === USER_ROLES.INTERNAL;
@@ -174,6 +176,8 @@
         profileData.name = name;
       }
 
+      console.log('📝 Profile data to insert:', profileData);
+
       const { data, error } = await supabaseClient
         .from('user_profiles')
         .insert([profileData])
@@ -181,14 +185,21 @@
         .single();
 
       if (error) {
-        console.error('Error creating profile:', error);
+        console.error('❌ Error creating profile:', error);
+        console.error('Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
         return null;
       }
 
+      console.log('✅ Profile created successfully:', data);
       currentProfile = data;
       return data;
     } catch (error) {
-      console.error('Error creating user profile:', error);
+      console.error('❌ Exception creating user profile:', error);
       return null;
     }
   }
@@ -200,23 +211,34 @@
     }
 
     try {
+      console.log('📝 Signing up user...', { email, requestedRole, name });
+      
       const { data, error } = await supabaseClient.auth.signUp({
         email,
         password
       });
 
       if (error) {
+        console.error('❌ Signup error:', error);
         throw error;
       }
 
-      // Create user profile
+      console.log('✅ User created in auth:', data.user?.id);
+
+      // Create user profile - CRITICAL: Wait for this to complete
       if (data.user) {
-        await createUserProfile(data.user, requestedRole, name);
+        console.log('📝 Creating user profile...');
+        const profile = await createUserProfile(data.user, requestedRole, name);
+        if (profile) {
+          console.log('✅ User profile created successfully:', profile);
+        } else {
+          console.error('❌ Failed to create user profile - check RLS policies and table permissions');
+        }
       }
 
       return { success: true, data, needsApproval: requestedRole === USER_ROLES.INTERNAL };
     } catch (error) {
-      console.error('Sign up error:', error);
+      console.error('❌ Sign up error:', error);
       return { success: false, error: error.message };
     }
   }

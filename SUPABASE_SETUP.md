@@ -81,6 +81,10 @@ CREATE POLICY "Admins can update all profiles"
     )
   );
 
+-- IMPORTANT: Grant authenticated users access to the table
+GRANT ALL ON public.user_profiles TO authenticated;
+GRANT ALL ON public.user_profiles TO service_role;
+
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION public.handle_updated_at()
 RETURNS TRIGGER AS $$
@@ -201,9 +205,29 @@ The system supports four user roles:
 - Look for errors in the browser console
 
 ### New signups aren't creating profiles
-- Check that the `user_profiles` table exists
-- Verify the RLS policies allow INSERT for authenticated users
-- Check browser console and network tab for errors
+1. **Check table exists**: Verify `user_profiles` table exists in Supabase
+2. **Check RLS policies**: Run this SQL to verify policies are working:
+   ```sql
+   -- Test if you can insert (run after signing up)
+   SELECT auth.uid(); -- Should return your user ID
+   ```
+3. **Check GRANT permissions**: Ensure table has proper grants:
+   ```sql
+   GRANT ALL ON public.user_profiles TO authenticated;
+   GRANT ALL ON public.user_profiles TO service_role;
+   ```
+4. **Check browser console**: Look for detailed error messages with policy hints
+5. **Manual profile creation**: If needed, manually create profile:
+   ```sql
+   INSERT INTO public.user_profiles (user_id, email, role, approval_status, name)
+   SELECT id, email, 'external_user', 'approved', 'Your Name'
+   FROM auth.users
+   WHERE email = 'your-email@example.com';
+   ```
+
+### Dropdown menu going behind elements
+- Ensure `.hero-header` has `overflow: visible` in styles.css
+- User menu dropdown should have `z-index: 10000` in auth-styles.css
 
 ## Additional Configuration (Optional)
 
