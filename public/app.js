@@ -140,6 +140,14 @@
   let dtColumns = [];
   let dtNeedsRefresh = false;
 
+  // Required fields for telemetry data (shared constant)
+  const REQUIRED_FIELDS = [
+    "speed_ms", "voltage_v", "current_a", "power_w", "energy_j", "distance_m",
+    "latitude", "longitude", "altitude", "gyro_x", "gyro_y", "gyro_z",
+    "accel_x", "accel_y", "accel_z", "total_acceleration", "message_id",
+    "uptime_seconds", "session_id", "throttle_pct", "brake_pct", "throttle", "brake"
+  ];
+
   // State
   const state = {
     mode: "realtime",
@@ -222,7 +230,28 @@
     }
     return rows;
   }
+  // Normalize field names for common variations
+  function normalizeFieldNames(row) {
+    // Map common altitude field variations to 'altitude'
+    if (!('altitude' in row)) {
+      const altitudeFields = ['altitude_m', 'gps_altitude', 'elevation', 'alt'];
+      for (const field of altitudeFields) {
+        if (field in row) {
+          row.altitude = row[field];
+          break;
+        }
+      }
+    }
+    
+    // Ensure all required fields exist (same as normalizeData)
+    for (const k of REQUIRED_FIELDS) if (!(k in row)) row[k] = 0;
+    
+    return row;
+  }
+  
   function withDerived(rows) {
+    // Normalize field names first
+    for (const r of rows) normalizeFieldNames(r);
     withRollPitch(rows);
     withGForces(rows);
     return rows;
@@ -627,6 +656,16 @@
 
   // Render quality score chart
   function renderQualityScoreChart(rows, report) {
+    if (!rows || rows.length === 0) {
+      console.log("renderQualityScoreChart: no rows");
+      return;
+    }
+    
+    if (!chartQualityScore) {
+      console.log("renderQualityScoreChart: chart not initialized");
+      return;
+    }
+    
     // Take last 50 data points and compute rolling quality score
     const windowSize = Math.min(50, rows.length);
     const step = Math.max(1, Math.floor(rows.length / windowSize));
@@ -634,13 +673,25 @@
     
     for (let i = step; i <= rows.length; i += step) {
       const subset = rows.slice(Math.max(0, i - step), i);
+      if (subset.length === 0) continue;
       const subReport = computeDataQualityReport(subset);
       const timestamp = subset.length ? new Date(subset[subset.length - 1].timestamp) : new Date();
-      dataPoints.push({
-        time: timestamp,
-        score: subReport.quality_score,
-      });
+      // Only add valid data points
+      if (!isNaN(timestamp.getTime()) && Number.isFinite(subReport.quality_score)) {
+        dataPoints.push({
+          time: timestamp,
+          score: subReport.quality_score,
+        });
+      }
     }
+    
+    // If no valid data points, exit early
+    if (dataPoints.length === 0) {
+      console.log("renderQualityScoreChart: no valid data points");
+      return;
+    }
+    
+    console.log(`renderQualityScoreChart: rendering ${dataPoints.length} points`);
 
     const opt = {
       title: { show: false },
@@ -717,7 +768,11 @@
       animationEasing: "cubicOut",
     };
     
-    chartQualityScore.setOption(opt);
+    chartQualityScore.setOption(opt, true);
+    // Force resize to ensure chart is properly displayed
+    setTimeout(() => {
+      if (chartQualityScore) chartQualityScore.resize();
+    }, 100);
   }
 
   // Gauges (speed, battery, power, efficiency)
@@ -1557,33 +1612,7 @@
     }
     out.timestamp = t;
 
-    const req = [
-      "speed_ms",
-      "voltage_v",
-      "current_a",
-      "power_w",
-      "energy_j",
-      "distance_m",
-      "latitude",
-      "longitude",
-      "altitude",
-      "gyro_x",
-      "gyro_y",
-      "gyro_z",
-      "accel_x",
-      "accel_y",
-      "accel_z",
-      "total_acceleration",
-      "message_id",
-      "uptime_seconds",
-      "session_id",
-      // direct driver inputs (publisher-provided)
-      "throttle_pct",
-      "brake_pct",
-      "throttle",
-      "brake",
-    ];
-    for (const k of req) if (!(k in out)) out[k] = 0;
+    for (const k of REQUIRED_FIELDS) if (!(k in out)) out[k] = 0;
 
     if (!out.power_w)
       out.power_w = toNum(out.voltage_v, 0) * toNum(out.current_a, 0);
@@ -2119,6 +2148,8 @@
         state.currentSessionId = sid;
         sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
         scheduleRender();
+        // Close both modal and FAB menu
+        fabMenu.classList.remove("active");
         setTimeout(close, 1500);
       } catch (e) {
         sessionInfo.textContent = `Error: ${e.message}`;
