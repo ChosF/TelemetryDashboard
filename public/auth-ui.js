@@ -620,15 +620,11 @@
       existingAuthBtns.remove();
     }
 
-    // Check if AuthModule is available
-    if (!window.AuthModule) {
-      console.warn('⚠️ AuthModule not available');
-      return;
-    }
-
-    const isAuth = window.AuthModule.isAuthenticated();
-    const user = window.AuthModule.getCurrentUser();
-    const profile = window.AuthModule.getCurrentProfile();
+    // Always show login/signup buttons if not authenticated
+    // Even if AuthModule is not available, allow user to try logging in
+    const isAuth = window.AuthModule ? window.AuthModule.isAuthenticated() : false;
+    const user = window.AuthModule ? window.AuthModule.getCurrentUser() : null;
+    const profile = window.AuthModule ? window.AuthModule.getCurrentProfile() : null;
 
     if (isAuth && user) {
       // Show user menu
@@ -761,19 +757,16 @@
 
   // Initialize auth UI
   function initAuthUI() {
-    // Check if AuthModule is available
-    if (!window.AuthModule) {
-      console.warn('⚠️ AuthModule not available, skipping auth UI initialization');
-      return;
-    }
-
+    // Always initialize UI, even if AuthModule is not available
+    // This allows login buttons to be shown, and errors will appear if Supabase is not configured
+    
     // Update header on auth state change
     window.addEventListener('auth-state-changed', () => {
       updateHeaderUI();
       addAdminToFAB();
     });
 
-    // Initial UI update
+    // Initial UI update - always show login buttons
     updateHeaderUI();
     addAdminToFAB();
   }

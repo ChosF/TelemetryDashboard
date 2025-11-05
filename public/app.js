@@ -2326,17 +2326,26 @@
 
   // Boot
   async function main() {
-    // Initialize authentication
+    // Initialize authentication UI - always show login buttons
+    // Even if AuthModule fails to initialize, UI should be available
+    if (window.AuthUI) {
+      window.AuthUI.initAuthUI();
+    }
+
+    // Initialize authentication module if available
     if (window.AuthModule) {
       const authInitialized = await window.AuthModule.initAuth(cfg);
       if (authInitialized) {
         console.log('✅ Authentication initialized');
+        // Refresh UI now that auth is initialized
         if (window.AuthUI) {
-          window.AuthUI.initAuthUI();
+          window.AuthUI.updateHeaderUI();
         }
+      } else {
+        console.warn('⚠️ Authentication initialization failed. Login buttons available but errors may occur.');
       }
     } else {
-      console.warn('⚠️ Authentication module not loaded. Auth features disabled.');
+      console.warn('⚠️ Authentication module not loaded. Login buttons available but will error.');
     }
 
     setStatus("⚡ Ready");
