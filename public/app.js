@@ -155,18 +155,18 @@
   };
 
   sidebarToggle?.addEventListener("click", toggleSidebar);
-  
+
   // Close sidebar when clicking backdrop or close button (mobile)
   sidebarClose?.addEventListener("click", () => {
     sidebar.classList.remove("show");
     sidebarBackdrop.classList.remove("show");
   });
-  
+
   sidebarBackdrop?.addEventListener("click", () => {
     sidebar.classList.remove("show");
     sidebarBackdrop.classList.remove("show");
   });
-  
+
   window.addEventListener(
     "resize",
     () => {
@@ -1172,7 +1172,7 @@
         fillColor: color,
         fillOpacity: 0.85,
       });
-      
+
       // Add tooltip with timestamp, speed, current, brake, and throttle
       const timestamp = r.timestamp ? new Date(r.timestamp).toLocaleString() : 'N/A';
       const speed = toNum(r.speed_ms, null);
@@ -1184,7 +1184,7 @@
       const throttlePct = toNum(r.throttle_pct, null);
       const throttleStr = throttlePct != null ? throttlePct.toFixed(1) : 'N/A';
       const powerStr = p != null ? p.toFixed(0) : 'N/A';
-      
+
       mk.bindTooltip(`
         <b>Timestamp:</b> ${timestamp}<br>
         <b>Speed:</b> ${speedKmh} km/h<br>
@@ -1193,7 +1193,7 @@
         <b>Throttle:</b> ${throttleStr}%<br>
         <b>Power:</b> ${powerStr} W
       `);
-      
+
       mk.addTo(map);
       trackMarkers.push(mk);
     }
@@ -1624,7 +1624,7 @@
       title.value = ch.title;
       title.placeholder = "Chart title";
       title.className = "liquid-hover";
-      
+
       const typeSel = document.createElement("select");
       typeSel.className = "liquid-hover";
       ["line", "scatter", "bar", "histogram"].forEach((t) => {
@@ -1681,28 +1681,28 @@
 
       const c = echarts.init(plot, null, { renderer: "canvas" });
       renderCustomChart(c, ch, rows);
-      
+
       // Add event listeners that trigger chart updates
       title.addEventListener("input", () => {
         ch.title = title.value;
         renderCustomChart(c, ch, rows);
       });
-      
+
       typeSel.addEventListener("change", () => {
         ch.type = typeSel.value;
         renderCustomChart(c, ch, rows);
       });
-      
+
       xSel.addEventListener("change", () => {
         ch.x = xSel.value;
         renderCustomChart(c, ch, rows);
       });
-      
+
       ySel.addEventListener("change", () => {
         ch.y = ySel.value;
         renderCustomChart(c, ch, rows);
       });
-      
+
       window.addEventListener("resize", () => c.resize(), { passive: true });
     }
   }
