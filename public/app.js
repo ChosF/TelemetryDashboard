@@ -99,7 +99,8 @@
     chartEfficiency,
     chartAltitude,
     chartPedals,
-    chartGGMini;
+    chartGGMini,
+    chartQualityScore;
 
   // Gauges
   let gaugeSpeed, gaugeBattery, gaugePower, gaugeEfficiency;
@@ -591,6 +592,106 @@
     if (dataCount) {
       dataCount.textContent = `(${rows.length.toLocaleString()} rows)`;
     }
+
+    // Render quality score visualization
+    if (chartQualityScore && rows.length > 0) {
+      renderQualityScoreChart(rows, rpt);
+    }
+  }
+
+  // Render quality score chart
+  function renderQualityScoreChart(rows, report) {
+    // Take last 50 data points and compute rolling quality score
+    const windowSize = Math.min(50, rows.length);
+    const step = Math.max(1, Math.floor(rows.length / windowSize));
+    const dataPoints = [];
+    
+    for (let i = step; i <= rows.length; i += step) {
+      const subset = rows.slice(Math.max(0, i - step), i);
+      const subReport = computeDataQualityReport(subset);
+      const timestamp = subset.length ? new Date(subset[subset.length - 1].timestamp) : new Date();
+      dataPoints.push({
+        time: timestamp,
+        score: subReport.quality_score,
+      });
+    }
+
+    const opt = {
+      title: { show: false },
+      tooltip: {
+        trigger: "axis",
+        formatter: (params) => {
+          const p = params[0];
+          const date = new Date(p.value[0]);
+          return `${date.toLocaleTimeString()}<br/>Quality: <strong>${p.value[1].toFixed(1)}%</strong>`;
+        },
+      },
+      grid: { left: "8%", right: "6%", top: "10%", bottom: "15%", containLabel: true },
+      xAxis: {
+        type: "time",
+        axisLabel: { fontSize: 10 },
+        axisLine: { lineStyle: { color: "var(--hairline)" } },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 100,
+        name: "Score (%)",
+        nameTextStyle: { fontSize: 11 },
+        axisLabel: { fontSize: 10 },
+        axisLine: { lineStyle: { color: "var(--hairline)" } },
+        splitLine: { lineStyle: { color: "var(--hairline)", opacity: 0.3 } },
+      },
+      series: [
+        {
+          type: "line",
+          data: dataPoints.map((d) => [d.time, d.score]),
+          smooth: true,
+          showSymbol: false,
+          lineStyle: {
+            width: 3,
+            color: {
+              type: "linear",
+              x: 0,
+              y: 0,
+              x2: 1,
+              y2: 0,
+              colorStops: [
+                { offset: 0, color: "#ef4444" },
+                { offset: 0.5, color: "#f59e0b" },
+                { offset: 1, color: "#22c55e" },
+              ],
+            },
+          },
+          areaStyle: {
+            opacity: 0.2,
+            color: {
+              type: "linear",
+              x: 0,
+              y: 0,
+              x2: 0,
+              y2: 1,
+              colorStops: [
+                { offset: 0, color: "#22c55e" },
+                { offset: 1, color: "transparent" },
+              ],
+            },
+          },
+          markLine: {
+            silent: true,
+            symbol: "none",
+            lineStyle: { color: "#f59e0b", type: "dashed", width: 2 },
+            data: [{ yAxis: 80, name: "Target" }],
+            label: { show: true, formatter: "Target: 80%", fontSize: 10 },
+          },
+        },
+      ],
+      animation: true,
+      animationDuration: 300,
+      animationEasing: "cubicOut",
+    };
+    
+    chartQualityScore.setOption(opt);
   }
 
   // Gauges (speed, battery, power, efficiency)
@@ -1525,44 +1626,56 @@
     }
   }
 
-  // Tabs
+  // Tabs with View Transitions API
   function initTabs() {
     const buttons = document.querySelectorAll(".tab");
     buttons.forEach((b) => {
       b.addEventListener("click", () => {
-        buttons.forEach((x) => x.classList.remove("active"));
-        b.classList.add("active");
         const name = b.getAttribute("data-panel");
-
-        Object.entries(panels).forEach(([key, node]) => {
-          const active = key === name;
-          node.classList.toggle("active", active);
-          node.style.display = active ? "block" : "none";
-        });
-
-        setTimeout(() => {
-          try {
-            chartSpeed.resize();
-            chartPower.resize();
-            chartIMU.resize();
-            chartIMUDetail.resize();
-            chartEfficiency.resize();
-            chartAltitude.resize();
-            chartPedals.resize();
-            chartGGMini.resize();
-            gaugeSpeed.resize();
-            gaugeBattery.resize();
-            gaugePower.resize();
-            gaugeEfficiency.resize();
-            if (name === "gps") map.invalidateSize();
-            if (name === "data" && dtNeedsRefresh) {
-              updateDataQualityUI(state.telemetry);
-              ensureDataTable(state.telemetry);
-            }
-          } catch {}
-        }, 100);
+        
+        // Use View Transitions API for smooth panel switching
+        if (document.startViewTransition) {
+          document.startViewTransition(() => {
+            switchPanel(name, buttons, b);
+          });
+        } else {
+          switchPanel(name, buttons, b);
+        }
       });
     });
+  }
+
+  function switchPanel(name, buttons, activeBtn) {
+    buttons.forEach((x) => x.classList.remove("active"));
+    activeBtn.classList.add("active");
+
+    Object.entries(panels).forEach(([key, node]) => {
+      const active = key === name;
+      node.classList.toggle("active", active);
+      node.style.display = active ? "block" : "none";
+    });
+
+    setTimeout(() => {
+      try {
+        chartSpeed.resize();
+        chartPower.resize();
+        chartIMU.resize();
+        chartIMUDetail.resize();
+        chartEfficiency.resize();
+        chartAltitude.resize();
+        chartPedals.resize();
+        chartGGMini.resize();
+        gaugeSpeed.resize();
+        gaugeBattery.resize();
+        gaugePower.resize();
+        gaugeEfficiency.resize();
+        if (name === "gps") map.invalidateSize();
+        if (name === "data" && dtNeedsRefresh) {
+          updateDataQualityUI(state.telemetry);
+          ensureDataTable(state.telemetry);
+        }
+      } catch {}
+    }, 100);
   }
 
   // Custom charts
@@ -1806,6 +1919,12 @@
     chartEfficiency = echarts.init(el("chart-efficiency"));
     chartAltitude = echarts.init(el("chart-altitude"));
     chartPedals = echarts.init(el("chart-pedals"));
+    
+    // Initialize quality score chart if element exists
+    const qsEl = el("chart-quality-score");
+    if (qsEl) {
+      chartQualityScore = echarts.init(qsEl);
+    }
 
     window.addEventListener(
       "resize",
@@ -1823,6 +1942,7 @@
           gaugeBattery.resize();
           gaugePower.resize();
           gaugeEfficiency.resize();
+          if (chartQualityScore) chartQualityScore.resize();
         } catch {}
       },
       { passive: true }

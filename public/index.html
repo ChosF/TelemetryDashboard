@@ -361,6 +361,12 @@
               <!-- alerts -->
               <div id="quality-alerts" class="note-list"></div>
 
+              <!-- Quality Score Visualization -->
+              <div class="glass-panel" style="margin-bottom: 1rem; padding: 1.25rem;">
+                <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">📈 Quality Score Trend</h4>
+                <div class="chart" id="chart-quality-score" style="height: 200px;"></div>
+              </div>
+
               <!-- details -->
               <div
                 style="
@@ -414,5 +420,55 @@
 
     <!-- App logic -->
     <script src="app.js"></script>
+
+    <!-- View Transitions API Enhancement -->
+    <script>
+      // Enable View Transitions API for smooth page transitions
+      if (!document.startViewTransition) {
+        // Polyfill for browsers that don't support View Transitions API
+        document.startViewTransition = (callback) => {
+          callback();
+        };
+      }
+      
+      // Add view transition animation classes
+      document.addEventListener('DOMContentLoaded', () => {
+        const style = document.createElement('style');
+        style.textContent = `
+          ::view-transition-old(root),
+          ::view-transition-new(root) {
+            animation-duration: 0.4s;
+            animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+          }
+          
+          @keyframes fade-in {
+            from { opacity: 0; }
+          }
+          
+          @keyframes fade-out {
+            to { opacity: 0; }
+          }
+          
+          @keyframes slide-from-right {
+            from { transform: translateX(30px); }
+          }
+          
+          @keyframes slide-to-left {
+            to { transform: translateX(-30px); }
+          }
+          
+          ::view-transition-old(root) {
+            animation: 0.4s cubic-bezier(0.4, 0, 1, 1) both fade-out,
+                      0.4s cubic-bezier(0.4, 0, 0.2, 1) both slide-to-left;
+          }
+          
+          ::view-transition-new(root) {
+            animation: 0.4s cubic-bezier(0, 0, 0.2, 1) 0.2s both fade-in,
+                      0.4s cubic-bezier(0.4, 0, 0.2, 1) both slide-from-right;
+          }
+        `;
+        document.head.appendChild(style);
+      });
+    </script>
   </body>
 </html>
