@@ -133,11 +133,11 @@
   };
 
   // Load user profile from database
-  async function loadUserProfile(user) {
+  async function loadUserProfile(user, retryCount = 0) {
     currentUser = user;
     
     try {
-      console.log('📖 Loading user profile for:', user.id);
+      console.log('📖 Loading user profile for:', user.id, retryCount > 0 ? `(retry ${retryCount})` : '');
       
       const { data, error } = await supabaseClient
         .from('user_profiles')
@@ -147,6 +147,15 @@
 
       if (error && error.code !== SUPABASE_ERROR_CODES.NO_ROWS) {
         console.error('❌ Error loading profile:', error);
+        
+        // Retry up to 3 times with exponential backoff
+        if (retryCount < 3) {
+          const delay = Math.pow(2, retryCount) * 500; // 500ms, 1s, 2s
+          console.log(`⏳ Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return loadUserProfile(user, retryCount + 1);
+        }
+        
         return;
       }
 
@@ -160,10 +169,18 @@
         currentProfile = data;
       } else {
         console.log('⚠️ No profile found for user, creating default profile');
-        await createUserProfile(user);
+        await createUserProfile(user, USER_ROLES.GUEST, user.email.split('@')[0]);
       }
     } catch (error) {
       console.error('❌ Error loading user profile:', error);
+      
+      // Retry on exception as well
+      if (retryCount < 3) {
+        const delay = Math.pow(2, retryCount) * 500;
+        console.log(`⏳ Retrying after exception in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return loadUserProfile(user, retryCount + 1);
+      }
     }
   }
 
@@ -176,21 +193,43 @@
       const role = requestedRole === USER_ROLES.INTERNAL ? USER_ROLES.EXTERNAL : requestedRole;
       const needsApproval = requestedRole === USER_ROLES.INTERNAL;
 
+      // First, try to check if profile exists (might have been created by trigger)
+      let existingProfile = null;
+      try {
+        const { data: existing } = await supabaseClient
+          .from('user_profiles')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+        existingProfile = existing;
+        console.log('📖 Existing profile found:', existingProfile);
+      } catch (err) {
+        console.log('ℹ️ No existing profile found, will create new one');
+      }
+
       const profileData = {
         user_id: user.id,
         email: user.email,
         role: role,
         requested_role: requestedRole,
-        approval_status: needsApproval ? 'pending' : 'approved',
-        created_at: new Date().toISOString()
+        approval_status: needsApproval ? 'pending' : 'approved'
       };
 
-      // Add name if provided
+      // Add name - prefer provided name, then existing name, then extract from email
       if (name) {
         profileData.name = name;
+      } else if (existingProfile?.name) {
+        profileData.name = existingProfile.name;
+      } else {
+        profileData.name = user.email.split('@')[0];
       }
 
-      console.log('📝 Profile data to insert:', profileData);
+      // Only set created_at if this is a new profile
+      if (!existingProfile) {
+        profileData.created_at = new Date().toISOString();
+      }
+
+      console.log('📝 Profile data to upsert:', profileData);
 
       // Try to insert, if profile already exists (created by trigger), update it
       const { data, error } = await supabaseClient
@@ -210,6 +249,14 @@
           hint: error.hint,
           code: error.code
         });
+        
+        // If upsert failed but we know a profile exists, try to load it
+        if (existingProfile) {
+          console.log('⚠️ Upsert failed but profile exists, using existing profile');
+          currentProfile = existingProfile;
+          return existingProfile;
+        }
+        
         return null;
       }
 
@@ -238,10 +285,21 @@
     try {
       console.log('📝 Signing up user...', { email, requestedRole, name });
       
-      const { data, error } = await supabaseClient.auth.signUp({
+      // CRITICAL: Pass name and requested_role as metadata so the database trigger can use them
+      const signupOptions = {
         email,
-        password
-      });
+        password,
+        options: {
+          data: {
+            name: name || email.split('@')[0], // Fallback to email prefix if no name
+            requested_role: requestedRole
+          }
+        }
+      };
+      
+      console.log('📝 Signup options with metadata:', signupOptions);
+      
+      const { data, error } = await supabaseClient.auth.signUp(signupOptions);
 
       if (error) {
         console.error('❌ Signup error:', error);
@@ -250,14 +308,20 @@
 
       console.log('✅ User created in auth:', data.user?.id);
 
-      // Create user profile - CRITICAL: Wait for this to complete
+      // The database trigger should have created the profile with name and requested_role
+      // But as a fallback, we still try to create/update it client-side
       if (data.user) {
-        console.log('📝 Creating user profile...');
+        // Give the trigger a moment to complete
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        console.log('📝 Verifying/updating user profile...');
         const profile = await createUserProfile(data.user, requestedRole, name);
         if (profile) {
-          console.log('✅ User profile created successfully:', profile);
+          console.log('✅ User profile verified/updated successfully:', profile);
         } else {
-          console.error('❌ Failed to create user profile - check RLS policies and table permissions');
+          console.warn('⚠️ Profile verification failed - profile may have been created by trigger');
+          // Try to load the profile that was created by the trigger
+          await loadUserProfile(data.user);
         }
       }
 
