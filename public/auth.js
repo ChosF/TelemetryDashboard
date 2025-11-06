@@ -137,6 +137,8 @@
     currentUser = user;
     
     try {
+      console.log('📖 Loading user profile for:', user.id);
+      
       const { data, error } = await supabaseClient
         .from('user_profiles')
         .select('*')
@@ -144,25 +146,31 @@
         .single();
 
       if (error && error.code !== SUPABASE_ERROR_CODES.NO_ROWS) {
-        console.error('Error loading profile:', error);
+        console.error('❌ Error loading profile:', error);
         return;
       }
 
-      currentProfile = data;
-
-      // If no profile exists, create one with default role
-      if (!currentProfile) {
+      if (data) {
+        console.log('✅ Profile loaded:', { 
+          role: data.role, 
+          name: data.name, 
+          email: data.email,
+          approval_status: data.approval_status 
+        });
+        currentProfile = data;
+      } else {
+        console.log('⚠️ No profile found for user, creating default profile');
         await createUserProfile(user);
       }
     } catch (error) {
-      console.error('Error loading user profile:', error);
+      console.error('❌ Error loading user profile:', error);
     }
   }
 
-  // Create user profile with default role
+  // Create or update user profile with requested role and name
   async function createUserProfile(user, requestedRole = USER_ROLES.GUEST, name = null) {
     try {
-      console.log('📝 Creating profile for user:', user.id, { requestedRole, name });
+      console.log('📝 Creating/updating profile for user:', user.id, { requestedRole, name });
       
       // External users are auto-approved, internal users need approval
       const role = requestedRole === USER_ROLES.INTERNAL ? USER_ROLES.EXTERNAL : requestedRole;
@@ -184,14 +192,18 @@
 
       console.log('📝 Profile data to insert:', profileData);
 
+      // Try to insert, if profile already exists (created by trigger), update it
       const { data, error } = await supabaseClient
         .from('user_profiles')
-        .insert([profileData])
+        .upsert([profileData], { 
+          onConflict: 'user_id',
+          ignoreDuplicates: false  // Always update if exists
+        })
         .select()
         .single();
 
       if (error) {
-        console.error('❌ Error creating profile:', error);
+        console.error('❌ Error creating/updating profile:', error);
         console.error('Error details:', {
           message: error.message,
           details: error.details,
@@ -201,7 +213,14 @@
         return null;
       }
 
-      console.log('✅ Profile created successfully:', data);
+      console.log('✅ Profile created/updated successfully:', {
+        user_id: data.user_id,
+        email: data.email,
+        name: data.name,
+        role: data.role,
+        requested_role: data.requested_role,
+        approval_status: data.approval_status
+      });
       currentProfile = data;
       return data;
     } catch (error) {
@@ -263,6 +282,12 @@
 
       if (error) {
         throw error;
+      }
+
+      // Load the user profile to get the current role from database
+      if (data.user) {
+        console.log('🔑 Signed in, loading profile from database...');
+        await loadUserProfile(data.user);
       }
 
       // Store remember me preference

@@ -106,6 +106,7 @@ CREATE TRIGGER set_updated_at
 
 -- This function automatically creates a user profile when a new user signs up
 -- This ensures profiles are ALWAYS created, even if the client-side code fails
+-- Note: This creates a basic profile. Client-side code will update it with name and requested_role.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -113,15 +114,13 @@ BEGIN
   VALUES (
     NEW.id,
     NEW.email,
-    'guest', -- Default role
+    'guest', -- Default role (will be updated by client-side code)
     'approved',
     NOW()
-  );
+  )
+  ON CONFLICT (user_id) DO NOTHING; -- Ignore if profile already exists
   RETURN NEW;
 EXCEPTION
-  WHEN unique_violation THEN
-    -- Profile already exists, ignore
-    RETURN NEW;
   WHEN OTHERS THEN
     -- Log error but don't fail the signup
     RAISE WARNING 'Failed to create profile for user %: %', NEW.id, SQLERRM;
@@ -298,6 +297,28 @@ The most reliable way to ensure profiles are created is using a database trigger
    INSERT INTO public.user_profiles (user_id, email, role, approval_status, name)
    SELECT id, email, 'external_user', 'approved', 'Your Name'
    FROM auth.users
+   WHERE email = 'your-email@example.com'
+   ON CONFLICT (user_id) DO UPDATE
+   SET name = EXCLUDED.name,
+       role = EXCLUDED.role,
+       approval_status = EXCLUDED.approval_status;
+   ```
+
+### Role Not Updating After Manual Assignment
+
+If you manually change a user's role in the database but it doesn't reflect in the application:
+
+1. **Clear browser cache and refresh**: The profile might be cached in memory
+2. **Sign out and sign back in**: This forces a fresh profile load from database
+3. **Check the profile is loading**: Open browser console when logging in, you should see:
+   ```
+   📖 Loading user profile for: [user-id]
+   ✅ Profile loaded: { role: 'admin', name: '...', email: '...', approval_status: 'approved' }
+   ```
+4. **Verify the role in database**: Run this SQL to confirm:
+   ```sql
+   SELECT user_id, email, name, role, approval_status 
+   FROM public.user_profiles 
    WHERE email = 'your-email@example.com';
    ```
 
