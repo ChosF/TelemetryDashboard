@@ -106,16 +106,33 @@ CREATE TRIGGER set_updated_at
 
 -- This function automatically creates a user profile when a new user signs up
 -- This ensures profiles are ALWAYS created, even if the client-side code fails
--- Note: This creates a basic profile. Client-side code will update it with name and requested_role.
+-- IMPORTANT: This extracts name and requested_role from raw_user_meta_data
+-- The client-side code passes these values as metadata during signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+  user_name TEXT;
+  user_requested_role TEXT;
 BEGIN
-  INSERT INTO public.user_profiles (user_id, email, role, approval_status, created_at)
+  -- Extract metadata from raw_user_meta_data (passed by client during signup)
+  user_name := COALESCE(NEW.raw_user_meta_data->>'name', NEW.email);
+  user_requested_role := COALESCE(NEW.raw_user_meta_data->>'requested_role', 'external_user');
+  
+  INSERT INTO public.user_profiles (user_id, email, name, requested_role, role, approval_status, created_at)
   VALUES (
     NEW.id,
     NEW.email,
-    'guest', -- Default role (will be updated by client-side code)
-    'approved',
+    user_name,
+    user_requested_role,
+    CASE 
+      WHEN user_requested_role = 'external_user' THEN 'external_user'
+      WHEN user_requested_role = 'internal_user' THEN 'external_user' -- Starts as external, pending approval
+      ELSE 'guest'
+    END,
+    CASE 
+      WHEN user_requested_role = 'internal_user' THEN 'pending'
+      ELSE 'approved'
+    END,
     NOW()
   )
   ON CONFLICT (user_id) DO NOTHING; -- Ignore if profile already exists
@@ -239,20 +256,42 @@ The system supports four user roles:
 - Look for errors in the browser console
 
 ### New signups aren't creating profiles
-**CRITICAL FIX: Use Database Trigger**
+**CRITICAL FIX: Use Database Trigger with Metadata**
 
-The most reliable way to ensure profiles are created is using a database trigger:
+The most reliable way to ensure profiles are created is using a database trigger that reads metadata:
 
-1. **Run the trigger SQL** from Step 2 in SUPABASE_SETUP.md:
+1. **Update the trigger SQL** from Step 2 in SUPABASE_SETUP.md:
    ```sql
    CREATE OR REPLACE FUNCTION public.handle_new_user()
    RETURNS TRIGGER AS $$
+   DECLARE
+     user_name TEXT;
+     user_requested_role TEXT;
    BEGIN
-     INSERT INTO public.user_profiles (user_id, email, role, approval_status, created_at)
-     VALUES (NEW.id, NEW.email, 'guest', 'approved', NOW());
+     -- Extract metadata from raw_user_meta_data
+     user_name := COALESCE(NEW.raw_user_meta_data->>'name', NEW.email);
+     user_requested_role := COALESCE(NEW.raw_user_meta_data->>'requested_role', 'external_user');
+     
+     INSERT INTO public.user_profiles (user_id, email, name, requested_role, role, approval_status, created_at)
+     VALUES (
+       NEW.id,
+       NEW.email,
+       user_name,
+       user_requested_role,
+       CASE 
+         WHEN user_requested_role = 'external_user' THEN 'external_user'
+         WHEN user_requested_role = 'internal_user' THEN 'external_user' -- Starts as external, pending approval
+         ELSE 'guest'
+       END,
+       CASE 
+         WHEN user_requested_role = 'internal_user' THEN 'pending'
+         ELSE 'approved'
+       END,
+       NOW()
+     )
+     ON CONFLICT (user_id) DO NOTHING;
      RETURN NEW;
    EXCEPTION
-     WHEN unique_violation THEN RETURN NEW;
      WHEN OTHERS THEN
        RAISE WARNING 'Failed to create profile for user %: %', NEW.id, SQLERRM;
        RETURN NEW;
@@ -274,9 +313,17 @@ The most reliable way to ensure profiles are created is using a database trigger
 
 3. **Test it**: Sign up a new user and immediately check:
    ```sql
-   SELECT * FROM public.user_profiles 
+   SELECT user_id, email, name, role, requested_role, approval_status, created_at 
+   FROM public.user_profiles 
    ORDER BY created_at DESC LIMIT 5;
    ```
+   The name should be the actual name provided during signup, NOT the email address.
+
+**How it works:**
+- Client-side passes `name` and `requested_role` as metadata during signup
+- Database trigger immediately creates profile with these values
+- Client-side also attempts to create/update as a fallback
+- This dual approach ensures maximum reliability
 
 **Alternative fixes if trigger doesn't work:**
 
