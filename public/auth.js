@@ -27,6 +27,11 @@
     ADMIN: 'admin'
   };
 
+  // Retry configuration
+  const MAX_RETRY_ATTEMPTS = 3;
+  const BASE_RETRY_DELAY_MS = 500;
+  const TRIGGER_COMPLETION_DELAY_MS = 500;
+
   const ROLE_PERMISSIONS = {
     [USER_ROLES.GUEST]: {
       canViewRealTime: true,
@@ -132,6 +137,11 @@
     // Add additional error codes here as needed
   };
 
+  // Helper function to get default name from email
+  function getDefaultNameFromEmail(email) {
+    return email.split('@')[0];
+  }
+
   // Load user profile from database
   async function loadUserProfile(user, retryCount = 0) {
     currentUser = user;
@@ -148,9 +158,9 @@
       if (error && error.code !== SUPABASE_ERROR_CODES.NO_ROWS) {
         console.error('❌ Error loading profile:', error);
         
-        // Retry up to 3 times with exponential backoff
-        if (retryCount < 3) {
-          const delay = Math.pow(2, retryCount) * 500; // 500ms, 1s, 2s
+        // Retry up to MAX_RETRY_ATTEMPTS with exponential backoff
+        if (retryCount < MAX_RETRY_ATTEMPTS) {
+          const delay = Math.pow(2, retryCount) * BASE_RETRY_DELAY_MS;
           console.log(`⏳ Retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           return loadUserProfile(user, retryCount + 1);
@@ -169,14 +179,14 @@
         currentProfile = data;
       } else {
         console.log('⚠️ No profile found for user, creating default profile');
-        await createUserProfile(user, USER_ROLES.GUEST, user.email.split('@')[0]);
+        await createUserProfile(user, USER_ROLES.GUEST, getDefaultNameFromEmail(user.email));
       }
     } catch (error) {
       console.error('❌ Error loading user profile:', error);
       
       // Retry on exception as well
-      if (retryCount < 3) {
-        const delay = Math.pow(2, retryCount) * 500;
+      if (retryCount < MAX_RETRY_ATTEMPTS) {
+        const delay = Math.pow(2, retryCount) * BASE_RETRY_DELAY_MS;
         console.log(`⏳ Retrying after exception in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return loadUserProfile(user, retryCount + 1);
@@ -221,7 +231,7 @@
       } else if (existingProfile?.name) {
         profileData.name = existingProfile.name;
       } else {
-        profileData.name = user.email.split('@')[0];
+        profileData.name = getDefaultNameFromEmail(user.email);
       }
 
       // Only set created_at if this is a new profile
@@ -291,7 +301,7 @@
         password,
         options: {
           data: {
-            name: name || email.split('@')[0], // Fallback to email prefix if no name
+            name: name || getDefaultNameFromEmail(email), // Fallback to email prefix if no name
             requested_role: requestedRole
           }
         }
@@ -312,7 +322,7 @@
       // But as a fallback, we still try to create/update it client-side
       if (data.user) {
         // Give the trigger a moment to complete
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, TRIGGER_COMPLETION_DELAY_MS));
         
         console.log('📝 Verifying/updating user profile...');
         const profile = await createUserProfile(data.user, requestedRole, name);
