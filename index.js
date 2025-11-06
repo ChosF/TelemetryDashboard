@@ -213,6 +213,43 @@ app.get("/api/sessions/:session_id/records", async (req, res) => {
   }
 });
 
+/**
+ * Note on Authentication and Security:
+ * 
+ * This application relies on Supabase Row Level Security (RLS) for authentication
+ * and authorization. All sensitive database operations are protected by RLS policies
+ * at the database level, which is more secure than application-level middleware.
+ * 
+ * Frontend:
+ * - Uses Supabase client with user JWT tokens
+ * - All queries automatically include user authentication context
+ * - RLS policies enforce access control at the database level
+ * 
+ * Backend:
+ * - Uses service role key for server-side operations (e.g., listing sessions)
+ * - Does not require additional auth middleware
+ * - RLS policies still apply for user-specific operations
+ * 
+ * If you need to add server-side auth for specific endpoints:
+ * 1. Install jsonwebtoken: npm install jsonwebtoken
+ * 2. Get JWT secret from Supabase project settings
+ * 3. Create middleware to verify JWT and attach user to req.user
+ * 4. Apply middleware to protected routes
+ */
+
+/**
+ * Get current user profile
+ * GET /api/auth/profile
+ * 
+ * Note: This endpoint is a placeholder. In practice, user profiles are managed
+ * through Supabase client on the frontend with RLS protecting access.
+ */
+app.get("/api/auth/profile", async (req, res) => {
+  res.json({ 
+    message: "User profile management is handled by Supabase client with RLS policies"
+  });
+});
+
 // Static frontend
 app.use(express.static(path.resolve(STATIC_DIR)));
 
