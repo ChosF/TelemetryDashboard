@@ -36,6 +36,17 @@
   const SUPABASE_URL = cfg.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
 
+  // Initialize Supabase client
+  let supabase = null;
+  if (SUPABASE_URL && SUPABASE_ANON_KEY && typeof supabase === 'undefined') {
+    if (window.supabase && window.supabase.createClient) {
+      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      console.log("✅ Supabase client initialized");
+    } else {
+      console.error("❌ Supabase library not loaded");
+    }
+  }
+
   // Shortcuts & Utilities
   const el = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -83,6 +94,7 @@
   const fabMenu = el("fab-menu");
   const fabToggle = el("fab-toggle");
   const fabOptions = el("fab-options");
+  const fabAuth = el("fab-auth");
   const fabConnect = el("fab-connect");
   const fabMode = el("fab-mode");
   const fabExport = el("fab-export");
@@ -2263,8 +2275,297 @@
       fabMenu.classList.remove("active");
     });
 
+    // FAB Auth button - Show auth modal
+    fabAuth?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openAuthModal();
+      fabMenu.classList.remove("active");
+    });
+
     initTabs();
   }
+
+  // ============================================
+  // Authentication Functions
+  // ============================================
+
+  // Current user state
+  let currentUser = null;
+  let userProfile = null;
+
+  // Check authentication status on load
+  async function checkAuthStatus() {
+    if (!supabase) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        currentUser = session.user;
+        await loadUserProfile();
+        updateAuthUI();
+      }
+    } catch (error) {
+      console.error("Error checking auth status:", error);
+    }
+  }
+
+  // Load user profile from database
+  async function loadUserProfile() {
+    if (!supabase || !currentUser) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .single();
+
+      if (error) {
+        console.error("Error loading user profile:", error);
+        return;
+      }
+
+      userProfile = data;
+      console.log("✅ User profile loaded:", userProfile);
+    } catch (error) {
+      console.error("Error loading user profile:", error);
+    }
+  }
+
+  // Update UI based on auth state
+  function updateAuthUI() {
+    if (currentUser && userProfile) {
+      // Update FAB button tooltip
+      if (fabAuth) {
+        fabAuth.setAttribute('data-tooltip', `${userProfile.name || 'Account'}`);
+      }
+    } else {
+      if (fabAuth) {
+        fabAuth.setAttribute('data-tooltip', 'Sign In');
+      }
+    }
+  }
+
+  // Open auth modal
+  window.openAuthModal = function() {
+    const modal = el('auth-modal');
+    if (!modal) return;
+
+    if (currentUser && userProfile) {
+      // Show user profile
+      showUserProfile();
+    } else {
+      // Show login form
+      showLoginForm();
+    }
+
+    modal.style.display = 'flex';
+  };
+
+  // Close auth modal
+  window.closeAuthModal = function() {
+    const modal = el('auth-modal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+    // Clear error messages
+    const loginError = el('login-error');
+    const signupError = el('signup-error');
+    if (loginError) loginError.style.display = 'none';
+    if (signupError) signupError.style.display = 'none';
+  };
+
+  // Show login form
+  window.showLoginForm = function() {
+    const loginForm = el('login-form');
+    const signupForm = el('signup-form');
+    const userProfileDiv = el('user-profile');
+    const modalTitle = el('auth-modal-title');
+
+    if (loginForm) loginForm.style.display = 'block';
+    if (signupForm) signupForm.style.display = 'none';
+    if (userProfileDiv) userProfileDiv.style.display = 'none';
+    if (modalTitle) modalTitle.textContent = 'Sign In';
+  };
+
+  // Show signup form
+  window.showSignupForm = function() {
+    const loginForm = el('login-form');
+    const signupForm = el('signup-form');
+    const userProfileDiv = el('user-profile');
+    const modalTitle = el('auth-modal-title');
+
+    if (loginForm) loginForm.style.display = 'none';
+    if (signupForm) signupForm.style.display = 'block';
+    if (userProfileDiv) userProfileDiv.style.display = 'none';
+    if (modalTitle) modalTitle.textContent = 'Sign Up';
+  };
+
+  // Show user profile
+  function showUserProfile() {
+    const loginForm = el('login-form');
+    const signupForm = el('signup-form');
+    const userProfileDiv = el('user-profile');
+    const modalTitle = el('auth-modal-title');
+
+    if (loginForm) loginForm.style.display = 'none';
+    if (signupForm) signupForm.style.display = 'none';
+    if (userProfileDiv) userProfileDiv.style.display = 'block';
+    if (modalTitle) modalTitle.textContent = 'Account';
+
+    // Update profile info
+    const userName = el('user-name');
+    const userEmail = el('user-email');
+    const userRole = el('user-role');
+    const userApprovalStatus = el('user-approval-status');
+
+    if (userName && userProfile) userName.textContent = userProfile.name || 'User';
+    if (userEmail && currentUser) userEmail.textContent = currentUser.email || '';
+    
+    if (userRole && userProfile) {
+      userRole.textContent = userProfile.role === 'external_user' ? 'External User' : 
+                             userProfile.role === 'internal_user' ? 'Internal User' : 'Guest';
+      userRole.setAttribute('data-role', userProfile.role);
+    }
+
+    if (userApprovalStatus && userProfile) {
+      if (userProfile.approval_status === 'pending') {
+        userApprovalStatus.style.display = 'inline-block';
+        userApprovalStatus.textContent = 'Pending Approval';
+        userApprovalStatus.setAttribute('data-status', 'pending');
+      } else if (userProfile.approval_status === 'approved') {
+        userApprovalStatus.style.display = 'inline-block';
+        userApprovalStatus.textContent = 'Approved';
+        userApprovalStatus.setAttribute('data-status', 'approved');
+      } else {
+        userApprovalStatus.style.display = 'none';
+      }
+    }
+  }
+
+  // Handle login
+  window.handleLogin = async function(event) {
+    event.preventDefault();
+    if (!supabase) {
+      alert('Supabase is not configured');
+      return;
+    }
+
+    const email = el('login-email')?.value;
+    const password = el('login-password')?.value;
+    const errorDiv = el('login-error');
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) throw error;
+
+      currentUser = data.user;
+      await loadUserProfile();
+      updateAuthUI();
+      
+      if (errorDiv) errorDiv.style.display = 'none';
+      showUserProfile();
+      
+      console.log("✅ Login successful");
+    } catch (error) {
+      console.error("Login error:", error);
+      if (errorDiv) {
+        errorDiv.textContent = error.message || 'Login failed. Please check your credentials.';
+        errorDiv.style.display = 'block';
+      }
+    }
+  };
+
+  // Handle signup
+  window.handleSignup = async function(event) {
+    event.preventDefault();
+    if (!supabase) {
+      alert('Supabase is not configured');
+      return;
+    }
+
+    const name = el('signup-name')?.value;
+    const email = el('signup-email')?.value;
+    const password = el('signup-password')?.value;
+    const requestedRole = el('signup-role')?.value;
+    const errorDiv = el('signup-error');
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: name,
+            requested_role: requestedRole
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      if (errorDiv) errorDiv.style.display = 'none';
+      
+      // Show success message
+      alert('Account created successfully! Please check your email to confirm your account.');
+      
+      // Switch to login form
+      showLoginForm();
+      
+      console.log("✅ Signup successful");
+    } catch (error) {
+      console.error("Signup error:", error);
+      if (errorDiv) {
+        errorDiv.textContent = error.message || 'Signup failed. Please try again.';
+        errorDiv.style.display = 'block';
+      }
+    }
+  };
+
+  // Handle logout
+  window.handleLogout = async function() {
+    if (!supabase) return;
+
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      currentUser = null;
+      userProfile = null;
+      updateAuthUI();
+      closeAuthModal();
+      
+      console.log("✅ Logout successful");
+    } catch (error) {
+      console.error("Logout error:", error);
+      alert('Logout failed. Please try again.');
+    }
+  };
+
+  // Listen for auth state changes
+  if (supabase) {
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state changed:", event);
+      
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        currentUser = session?.user || null;
+        await loadUserProfile();
+        updateAuthUI();
+      } else if (event === 'SIGNED_OUT') {
+        currentUser = null;
+        userProfile = null;
+        updateAuthUI();
+      }
+    });
+  }
+
+  // ============================================
+  // End Authentication Functions
+  // ============================================
 
   // Boot
   function main() {
@@ -2273,6 +2574,9 @@
     initMap();
     initEvents();
     initCustomCharts();
+    
+    // Check authentication status
+    checkAuthStatus();
 
     // Start on Overview
     Object.values(panels).forEach((p) => (p.style.display = "none"));

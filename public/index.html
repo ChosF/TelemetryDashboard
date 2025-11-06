@@ -52,6 +52,9 @@
         <span class="fab-icon">⚡</span>
       </button>
       <div id="fab-options" class="fab-options">
+        <button id="fab-auth" class="fab-option liquid-hover" data-tooltip="Account">
+          <span>👤</span>
+        </button>
         <button id="fab-connect" class="fab-option liquid-hover" data-tooltip="Connect">
           <span>🔗</span>
         </button>
@@ -411,12 +414,93 @@
       </main>
     </div>
 
+    <!-- Authentication Modals -->
+    <div id="auth-modal" class="modal" style="display:none;">
+      <div class="modal-content glass-panel" style="max-width: 450px;">
+        <div class="modal-header">
+          <h2 id="auth-modal-title" style="margin: 0; font-weight: 800;">Sign In</h2>
+          <button class="modal-close" onclick="closeAuthModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <!-- Login Form -->
+          <div id="login-form" class="auth-form">
+            <form id="login-form-element" onsubmit="handleLogin(event)">
+              <div class="form-group">
+                <label for="login-email">Email</label>
+                <input type="email" id="login-email" required placeholder="your@email.com" />
+              </div>
+              <div class="form-group">
+                <label for="login-password">Password</label>
+                <input type="password" id="login-password" required placeholder="••••••••" />
+              </div>
+              <div id="login-error" class="error-message" style="display:none;"></div>
+              <button type="submit" class="btn-primary liquid-hover" style="width: 100%; margin-top: 1rem;">
+                Sign In
+              </button>
+            </form>
+            <p style="text-align: center; margin-top: 1rem; color: var(--text-subtle);">
+              Don't have an account? 
+              <a href="#" onclick="showSignupForm(); return false;" style="color: var(--accent-primary); text-decoration: none;">Sign Up</a>
+            </p>
+          </div>
+
+          <!-- Signup Form -->
+          <div id="signup-form" class="auth-form" style="display: none;">
+            <form id="signup-form-element" onsubmit="handleSignup(event)">
+              <div class="form-group">
+                <label for="signup-name">Full Name</label>
+                <input type="text" id="signup-name" required placeholder="John Doe" />
+              </div>
+              <div class="form-group">
+                <label for="signup-email">Email</label>
+                <input type="email" id="signup-email" required placeholder="your@email.com" />
+              </div>
+              <div class="form-group">
+                <label for="signup-password">Password</label>
+                <input type="password" id="signup-password" required minlength="6" placeholder="••••••••" />
+              </div>
+              <div class="form-group">
+                <label for="signup-role">Account Type</label>
+                <select id="signup-role" required>
+                  <option value="external_user">External User</option>
+                  <option value="internal_user">Internal User (Requires Approval)</option>
+                </select>
+              </div>
+              <div id="signup-error" class="error-message" style="display:none;"></div>
+              <button type="submit" class="btn-primary liquid-hover" style="width: 100%; margin-top: 1rem;">
+                Sign Up
+              </button>
+            </form>
+            <p style="text-align: center; margin-top: 1rem; color: var(--text-subtle);">
+              Already have an account? 
+              <a href="#" onclick="showLoginForm(); return false;" style="color: var(--accent-primary); text-decoration: none;">Sign In</a>
+            </p>
+          </div>
+
+          <!-- User Profile (shown when logged in) -->
+          <div id="user-profile" class="auth-form" style="display: none;">
+            <div style="text-align: center; padding: 1rem 0;">
+              <div style="font-size: 3rem; margin-bottom: 0.5rem;">👤</div>
+              <h3 id="user-name" style="margin: 0 0 0.5rem 0; font-weight: 700;"></h3>
+              <p id="user-email" style="margin: 0 0 0.5rem 0; color: var(--text-subtle);"></p>
+              <div id="user-role" class="badge" style="display: inline-block; margin-bottom: 1rem;"></div>
+              <div id="user-approval-status" class="badge" style="display: none; margin-bottom: 1rem; margin-left: 0.5rem;"></div>
+            </div>
+            <button onclick="handleLogout()" class="btn-secondary liquid-hover" style="width: 100%;">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <!-- App logic -->
     <script src="app.js"></script>
