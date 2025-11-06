@@ -38,7 +38,7 @@
 
   // Initialize Supabase client
   let supabase = null;
-  if (SUPABASE_URL && SUPABASE_ANON_KEY && typeof supabase === 'undefined') {
+  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
     if (window.supabase && window.supabase.createClient) {
       supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       console.log("✅ Supabase client initialized");
