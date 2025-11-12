@@ -643,18 +643,20 @@
 
     if (isAuth && user) {
       // Show user menu
-      const displayName = (profile?.name || user.email.split('@')[0] || 'Loading…');
+      const metaName = user?.user_metadata?.name;
+      const displayName =
+        profile?.name || metaName || (user?.email ? user.email.split('@')[0] : 'Loading…');
       const authButtons = document.createElement('div');
       authButtons.className = 'header-auth-buttons';
       authButtons.innerHTML = `
         <div class="user-menu">
           <button class="user-menu-toggle liquid-hover" id="user-menu-toggle">
-            <span class="user-avatar">${(profile?.name || user.email).charAt(0).toUpperCase()}</span>
+            <span class="user-avatar">${(profile?.name || metaName || user.email).charAt(0).toUpperCase()}</span>
             <span class="user-email">${displayName}</span>
           </button>
           <div class="user-menu-dropdown" id="user-menu-dropdown" style="display: none;">
             <div class="user-menu-header">
-              <div class="user-menu-email">${profile?.name || user.email}</div>
+              <div class="user-menu-email">${profile?.name || metaName || user.email}</div>
               <div class="user-menu-role">${profile ? getRoleLabel(profile.role) : 'Loading…'}</div>
             </div>
             ${window.AuthModule.hasPermission('canAccessAdmin') ? `
