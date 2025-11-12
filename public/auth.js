@@ -476,17 +476,28 @@
     }
 
     try {
-      const { data, error } = await supabaseClient
-        .from('user_profiles')
-        .select('*')
-        .eq('approval_status', 'pending')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        throw error;
+      // Get current session to get the JWT token
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
       }
 
-      return data;
+      // Call backend API with JWT token
+      const response = await fetch('/api/admin/users/pending', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch pending users');
+      }
+
+      const result = await response.json();
+      return result.users;
     } catch (error) {
       console.error('Error fetching pending users:', error);
       throw error;
@@ -500,16 +511,28 @@
     }
 
     try {
-      const { data, error } = await supabaseClient
-        .from('user_profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        throw error;
+      // Get current session to get the JWT token
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
       }
 
-      return data;
+      // Call backend API with JWT token
+      const response = await fetch('/api/admin/users', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch users');
+      }
+
+      const result = await response.json();
+      return result.users;
     } catch (error) {
       console.error('Error fetching users:', error);
       throw error;
@@ -523,21 +546,29 @@
     }
 
     try {
-      const { data, error } = await supabaseClient
-        .from('user_profiles')
-        .update({ 
-          role: newRole,
-          approval_status: 'approved'
-        })
-        .eq('user_id', userId)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
+      // Get current session to get the JWT token
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
       }
 
-      return data;
+      // Call backend API with JWT token
+      const response = await fetch(`/api/admin/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ role: newRole })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update user role');
+      }
+
+      const result = await response.json();
+      return result.user;
     } catch (error) {
       console.error('Error updating user role:', error);
       throw error;
@@ -551,20 +582,28 @@
     }
 
     try {
-      const { data, error } = await supabaseClient
-        .from('user_profiles')
-        .update({ 
-          approval_status: 'rejected'
-        })
-        .eq('user_id', userId)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
+      // Get current session to get the JWT token
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
       }
 
-      return data;
+      // Call backend API with JWT token
+      const response = await fetch(`/api/admin/users/${userId}/reject`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to reject user');
+      }
+
+      const result = await response.json();
+      return result.user;
     } catch (error) {
       console.error('Error rejecting user:', error);
       throw error;

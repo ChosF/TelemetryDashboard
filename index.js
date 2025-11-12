@@ -250,6 +250,193 @@ app.get("/api/auth/profile", async (req, res) => {
   });
 });
 
+/**
+ * Authentication middleware to verify JWT token and check admin role
+ */
+async function verifyAdminAuth(req, res, next) {
+  try {
+    // Get authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing authorization token' });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+    // Verify token with Supabase
+    const { data: { user }, error } = await supabaseServer.auth.getUser(token);
+    
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid authorization token' });
+    }
+
+    // Get user profile to check role
+    const { data: profile, error: profileError } = await supabaseServer
+      .from('user_profiles')
+      .select('role')
+      .eq('user_id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return res.status(403).json({ error: 'User profile not found' });
+    }
+
+    // Check if user is admin
+    if (profile.role !== 'admin') {
+      return res.status(403).json({ error: 'Unauthorized: Admin access required' });
+    }
+
+    // Attach user to request for use in handlers
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error('Auth middleware error:', err);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+}
+
+/**
+ * Admin API: Get all users
+ * GET /api/admin/users
+ * 
+ * Returns all user profiles. Requires admin authentication.
+ */
+app.get("/api/admin/users", verifyAdminAuth, async (req, res) => {
+  try {
+    if (!supabaseServer) {
+      return res.status(500).json({ error: "Supabase not configured" });
+    }
+
+    const { data, error } = await supabaseServer
+      .from('user_profiles')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching all users:', error);
+      return res.status(500).json({ error: 'Failed to fetch users' });
+    }
+
+    res.json({ users: data || [] });
+  } catch (err) {
+    console.error('Get all users error:', err);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+/**
+ * Admin API: Get pending users
+ * GET /api/admin/users/pending
+ * 
+ * Returns users with pending approval status. Requires admin authentication.
+ */
+app.get("/api/admin/users/pending", verifyAdminAuth, async (req, res) => {
+  try {
+    if (!supabaseServer) {
+      return res.status(500).json({ error: "Supabase not configured" });
+    }
+
+    const { data, error } = await supabaseServer
+      .from('user_profiles')
+      .select('*')
+      .eq('approval_status', 'pending')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching pending users:', error);
+      return res.status(500).json({ error: 'Failed to fetch pending users' });
+    }
+
+    res.json({ users: data || [] });
+  } catch (err) {
+    console.error('Get pending users error:', err);
+    res.status(500).json({ error: 'Failed to fetch pending users' });
+  }
+});
+
+/**
+ * Admin API: Update user role
+ * PATCH /api/admin/users/:userId/role
+ * 
+ * Updates a user's role and approval status. Requires admin authentication.
+ * Body: { role: string }
+ */
+app.patch("/api/admin/users/:userId/role", verifyAdminAuth, async (req, res) => {
+  try {
+    if (!supabaseServer) {
+      return res.status(500).json({ error: "Supabase not configured" });
+    }
+
+    const { userId } = req.params;
+    const { role } = req.body;
+
+    if (!role) {
+      return res.status(400).json({ error: 'Role is required' });
+    }
+
+    // Validate role
+    const validRoles = ['guest', 'external_user', 'internal_user', 'admin'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    const { data, error } = await supabaseServer
+      .from('user_profiles')
+      .update({ 
+        role: role,
+        approval_status: 'approved'
+      })
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating user role:', error);
+      return res.status(500).json({ error: 'Failed to update user role' });
+    }
+
+    res.json({ user: data });
+  } catch (err) {
+    console.error('Update user role error:', err);
+    res.status(500).json({ error: 'Failed to update user role' });
+  }
+});
+
+/**
+ * Admin API: Reject user
+ * PATCH /api/admin/users/:userId/reject
+ * 
+ * Rejects a user's request by setting approval status to rejected. Requires admin authentication.
+ */
+app.patch("/api/admin/users/:userId/reject", verifyAdminAuth, async (req, res) => {
+  try {
+    if (!supabaseServer) {
+      return res.status(500).json({ error: "Supabase not configured" });
+    }
+
+    const { userId } = req.params;
+
+    const { data, error } = await supabaseServer
+      .from('user_profiles')
+      .update({ 
+        approval_status: 'rejected'
+      })
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error rejecting user:', error);
+      return res.status(500).json({ error: 'Failed to reject user' });
+    }
+
+    res.json({ user: data });
+  } catch (err) {
+    console.error('Reject user error:', err);
+    res.status(500).json({ error: 'Failed to reject user' });
+  }
+});
+
 // Static frontend
 app.use(express.static(path.resolve(STATIC_DIR)));
 
