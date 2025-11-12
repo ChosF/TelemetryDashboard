@@ -134,7 +134,7 @@ body::before {
     );
   filter: blur(80px) saturate(180%);
   pointer-events: none;
-  animation: floatBackground 25s ease-in-out infinite alternate;
+  /* Removed floatBackground animation for better performance */
 }
 @keyframes floatBackground {
   0% {
@@ -209,7 +209,7 @@ body::before {
 }
 
 .fab-icon {
-  animation: pulse 2s ease-in-out infinite;
+  /* Removed pulse animation for better performance */
 }
 
 @keyframes pulse {
@@ -325,7 +325,7 @@ body::before {
     var(--accent),
     transparent
   );
-  animation: shimmer 3s ease-in-out infinite;
+  /* Removed shimmer animation for better performance */
 }
 
 @keyframes shimmer {
@@ -367,7 +367,8 @@ body::before {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: gradientShift 5s ease-in-out infinite alternate;
+  /* Removed gradientShift animation for better performance */
+  background-size: 200% 200%;
 }
 
 @keyframes gradientShift {
@@ -419,17 +420,16 @@ body::before {
   border-radius: 50%;
   background: var(--success);
   box-shadow: 0 0 12px var(--success);
-  animation: pulse-dot 2s ease-in-out infinite;
+  /* Simplified pulse - less intensive */
+  animation: pulse-dot 3s ease-in-out infinite;
 }
 
 @keyframes pulse-dot {
   0%, 100% {
-    transform: scale(1);
     opacity: 1;
   }
   50% {
-    transform: scale(1.2);
-    opacity: 0.8;
+    opacity: 0.7;
   }
 }
 
