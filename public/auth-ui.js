@@ -642,32 +642,34 @@
     const profile = window.AuthModule ? window.AuthModule.getCurrentProfile() : null;
 
     if (isAuth && user) {
-      // Show user menu with robust display name fallback chain
-      // Priority: profile.name → user.user_metadata.name → email prefix
-      const displayName = profile?.name || user.user_metadata?.name || user.email.split('@')[0] || 'User';
+      // Show enhanced account menu with View Transitions API
       const fullName = profile?.name || user.user_metadata?.name || user.email;
-      const roleLabel = profile ? getRoleLabel(profile.role) : 'Loading…';
+      const isAdmin = window.AuthModule.hasPermission('canAccessAdmin');
       
       const authButtons = document.createElement('div');
       authButtons.className = 'header-auth-buttons';
       authButtons.innerHTML = `
-        <div class="user-menu">
-          <button class="user-menu-toggle liquid-hover" id="user-menu-toggle">
-            <span class="user-avatar">${fullName.charAt(0).toUpperCase()}</span>
-            <span class="user-email">${displayName}</span>
+        <div class="enhanced-account-menu" id="enhanced-account-menu">
+          <button class="account-trigger liquid-hover" id="account-trigger" aria-label="Account menu" aria-expanded="false">
+            <span class="account-avatar">${fullName.charAt(0).toUpperCase()}</span>
           </button>
-          <div class="user-menu-dropdown" id="user-menu-dropdown" style="display: none;">
-            <div class="user-menu-header">
-              <div class="user-menu-email">${fullName}</div>
-              <div class="user-menu-role">${roleLabel}</div>
-            </div>
-            ${window.AuthModule.hasPermission('canAccessAdmin') ? `
-              <button class="user-menu-item liquid-hover" id="admin-dashboard-btn">
-                <span>👥</span> Admin Dashboard
+          <div class="account-actions" id="account-actions">
+            ${isAdmin ? `
+              <button class="account-action liquid-hover" id="admin-dashboard-action" aria-label="Dashboard" data-tooltip="Dashboard">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="14" width="7" height="7"></rect>
+                  <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
               </button>
             ` : ''}
-            <button class="user-menu-item liquid-hover" id="sign-out-btn">
-              <span>🚪</span> Sign Out
+            <button class="account-action logout-action liquid-hover" id="logout-action" aria-label="Sign out" data-tooltip="Sign out">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
+              </svg>
             </button>
           </div>
         </div>
@@ -675,53 +677,62 @@
 
       header.appendChild(authButtons);
 
-      // User menu toggle
-      const menuToggle = authButtons.querySelector('#user-menu-toggle');
-      const menuDropdown = authButtons.querySelector('#user-menu-dropdown');
+      // Enhanced menu toggle with View Transitions API
+      const menuContainer = authButtons.querySelector('#enhanced-account-menu');
+      const trigger = authButtons.querySelector('#account-trigger');
+      const actions = authButtons.querySelector('#account-actions');
       
-      menuToggle.addEventListener('click', (e) => {
+      let isExpanded = false;
+      
+      trigger.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const isVisible = menuDropdown.style.display !== 'none';
         
-        if (!isVisible) {
-          // Position the dropdown using fixed positioning
-          const rect = menuToggle.getBoundingClientRect();
-          menuDropdown.style.top = `${rect.bottom + 8}px`;
-          menuDropdown.style.left = `${rect.right - 180}px`; // 180px is min-width of dropdown
-          menuDropdown.style.display = 'block';
-        } else {
-          menuDropdown.style.display = 'none';
-        }
+        // Use View Transitions API for smooth animation
+        const transition = document.startViewTransition(() => {
+          isExpanded = !isExpanded;
+          menuContainer.classList.toggle('expanded', isExpanded);
+          trigger.setAttribute('aria-expanded', isExpanded.toString());
+        });
+        
+        await transition.finished;
       });
 
       // Close menu when clicking outside
+      const closeMenu = () => {
+        if (isExpanded) {
+          document.startViewTransition(() => {
+            isExpanded = false;
+            menuContainer.classList.remove('expanded');
+            trigger.setAttribute('aria-expanded', 'false');
+          });
+        }
+      };
+
       document.addEventListener('click', (e) => {
-        if (!authButtons.contains(e.target) && !menuDropdown.contains(e.target)) {
-          menuDropdown.style.display = 'none';
+        if (!menuContainer.contains(e.target)) {
+          closeMenu();
         }
       });
 
       // Close menu on scroll
-      window.addEventListener('scroll', () => {
-        if (menuDropdown.style.display !== 'none') {
-          menuDropdown.style.display = 'none';
-        }
-      });
+      window.addEventListener('scroll', closeMenu, { passive: true });
 
       // Admin dashboard button
-      const adminBtn = authButtons.querySelector('#admin-dashboard-btn');
-      if (adminBtn) {
-        adminBtn.addEventListener('click', () => {
-          menuDropdown.style.display = 'none';
+      if (isAdmin) {
+        const adminBtn = authButtons.querySelector('#admin-dashboard-action');
+        adminBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeMenu();
           showAdminDashboard();
         });
       }
 
       // Sign out button
-      const signOutBtn = authButtons.querySelector('#sign-out-btn');
-      signOutBtn.addEventListener('click', async () => {
+      const logoutBtn = authButtons.querySelector('#logout-action');
+      logoutBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        closeMenu();
         await window.AuthModule.signOut();
-        menuDropdown.style.display = 'none';
       });
 
       // Show approval banner if needed
