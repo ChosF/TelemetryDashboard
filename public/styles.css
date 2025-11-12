@@ -106,7 +106,7 @@ body {
   overflow-x: hidden;
 }
 
-/* Enhanced ambient background */
+/* Enhanced ambient background - static for performance */
 body::before {
   content: "";
   position: fixed;
@@ -134,15 +134,7 @@ body::before {
     );
   filter: blur(80px) saturate(180%);
   pointer-events: none;
-  animation: floatBackground 25s ease-in-out infinite alternate;
-}
-@keyframes floatBackground {
-  0% {
-    transform: translateX(-15px) translateY(-15px) rotate(0deg) scale(1);
-  }
-  100% {
-    transform: translateX(15px) translateY(15px) rotate(3deg) scale(1.05);
-  }
+  /* Removed continuous animation for performance */
 }
 
 /* Floating Action Button Menu */
@@ -209,16 +201,7 @@ body::before {
 }
 
 .fab-icon {
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.1);
-  }
+  /* Removed pulse animation for performance */
 }
 
 .fab-options {
@@ -367,16 +350,8 @@ body::before {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: gradientShift 5s ease-in-out infinite alternate;
-}
-
-@keyframes gradientShift {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 100% 50%;
-  }
+  background-size: 200% 100%;
+  /* Removed gradient shift animation for performance */
 }
 
 .hero-subtitle {
@@ -419,18 +394,7 @@ body::before {
   border-radius: 50%;
   background: var(--success);
   box-shadow: 0 0 12px var(--success);
-  animation: pulse-dot 2s ease-in-out infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.2);
-    opacity: 0.8;
-  }
+  /* Removed pulse animation for performance */
 }
 
 .stats-mini {

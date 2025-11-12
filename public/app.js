@@ -770,8 +770,7 @@
           },
         },
       ],
-      animation: true,
-      animationDuration: 300,
+      animation: false, // Disabled for performance
       animationEasing: "cubicOut",
     };
     
@@ -810,7 +809,7 @@
           pointer: { length: "58%", width: 4, itemStyle: { color } },
           title: { show: false },
           detail: {
-            valueAnimation: false,
+            valueAnimation: false, // Disabled for performance
             offsetCenter: [0, "60%"],
             fontSize: 16,
             fontWeight: "bold",
@@ -819,9 +818,7 @@
           data: [{ value: v }],
         },
       ],
-      animation: true,
-      animationDuration: 200,
-      animationEasing: 'linear',
+      animation: false, // Disabled for performance during real-time updates
     };
   }
   function renderGauges(k) {
@@ -913,11 +910,6 @@
           z: 0,
         },
       ],
-      animation: true,
-      animationDuration: 200,
-      animationEasing: 'linear',
-      useDirtyRect: true,
-    };
   }
 
   // Charts base
@@ -929,14 +921,9 @@
       grid: { left: "4%", right: "4%", top: 60, bottom: 50, containLabel: true },
       xAxis: { type: "time" },
       yAxis: { type: "value" },
-      animation: true,
-      animationDuration: 200,
-      animationEasing: 'linear',
+      animation: false, // Disabled for performance
       useDirtyRect: true,
     };
-  }
-  function addDataZoom(opt, xIdxs, yIdxs) {
-    const dz = [
       { type: "inside", xAxisIndex: xIdxs, filterMode: "none", zoomOnMouseWheel: true, moveOnMouseWheel: true, moveOnMouseMove: true },
       { type: "slider", xAxisIndex: xIdxs, height: 14, bottom: 6 },
     ];
@@ -988,9 +975,7 @@
         { type: "line", datasetId: "curr", name: "Current (A)", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#ef4444" }, sampling: "lttb", xAxisIndex: 1, yAxisIndex: 1, smooth: false },
       ],
       axisPointer: { link: [{ xAxisIndex: "all" }] },
-      animation: true,
-      animationDuration: 200,
-      animationEasing: 'linear',
+      animation: false, // Disabled for performance
       useDirtyRect: true,
     };
     addDataZoom(opt, [0, 1]);
@@ -1034,9 +1019,7 @@
         { type: "line", datasetId: "orient", name: "Roll", encode: { x: 0, y: 2 }, xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { width: 2, color: "#4ecdc4" }, sampling: "lttb", smooth: false },
       ],
       axisPointer: { link: [{ xAxisIndex: "all" }] },
-      animation: true,
-      animationDuration: 200,
-      animationEasing: 'linear',
+      animation: false, // Disabled for performance
       useDirtyRect: true,
     };
     addDataZoom(opt, [0, 1, 2]);
@@ -1096,9 +1079,7 @@
         { type: "line", name: "Pitch", datasetId: "all", encode: { x: 0, y: 7 }, xAxisIndex: 6, yAxisIndex: 6, showSymbol: false, lineStyle: { width: 2, color: "#ff6b6b" }, sampling: "lttb", smooth: false },
         { type: "line", name: "Roll", datasetId: "all", encode: { x: 0, y: 8 }, xAxisIndex: 7, yAxisIndex: 7, showSymbol: false, lineStyle: { width: 2, color: "#4ecdc4" }, sampling: "lttb", smooth: false },
       ],
-      animation: true,
-      animationDuration: 200,
-      animationEasing: 'linear',
+      animation: false, // Disabled for performance
       useDirtyRect: true,
       legend: { top: 28 },
     };
@@ -1145,9 +1126,7 @@
       },
       series: [{ type: "scatter", symbolSize: 6, encode: { x: 0, y: 1 }, itemStyle: { opacity: 0.85 } }],
       dataset: { source: src },
-      animation: true,
-      animationDuration: 200,
-      animationEasing: 'linear',
+      animation: false, // Disabled for performance
       useDirtyRect: true,
     };
     addDataZoom(opt, [0], [0]);
@@ -1205,9 +1184,7 @@
           markPoint: { symbol: "circle", symbolSize: 10, data: [{ coord: [gLat, gLong] }], itemStyle: { color: "#111" } },
         },
       ],
-      animation: true,
-      animationDuration: 200,
-      animationEasing: 'linear',
+      animation: false, // Disabled for performance
       useDirtyRect: true,
     };
   }
@@ -1244,9 +1221,7 @@
           label: { show: true, position: "right", formatter: ({ value }) => `${value.toFixed(0)}%` },
         },
       ],
-      animation: true,
-      animationDuration: 200,
-      animationEasing: 'linear',
+      animation: false, // Disabled for performance
       useDirtyRect: true,
     };
     chartPedals.setOption(opt);
@@ -1641,10 +1616,10 @@
     });
   }
 
-  // Throttled render for better performance - renders max once every 100ms
+  // Throttled render for better performance - renders max once every 250ms
   const throttledRender = throttle(() => {
     scheduleRender();
-  }, 100);
+  }, 250);
 
   function doRender() {
     if (state.lastMsgTs) {
