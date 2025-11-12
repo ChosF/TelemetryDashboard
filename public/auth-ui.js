@@ -642,20 +642,24 @@
     const profile = window.AuthModule ? window.AuthModule.getCurrentProfile() : null;
 
     if (isAuth && user) {
-      // Show user menu
-      const displayName = (profile?.name || user.email.split('@')[0] || 'Loading…');
+      // Show user menu with robust display name fallback chain
+      // Priority: profile.name → user.user_metadata.name → email prefix
+      const displayName = profile?.name || user.user_metadata?.name || user.email.split('@')[0] || 'User';
+      const fullName = profile?.name || user.user_metadata?.name || user.email;
+      const roleLabel = profile ? getRoleLabel(profile.role) : 'Loading…';
+      
       const authButtons = document.createElement('div');
       authButtons.className = 'header-auth-buttons';
       authButtons.innerHTML = `
         <div class="user-menu">
           <button class="user-menu-toggle liquid-hover" id="user-menu-toggle">
-            <span class="user-avatar">${(profile?.name || user.email).charAt(0).toUpperCase()}</span>
+            <span class="user-avatar">${fullName.charAt(0).toUpperCase()}</span>
             <span class="user-email">${displayName}</span>
           </button>
           <div class="user-menu-dropdown" id="user-menu-dropdown" style="display: none;">
             <div class="user-menu-header">
-              <div class="user-menu-email">${profile?.name || user.email}</div>
-              <div class="user-menu-role">${profile ? getRoleLabel(profile.role) : 'Loading…'}</div>
+              <div class="user-menu-email">${fullName}</div>
+              <div class="user-menu-role">${roleLabel}</div>
             </div>
             ${window.AuthModule.hasPermission('canAccessAdmin') ? `
               <button class="user-menu-item liquid-hover" id="admin-dashboard-btn">
