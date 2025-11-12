@@ -265,10 +265,8 @@
         }
 
         if (result.success) {
-          // Show success message
-          if (!isLogin && result.needsApproval) {
-            showApprovalBanner();
-          }
+          // Profile has been (or will be) created by DB trigger.
+          // UI will refresh on 'auth-state-changed' once profile loads.
           closeModal();
         } else {
           throw new Error(result.error || 'Authentication failed');

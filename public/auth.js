@@ -159,7 +159,8 @@
         });
         currentProfile = data;
       } else {
-        console.log('⚠️ No profile found for user, creating default profile');
+        // With our trigger this should not happen; keep a narrow fallback for resilience
+        console.warn('⚠️ No profile found for user after signup. Creating minimal fallback profile.');
         await createUserProfile(user);
       }
     } catch (error) {
@@ -229,6 +230,21 @@
     }
   }
 
+  // Poll for profile row to appear after trigger runs
+  async function waitForProfileRow(userId, timeoutMs = 1500) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const { data, error } = await supabaseClient
+        .from('user_profiles')
+        .select('user_id')
+        .eq('user_id', userId)
+        .maybeSingle?.() ?? { data: null, error: null };
+      if (data?.user_id) return true;
+      await new Promise(r => setTimeout(r, 150));
+    }
+    return false;
+  }
+
   // Sign up with email and password
   async function signUp(email, password, requestedRole = USER_ROLES.EXTERNAL, name = null) {
     if (!supabaseClient) {
@@ -237,10 +253,17 @@
 
     try {
       console.log('📝 Signing up user...', { email, requestedRole, name });
-      
+      // Send metadata so DB trigger can create correct profile atomically
       const { data, error } = await supabaseClient.auth.signUp({
         email,
-        password
+        password,
+        options: {
+          // This ends up in auth.users.raw_user_meta_data
+          data: {
+            name: name || null,
+            requested_role: requestedRole || USER_ROLES.EXTERNAL,
+          },
+        },
       });
 
       if (error) {
@@ -250,15 +273,14 @@
 
       console.log('✅ User created in auth:', data.user?.id);
 
-      // Create user profile - CRITICAL: Wait for this to complete
+      // Do NOT upsert a profile here. The DB trigger handles creation using raw_user_meta_data.
+      // Instead, attempt to load the freshly created profile (poll once or twice in case of slight lag).
       if (data.user) {
-        console.log('📝 Creating user profile...');
-        const profile = await createUserProfile(data.user, requestedRole, name);
-        if (profile) {
-          console.log('✅ User profile created successfully:', profile);
-        } else {
-          console.error('❌ Failed to create user profile - check RLS policies and table permissions');
-        }
+        await waitForProfileRow(data.user.id, 1500);
+        await loadUserProfile(data.user);
+        window.dispatchEvent(new CustomEvent('auth-state-changed', { 
+          detail: { user: currentUser, profile: currentProfile } 
+        }));
       }
 
       return { success: true, data, needsApproval: requestedRole === USER_ROLES.INTERNAL };
