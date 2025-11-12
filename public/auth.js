@@ -138,14 +138,14 @@
     
     try {
       console.log('📖 Loading user profile for:', user.id);
-      
+      // Use maybeSingle so "0 rows" doesn't throw
       const { data, error } = await supabaseClient
         .from('user_profiles')
         .select('*')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== SUPABASE_ERROR_CODES.NO_ROWS) {
+      if (error) {
         console.error('❌ Error loading profile:', error);
         return;
       }
@@ -159,43 +159,53 @@
         });
         currentProfile = data;
       } else {
-        console.log('⚠️ No profile found for user, creating default profile');
-        await createUserProfile(user);
+        console.log('⏳ Profile not found yet — will retry once (trigger lag?)');
+        // Retry once after a short delay to allow the AFTER INSERT trigger to run
+        await new Promise((r) => setTimeout(r, 700));
+        const { data: retry, error: err2 } = await supabaseClient
+          .from('user_profiles')
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (err2) {
+          console.warn('⚠️ Retry load profile failed:', err2);
+        }
+        if (retry) {
+          console.log('✅ Profile loaded on retry:', {
+            role: retry.role,
+            name: retry.name,
+            approval_status: retry.approval_status,
+          });
+          currentProfile = retry;
+        } else {
+          console.warn('⚠️ Profile still not present. Will remain guest until next auth event/manual refresh.');
+        }
       }
     } catch (error) {
       console.error('❌ Error loading user profile:', error);
     }
   }
 
-  // Create or update user profile with requested role and name
-  async function createUserProfile(user, requestedRole = USER_ROLES.GUEST, name = null) {
+  // Keep only for safe updates, not creation. Server trigger creates the row.
+  async function createOrUpdateUserProfile(user, requestedRole = USER_ROLES.EXTERNAL, name = null) {
     try {
-      console.log('📝 Creating/updating profile for user:', user.id, { requestedRole, name });
-      
-      // External users are auto-approved, internal users need approval
-      const role = requestedRole === USER_ROLES.INTERNAL ? USER_ROLES.EXTERNAL : requestedRole;
-      const needsApproval = requestedRole === USER_ROLES.INTERNAL;
+      console.log('📝 Updating profile (safe fields only) for user:', user.id, { requestedRole, name });
+      // DO NOT set role or approval_status here; server decides via trigger/admin.
 
       const profileData = {
         user_id: user.id,
         email: user.email,
-        role: role,
         requested_role: requestedRole,
-        approval_status: needsApproval ? 'pending' : 'approved',
-        created_at: new Date().toISOString()
+        // allow name update
+        ...(name ? { name } : {}),
       };
 
-      // Add name if provided
-      if (name) {
-        profileData.name = name;
-      }
-
-      console.log('📝 Profile data to insert:', profileData);
+      console.log('📝 Profile data to upsert (safe):', profileData);
 
       // Try to insert, if profile already exists (created by trigger), update it
       const { data, error } = await supabaseClient
         .from('user_profiles')
-        .upsert([profileData], { 
+        .upsert([profileData], {
           onConflict: 'user_id',
           ignoreDuplicates: false  // Always update if exists
         })
@@ -221,6 +231,7 @@
         requested_role: data.requested_role,
         approval_status: data.approval_status
       });
+      // Keep currentProfile refreshed, but note: role/approval_status come from server
       currentProfile = data;
       return data;
     } catch (error) {
@@ -237,10 +248,17 @@
 
     try {
       console.log('📝 Signing up user...', { email, requestedRole, name });
-      
+      // CRITICAL: carry metadata so the DB trigger can create a correct profile
       const { data, error } = await supabaseClient.auth.signUp({
         email,
-        password
+        password,
+        options: {
+          data: {
+            // Persist metadata for trigger: see NEW.raw_user_meta_data in SQL
+            name: name || null,
+            requested_role: requestedRole || USER_ROLES.EXTERNAL,
+          },
+        },
       });
 
       if (error) {
@@ -250,15 +268,10 @@
 
       console.log('✅ User created in auth:', data.user?.id);
 
-      // Create user profile - CRITICAL: Wait for this to complete
+      // Do not force-create profile here. The DB trigger handles creation.
+      // If we already have a session (email confirmed instantly), we can safely update allowed fields:
       if (data.user) {
-        console.log('📝 Creating user profile...');
-        const profile = await createUserProfile(data.user, requestedRole, name);
-        if (profile) {
-          console.log('✅ User profile created successfully:', profile);
-        } else {
-          console.error('❌ Failed to create user profile - check RLS policies and table permissions');
-        }
+        await createOrUpdateUserProfile(data.user, requestedRole, name);
       }
 
       return { success: true, data, needsApproval: requestedRole === USER_ROLES.INTERNAL };
