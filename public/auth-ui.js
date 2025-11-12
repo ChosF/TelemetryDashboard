@@ -687,24 +687,18 @@
       trigger.addEventListener('click', async (e) => {
         e.stopPropagation();
         
-        // Use View Transitions API for smooth animation
-        const transition = document.startViewTransition(() => {
-          isExpanded = !isExpanded;
-          menuContainer.classList.toggle('expanded', isExpanded);
-          trigger.setAttribute('aria-expanded', isExpanded.toString());
-        });
-        
-        await transition.finished;
+        // Toggle expanded state with smooth CSS transitions
+        isExpanded = !isExpanded;
+        menuContainer.classList.toggle('expanded', isExpanded);
+        trigger.setAttribute('aria-expanded', isExpanded.toString());
       });
 
       // Close menu when clicking outside
       const closeMenu = () => {
         if (isExpanded) {
-          document.startViewTransition(() => {
-            isExpanded = false;
-            menuContainer.classList.remove('expanded');
-            trigger.setAttribute('aria-expanded', 'false');
-          });
+          isExpanded = false;
+          menuContainer.classList.remove('expanded');
+          trigger.setAttribute('aria-expanded', 'false');
         }
       };
 
