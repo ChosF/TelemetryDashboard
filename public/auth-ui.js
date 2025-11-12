@@ -726,7 +726,21 @@
       logoutBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         closeMenu();
-        await window.AuthModule.signOut();
+        
+        // Disable button and show loading state
+        logoutBtn.disabled = true;
+        logoutBtn.style.opacity = '0.5';
+        
+        try {
+          await window.AuthModule.signOut();
+          // Success notification will show when auth-state-changed fires
+        } catch (error) {
+          console.error('Logout failed:', error);
+          // Re-enable button on error
+          logoutBtn.disabled = false;
+          logoutBtn.style.opacity = '1';
+          showNotification('Logout may have failed, but local session was cleared.', 'warning');
+        }
       });
 
       // Show approval banner if needed

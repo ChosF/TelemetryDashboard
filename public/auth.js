@@ -410,23 +410,78 @@
   // Sign out
   async function signOut() {
     if (!supabaseClient) {
-      showNotification('Supabase not configured', 'error');
+      // Use window.AuthUI.showNotification if available, otherwise just console.error
+      if (window.AuthUI && window.AuthUI.showNotification) {
+        window.AuthUI.showNotification('Supabase not configured', 'error');
+      } else {
+        console.error('Supabase not configured');
+      }
       return;
     }
 
     try {
-      // Clean up realtime subscription
+      // Clean up realtime subscription first
       await unsubscribeFromProfileUpdates();
       
-      const { error } = await supabaseClient.auth.signOut();
-      if (error) {
-        console.error('Sign out error:', error);
+      // Create a timeout promise to prevent hanging
+      const timeoutPromise = new Promise((resolve) => {
+        setTimeout(() => resolve({ timedOut: true }), 5000);
+      });
+      
+      // Race between signOut and timeout
+      const signOutPromise = supabaseClient.auth.signOut().then(result => ({ ...result, timedOut: false }));
+      const result = await Promise.race([signOutPromise, timeoutPromise]);
+      
+      if (result.timedOut) {
+        console.warn('Sign out request timed out - forcing local cleanup');
+      } else if (result.error) {
+        console.error('Sign out error:', result.error);
+        // Continue with local cleanup even if remote signOut fails
       }
+      
+      // Always clear local state regardless of API success
+      // This ensures the user can log out even if the API fails
       currentUser = null;
       currentProfile = null;
       localStorage.removeItem('auth_remember_me');
+      
+      // Clear all auth-related items from localStorage
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      
+      // Dispatch sign out event to update UI immediately
+      window.dispatchEvent(new CustomEvent('auth-state-changed', { 
+        detail: { user: null, profile: null } 
+      }));
+      
+      console.log('✅ Local sign out complete');
     } catch (error) {
       console.error('Sign out error:', error);
+      // Even if there's an exception, try to clean up local state
+      currentUser = null;
+      currentProfile = null;
+      localStorage.removeItem('auth_remember_me');
+      
+      // Clear all auth-related items from localStorage
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      
+      // Dispatch sign out event even after error
+      window.dispatchEvent(new CustomEvent('auth-state-changed', { 
+        detail: { user: null, profile: null } 
+      }));
     }
   }
 
