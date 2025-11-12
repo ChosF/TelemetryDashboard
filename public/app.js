@@ -172,6 +172,7 @@
     dyn: { axBias: 0, ayBias: 0, axEma: 0, ayEma: 0 },
     _raf: null,
     activePanel: 'overview', // Track active panel for performance
+    lastGaugeValues: {}, // Cache last gauge values to avoid unnecessary updates
   };
 
   // FAB Menu Toggle
@@ -823,32 +824,67 @@
   }
   function renderGauges(k) {
     try {
-      gaugeSpeed.setOption(
-        gaugeOption(
-          k.current_speed_kmh,
-          Math.max(100, k.max_speed_kmh + 5),
-          "#1f77b4",
-          1
-        )
-      );
-      gaugeBattery.setOption(
-        gaugeOption(k.battery_percentage, 102, "#22c55e", 0)
-      );
+      // Only update gauges if values changed significantly (>1% change)
+      const threshold = 0.01; // 1% change threshold
+      
+      const shouldUpdate = (key, value) => {
+        if (!state.lastGaugeValues[key]) {
+          state.lastGaugeValues[key] = value;
+          return true;
+        }
+        const lastValue = state.lastGaugeValues[key];
+        const change = Math.abs(value - lastValue) / (lastValue || 1);
+        if (change > threshold) {
+          state.lastGaugeValues[key] = value;
+          return true;
+        }
+        return false;
+      };
+
+      // Speed gauge - update only if changed significantly
+      if (shouldUpdate('speed', k.current_speed_kmh)) {
+        gaugeSpeed.setOption(
+          gaugeOption(
+            k.current_speed_kmh,
+            Math.max(100, k.max_speed_kmh + 5),
+            "#1f77b4",
+            1
+          ),
+          false // notMerge = false for better performance
+        );
+      }
+      
+      // Battery gauge
+      if (shouldUpdate('battery', k.battery_percentage)) {
+        gaugeBattery.setOption(
+          gaugeOption(k.battery_percentage, 102, "#22c55e", 0),
+          false
+        );
+      }
+      
+      // Power gauge
       const currentPower = k.current_power_w || k.avg_power_w || 0;
-      const maxPower = Math.max(
-        100,
-        k.max_power_w || currentPower * 1.5 || 100
-      );
-      gaugePower.setOption(gaugeOption(currentPower, maxPower, "#f59e0b", 2));
+      if (shouldUpdate('power', currentPower)) {
+        const maxPower = Math.max(
+          100,
+          k.max_power_w || currentPower * 1.5 || 100
+        );
+        gaugePower.setOption(gaugeOption(currentPower, maxPower, "#f59e0b", 2), false);
+      }
+      
+      // Efficiency gauge
       const eff = k.efficiency_km_per_kwh || 0;
-      gaugeEfficiency.setOption(
-        gaugeOption(
-          eff,
-          eff > 0 ? Math.max(100, eff * 1.5) : 100,
-          "#6a51a3",
-          1
-        )
-      );
+      if (shouldUpdate('efficiency', eff)) {
+        gaugeEfficiency.setOption(
+          gaugeOption(
+            eff,
+            eff > 0 ? Math.max(100, eff * 1.5) : 100,
+            "#6a51a3",
+            1
+          ),
+          false
+        );
+      }
     } catch {}
   }
 
@@ -1648,16 +1684,22 @@
       // Only render charts for active panel to improve performance (use cached state)
       const activePanelName = state.activePanel;
       
-      // Always render overview charts if on overview
-      if (activePanelName === 'overview') {
-        renderSpeedChart(rows);
-        renderPowerChart(rows);
-        renderIMUChart(rows);
-        renderIMUDetailChart(rows);
-        renderEfficiency(rows);
-        chartGGMini.setOption(optionGForcesMini(rows));
+      // Always render overview charts if on overview - but skip if panel hidden
+      if (activePanelName === 'overview' && panels.overview.style.display !== 'none') {
         renderPedals(rows);
-        renderMapAndAltitude(rows);
+        // Only render charts that fit in viewport or are critical
+        if (window.innerHeight > 800) {
+          renderSpeedChart(rows);
+          renderPowerChart(rows);
+          renderIMUChart(rows);
+          renderIMUDetailChart(rows);
+          renderEfficiency(rows);
+          renderMapAndAltitude(rows);
+        } else {
+          // On smaller screens, only render visible charts
+          renderPedals(rows);
+        }
+        chartGGMini.setOption(optionGForcesMini(rows));
       } else if (activePanelName === 'speed') {
         renderSpeedChart(rows);
       } else if (activePanelName === 'power') {

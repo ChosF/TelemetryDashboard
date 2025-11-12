@@ -147,6 +147,8 @@ body::before {
   flex-direction: column-reverse;
   align-items: center;
   gap: 1rem;
+  /* Optimize animations for performance */
+  will-change: auto;
 }
 
 .fab-button {
@@ -171,6 +173,8 @@ body::before {
   font-size: 1.5rem;
   position: relative;
   overflow: hidden;
+  /* Optimize hover animations */
+  will-change: transform;
 }
 
 .fab-button::before {
@@ -479,6 +483,8 @@ body::before {
   transition: all 0.3s var(--ease-glass);
   white-space: nowrap;
   font-family: var(--font);
+  /* Optimize for transform animations */
+  will-change: transform;
 }
 
 .tab-icon {
