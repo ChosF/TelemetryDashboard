@@ -18,6 +18,7 @@
   let supabaseClient = null;
   let currentUser = null;
   let currentProfile = null;
+  let profileChannel = null; // realtime subscription for own profile
 
   // User roles and their permissions
   const USER_ROLES = {
@@ -88,34 +89,35 @@
         }
       });
 
-      // Check for existing session
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (session) {
-        await loadUserProfile(session.user);
-      }
-
-      // Listen for auth state changes
+      // Listen FIRST to auth state changes (captures INITIAL_SESSION reliably)
       supabaseClient.auth.onAuthStateChange(async (event, session) => {
         console.log('🔐 Auth event:', event);
-        
-        if (event === 'SIGNED_IN' && session) {
+
+        if ((event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && session?.user) {
           await loadUserProfile(session.user);
-          window.dispatchEvent(new CustomEvent('auth-state-changed', { 
-            detail: { user: currentUser, profile: currentProfile } 
+          subscribeToOwnProfile(session.user.id);
+          window.dispatchEvent(new CustomEvent('auth-state-changed', {
+            detail: { user: currentUser, profile: currentProfile }
           }));
         } else if (event === 'SIGNED_OUT') {
+          unsubscribeFromProfile();
           currentUser = null;
           currentProfile = null;
           window.dispatchEvent(new CustomEvent('auth-state-changed', { 
             detail: { user: null, profile: null } 
           }));
-        } else if (event === 'USER_UPDATED' && session) {
-          await loadUserProfile(session.user);
-          window.dispatchEvent(new CustomEvent('auth-state-changed', { 
-            detail: { user: currentUser, profile: currentProfile } 
-          }));
         }
       });
+
+      // Also get any existing session and prime UI once on boot
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session?.user) {
+        await loadUserProfile(session.user);
+        subscribeToOwnProfile(session.user.id);
+        window.dispatchEvent(new CustomEvent('auth-state-changed', {
+          detail: { user: currentUser, profile: currentProfile }
+        }));
+      }
 
       console.log('✅ Auth initialized');
       return true;
@@ -132,58 +134,88 @@
     // Add additional error codes here as needed
   };
 
-  // Load user profile from database
-  async function loadUserProfile(user) {
+  // Load user profile from database with exponential backoff retry
+  async function loadUserProfile(user, maxTries = 5) {
     currentUser = user;
-    
-    try {
-      console.log('📖 Loading user profile for:', user.id);
-      // Use maybeSingle so "0 rows" doesn't throw
-      const { data, error } = await supabaseClient
-        .from('user_profiles')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (error) {
-        console.error('❌ Error loading profile:', error);
-        return;
-      }
-
-      if (data) {
-        console.log('✅ Profile loaded:', { 
-          role: data.role, 
-          name: data.name, 
-          email: data.email,
-          approval_status: data.approval_status 
-        });
-        currentProfile = data;
-      } else {
-        console.log('⏳ Profile not found yet — will retry once (trigger lag?)');
-        // Retry once after a short delay to allow the AFTER INSERT trigger to run
-        await new Promise((r) => setTimeout(r, 700));
-        const { data: retry, error: err2 } = await supabaseClient
+    const cols =
+      'user_id,email,name,role,requested_role,approval_status,created_at,updated_at';
+    let lastError = null;
+    for (let i = 0; i < maxTries; i++) {
+      try {
+        const { data, error } = await supabaseClient
           .from('user_profiles')
-          .select('*')
+          .select(cols)
           .eq('user_id', user.id)
+          .limit(1)
           .maybeSingle();
-        if (err2) {
-          console.warn('⚠️ Retry load profile failed:', err2);
+
+        if (error) {
+          lastError = error;
+          console.warn('⚠️ loadUserProfile attempt failed:', error);
         }
-        if (retry) {
-          console.log('✅ Profile loaded on retry:', {
-            role: retry.role,
-            name: retry.name,
-            approval_status: retry.approval_status,
+        if (data) {
+          currentProfile = data;
+          console.log('✅ Profile loaded:', {
+            role: data.role,
+            name: data.name,
+            requested_role: data.requested_role,
+            approval_status: data.approval_status,
           });
-          currentProfile = retry;
-        } else {
-          console.warn('⚠️ Profile still not present. Will remain guest until next auth event/manual refresh.');
+          return data;
         }
+      } catch (e) {
+        lastError = e;
+        console.warn('⚠️ loadUserProfile exception:', e);
       }
-    } catch (error) {
-      console.error('❌ Error loading user profile:', error);
+      // backoff: 150ms, 300ms, 600ms, 1200ms, 2000ms (cap)
+      const delay = Math.min(2000, 150 * Math.pow(2, i));
+      await new Promise((r) => setTimeout(r, delay));
     }
+    if (lastError) console.warn('⚠️ Profile not found after retries:', lastError);
+    return null;
+  }
+
+  function subscribeToOwnProfile(userId) {
+    try {
+      if (!supabaseClient) return;
+      if (profileChannel) return; // already subscribed
+      profileChannel = supabaseClient
+        .channel(`profile_${userId}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'user_profiles', filter: `user_id=eq.${userId}` },
+          (payload) => {
+            const next = payload.new ?? payload.old;
+            if (next) {
+              currentProfile = next;
+              console.log('🔄 Profile realtime update:', {
+                role: next.role,
+                approval_status: next.approval_status,
+                name: next.name,
+              });
+              window.dispatchEvent(
+                new CustomEvent('auth-state-changed', {
+                  detail: { user: currentUser, profile: currentProfile },
+                })
+              );
+            }
+          }
+        )
+        .subscribe((status) => {
+          console.log('📡 Profile channel status:', status);
+        });
+    } catch (e) {
+      console.warn('⚠️ subscribeToOwnProfile failed:', e);
+    }
+  }
+
+  function unsubscribeFromProfile() {
+    try {
+      if (profileChannel) {
+        supabaseClient.removeChannel(profileChannel);
+        profileChannel = null;
+      }
+    } catch {}
   }
 
   // Keep only for safe updates, not creation. Server trigger creates the row.
@@ -332,6 +364,7 @@
       currentUser = null;
       currentProfile = null;
       localStorage.removeItem('auth_remember_me');
+      unsubscribeFromProfile();
     } catch (error) {
       console.error('Sign out error:', error);
     }
@@ -484,6 +517,11 @@
     signUp,
     signIn,
     signOut,
+    // utility exports for UI
+    reloadProfile: async () => {
+      if (currentUser) await loadUserProfile(currentUser);
+      return currentProfile;
+    },
     getCurrentUser,
     getCurrentProfile,
     getUserRole,
