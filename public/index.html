@@ -1,442 +1,396 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
-    <meta name="view-transition" content="same-origin" />
-    <title>🏎️ Shell Eco-marathon Telemetry Dashboard</title>
 
-    <!-- App styles -->
-    <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="auth-styles.css" />
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="view-transition" content="same-origin" />
+  <title>EcoVolt Telemetry</title>
 
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
-      rel="stylesheet"
-    />
+  <!-- App styles -->
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="auth-styles.css" />
 
-    <!-- jQuery DataTables + Responsive -->
-    <link
-      rel="stylesheet"
-      href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css"
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css"
-    />
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet" />
 
-    <!-- Leaflet -->
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    />
+  <!-- jQuery DataTables + Responsive -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css" />
+  <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css" />
 
-    <!-- Optional config (define window.CONFIG before app.js if needed) -->
-    <script>
-      window.CONFIG = window.CONFIG || {
-        ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
-        ABLY_AUTH_URL: "/api/ably/token",
-        // ABLY_API_KEY: "your-ably-key" // only if you choose to embed it
-      };
-    </script>
-  </head>
-  <body>
-    <!-- Floating Action Menu -->
-    <div id="fab-menu" class="fab-menu">
-      <button id="fab-toggle" class="fab-button liquid-hover" aria-label="Menu">
-        <span class="fab-icon">⚡</span>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Optional config (define window.CONFIG before app.js if needed) -->
+  <script>
+    window.CONFIG = window.CONFIG || {
+      ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
+      ABLY_AUTH_URL: "/api/ably/token",
+      // ABLY_API_KEY: "your-ably-key" // only if you choose to embed it
+    };
+  </script>
+</head>
+
+<body>
+  <!-- Floating Action Menu -->
+  <div id="fab-menu" class="fab-menu">
+    <button id="fab-toggle" class="fab-button liquid-hover" aria-label="Menu">
+      <span class="fab-icon">⚡</span>
+    </button>
+    <div id="fab-options" class="fab-options">
+      <button id="fab-connect" class="fab-option liquid-hover" data-tooltip="Connect">
+        <span>🔗</span>
       </button>
-      <div id="fab-options" class="fab-options">
-        <button id="fab-connect" class="fab-option liquid-hover" data-tooltip="Connect">
-          <span>🔗</span>
-        </button>
-        <button id="fab-mode" class="fab-option liquid-hover" data-tooltip="Toggle Mode">
-          <span>📡</span>
-        </button>
-        <button id="fab-export" class="fab-option liquid-hover" data-tooltip="Export">
-          <span>💾</span>
-        </button>
-        <button id="fab-sessions" class="fab-option liquid-hover" data-tooltip="Sessions">
-          <span>📊</span>
-        </button>
+      <button id="fab-mode" class="fab-option liquid-hover" data-tooltip="Toggle Mode">
+        <span>📡</span>
+      </button>
+      <button id="fab-export" class="fab-option liquid-hover" data-tooltip="Export">
+        <span>💾</span>
+      </button>
+      <button id="fab-sessions" class="fab-option liquid-hover" data-tooltip="Sessions">
+        <span>📊</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <div id="layout" class="app-container">
+    <!-- Hero Header -->
+    <header class="hero-header">
+      <div class="hero-content">
+        <div class="hero-title-wrapper">
+          <h1 class="hero-title">Shell Eco-marathon</h1>
+          <p class="hero-subtitle">Real-time Telemetry Dashboard</p>
+        </div>
+        <div class="hero-status">
+          <div class="status-badge" id="connection-status">
+            <span class="status-dot"></span>
+            <span class="status-text">Ready</span>
+          </div>
+          <div class="stats-mini">
+            <div class="stat-mini">
+              <span class="stat-mini-value" id="stat-msg">0</span>
+              <span class="stat-mini-label">Messages</span>
+            </div>
+            <div class="stat-mini">
+              <span class="stat-mini-value" id="stat-last">Never</span>
+              <span class="stat-mini-label">Last Update</span>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+    </header>
 
-    <!-- Main Container -->
-    <div id="layout" class="app-container">
-      <!-- Hero Header -->
-      <header class="hero-header">
-        <div class="hero-content">
-          <div class="hero-title-wrapper">
-            <h1 class="hero-title">Shell Eco-marathon</h1>
-            <p class="hero-subtitle">Real-time Telemetry Dashboard</p>
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <div class="main">
+        <!-- Navigation Tabs -->
+        <nav class="tabs-nav">
+          <button class="tab active liquid-hover" data-panel="overview">
+            <span class="tab-icon">📊</span>
+            <span class="tab-label">Overview</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="speed">
+            <span class="tab-icon">🚗</span>
+            <span class="tab-label">Speed</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="power">
+            <span class="tab-icon">⚡</span>
+            <span class="tab-label">Power</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="imu">
+            <span class="tab-icon">🧭</span>
+            <span class="tab-label">IMU</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="imu-detail">
+            <span class="tab-icon">🎮</span>
+            <span class="tab-label">IMU Detail</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="efficiency">
+            <span class="tab-icon">📈</span>
+            <span class="tab-label">Efficiency</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="gps">
+            <span class="tab-icon">🗺️</span>
+            <span class="tab-label">GPS</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="custom">
+            <span class="tab-icon">🎨</span>
+            <span class="tab-label">Custom</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="data">
+            <span class="tab-icon">📋</span>
+            <span class="tab-label">Data</span>
+          </button>
+        </nav>
+
+        <!-- Overview -->
+        <section id="panel-overview" class="panel active">
+          <!-- KPIs -->
+          <div class="glass-panel mb-4">
+            <h3>
+              📊 Key Performance Indicators
+            </h3>
+            <div class="kpi-grid">
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">📏 Distance</div>
+                <div id="kpi-distance" class="kpi-value">0.00 km</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">🏃 Max Speed</div>
+                <div id="kpi-maxspeed" class="kpi-value">0.0 km/h</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">⚡ Avg Speed</div>
+                <div id="kpi-avgspeed" class="kpi-value">0.0 km/h</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">🔋 Energy</div>
+                <div id="kpi-energy" class="kpi-value">0.00 kWh</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">⚡ Voltage</div>
+                <div id="kpi-voltage" class="kpi-value">0.00 V</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">🔄 Current</div>
+                <div id="kpi-current" class="kpi-value">0.00 A</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">💡 Avg Power</div>
+                <div id="kpi-avgpower" class="kpi-value">0.00 W</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">🌊 Avg Current</div>
+                <div id="kpi-avgcurrent" class="kpi-value">0.00 A</div>
+              </div>
+            </div>
           </div>
-          <div class="hero-status">
-            <div class="status-badge" id="connection-status">
-              <span class="status-dot"></span>
-              <span class="status-text">Ready</span>
-            </div>
-            <div class="stats-mini">
-              <div class="stat-mini">
-                <span class="stat-mini-value" id="stat-msg">0</span>
-                <span class="stat-mini-label">Messages</span>
+
+          <!-- Gauges -->
+          <div class="glass-panel mb-4">
+            <h3>
+              📊 Live Performance Gauges
+            </h3>
+            <div class="gauge-grid">
+              <div class="gauge-wrap">
+                <div class="gauge" id="gauge-speed"></div>
+                <div class="gauge-title">Speed (km/h)</div>
               </div>
-              <div class="stat-mini">
-                <span class="stat-mini-value" id="stat-last">Never</span>
-                <span class="stat-mini-label">Last Update</span>
+              <div class="gauge-wrap">
+                <div class="gauge" id="gauge-battery"></div>
+                <div class="gauge-title">Battery (%)</div>
+              </div>
+              <div class="gauge-wrap">
+                <div class="gauge" id="gauge-power"></div>
+                <div class="gauge-title">Power (W)</div>
+              </div>
+              <div class="gauge-wrap">
+                <div class="gauge" id="gauge-efficiency"></div>
+                <div class="gauge-title">Efficiency (km/kWh)</div>
+              </div>
+              <div class="gauge-wrap">
+                <div class="gauge" id="gauge-total-g"></div>
+                <div class="gauge-title">G Forces</div>
               </div>
             </div>
           </div>
-        </div>
-      </header>
 
-      <!-- Main Content -->
-      <main class="main-content">
+          <!-- Driver Inputs -->
+          <div class="glass-panel driver-box">
+            <h3>
+              🎮 Driver Inputs (Live)
+            </h3>
+            <div class="chart tiny" id="chart-pedals"></div>
+            <div class="center fine">Brake and Throttle (0–100%)</div>
+          </div>
+        </section>
 
-        <div class="main">
-          <!-- Navigation Tabs -->
-          <nav class="tabs-nav">
-            <button class="tab active liquid-hover" data-panel="overview">
-              <span class="tab-icon">📊</span>
-              <span class="tab-label">Overview</span>
-            </button>
-            <button class="tab liquid-hover" data-panel="speed">
-              <span class="tab-icon">🚗</span>
-              <span class="tab-label">Speed</span>
-            </button>
-            <button class="tab liquid-hover" data-panel="power">
-              <span class="tab-icon">⚡</span>
-              <span class="tab-label">Power</span>
-            </button>
-            <button class="tab liquid-hover" data-panel="imu">
-              <span class="tab-icon">🧭</span>
-              <span class="tab-label">IMU</span>
-            </button>
-            <button class="tab liquid-hover" data-panel="imu-detail">
-              <span class="tab-icon">🎮</span>
-              <span class="tab-label">IMU Detail</span>
-            </button>
-            <button class="tab liquid-hover" data-panel="efficiency">
-              <span class="tab-icon">📈</span>
-              <span class="tab-label">Efficiency</span>
-            </button>
-            <button class="tab liquid-hover" data-panel="gps">
-              <span class="tab-icon">🗺️</span>
-              <span class="tab-label">GPS</span>
-            </button>
-            <button class="tab liquid-hover" data-panel="custom">
-              <span class="tab-icon">🎨</span>
-              <span class="tab-label">Custom</span>
-            </button>
-            <button class="tab liquid-hover" data-panel="data">
-              <span class="tab-icon">📋</span>
-              <span class="tab-label">Data</span>
-            </button>
-          </nav>
+        <!-- Speed -->
+        <section id="panel-speed" class="panel">
+          <div class="glass-panel">
+            <div class="chart tall" id="chart-speed"></div>
+          </div>
+        </section>
 
-          <!-- Overview -->
-          <section id="panel-overview" class="panel active">
-            <!-- KPIs -->
-            <div class="glass-panel" style="margin-bottom: 1.2rem">
-              <h3 style="margin-top: 0; font-weight: 800">
-                📊 Key Performance Indicators
-              </h3>
-              <div class="kpi-grid">
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">📏 Distance</div>
-                  <div id="kpi-distance" class="kpi-value">0.00 km</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">🏃 Max Speed</div>
-                  <div id="kpi-maxspeed" class="kpi-value">0.0 km/h</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">⚡ Avg Speed</div>
-                  <div id="kpi-avgspeed" class="kpi-value">0.0 km/h</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">🔋 Energy</div>
-                  <div id="kpi-energy" class="kpi-value">0.00 kWh</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">⚡ Voltage</div>
-                  <div id="kpi-voltage" class="kpi-value">0.00 V</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">🔄 Current</div>
-                  <div id="kpi-current" class="kpi-value">0.00 A</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">💡 Avg Power</div>
-                  <div id="kpi-avgpower" class="kpi-value">0.00 W</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">🌊 Avg Current</div>
-                  <div id="kpi-avgcurrent" class="kpi-value">0.00 A</div>
-                </div>
-              </div>
-            </div>
+        <!-- Power -->
+        <section id="panel-power" class="panel">
+          <div class="glass-panel">
+            <div class="chart tall" id="chart-power"></div>
+          </div>
+        </section>
 
-            <!-- Gauges (last tile hosts minimal Friction Circle) -->
-            <div class="glass-panel" style="margin-bottom: 1.2rem">
-              <h3 style="margin-top: 0; font-weight: 800">
-                📊 Live Performance Gauges
-              </h3>
-              <div class="gauge-grid">
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-speed"></div>
-                  <div class="gauge-title">Speed (km/h)</div>
-                </div>
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-battery"></div>
-                  <div class="gauge-title">Battery (%)</div>
-                </div>
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-power"></div>
-                  <div class="gauge-title">Power (W)</div>
-                </div>
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-efficiency"></div>
-                  <div class="gauge-title">Efficiency (km/kWh)</div>
-                </div>
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-total-g"></div>
-                  <div class="gauge-title">G Forces</div>
-                </div>
-              </div>
-            </div>
+        <!-- IMU -->
+        <section id="panel-imu" class="panel">
+          <div class="glass-panel">
+            <div class="chart tall" id="chart-imu"></div>
+          </div>
+        </section>
 
-            <!-- Driver Inputs (smaller) -->
-            <div class="glass-panel driver-box">
-              <h3 style="margin: 0 0 0.4rem 0; font-weight: 800">
-                🎮 Driver Inputs (Live)
-              </h3>
-              <div class="chart tiny" id="chart-pedals"></div>
-              <div class="center fine">Brake and Throttle (0–100%)</div>
-            </div>
-          </section>
+        <!-- IMU Detail -->
+        <section id="panel-imu-detail" class="panel">
+          <div class="glass-panel">
+            <div class="chart xxl" id="chart-imu-detail"></div>
+          </div>
+        </section>
 
-          <!-- Speed -->
-          <section id="panel-speed" class="panel">
+        <!-- Efficiency -->
+        <section id="panel-efficiency" class="panel">
+          <div class="glass-panel">
+            <div class="chart tall" id="chart-efficiency"></div>
+          </div>
+        </section>
+
+        <!-- GPS -->
+        <section id="panel-gps" class="panel">
+          <div class="split">
             <div class="glass-panel">
-              <div class="chart tall" id="chart-speed"></div>
+              <div class="map" id="map"></div>
             </div>
-          </section>
-
-          <!-- Power -->
-          <section id="panel-power" class="panel">
             <div class="glass-panel">
-              <div class="chart tall" id="chart-power"></div>
+              <div class="chart" id="chart-altitude"></div>
             </div>
-          </section>
+          </div>
+        </section>
 
-          <!-- IMU -->
-          <section id="panel-imu" class="panel">
-            <div class="glass-panel">
-              <div class="chart tall" id="chart-imu"></div>
-            </div>
-          </section>
-
-          <!-- IMU Detail -->
-          <section id="panel-imu-detail" class="panel">
-            <div class="glass-panel">
-              <div class="chart xxl" id="chart-imu-detail"></div>
-            </div>
-          </section>
-
-          <!-- Efficiency -->
-          <section id="panel-efficiency" class="panel">
-            <div class="glass-panel">
-              <div class="chart tall" id="chart-efficiency"></div>
-            </div>
-          </section>
-
-          <!-- GPS -->
-          <section id="panel-gps" class="panel">
-            <div class="split">
-              <div class="glass-panel">
-                <div class="map" id="map"></div>
-              </div>
-              <div class="glass-panel">
-                <div class="chart" id="chart-altitude"></div>
-              </div>
-            </div>
-          </section>
-
-          <!-- Custom -->
-          <section id="panel-custom" class="panel">
-            <div
-              class="glass-panel"
-              style="padding: 1.2rem; text-align: center"
-            >
-              <h3>🎨 Custom Charts</h3>
-              <p class="fine">
-                Click <strong>"Add Chart"</strong> to create custom
-                visualizations.
-              </p>
-              <button
-                id="btn-add-custom-chart"
-                class="liquid-hover"
-                style="margin-top: 0.6rem"
-              >
-                ➕ Add Chart
-              </button>
-            </div>
-            <div id="custom-charts-container"></div>
-          </section>
-
-          <!-- Data -->
-          <section id="panel-data" class="panel">
-            <!-- Table first -->
-            <div class="data-quality-table">
-              <div
-                style="
-                  padding: 1.2rem 1.2rem 0.8rem 1.2rem;
-                  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-                "
-              >
-                <h3
-                  style="
-                    margin: 0;
-                    font-weight: 800;
-                    display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
-                  "
-                >
-                  📋 Raw Telemetry Data
-                  <span
-                    id="data-count"
-                    style="font-size: 0.9rem; color: var(--text-subtle)"
-                  ></span>
-                </h3>
-              </div>
-              <div class="table-wrap">
-                <table
-                  id="data-table"
-                  class="display responsive nowrap"
-                  style="width: 100%"
-                ></table>
-              </div>
-            </div>
-
-            <!-- Data Quality below the table -->
-            <div class="glass-panel" style="padding: 1.2rem">
-              <h3 style="margin-top: 0; font-weight: 800">
-                🔍 Data Quality Metrics
-              </h3>
-              <!-- quick summary -->
-              <div class="kpi-grid" style="margin-bottom: 1rem">
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">📊 Total Records</div>
-                  <div id="total-records" class="kpi-value">0</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">✅ Complete Records</div>
-                  <div id="complete-records" class="kpi-value">0%</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">❌ Missing Values</div>
-                  <div id="missing-values" class="kpi-value">0%</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">🔄 Duplicates</div>
-                  <div id="duplicate-records" class="kpi-value">0</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">⚠️ Anomalies</div>
-                  <div id="anomalies-detected" class="kpi-value">0</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">📈 Quality Score</div>
-                  <div id="quality-score" class="kpi-value">0%</div>
-                </div>
-              </div>
-
-              <!-- alerts -->
-              <div id="quality-alerts" class="note-list"></div>
-
-              <!-- Quality Score Visualization -->
-              <div class="glass-panel" style="margin-bottom: 1rem; padding: 1.25rem;">
-                <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">📈 Quality Score Trend</h4>
-                <div class="chart" id="chart-quality-score" style="height: 200px;"></div>
-              </div>
-
-              <!-- details -->
-              <div
-                style="
-                  display: grid;
-                  grid-template-columns: repeat(
-                    auto-fit,
-                    minmax(280px, 1fr)
-                  );
-                  gap: 0.8rem;
-                "
-              >
-                <div class="metric-card-enhanced">
-                  <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">
-                    📊 Field Completeness
-                  </h4>
-                  <div id="field-completeness" class="small"></div>
-                </div>
-                <div class="metric-card-enhanced">
-                  <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">
-                    ⏱️ Data Freshness
-                  </h4>
-                  <div id="data-freshness" class="small"></div>
-                </div>
-                <div class="metric-card-enhanced">
-                  <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">
-                    🎯 Data Accuracy
-                  </h4>
-                  <div id="data-accuracy" class="small"></div>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <footer class="footer">
-          <div class="glass-panel" style="padding: 1rem; text-align: center">
-            <p class="fine" style="margin: 0">
-              🏎️ Shell Eco-marathon Telemetry Dashboard
+        <!-- Custom -->
+        <section id="panel-custom" class="panel">
+          <div class="glass-panel center-content">
+            <h3>🎨 Custom Charts</h3>
+            <p class="fine">
+              Click <strong>"Add Chart"</strong> to create custom
+              visualizations.
             </p>
+            <button id="btn-add-custom-chart" class="liquid-hover mt-2">
+              ➕ Add Chart
+            </button>
           </div>
-        </footer>
-      </main>
-    </div>
+          <div id="custom-charts-container"></div>
+        </section>
 
-    <!-- Scripts -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
-    <!-- Supabase client (pinned to v2.45.6 for stability) -->
-    <script src="https://unpkg.com/@supabase/supabase-js@2.45.6/dist/umd/supabase.js"></script>
+        <!-- Data -->
+        <section id="panel-data" class="panel">
+          <!-- Table first -->
+          <div class="data-quality-table">
+            <div class="table-header" style="padding: 1.2rem; border-bottom: 1px solid var(--glass-border);">
+              <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                📋 Raw Telemetry Data
+                <span id="data-count" class="text-subtle small"></span>
+              </h3>
+            </div>
+            <div class="table-wrap">
+              <table id="data-table" class="display responsive nowrap" style="width: 100%"></table>
+            </div>
+          </div>
 
-    <!-- Auth modules -->
-    <script src="auth.js"></script>
-    <script src="auth-ui.js"></script>
+          <!-- Data Quality below the table -->
+          <div class="glass-panel p-4">
+            <h3>
+              🔍 Data Quality Metrics
+            </h3>
+            <!-- quick summary -->
+            <div class="kpi-grid mb-4">
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">📊 Total Records</div>
+                <div id="total-records" class="kpi-value">0</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">✅ Complete Records</div>
+                <div id="complete-records" class="kpi-value">0%</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">❌ Missing Values</div>
+                <div id="missing-values" class="kpi-value">0%</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">🔄 Duplicates</div>
+                <div id="duplicate-records" class="kpi-value">0</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">⚠️ Anomalies</div>
+                <div id="anomalies-detected" class="kpi-value">0</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">📈 Quality Score</div>
+                <div id="quality-score" class="kpi-value">0%</div>
+              </div>
+            </div>
 
-    <!-- App logic -->
-    <script src="app.js"></script>
+            <!-- alerts -->
+            <div id="quality-alerts" class="note-list"></div>
 
-    <!-- View Transitions API Polyfill -->
-    <script>
-      // Polyfill for browsers that don't support View Transitions API
-      if (!document.startViewTransition) {
-        document.startViewTransition = (callback) => {
-          callback();
-        };
-      }
-    </script>
-  </body>
+            <!-- Quality Score Visualization -->
+            <div class="glass-panel mb-4 p-4">
+              <h4>📈 Quality Score Trend</h4>
+              <div class="chart h-200" id="chart-quality-score"></div>
+            </div>
+
+            <!-- details -->
+            <div class="details-grid"
+              style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.8rem;">
+              <div class="metric-card-enhanced">
+                <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">
+                  📊 Field Completeness
+                </h4>
+                <div id="field-completeness" class="small"></div>
+              </div>
+              <div class="metric-card-enhanced">
+                <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">
+                  ⏱️ Data Freshness
+                </h4>
+                <div id="data-freshness" class="small"></div>
+              </div>
+              <div class="metric-card-enhanced">
+                <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">
+                  🎯 Data Accuracy
+                </h4>
+                <div id="data-accuracy" class="small"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="footer">
+        <div class="glass-panel footer-panel">
+          <p class="fine">
+            🏎️ Shell Eco-marathon Telemetry Dashboard
+          </p>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Supabase client (pinned to v2.45.6 for stability) -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2.45.6/dist/umd/supabase.js"></script>
+
+  <!-- Auth modules -->
+  <script src="auth.js"></script>
+  <script src="auth-ui.js"></script>
+
+  <!-- App logic -->
+  <script src="app.js"></script>
+
+  <!-- View Transitions API Polyfill -->
+  <script>
+    // Polyfill for browsers that don't support View Transitions API
+    if (!document.startViewTransition) {
+      document.startViewTransition = (callback) => {
+        callback();
+      };
+    }
+  </script>
+</body>
+
 </html>

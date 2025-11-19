@@ -5,7 +5,7 @@
    - User approval banner
 */
 
-(function() {
+(function () {
   "use strict";
 
   // Custom notification system
@@ -16,9 +16,9 @@
 
     const notification = document.createElement('div');
     notification.className = `custom-notification custom-notification-${type}`;
-    
+
     const icon = type === 'error' ? '❌' : type === 'warning' ? '⚠️' : type === 'success' ? '✅' : 'ℹ️';
-    
+
     notification.innerHTML = `
       <div class="custom-notification-content">
         <span class="custom-notification-icon">${icon}</span>
@@ -97,7 +97,7 @@
   function showLoginModal() {
     const modal = createAuthModal('login');
     document.body.appendChild(modal);
-    
+
     // Focus email input
     setTimeout(() => {
       modal.querySelector('#auth-email')?.focus();
@@ -108,7 +108,7 @@
   function showSignupModal() {
     const modal = createAuthModal('signup');
     document.body.appendChild(modal);
-    
+
     // Focus email input
     setTimeout(() => {
       modal.querySelector('#auth-email')?.focus();
@@ -118,7 +118,7 @@
   // Create auth modal (login or signup)
   function createAuthModal(type = 'login') {
     const isLogin = type === 'login';
-    
+
     const modal = document.createElement('div');
     modal.className = 'auth-modal';
     modal.innerHTML = `
@@ -219,7 +219,7 @@
       modal.classList.add('closing');
       setTimeout(() => modal.remove(), 300);
     };
-    
+
     closeBtn.addEventListener('click', closeModal);
     overlay.addEventListener('click', closeModal);
 
@@ -239,14 +239,14 @@
     // Form submission
     const form = modal.querySelector('#auth-form');
     const errorDiv = modal.querySelector('#auth-error');
-    
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      
+
       const email = modal.querySelector('#auth-email').value;
       const password = modal.querySelector('#auth-password').value;
       const submitBtn = form.querySelector('.auth-submit-btn');
-      
+
       // Disable submit button
       submitBtn.disabled = true;
       submitBtn.textContent = isLogin ? 'Signing in...' : 'Creating account...';
@@ -254,7 +254,7 @@
 
       try {
         let result;
-        
+
         if (isLogin) {
           const rememberMe = modal.querySelector('#auth-remember')?.checked || false;
           result = await window.AuthModule.signIn(email, password, rememberMe);
@@ -371,21 +371,21 @@
       modal.classList.add('closing');
       setTimeout(() => modal.remove(), 300);
     };
-    
+
     closeBtn.addEventListener('click', closeModal);
     overlay.addEventListener('click', closeModal);
 
     // Tab switching
     const tabs = modal.querySelectorAll('.admin-tab');
     const panels = modal.querySelectorAll('.admin-panel');
-    
+
     tabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const targetTab = tab.dataset.tab;
-        
+
         tabs.forEach(t => t.classList.remove('active'));
         panels.forEach(p => p.classList.remove('active'));
-        
+
         tab.classList.add('active');
         modal.querySelector(`#admin-${targetTab}`).classList.add('active');
       });
@@ -403,10 +403,10 @@
   // Load pending users
   async function loadPendingUsers(modal) {
     const container = modal.querySelector('#admin-pending');
-    
+
     try {
       const users = await window.AuthModule.getPendingUsers();
-      
+
       modal.querySelector('#pending-count').textContent = users.length;
 
       if (users.length === 0) {
@@ -453,7 +453,7 @@
   // Load all users
   async function loadAllUsers(modal) {
     const container = modal.querySelector('#admin-all');
-    
+
     try {
       const users = await window.AuthModule.getAllUsers();
 
@@ -500,11 +500,11 @@
       'admin': 'Admin'
     };
 
-    const statusBadge = user.approval_status === 'pending' ? 
+    const statusBadge = user.approval_status === 'pending' ?
       '<span class="status-badge pending">Pending</span>' :
       user.approval_status === 'rejected' ?
-      '<span class="status-badge rejected">Rejected</span>' :
-      '<span class="status-badge approved">Approved</span>';
+        '<span class="status-badge rejected">Rejected</span>' :
+        '<span class="status-badge approved">Approved</span>';
 
     if (isPending) {
       return `
@@ -620,7 +620,7 @@
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
-    
+
     return date.toLocaleDateString();
   }
 
@@ -645,7 +645,7 @@
       // Show enhanced account menu with View Transitions API
       const fullName = profile?.name || user.user_metadata?.name || user.email;
       const isAdmin = window.AuthModule.hasPermission('canAccessAdmin');
-      
+
       const authButtons = document.createElement('div');
       authButtons.className = 'header-auth-buttons';
       authButtons.innerHTML = `
@@ -681,12 +681,12 @@
       const menuContainer = authButtons.querySelector('#enhanced-account-menu');
       const trigger = authButtons.querySelector('#account-trigger');
       const actions = authButtons.querySelector('#account-actions');
-      
+
       let isExpanded = false;
-      
+
       trigger.addEventListener('click', async (e) => {
         e.stopPropagation();
-        
+
         // Toggle expanded state with smooth CSS transitions
         isExpanded = !isExpanded;
         menuContainer.classList.toggle('expanded', isExpanded);
@@ -767,6 +767,9 @@
 
   // Add admin option to FAB menu
   function addAdminToFAB() {
+    // Admin button removed from FAB as per design requirements
+    // The admin dashboard is accessible via the profile menu
+    /*
     const fabOptions = document.querySelector('#fab-options');
     if (!fabOptions) return;
 
@@ -783,9 +786,9 @@
       adminBtn.className = 'fab-option liquid-hover';
       adminBtn.setAttribute('data-tooltip', 'Admin');
       adminBtn.innerHTML = '<span>👥</span>';
-      
+
       adminBtn.addEventListener('click', showAdminDashboard);
-      
+
       // Insert before sessions button
       const sessionsBtn = fabOptions.querySelector('#fab-sessions');
       if (sessionsBtn) {
@@ -794,13 +797,14 @@
         fabOptions.appendChild(adminBtn);
       }
     }
+    */
   }
 
   // Initialize auth UI
   function initAuthUI() {
     // Always initialize UI, even if AuthModule is not available
     // This allows login buttons to be shown, and errors will appear if Supabase is not configured
-    
+
     // Update header on auth state change
     window.addEventListener('auth-state-changed', () => {
       updateHeaderUI();
