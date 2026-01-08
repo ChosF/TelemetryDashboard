@@ -1924,9 +1924,11 @@
       
       // Use untilAttach: true to get history up to the point we subscribed
       // This ensures NO GAP between history and real-time messages
+      // IMPORTANT: untilAttach REQUIRES direction: 'backwards' (Ably API constraint)
+      // We'll reverse the results after to get chronological order
       const historyParams = {
         untilAttach: true,
-        direction: 'forwards', // Oldest first for proper ordering
+        direction: 'backwards', // Required with untilAttach - gives newest first
         limit: 1000 // Messages per page
       };
       
@@ -2015,6 +2017,10 @@
         console.log(`📊 [Ably History] No messages found for this session`);
       }
       
+      // Reverse to get chronological order (backwards direction gives newest first)
+      messages.reverse();
+      console.log(`📊 [Ably History] Reversed to chronological order`);
+      
       return messages;
     } catch (e) {
       console.error('❌ [Ably History] Error:', e);
@@ -2073,19 +2079,34 @@
     // Detect gaps between sources
     if (supabaseRange && ablyRange) {
       const gapMs = ablyRange.oldest - supabaseRange.newest;
-      if (gapMs > 0) {
+      if (gapMs > 1000) { // More than 1 second gap
         console.warn(`⚠️ [Merge] GAP detected between Supabase and Ably: ${(gapMs / 1000).toFixed(1)}s`);
+      } else if (gapMs > 0) {
+        console.log(`✅ [Merge] Supabase → Ably: small gap ${(gapMs / 1000).toFixed(1)}s (acceptable)`);
       } else {
-        console.log(`✅ [Merge] Supabase and Ably overlap by ${(-gapMs / 1000).toFixed(1)}s`);
+        console.log(`✅ [Merge] Supabase → Ably: overlap by ${(-gapMs / 1000).toFixed(1)}s`);
       }
     }
     
     if (ablyRange && bufferedRange) {
       const gapMs = bufferedRange.oldest - ablyRange.newest;
-      if (gapMs > 0) {
+      if (gapMs > 1000) { // More than 1 second gap
         console.warn(`⚠️ [Merge] GAP detected between Ably and Buffered: ${(gapMs / 1000).toFixed(1)}s`);
+      } else if (gapMs > 0) {
+        console.log(`✅ [Merge] Ably → Buffered: small gap ${(gapMs / 1000).toFixed(1)}s (acceptable)`);
       } else {
-        console.log(`✅ [Merge] Ably and Buffered overlap by ${(-gapMs / 1000).toFixed(1)}s`);
+        console.log(`✅ [Merge] Ably → Buffered: overlap by ${(-gapMs / 1000).toFixed(1)}s`);
+      }
+    }
+    
+    // Special case: no Ably data - check direct gap between Supabase and Buffered
+    if (!ablyRange && supabaseRange && bufferedRange) {
+      const gapMs = bufferedRange.oldest - supabaseRange.newest;
+      if (gapMs > 1000) {
+        console.warn(`⚠️ [Merge] GAP detected between Supabase and Buffered (no Ably): ${(gapMs / 1000).toFixed(1)}s`);
+        console.warn(`⚠️ [Merge] This gap should be filled by Ably history - check if Ably history is working`);
+      } else {
+        console.log(`✅ [Merge] Supabase → Buffered: gap ${(gapMs / 1000).toFixed(1)}s (acceptable)`);
       }
     }
     
