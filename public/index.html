@@ -63,7 +63,8 @@
       <div class="hero-content">
         <div class="hero-title-wrapper">
           <h1 class="hero-title" data-full-text="Shell Eco-marathon" data-short-text="Shell">Shell Eco-marathon</h1>
-          <p class="hero-subtitle" data-full-text="Real-time Telemetry Dashboard" data-short-text="DASHBOARD">Real-time Telemetry Dashboard</p>
+          <p class="hero-subtitle" data-full-text="Real-time Telemetry Dashboard" data-short-text="DASHBOARD">Real-time
+            Telemetry Dashboard</p>
         </div>
         <div class="hero-status">
           <div class="status-badge" id="connection-status">
@@ -296,25 +297,93 @@
             </div>
           </div>
 
-          <!-- Data Quality below the table -->
-          <div class="glass-panel p-4">
-            <h3>
-              🔍 Data Quality Metrics
-            </h3>
-            <!-- quick summary -->
-            <div class="kpi-grid mb-4">
-              <div class="kpi liquid-hover">
-                <div class="kpi-label">📊 Total Records</div>
-                <div id="total-records" class="kpi-value">0</div>
+          <!-- Data Quality Metrics - Redesigned -->
+          <div class="quality-metrics-container">
+            <!-- Hero Quality Score -->
+            <div class="quality-hero glass-panel">
+              <div class="quality-hero-score">
+                <div class="quality-gauge-ring" id="quality-gauge-ring">
+                  <svg viewBox="0 0 120 120">
+                    <circle class="gauge-bg" cx="60" cy="60" r="52" />
+                    <circle class="gauge-fill" id="quality-gauge-fill" cx="60" cy="60" r="52" />
+                  </svg>
+                  <div class="quality-gauge-value">
+                    <span id="quality-score-hero">0</span>
+                    <span class="quality-gauge-unit">%</span>
+                  </div>
+                </div>
+                <div class="quality-hero-label">Quality Score</div>
               </div>
-              <div class="kpi liquid-hover">
-                <div class="kpi-label">✅ Complete Records</div>
-                <div id="complete-records" class="kpi-value">0%</div>
+              <div class="quality-hero-stats">
+                <div class="quality-stat">
+                  <span class="quality-stat-value" id="total-records">0</span>
+                  <span class="quality-stat-label">Total Records</span>
+                </div>
+                <div class="quality-stat">
+                  <span class="quality-stat-value" id="complete-records">0%</span>
+                  <span class="quality-stat-label">Complete</span>
+                </div>
+                <div class="quality-stat">
+                  <span class="quality-stat-value" id="missing-values">0%</span>
+                  <span class="quality-stat-label">Missing</span>
+                </div>
               </div>
-              <div class="kpi liquid-hover">
-                <div class="kpi-label">❌ Missing Values</div>
-                <div id="missing-values" class="kpi-value">0%</div>
+            </div>
+
+            <!-- Bridge Health Section -->
+            <div class="bridge-health glass-panel">
+              <h3>
+                <span class="bridge-status-dot" id="bridge-status-dot"></span>
+                🔗 Bridge Health
+              </h3>
+              <div class="bridge-health-grid">
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">📡</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-connection-status">Disconnected</span>
+                    <span class="bridge-metric-label">Connection</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">🔄</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-reconnects">0</span>
+                    <span class="bridge-metric-label">Reconnects</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">⚠️</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-error-rate">0/min</span>
+                    <span class="bridge-metric-label">Error Rate</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">📈</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-msg-rate">0 Hz</span>
+                    <span class="bridge-metric-label">Message Rate</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">🔢</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-messages-count">0</span>
+                    <span class="bridge-metric-label">Since Connect</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">⏱️</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-last-update">Never</span>
+                    <span class="bridge-metric-label">Last Update</span>
+                  </div>
+                </div>
               </div>
+            </div>
+
+            <!-- Secondary Metrics Row -->
+            <div class="quality-secondary-grid">
               <div class="kpi liquid-hover">
                 <div class="kpi-label">🔄 Duplicates</div>
                 <div id="duplicate-records" class="kpi-value">0</div>
@@ -324,41 +393,61 @@
                 <div id="anomalies-detected" class="kpi-value">0</div>
               </div>
               <div class="kpi liquid-hover">
-                <div class="kpi-label">📈 Quality Score</div>
-                <div id="quality-score" class="kpi-value">0%</div>
+                <div class="kpi-label">📉 Dropouts</div>
+                <div id="dropout-count" class="kpi-value">0</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">⏳ Max Gap</div>
+                <div id="max-gap-value" class="kpi-value">N/A</div>
               </div>
             </div>
 
-            <!-- alerts -->
+            <!-- Quality Alerts (always visible when present) -->
             <div id="quality-alerts" class="note-list"></div>
 
-            <!-- Quality Score Visualization -->
-            <div class="glass-panel mb-4 p-4">
+            <!-- Quality Score Trend Chart -->
+            <div class="glass-panel">
               <h4>📈 Quality Score Trend</h4>
               <div class="chart h-200" id="chart-quality-score"></div>
             </div>
 
-            <!-- details -->
-            <div class="details-grid"
-              style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.8rem;">
-              <div class="metric-card-enhanced">
-                <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">
-                  📊 Field Completeness
-                </h4>
-                <div id="field-completeness" class="small"></div>
-              </div>
-              <div class="metric-card-enhanced">
-                <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">
-                  ⏱️ Data Freshness
-                </h4>
-                <div id="data-freshness" class="small"></div>
-              </div>
-              <div class="metric-card-enhanced">
-                <h4 style="margin: 0 0 0.6rem 0; font-weight: 700">
-                  🎯 Data Accuracy
-                </h4>
-                <div id="data-accuracy" class="small"></div>
-              </div>
+            <!-- Collapsible Sections -->
+            <div class="collapsible-sections">
+              <!-- Data Freshness -->
+              <details class="collapsible-section">
+                <summary class="collapsible-header">
+                  <span class="collapsible-icon">⏱️</span>
+                  <span class="collapsible-title">Data Freshness</span>
+                  <span class="collapsible-arrow">▼</span>
+                </summary>
+                <div class="collapsible-content">
+                  <div id="data-freshness" class="freshness-metrics"></div>
+                </div>
+              </details>
+
+              <!-- Data Accuracy -->
+              <details class="collapsible-section">
+                <summary class="collapsible-header">
+                  <span class="collapsible-icon">🎯</span>
+                  <span class="collapsible-title">Data Accuracy</span>
+                  <span class="collapsible-arrow">▼</span>
+                </summary>
+                <div class="collapsible-content">
+                  <div id="data-accuracy" class="accuracy-metrics"></div>
+                </div>
+              </details>
+
+              <!-- Field Completeness (moved to bottom) -->
+              <details class="collapsible-section">
+                <summary class="collapsible-header">
+                  <span class="collapsible-icon">📊</span>
+                  <span class="collapsible-title">Field Completeness</span>
+                  <span class="collapsible-arrow">▼</span>
+                </summary>
+                <div class="collapsible-content">
+                  <div id="field-completeness" class="field-bars"></div>
+                </div>
+              </details>
             </div>
           </div>
         </section>

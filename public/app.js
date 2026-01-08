@@ -163,6 +163,8 @@
     ablyChannel: null,
     msgCount: 0,
     errCount: 0,
+    reconnectCount: 0,
+    sessionStartTime: Date.now(),
     lastMsgTs: null,
     currentSessionId: null,
     sessions: [],
@@ -637,12 +639,40 @@
     const anomalies = outlierSum + notes.length;
 
     const setTxt = (id, v) => el(id) && (el(id).textContent = v);
+
+    // Update hero quality score gauge
+    const heroScore = el("quality-score-hero");
+    if (heroScore) {
+      heroScore.textContent = Math.round(rpt.quality_score);
+    }
+
+    // Update SVG gauge fill
+    const gaugeFill = el("quality-gauge-fill");
+    if (gaugeFill) {
+      const circumference = 2 * Math.PI * 52; // r=52
+      const offset = circumference - (rpt.quality_score / 100) * circumference;
+      gaugeFill.style.strokeDashoffset = offset;
+
+      // Dynamic color based on score
+      let color = "#22c55e"; // green
+      if (rpt.quality_score < 60) color = "#ef4444"; // red
+      else if (rpt.quality_score < 80) color = "#f59e0b"; // orange
+      gaugeFill.style.stroke = color;
+    }
+
+    // Update main stats
     setTxt("total-records", rows.length.toLocaleString());
     setTxt("complete-records", `${completePct.toFixed(1)}%`);
     setTxt("missing-values", `${missingPct.toFixed(1)}%`);
     setTxt("duplicate-records", dupCount.toLocaleString());
     setTxt("anomalies-detected", anomalies.toLocaleString());
-    setTxt("quality-score", `${rpt.quality_score.toFixed(1)}%`);
+    setTxt("dropout-count", rpt.dropouts.toLocaleString());
+    setTxt("max-gap-value", rpt.max_gap_s && Number.isFinite(rpt.max_gap_s)
+      ? `${rpt.max_gap_s.toFixed(1)}s`
+      : "N/A");
+
+    // Update bridge health (simulated from state)
+    updateBridgeHealthUI();
 
     const alertsHost = el("quality-alerts");
     if (alertsHost) {
@@ -655,19 +685,32 @@
       }
     }
 
+    // Render field completeness as progress bars
     const fc = el("field-completeness");
     if (fc) {
-      const lines = ["<ul style='margin:0;padding-left:1rem'>"];
+      let html = "";
       for (const [k, v] of Object.entries(rpt.missing_rates)) {
         const avail = 100 - v * 100;
-        lines.push(
-          `<li><strong>${k}</strong>: ${avail.toFixed(1)}% available</li>`
-        );
+        let barClass = "";
+        if (avail < 50) barClass = "error";
+        else if (avail < 80) barClass = "warning";
+
+        html += `
+          <div class="field-bar-item">
+            <div class="field-bar-header">
+              <span class="field-bar-name">${k}</span>
+              <span class="field-bar-value">${avail.toFixed(1)}%</span>
+            </div>
+            <div class="field-bar-track">
+              <div class="field-bar-fill ${barClass}" style="width: ${avail}%"></div>
+            </div>
+          </div>
+        `;
       }
-      lines.push("</ul>");
-      fc.innerHTML = lines.join("");
+      fc.innerHTML = html;
     }
 
+    // Render data freshness as grid
     const df = el("data-freshness");
     if (df) {
       const lastTs = rows.length ? new Date(last(rows).timestamp) : null;
@@ -681,23 +724,47 @@
       const spanTxt = rpt.span || "N/A";
       const maxGap =
         rpt.max_gap_s && Number.isFinite(rpt.max_gap_s)
-          ? `${rpt.max_gap_s.toFixed(1)} s`
+          ? `${rpt.max_gap_s.toFixed(1)}s`
           : "N/A";
-      df.innerHTML =
-        `<div>Last update: <strong>${age}s ago</strong></div>` +
-        `<div>Span: <strong>${spanTxt}</strong></div>` +
-        `<div>Median rate: <strong>${hzTxt}</strong></div>` +
-        `<div>Max gap: <strong>${maxGap}</strong></div>`;
+
+      df.innerHTML = `
+        <div class="freshness-item">
+          <span class="freshness-label">Last Update</span>
+          <span class="freshness-value">${age}s ago</span>
+        </div>
+        <div class="freshness-item">
+          <span class="freshness-label">Time Span</span>
+          <span class="freshness-value">${spanTxt}</span>
+        </div>
+        <div class="freshness-item">
+          <span class="freshness-label">Median Rate</span>
+          <span class="freshness-value">${hzTxt}</span>
+        </div>
+        <div class="freshness-item">
+          <span class="freshness-label">Max Gap</span>
+          <span class="freshness-value">${maxGap}</span>
+        </div>
+      `;
     }
 
+    // Render data accuracy as cards
     const da = el("data-accuracy");
     if (da) {
-      const lines = ["<ul style='margin:0;padding-left:1rem'>"];
+      let html = "";
       for (const [k, v] of Object.entries(rpt.outliers)) {
-        lines.push(`<li>${k}: <strong>${v}</strong> outliers</li>`);
+        let valueClass = "good";
+        if (v > 10) valueClass = "error";
+        else if (v > 3) valueClass = "warning";
+
+        html += `
+          <div class="accuracy-item">
+            <span class="accuracy-field">${k}</span>
+            <span class="accuracy-value ${valueClass}">${v}</span>
+            <span class="accuracy-label">outliers</span>
+          </div>
+        `;
       }
-      lines.push("</ul>");
-      da.innerHTML = lines.join("");
+      da.innerHTML = html;
     }
 
     const dataCount = el("data-count");
@@ -709,6 +776,56 @@
     if (chartQualityScore && rows.length > 0) {
       renderQualityScoreChart(rows, rpt);
     }
+  }
+
+  // Update bridge health UI with connection stats
+  function updateBridgeHealthUI() {
+    const setTxt = (id, v) => el(id) && (el(id).textContent = v);
+
+    // Determine connection status
+    const isConnected = state.isConnected;
+    const statusDot = el("bridge-status-dot");
+
+    if (statusDot) {
+      statusDot.classList.remove("connected", "warning", "error");
+      if (isConnected) {
+        statusDot.classList.add("connected");
+      } else if (state.errCount > 0) {
+        statusDot.classList.add("error");
+      } else {
+        statusDot.classList.add("warning");
+      }
+    }
+
+    // Connection status text
+    setTxt("bridge-connection-status", isConnected ? "Connected" : "Disconnected");
+
+    // Reconnect count (simulated from error count for now)
+    setTxt("bridge-reconnects", state.reconnectCount || 0);
+
+    // Error rate (errors per minute, simulated)
+    const errorRate = state.errCount > 0 ? (state.errCount / Math.max(1, (Date.now() - (state.sessionStartTime || Date.now())) / 60000)).toFixed(1) : "0";
+    setTxt("bridge-error-rate", `${errorRate}/min`);
+
+    // Message rate (based on telemetry data)
+    const msgRate = state.telemetry.length > 10 ? (() => {
+      const recent = state.telemetry.slice(-50);
+      if (recent.length < 2) return "0";
+      const first = new Date(recent[0].timestamp);
+      const last = new Date(recent[recent.length - 1].timestamp);
+      const durSec = (last - first) / 1000;
+      return durSec > 0 ? (recent.length / durSec).toFixed(1) : "0";
+    })() : "0";
+    setTxt("bridge-msg-rate", `${msgRate} Hz`);
+
+    // Messages since connect
+    setTxt("bridge-messages-count", state.msgCount.toLocaleString());
+
+    // Last update
+    const lastUpdate = state.lastMsgTs ?
+      `${Math.round((Date.now() - state.lastMsgTs) / 1000)}s ago` :
+      "Never";
+    setTxt("bridge-last-update", lastUpdate);
   }
 
   // Render quality score chart
@@ -1618,7 +1735,7 @@
   // Buffer for real-time messages during initial load
   let realtimeBuffer = [];
   let isBufferingRealtime = false;
-  
+
   async function connectRealtime() {
     if (state.isConnected) return;
 
@@ -1656,25 +1773,25 @@
 
     const ch = realtime.channels.get(ABLY_CHANNEL_NAME);
     state.ablyChannel = ch;
-    
+
     // CRITICAL: Start buffering real-time messages BEFORE loading history
     // This ensures no messages are lost during the historical data fetch
     realtimeBuffer = [];
     isBufferingRealtime = true;
-    
+
     // Subscribe to real-time - messages will be buffered during initial load
     await ch.subscribe("telemetry_update", onTelemetryMessage);
-    
+
     // Perform initial data triangulation
     // This loads Supabase + Ably history, then merges with buffered real-time
     await performInitialTriangulation(ch);
   }
-  
+
   /**
    * Flag to track if initial triangulation has been performed for this connection
    */
   let initialTriangulationDone = false;
-  
+
   /**
    * Perform initial data triangulation when connecting to real-time
    * Loads historical data from Supabase + Ably, merges with buffered real-time
@@ -1684,15 +1801,15 @@
       isBufferingRealtime = false;
       return;
     }
-    
+
     try {
       setStatus("⏳ Loading session...");
       state.telemetry = [];
       state.msgCount = 0;
-      
+
       // Get session ID from buffer or Ably
       let sessionId = realtimeBuffer[0]?.session_id;
-      
+
       if (!sessionId && ablyChannel) {
         try {
           const quickHistory = await ablyChannel.history({ limit: 1, direction: 'backwards' });
@@ -1703,37 +1820,37 @@
           }
         } catch { /* ignore */ }
       }
-      
+
       if (!sessionId) {
         isBufferingRealtime = false;
         initialTriangulationDone = true;
         setStatus("✅ Connected");
         return;
       }
-      
+
       state.currentSessionId = sessionId;
       if (window.DataTriangulator) {
         DataTriangulator.setCurrentSessionId(sessionId);
       }
-      
+
       // Fetch Supabase + Ably in parallel
       const ablyStartTime = new Date(Date.now() - 120000);
-      
+
       const [supabaseData, ablyHistoryData] = await Promise.all([
         fetchSupabaseSessionData(sessionId),
         fetchAblyHistoryTimeBased(ablyChannel, sessionId, ablyStartTime)
       ]);
-      
+
       // Merge all sources
       const bufferedForSession = realtimeBuffer.filter(d => d.session_id === sessionId);
       const allData = mergeTriangulatedData(supabaseData, ablyHistoryData, bufferedForSession);
-      
+
       // Apply derived calculations
       const processed = withDerived(allData);
       state.telemetry = processed;
       state.msgCount = processed.length;
       statMsg.textContent = String(state.msgCount);
-      
+
       // Notify user
       if (processed.length > 0 && window.AuthUI?.showNotification) {
         window.AuthUI.showNotification(
@@ -1742,7 +1859,7 @@
           3000
         );
       }
-      
+
       // Cleanup and render
       realtimeBuffer = [];
       isBufferingRealtime = false;
@@ -1751,7 +1868,7 @@
       setStatus("✅ Connected");
     } catch (e) {
       console.error('Triangulation error:', e);
-      
+
       // On error, process buffered messages
       if (realtimeBuffer.length > 0) {
         const processed = withDerived(realtimeBuffer.map(normalizeData));
@@ -1760,14 +1877,14 @@
         statMsg.textContent = String(state.msgCount);
         scheduleRender();
       }
-      
+
       realtimeBuffer = [];
       isBufferingRealtime = false;
       initialTriangulationDone = true;
       setStatus("✅ Connected");
     }
   }
-  
+
   /**
    * Fetch session data from Supabase (paginated)
    */
@@ -1775,43 +1892,43 @@
     const allRows = [];
     const pageSize = 1000;
     let offset = 0;
-    
+
     try {
       for (let page = 0; page < 100; page++) {
         const response = await fetch(
           `/api/sessions/${encodeURIComponent(sessionId)}/records?offset=${offset}&limit=${pageSize}`
         );
-        
+
         if (!response.ok) break;
-        
+
         const { rows } = await response.json();
         if (!rows || rows.length === 0) break;
-        
+
         allRows.push(...rows);
         offset += rows.length;
-        
+
         if (rows.length < pageSize) break;
       }
-      
+
       return allRows;
     } catch {
       return [];
     }
   }
-  
+
   /**
    * Fetch Ably history using hybrid approach (start + untilAttach)
    */
   async function fetchAblyHistoryTimeBased(channel, sessionId, startTime) {
     if (!channel) return [];
-    
+
     const messages = [];
-    
+
     try {
       if (channel.state !== 'attached') {
         await channel.attach();
       }
-      
+
       // Hybrid: start limits range, untilAttach ensures no gap with real-time
       const historyResult = await channel.history({
         start: startTime.getTime(),
@@ -1819,7 +1936,7 @@
         direction: 'backwards',
         limit: 1000
       });
-      
+
       let page = historyResult;
       do {
         if (page.items) {
@@ -1844,7 +1961,7 @@
           break;
         }
       } while (page.items?.length > 0);
-      
+
       // Reverse to chronological order
       messages.reverse();
       return messages;
@@ -1853,20 +1970,20 @@
       return await fetchAblyHistoryFallback(channel, sessionId, startTime);
     }
   }
-  
+
   /**
    * Fallback: Time-based Ably history (if hybrid fails)
    */
   async function fetchAblyHistoryFallback(channel, sessionId, startTime) {
     const messages = [];
-    
+
     try {
       let page = await channel.history({
         start: startTime.getTime(),
         direction: 'forwards',
         limit: 1000
       });
-      
+
       do {
         if (page.items) {
           for (const msg of page.items) {
@@ -1890,19 +2007,19 @@
           break;
         }
       } while (page.items?.length > 0);
-      
+
       return messages;
     } catch {
       return [];
     }
   }
-  
+
   /**
    * Fast merge using Map for O(1) deduplication
    */
   function mergeTriangulatedData(supabaseData, ablyHistoryData, bufferedRealtime) {
     const dataMap = new Map();
-    
+
     // Add buffer first (will be overwritten by historical data if duplicate)
     if (bufferedRealtime) {
       for (const r of bufferedRealtime) {
@@ -1913,7 +2030,7 @@
         }
       }
     }
-    
+
     // Add Supabase data
     if (supabaseData) {
       for (let i = 0; i < supabaseData.length; i++) {
@@ -1925,7 +2042,7 @@
         }
       }
     }
-    
+
     // Add Ably data (highest priority for filling gaps)
     if (ablyHistoryData) {
       for (let i = 0; i < ablyHistoryData.length; i++) {
@@ -1937,16 +2054,16 @@
         }
       }
     }
-    
+
     // Convert to sorted array
     let merged = Array.from(dataMap.values());
     merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    
+
     // Trim to max points if needed
     if (merged.length > state.maxPoints) {
       merged = merged.slice(merged.length - state.maxPoints);
     }
-    
+
     return merged;
   }
   async function disconnectRealtime() {
@@ -1961,17 +2078,17 @@
       }
     } catch { }
     state.isConnected = false;
-    
+
     // Reset triangulation and buffering state
     initialTriangulationDone = false;
     isBufferingRealtime = false;
     realtimeBuffer = [];
-    
+
     // Reset DataTriangulator state
     if (window.DataTriangulator) {
       DataTriangulator.reset();
     }
-    
+
     setStatus("❌ Disconnected");
   }
   function setStatus(t) {
@@ -2020,7 +2137,7 @@
         // Check for session change in worker-processed data
         // Session change detection happens in onTelemetryMessage BEFORE worker routing
         // so we just need to handle the data merge here
-        
+
         // Use DataTriangulator for proper deduplication if available
         if (window.DataTriangulator) {
           state.telemetry = DataTriangulator.mergeRealtime(state.telemetry, latest);
@@ -2065,33 +2182,33 @@
     state.workerReady = true;
     console.log('✅ Data Worker ready');
   }
-  
+
   // Initialize DataTriangulator
   function initDataTriangulator() {
     if (!window.DataTriangulator) {
       console.warn('DataTriangulator not available');
       return;
     }
-    
+
     DataTriangulator.init({
       maxPoints: state.maxPoints,
       debug: true,  // Enable logging for debugging
       ablyHistoryLimit: 1000,
       supabasePageSize: 1000
     });
-    
+
     // Set up callbacks
     DataTriangulator.onDataReady((result) => {
       console.log(`📊 DataTriangulator ready: ${result.stats.total} total points`);
       console.log(`   Supabase: ${result.stats.fromSupabase}, Ably: ${result.stats.fromAblyHistory}, Existing: ${result.stats.fromExisting}`);
     });
-    
+
     DataTriangulator.onError((err) => {
       if (!err.isExpected) {
         console.error('DataTriangulator error:', err);
       }
     });
-    
+
     console.log('✅ DataTriangulator initialized');
   }
 
@@ -2122,7 +2239,7 @@
       if (incomingSessionId && state.currentSessionId !== incomingSessionId) {
         console.log(`📊 Session ID in data: ${incomingSessionId.slice(0, 8)} (tracking only, no re-triangulation)`);
         state.currentSessionId = incomingSessionId;
-        
+
         // Update DataTriangulator's session tracking (for reference only)
         if (window.DataTriangulator) {
           DataTriangulator.setCurrentSessionId(incomingSessionId);
@@ -2152,7 +2269,7 @@
       } else {
         state.telemetry = mergeTelemetry(state.telemetry, rows);
       }
-      
+
       state.msgCount += 1;
       state.lastMsgTs = new Date();
 
@@ -2928,12 +3045,12 @@
       sessionInfo.textContent = "Loading session data...";
       try {
         let data;
-        
+
         // Use DataTriangulator for comprehensive data loading if available
         if (window.DataTriangulator) {
           sessionInfo.textContent = "Triangulating data sources...";
           DataTriangulator.setCurrentSessionId(sid);
-          
+
           // Get data from both Supabase and Ably history
           data = await DataTriangulator.triangulate(
             sid,
@@ -2941,7 +3058,7 @@
             [],
             { force: true, fullRefresh: true }
           );
-          
+
           if (data && data.length > 0) {
             data = withDerived(data);
           }
@@ -2949,7 +3066,7 @@
           // Fallback to simple Supabase fetch
           data = await loadFullSession(sid);
         }
-        
+
         state.telemetry = data || [];
         state.currentSessionId = sid;
         sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
@@ -3368,7 +3485,7 @@
           console.log(`   Avg: ${avg.toFixed(3)}ms | Max: ${max.toFixed(3)}ms | <50ms: ${under50ms}/${iterations}`);
           return { avg, max, under50ms };
         },
-        
+
         // Data triangulation utilities
         triangulate: async (sessionId) => {
           if (!window.DataTriangulator) {
@@ -3390,7 +3507,7 @@
           }
           return data;
         },
-        
+
         getTriangulatorStatus: () => {
           if (!window.DataTriangulator) {
             return { available: false };
