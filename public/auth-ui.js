@@ -626,7 +626,11 @@
 
   // Update header UI based on auth state
   function updateHeaderUI() {
-    const header = document.querySelector('.hero-header .hero-content');
+    // Try to find header-actions container first, fallback to hero-content
+    let header = document.querySelector('.header-actions');
+    if (!header) {
+      header = document.querySelector('.hero-header .hero-content');
+    }
     if (!header) return;
 
     // Remove existing auth buttons

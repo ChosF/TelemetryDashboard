@@ -77,7 +77,7 @@
   // Throttle function for high-frequency events
   const throttle = (func, limit) => {
     let inThrottle;
-    return function(...args) {
+    return function (...args) {
       if (!inThrottle) {
         func.apply(this, args);
         inThrottle = true;
@@ -173,6 +173,19 @@
     _raf: null,
     activePanel: 'overview', // Track active panel for performance
     lastGaugeValues: {}, // Track last gauge values for smart updates
+    // uPlot migration flags - enable incrementally
+    useUPlot: {
+      speed: true,      // Speed chart migrated to uPlot
+      power: true,      // Power chart migrated to uPlot  
+      imu: true,        // IMU chart migrated to uPlot
+      altitude: true,   // Altitude chart migrated to uPlot
+      efficiency: true, // Efficiency chart migrated to uPlot
+      gauges: true      // Gauges migrated to Canvas
+    },
+    mockDataGen: null, // Mock data generator for testing
+    // Web Worker integration
+    useWorker: true,    // Enable Web Worker for data processing
+    workerReady: false  // Tracks if worker is ready
   };
 
   // FAB Menu Toggle
@@ -250,13 +263,13 @@
         }
       }
     }
-    
+
     // Ensure all required fields exist (same as normalizeData)
     for (const k of REQUIRED_FIELDS) if (!(k in row)) row[k] = 0;
-    
+
     return row;
   }
-  
+
   function withDerived(rows) {
     // Normalize field names first
     for (const r of rows) normalizeFieldNames(r);
@@ -506,7 +519,7 @@
         const std =
           Math.sqrt(
             vals.map((v) => (v - mean) ** 2).reduce((a, b) => a + b, 0) /
-              (vals.length || 1)
+            (vals.length || 1)
           ) || 0;
         outliers[c] =
           std > 0
@@ -668,17 +681,17 @@
       console.log("renderQualityScoreChart: no rows");
       return;
     }
-    
+
     if (!chartQualityScore) {
       console.log("renderQualityScoreChart: chart not initialized");
       return;
     }
-    
+
     // Take last 50 data points and compute rolling quality score
     const windowSize = Math.min(50, rows.length);
     const step = Math.max(1, Math.floor(rows.length / windowSize));
     const dataPoints = [];
-    
+
     for (let i = step; i <= rows.length; i += step) {
       const subset = rows.slice(Math.max(0, i - step), i);
       if (subset.length === 0) continue;
@@ -692,13 +705,13 @@
         });
       }
     }
-    
+
     // If no valid data points, exit early
     if (dataPoints.length === 0) {
       console.log("renderQualityScoreChart: no valid data points");
       return;
     }
-    
+
     console.log(`renderQualityScoreChart: rendering ${dataPoints.length} points`);
 
     const opt = {
@@ -773,7 +786,7 @@
       ],
       animation: false, // Disabled for better performance
     };
-    
+
     chartQualityScore.setOption(opt, true);
     // Force resize to ensure chart is properly displayed
     setTimeout(() => {
@@ -821,13 +834,13 @@
       animation: false, // Disable animations for better performance in real-time mode
     };
   }
-  
+
   // Smart gauge rendering: only update if value changed significantly (>0.5% change)
   function renderGauges(k) {
     try {
       const threshold = 0.005; // 0.5% change threshold
       const lastValues = state.lastGaugeValues;
-      
+
       // Speed gauge
       const speedValue = k.current_speed_kmh;
       if (!lastValues.speed || Math.abs(speedValue - lastValues.speed) / Math.max(lastValues.speed, 1) > threshold) {
@@ -842,7 +855,7 @@
         );
         lastValues.speed = speedValue;
       }
-      
+
       // Battery gauge
       const batteryValue = k.battery_percentage;
       if (!lastValues.battery || Math.abs(batteryValue - lastValues.battery) / Math.max(lastValues.battery, 1) > threshold) {
@@ -852,7 +865,7 @@
         );
         lastValues.battery = batteryValue;
       }
-      
+
       // Power gauge
       const currentPower = k.current_power_w || k.avg_power_w || 0;
       const maxPower = Math.max(
@@ -866,7 +879,7 @@
         );
         lastValues.power = currentPower;
       }
-      
+
       // Efficiency gauge
       const eff = k.efficiency_km_per_kwh || 0;
       if (!lastValues.efficiency || Math.abs(eff - lastValues.efficiency) / Math.max(lastValues.efficiency, 1) > threshold) {
@@ -881,7 +894,7 @@
         );
         lastValues.efficiency = eff;
       }
-    } catch {}
+    } catch { }
   }
 
   // Minimal Friction Circle in last gauge tile
@@ -978,6 +991,17 @@
 
   // Renderers for main charts
   function renderSpeedChart(rows) {
+    // Use uPlot for high-performance rendering if enabled
+    if (state.useUPlot.speed && window.ChartManager) {
+      if (!ChartManager.has('speed')) {
+        ChartManager.createSpeedChart('chart-speed', rows);
+      } else {
+        ChartManager.updateChart('speed', rows);
+      }
+      return;
+    }
+
+    // Fallback to ECharts
     const opt = baseChart("🚗 Vehicle Speed Over Time");
     const ts = toTS(rows);
     const spd = rows.map((r) => toNum(r.speed_ms, 0));
@@ -991,6 +1015,17 @@
   }
 
   function renderPowerChart(rows) {
+    // Use uPlot for high-performance rendering if enabled
+    if (state.useUPlot.power && window.ChartManager) {
+      if (!ChartManager.has('power')) {
+        ChartManager.createPowerChart('chart-power', rows);
+      } else {
+        ChartManager.updateChart('power', rows);
+      }
+      return;
+    }
+
+    // Fallback to ECharts
     const ts = toTS(rows);
     const volt = rows.map((r) => toNum(r.voltage_v, null));
     const curr = rows.map((r) => toNum(r.current_a, null));
@@ -1021,6 +1056,17 @@
   }
 
   function renderIMUChart(rows) {
+    // Use uPlot for high-performance rendering if enabled
+    if (state.useUPlot.imu && window.ChartManager) {
+      if (!ChartManager.has('imu')) {
+        ChartManager.createIMUChart('chart-imu', rows);
+      } else {
+        ChartManager.updateChart('imu', rows);
+      }
+      return;
+    }
+
+    // Fallback to ECharts
     const ts = toTS(rows);
     const gx = rows.map((r) => toNum(r.gyro_x, null));
     const gy = rows.map((r) => toNum(r.gyro_y, null));
@@ -1126,6 +1172,17 @@
   }
 
   function renderEfficiency(rows) {
+    // Use uPlot for high-performance rendering if enabled
+    if (state.useUPlot.efficiency && window.ChartManager) {
+      if (!ChartManager.has('efficiency')) {
+        ChartManager.createEfficiencyChart('chart-efficiency', rows);
+      } else {
+        ChartManager.updateChart('efficiency', rows);
+      }
+      return;
+    }
+
+    // Fallback to ECharts
     const spd = rows.map((r) => toNum(r.speed_ms, null));
     const pwr = rows.map((r) => toNum(r.power_w, null));
     const volt = rows.map((r) => toNum(r.voltage_v, null));
@@ -1200,8 +1257,8 @@
         formatter: (p) =>
           Array.isArray(p.value)
             ? `Lat: ${p.value[0].toFixed(2)}g<br/>Long: ${p.value[1].toFixed(
-                2
-              )}g`
+              2
+            )}g`
             : "",
       },
       grid: { left: "6%", right: "6%", top: 60, bottom: 50, containLabel: true },
@@ -1366,16 +1423,26 @@
       trackMarkers.push(mk);
     }
 
-    const ts = toTS(rows);
-    const alt = rows.map((r) => toNum(r.altitude, null));
-    const opt = baseChart("⛰️ Altitude Profile");
-    opt.yAxis.name = "Altitude (m)";
-    opt.dataset = { source: ts.map((t, i) => [t, alt[i]]) };
-    opt.series = [
-      { type: "line", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#22c55e" }, sampling: "lttb", smooth: false },
-    ];
-    addDataZoom(opt, [0]);
-    chartAltitude.setOption(opt);
+    // Altitude chart - use uPlot if enabled
+    if (state.useUPlot.altitude && window.ChartManager) {
+      if (!ChartManager.has('altitude')) {
+        ChartManager.createAltitudeChart('chart-altitude', rows);
+      } else {
+        ChartManager.updateChart('altitude', rows);
+      }
+    } else {
+      // Fallback to ECharts
+      const ts = toTS(rows);
+      const alt = rows.map((r) => toNum(r.altitude, null));
+      const opt = baseChart("⛰️ Altitude Profile");
+      opt.yAxis.name = "Altitude (m)";
+      opt.dataset = { source: ts.map((t, i) => [t, alt[i]]) };
+      opt.series = [
+        { type: "line", encode: { x: 0, y: 1 }, showSymbol: false, lineStyle: { width: 2, color: "#22c55e" }, sampling: "lttb", smooth: false },
+      ];
+      addDataZoom(opt, [0]);
+      chartAltitude.setOption(opt);
+    }
   }
 
   // Table helpers
@@ -1454,8 +1521,8 @@
           c === "timestamp"
             ? toISO(v)
             : typeof v === "string"
-            ? v.replace(/"/g, '""')
-            : String(v);
+              ? v.replace(/"/g, '""')
+              : String(v);
         return /[",\n]/.test(s) ? `"${s}"` : s;
       });
       lines.push(vals.join(","));
@@ -1561,7 +1628,7 @@
         await state.ablyRealtime.close();
         state.ablyRealtime = null;
       }
-    } catch {}
+    } catch { }
     state.isConnected = false;
     setStatus("❌ Disconnected");
   }
@@ -1590,11 +1657,92 @@
       }
     }
   }
+  // Initialize Web Worker for data processing
+  function initDataWorker() {
+    if (!state.useWorker || !window.DataWorkerBridge) {
+      console.log('📊 Data processing: main thread mode');
+      return;
+    }
+
+    DataWorkerBridge.init({
+      maxPoints: state.maxPoints,
+      downsampleThreshold: 2000
+    });
+
+    // Handle processed data from worker
+    DataWorkerBridge.onProcessed((result) => {
+      const { latest, kpis, chartData, totalCount } = result;
+
+      // FAST PATH: Update telemetry immediately (no blocking)
+      if (latest) {
+        state.telemetry.push(latest);
+        // Trim if over maxPoints
+        if (state.telemetry.length > state.maxPoints) {
+          state.telemetry = state.telemetry.slice(-state.maxPoints);
+        }
+      }
+
+      // Store worker-computed KPIs for render
+      if (kpis) {
+        state.workerKPIs = kpis;
+      }
+
+      // Update stats (non-blocking)
+      state.msgCount += 1;
+      state.lastMsgTs = new Date();
+      statMsg.textContent = String(state.msgCount);
+      statLast.textContent = "0s ago";
+
+      // Schedule render (throttled)
+      throttledRender();
+    });
+
+    // Handle batch completion
+    DataWorkerBridge.onBatchComplete((result) => {
+      const { kpis, chartData, totalCount } = result;
+      if (kpis) state.workerKPIs = kpis;
+      console.log(`📊 Batch processed: ${totalCount} points`);
+      scheduleRender();
+    });
+
+    // Error handling with fallback
+    DataWorkerBridge.onWorkerError((err) => {
+      console.error('Worker error, using fallback:', err);
+      state.useWorker = false;
+    });
+
+    state.workerReady = true;
+    console.log('✅ Data Worker ready');
+  }
+
+  // Expose fallback functions for worker-bridge
+  window._workerFallback = {
+    normalizeData,
+    withDerived,
+    computeKPIs
+  };
 
   async function onTelemetryMessage(msg) {
+    const startTime = performance.now();
+
     try {
       const data =
         typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data;
+
+      // HYBRID ROUTING: Worker for heavy processing, main thread for UI
+      if (state.useWorker && window.DataWorkerBridge && DataWorkerBridge.isReady()) {
+        // Send to worker - returns immediately (<1ms)
+        DataWorkerBridge.sendData(data);
+
+        // Check latency
+        const elapsed = performance.now() - startTime;
+        if (elapsed > 10) {
+          console.warn(`Message routing took ${elapsed.toFixed(1)}ms`);
+        }
+        return;
+      }
+
+      // FALLBACK: Main thread processing
       const norm = normalizeData(data);
       const rows = withDerived([norm]);
 
@@ -1616,6 +1764,12 @@
       statLast.textContent = "0s ago";
 
       throttledRender();
+
+      // Check latency target (<50ms)
+      const elapsed = performance.now() - startTime;
+      if (elapsed > 50) {
+        console.warn(`Message processing took ${elapsed.toFixed(1)}ms (target: <50ms)`);
+      }
     } catch (e) {
       state.errCount += 1;
       console.error("Message error:", e);
@@ -1645,6 +1799,19 @@
     }
     return out;
   }
+  // Performance configuration
+  const PERF_CONFIG = {
+    gaugeIntervalMs: 100,   // Gauges update at 10 Hz (100ms)
+    chartIntervalMs: 250,   // Charts update at 4 Hz (250ms)
+    frameBudgetMs: 16,      // Target 60 FPS (16ms per frame)
+    maxRenderTimeMs: 10     // Max time for a single render pass
+  };
+
+  // Separate render timers for tiered updates
+  let lastGaugeRender = 0;
+  let lastChartRender = 0;
+  let pendingGaugeRender = false;
+  let pendingChartRender = false;
 
   function scheduleRender() {
     if (state._raf) return;
@@ -1654,11 +1821,82 @@
     });
   }
 
-  // Throttled render for better performance - renders max once every 250ms (4/sec) in realtime mode
-  // This reduces CPU usage by 60% during real-time updates
+  // Fast gauge updates (100ms / 10 Hz)
+  function scheduleGaugeRender() {
+    const now = performance.now();
+    if (now - lastGaugeRender < PERF_CONFIG.gaugeIntervalMs) {
+      if (!pendingGaugeRender) {
+        pendingGaugeRender = true;
+        setTimeout(() => {
+          pendingGaugeRender = false;
+          doGaugeRender();
+        }, PERF_CONFIG.gaugeIntervalMs - (now - lastGaugeRender));
+      }
+      return;
+    }
+    lastGaugeRender = now;
+    requestAnimationFrame(doGaugeRender);
+  }
+
+  // Full chart updates (250ms / 4 Hz)
+  function scheduleChartRender() {
+    const now = performance.now();
+    if (now - lastChartRender < PERF_CONFIG.chartIntervalMs) {
+      if (!pendingChartRender) {
+        pendingChartRender = true;
+        setTimeout(() => {
+          pendingChartRender = false;
+          doChartRender();
+        }, PERF_CONFIG.chartIntervalMs - (now - lastChartRender));
+      }
+      return;
+    }
+    lastChartRender = now;
+    requestAnimationFrame(doChartRender);
+  }
+
+  // Fast-path gauge-only render (for real-time responsiveness)
+  function doGaugeRender() {
+    const rows = state.telemetry;
+    if (!rows.length) return;
+
+    const k = state.workerKPIs || computeKPIs(rows);
+    renderGauges(k);
+  }
+
+  // Chart render (runs less frequently)
+  function doChartRender() {
+    const rows = state.telemetry;
+    if (!rows.length) return;
+
+    const activePanelName = state.activePanel;
+
+    // Skip chart render if panel is not visible
+    if (activePanelName === 'overview') {
+      renderSpeedChart(rows);
+      renderPowerChart(rows);
+      renderIMUChart(rows);
+    } else if (activePanelName === 'speed') {
+      renderSpeedChart(rows);
+    } else if (activePanelName === 'power') {
+      renderPowerChart(rows);
+    } else if (activePanelName === 'imu') {
+      renderIMUChart(rows);
+    } else if (activePanelName === 'imu-detail') {
+      renderIMUDetailChart(rows);
+    } else if (activePanelName === 'efficiency') {
+      renderEfficiency(rows);
+    } else if (activePanelName === 'gps') {
+      renderMapAndAltitude(rows);
+    }
+  }
+
+  // Optimized throttled render with separate paths for gauges and charts
   const throttledRender = throttle(() => {
-    scheduleRender();
-  }, 250);
+    scheduleGaugeRender();  // Fast path for gauges (100ms)
+    scheduleChartRender();  // Slower path for charts (250ms)
+    scheduleRender();       // Full render for KPIs etc (RAF)
+  }, 100); // Base throttle at 100ms (10 Hz max)
 
   function doRender() {
     if (state.lastMsgTs) {
@@ -1686,7 +1924,7 @@
     if (rows.length) {
       // Only render charts for active panel to improve performance (use cached state)
       const activePanelName = state.activePanel;
-      
+
       // Always render overview charts if on overview
       if (activePanelName === 'overview') {
         renderSpeedChart(rows);
@@ -1727,7 +1965,7 @@
     buttons.forEach((b) => {
       b.addEventListener("click", () => {
         const name = b.getAttribute("data-panel");
-        
+
         // Use View Transitions API for smooth panel switching
         if (document.startViewTransition) {
           document.startViewTransition(() => {
@@ -1743,7 +1981,7 @@
   function switchPanel(name, buttons, activeBtn) {
     buttons.forEach((x) => x.classList.remove("active"));
     activeBtn.classList.add("active");
-    
+
     // Update active panel in state for performance
     state.activePanel = name;
 
@@ -1781,7 +2019,7 @@
             renderMapAndAltitude(rows);
           }
         }
-        
+
         // Resize all charts
         chartSpeed.resize();
         chartPower.resize();
@@ -1800,7 +2038,7 @@
           updateDataQualityUI(state.telemetry);
           ensureDataTable(state.telemetry);
         }
-      } catch {}
+      } catch { }
     }, 100);
   }
 
@@ -1841,28 +2079,36 @@
     for (const ch of state.customCharts) {
       const wrap = document.createElement("div");
       wrap.className = "glass-panel";
+
+      // Header row with controls
       const row = document.createElement("div");
       row.className = "row";
       row.style.gap = "0.5rem";
+      row.style.flexWrap = "wrap";
+      row.style.alignItems = "center";
 
       const title = document.createElement("input");
       title.type = "text";
       title.value = ch.title;
       title.placeholder = "Chart title";
       title.className = "liquid-hover";
+      title.style.flex = "1";
+      title.style.minWidth = "120px";
 
       const typeSel = document.createElement("select");
       typeSel.className = "liquid-hover";
-      ["line", "scatter", "bar", "histogram"].forEach((t) => {
+      typeSel.title = "Chart type";
+      ["line", "area", "scatter", "bar"].forEach((t) => {
         const opt = document.createElement("option");
         opt.value = t;
-        opt.textContent = t;
+        opt.textContent = t.charAt(0).toUpperCase() + t.slice(1);
         if (t === ch.type) opt.selected = true;
         typeSel.appendChild(opt);
       });
 
       const xSel = document.createElement("select");
       xSel.className = "liquid-hover";
+      xSel.title = "X-axis field";
       const xopts = ["timestamp", ...cols];
       xopts.forEach((c) => {
         const opt = document.createElement("option");
@@ -1874,6 +2120,7 @@
 
       const ySel = document.createElement("select");
       ySel.className = "liquid-hover";
+      ySel.title = "Y-axis field";
       cols.forEach((c) => {
         const opt = document.createElement("option");
         opt.value = c;
@@ -1882,10 +2129,23 @@
         ySel.appendChild(opt);
       });
 
+      // Color picker
+      const colorPicker = document.createElement("input");
+      colorPicker.type = "color";
+      colorPicker.value = ch.color || "#1f77b4";
+      colorPicker.title = "Line color";
+      colorPicker.style.width = "40px";
+      colorPicker.style.height = "32px";
+      colorPicker.style.cursor = "pointer";
+      colorPicker.style.border = "none";
+      colorPicker.style.borderRadius = "4px";
+
       const del = document.createElement("button");
       del.textContent = "🗑️";
       del.className = "liquid-hover";
+      del.title = "Delete chart";
       del.addEventListener("click", () => {
+        if (ChartManager.has(ch.id)) ChartManager.destroy(ch.id);
         state.customCharts = state.customCharts.filter((x) => x.id !== ch.id);
         renderCustomCharts();
       });
@@ -1894,42 +2154,114 @@
       row.appendChild(typeSel);
       row.appendChild(xSel);
       row.appendChild(ySel);
+      row.appendChild(colorPicker);
       row.appendChild(del);
 
+      // Stats display row
+      const statsRow = document.createElement("div");
+      statsRow.className = "row";
+      statsRow.style.gap = "1rem";
+      statsRow.style.marginTop = "0.5rem";
+      statsRow.style.fontSize = "0.85rem";
+      statsRow.style.color = "var(--text-muted)";
+      statsRow.id = `stats-${ch.id}`;
+
+      // Chart container
       const plot = document.createElement("div");
-      plot.style.height = "400px";
+      plot.id = `custom-chart-${ch.id}`;
+      plot.style.height = "350px";
       plot.style.border = "1px solid var(--hairline)";
       plot.style.borderRadius = "12px";
       plot.style.marginTop = "0.5rem";
+
       wrap.appendChild(row);
+      wrap.appendChild(statsRow);
       wrap.appendChild(plot);
       host.appendChild(wrap);
 
-      const c = echarts.init(plot, null, { renderer: "canvas" });
-      renderCustomChart(c, ch, rows);
+      // Use uPlot via ChartManager for high performance
+      if (window.ChartManager) {
+        // Destroy old chart if exists
+        if (ChartManager.has(ch.id)) {
+          ChartManager.destroy(ch.id);
+        }
+        ChartManager.createCustomChart(ch.id, plot, ch, rows);
 
-      // Add event listeners that trigger chart updates
-      title.addEventListener("input", () => {
-        ch.title = title.value;
+        // Chart created, event listeners added below via helper function
+        ySel.addEventListener("change", () => {
+          ch.y = ySel.value;
+          updateCustomChartAndStats();
+        });
+
+        colorPicker.addEventListener("change", () => {
+          ch.color = colorPicker.value;
+          ch.colors = [colorPicker.value];
+          updateCustomChartAndStats();
+        });
+
+        // Helper to update chart and show stats
+        function updateCustomChartAndStats() {
+          ChartManager.destroy(ch.id);
+          ChartManager.createCustomChart(ch.id, plot, ch, rows);
+
+          // Update stats display
+          const stats = ChartManager.getCustomChartStats(ch.id);
+          if (stats) {
+            statsRow.innerHTML = `
+              <span>📊 <strong>Count:</strong> ${stats.count.toLocaleString()}</span>
+              <span>⬇️ <strong>Min:</strong> ${stats.min.toFixed(2)}</span>
+              <span>⬆️ <strong>Max:</strong> ${stats.max.toFixed(2)}</span>
+              <span>📈 <strong>Avg:</strong> ${stats.avg.toFixed(2)}</span>
+            `;
+          }
+        }
+
+        // Update title separately (no stats needed)
+        title.addEventListener("input", () => {
+          ch.title = title.value;
+          ChartManager.destroy(ch.id);
+          ChartManager.createCustomChart(ch.id, plot, ch, rows);
+        });
+
+        typeSel.addEventListener("change", () => {
+          ch.type = typeSel.value;
+          updateCustomChartAndStats();
+        });
+
+        xSel.addEventListener("change", () => {
+          ch.x = xSel.value;
+          updateCustomChartAndStats();
+        });
+
+        // Initial stats update
+        updateCustomChartAndStats();
+      } else {
+        // Fallback to ECharts
+        const c = echarts.init(plot, null, { renderer: "canvas" });
         renderCustomChart(c, ch, rows);
-      });
 
-      typeSel.addEventListener("change", () => {
-        ch.type = typeSel.value;
-        renderCustomChart(c, ch, rows);
-      });
+        title.addEventListener("input", () => {
+          ch.title = title.value;
+          renderCustomChart(c, ch, rows);
+        });
 
-      xSel.addEventListener("change", () => {
-        ch.x = xSel.value;
-        renderCustomChart(c, ch, rows);
-      });
+        typeSel.addEventListener("change", () => {
+          ch.type = typeSel.value;
+          renderCustomChart(c, ch, rows);
+        });
 
-      ySel.addEventListener("change", () => {
-        ch.y = ySel.value;
-        renderCustomChart(c, ch, rows);
-      });
+        xSel.addEventListener("change", () => {
+          ch.x = xSel.value;
+          renderCustomChart(c, ch, rows);
+        });
 
-      window.addEventListener("resize", () => c.resize(), { passive: true });
+        ySel.addEventListener("change", () => {
+          ch.y = ySel.value;
+          renderCustomChart(c, ch, rows);
+        });
+
+        window.addEventListener("resize", () => c.resize(), { passive: true });
+      }
     }
   }
   function renderCustomChart(c, cfg, rows) {
@@ -2045,7 +2377,7 @@
     chartEfficiency = echarts.init(el("chart-efficiency"));
     chartAltitude = echarts.init(el("chart-altitude"));
     chartPedals = echarts.init(el("chart-pedals"));
-    
+
     // Initialize quality score chart if element exists
     const qsEl = el("chart-quality-score");
     if (qsEl) {
@@ -2069,48 +2401,53 @@
           gaugePower.resize();
           gaugeEfficiency.resize();
           if (chartQualityScore) chartQualityScore.resize();
-        } catch {}
+        } catch { }
       },
       { passive: true }
     );
+
+    // Setup uPlot resize handler
+    if (window.ChartManager) {
+      ChartManager.setupResizeHandler(150);
+    }
   }
 
   // Modal Dialog Functions
   function createModal(title, content) {
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
-    
+
     const modalContent = document.createElement("div");
     modalContent.className = "modal-content";
-    
+
     const header = document.createElement("h2");
     header.textContent = title;
     header.style.marginTop = "0";
-    
+
     const closeBtn = document.createElement("button");
     closeBtn.textContent = "✕ Close";
     closeBtn.className = "liquid-hover";
     closeBtn.style.marginTop = "1rem";
     closeBtn.style.width = "100%";
-    
+
     modalContent.appendChild(header);
     modalContent.appendChild(content);
     modalContent.appendChild(closeBtn);
     overlay.appendChild(modalContent);
     document.body.appendChild(overlay);
-    
+
     setTimeout(() => overlay.classList.add("active"), 10);
-    
+
     const close = () => {
       overlay.classList.remove("active");
       setTimeout(() => overlay.remove(), 300);
     };
-    
+
     closeBtn.onclick = close;
     overlay.onclick = (e) => {
       if (e.target === overlay) close();
     };
-    
+
     return { overlay, close };
   }
 
@@ -2141,25 +2478,25 @@
       </button>
       <div id="modal-session-info" class="fine" style="margin-top: 0.75rem;"></div>
     `;
-    
+
     const { overlay, close } = createModal("📊 Historical Sessions", content);
-    
+
     const sessionSelect = content.querySelector("#modal-session-select");
     const sessionInfo = content.querySelector("#modal-session-info");
     const refreshBtn = content.querySelector("#modal-refresh-sessions");
     const loadBtn = content.querySelector("#modal-load-session");
-    
+
     const loadSessions = async () => {
       sessionSelect.innerHTML = "";
       try {
         const { sessions } = await fetchSessions();
         let sessionsToShow = sessions || [];
-        
+
         // Limit sessions for external users
         if (isLimitedUser && sessionsToShow.length > historicalLimit) {
           sessionsToShow = sessionsToShow.slice(0, historicalLimit);
         }
-        
+
         state.sessions = sessionsToShow;
         for (const s of state.sessions) {
           const o = document.createElement("option");
@@ -2174,9 +2511,9 @@
         sessionInfo.textContent = "Failed to load sessions";
       }
     };
-    
+
     refreshBtn.onclick = loadSessions;
-    
+
     loadBtn.onclick = async () => {
       const opt = sessionSelect.options[sessionSelect.selectedIndex];
       if (!opt) return;
@@ -2195,7 +2532,7 @@
         sessionInfo.textContent = `Error: ${e.message}`;
       }
     };
-    
+
     await loadSessions();
   }
 
@@ -2241,9 +2578,9 @@
       <p class="fine" style="margin-top: 0.75rem;">Current data points: ${state.telemetry.length.toLocaleString()}</p>
       ${isLimitedUser ? `<p class="fine" style="margin-top: 0.5rem; color: var(--warning);">⚠️ Your account is limited to ${downloadLimit} data points per download.</p>` : ''}
     `;
-    
+
     const { overlay, close } = createModal("💾 Export Data", content);
-    
+
     const fullCsvBtn = content.querySelector("#modal-download-csv");
     if (fullCsvBtn) {
       fullCsvBtn.onclick = () => {
@@ -2255,7 +2592,7 @@
         close();
       };
     }
-    
+
     content.querySelector("#modal-download-sample").onclick = () => {
       const rows = state.telemetry;
       if (!rows.length) return;
@@ -2279,7 +2616,7 @@
       );
       close();
     };
-    
+
     const applyMaxBtn = content.querySelector("#modal-apply-max");
     if (applyMaxBtn) {
       applyMaxBtn.onclick = () => {
@@ -2335,6 +2672,53 @@
       fabMenu.classList.remove("active");
     });
 
+    // Theme Toggle
+    const themeToggle = document.getElementById("theme-toggle");
+    if (themeToggle) {
+      // Load saved theme
+      const savedTheme = localStorage.getItem("theme") || "dark";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+
+      themeToggle.addEventListener("click", () => {
+        const current = document.documentElement.getAttribute("data-theme");
+        const next = current === "light" ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", next);
+        localStorage.setItem("theme", next);
+      });
+    }
+
+    // Tabs scroll indicators
+    const tabsNav = document.querySelector(".tabs-nav");
+    if (tabsNav) {
+      const updateScrollIndicators = () => {
+        const wrapper = tabsNav.parentElement;
+        if (!wrapper || !wrapper.classList.contains("tabs-nav-wrapper")) return;
+
+        const canScrollLeft = tabsNav.scrollLeft > 10;
+        const canScrollRight = tabsNav.scrollLeft < (tabsNav.scrollWidth - tabsNav.clientWidth - 10);
+
+        wrapper.classList.toggle("can-scroll-left", canScrollLeft);
+        wrapper.classList.toggle("can-scroll-right", canScrollRight);
+      };
+
+      tabsNav.addEventListener("scroll", updateScrollIndicators);
+      // Initial check after DOM ready
+      requestAnimationFrame(updateScrollIndicators);
+    }
+
+    // Fix chart sizing on initial load
+    // Charts may not have correct dimensions until first resize
+    setTimeout(() => {
+      if (window.ChartManager) {
+        ChartManager.resizeAll();
+      }
+      // Also resize ECharts instances
+      document.querySelectorAll("[_echarts_instance_]").forEach((el) => {
+        const chart = echarts.getInstanceByDom(el);
+        if (chart) chart.resize();
+      });
+    }, 100);
+
     initTabs();
   }
 
@@ -2374,6 +2758,143 @@
     initMap();
     initEvents();
     initCustomCharts();
+    initDataWorker(); // Initialize Web Worker for data processing
+
+    // Mock data integration for testing (no Ably required)
+    if (window.MockDataGenerator) {
+      state.mockDataGen = new MockDataGenerator({ interval: 100 }); // 10 Hz
+
+      // Global test controls (accessible from browser console)
+      window.telemetryTest = {
+        startMock: () => {
+          state.mockDataGen.start((data) => {
+            // Route through worker if available, otherwise main thread
+            if (state.useWorker && window.DataWorkerBridge && DataWorkerBridge.isReady()) {
+              DataWorkerBridge.sendData(data);
+            } else {
+              // Fallback: direct main thread processing
+              const norm = normalizeData(data);
+              const rows = withDerived([norm]);
+              state.telemetry = mergeTelemetry(state.telemetry, rows);
+              state.msgCount += 1;
+              state.lastMsgTs = new Date();
+              statMsg.textContent = String(state.msgCount);
+              statLast.textContent = "0s ago";
+              throttledRender();
+            }
+          });
+          console.log('🚗 Mock streaming started. Call telemetryTest.stopMock() to stop.');
+        },
+        stopMock: () => {
+          state.mockDataGen.stop();
+          console.log('🛑 Mock streaming stopped.');
+        },
+        loadBatch: (count = 5000) => {
+          const batch = state.mockDataGen.generateBatch(count);
+          // Use worker for batch processing if available
+          if (state.useWorker && window.DataWorkerBridge && DataWorkerBridge.isReady()) {
+            DataWorkerBridge.sendBatch(batch);
+            console.log(`📊 Sent ${count} points to worker for processing.`);
+          } else {
+            const processed = withDerived(batch);
+            state.telemetry = mergeTelemetry(state.telemetry, processed);
+            state.msgCount += count;
+            scheduleRender();
+            console.log(`📊 Loaded ${count} mock data points. Total: ${state.telemetry.length}`);
+          }
+        },
+        clear: () => {
+          state.telemetry = [];
+          state.msgCount = 0;
+          if (window.DataWorkerBridge) {
+            DataWorkerBridge.clear();
+          }
+          scheduleRender();
+          console.log('🗑️ Telemetry data cleared.');
+        },
+        toggleUPlot: (chart, enabled) => {
+          if (chart in state.useUPlot) {
+            state.useUPlot[chart] = enabled;
+            console.log(`${chart} uPlot: ${enabled ? 'enabled' : 'disabled'}`);
+          }
+        },
+        toggleWorker: (enabled) => {
+          state.useWorker = enabled;
+          console.log(`Worker: ${enabled ? 'enabled' : 'disabled (main thread mode)'}`);
+        },
+        getStats: () => {
+          return {
+            dataPoints: state.telemetry.length,
+            msgCount: state.msgCount,
+            workerEnabled: state.useWorker,
+            workerReady: state.workerReady,
+            workerFallback: window.DataWorkerBridge?.isFallbackMode?.() || false
+          };
+        },
+        // 15 Hz stress test as requested
+        stressTest15Hz: (durationSec = 10) => {
+          console.log(`🚀 Starting 15Hz stress test for ${durationSec} seconds...`);
+          const targetInterval = 1000 / 15; // 66.67ms per message
+          let msgCount = 0;
+          let latencies = [];
+
+          const interval = setInterval(() => {
+            const startTime = performance.now();
+            const data = state.mockDataGen.generateBatch(1)[0];
+
+            if (state.useWorker && window.DataWorkerBridge && DataWorkerBridge.isReady()) {
+              DataWorkerBridge.sendData(data);
+            } else {
+              const norm = normalizeData(data);
+              const rows = withDerived([norm]);
+              state.telemetry = mergeTelemetry(state.telemetry, rows);
+              state.msgCount += 1;
+              throttledRender();
+            }
+
+            const latency = performance.now() - startTime;
+            latencies.push(latency);
+            msgCount++;
+          }, targetInterval);
+
+          setTimeout(() => {
+            clearInterval(interval);
+            const avgLatency = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+            const maxLatency = Math.max(...latencies);
+            const under50ms = latencies.filter(l => l < 50).length / latencies.length * 100;
+
+            console.log(`✅ Stress test complete!`);
+            console.log(`📊 Messages processed: ${msgCount}`);
+            console.log(`⏱️ Avg latency: ${avgLatency.toFixed(2)}ms`);
+            console.log(`⚡ Max latency: ${maxLatency.toFixed(2)}ms`);
+            console.log(`🎯 Under 50ms: ${under50ms.toFixed(1)}%`);
+            console.log(`📈 Total data points: ${state.telemetry.length}`);
+          }, durationSec * 1000);
+        },
+        // Measure single message latency
+        measureLatency: () => {
+          const iterations = 100;
+          const latencies = [];
+
+          for (let i = 0; i < iterations; i++) {
+            const startTime = performance.now();
+            const data = state.mockDataGen.generateBatch(1)[0];
+            const norm = normalizeData(data);
+            withDerived([norm]); // Just process, don't store
+            latencies.push(performance.now() - startTime);
+          }
+
+          const avg = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+          const max = Math.max(...latencies);
+          const under50ms = latencies.filter(l => l < 50).length;
+
+          console.log(`📊 Message processing latency (${iterations} samples):`);
+          console.log(`   Avg: ${avg.toFixed(3)}ms | Max: ${max.toFixed(3)}ms | <50ms: ${under50ms}/${iterations}`);
+          return { avg, max, under50ms };
+        }
+      };
+      console.log('✅ Mock data ready. Use telemetryTest.startMock() or telemetryTest.loadBatch(5000) in console.');
+    }
 
     // Start on Overview
     Object.values(panels).forEach((p) => (p.style.display = "none"));

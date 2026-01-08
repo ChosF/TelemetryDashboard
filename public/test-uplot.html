@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>uPlot Performance Test - EcoVolt Telemetry</title>
+
+    <!-- uPlot -->
+    <link rel="stylesheet" href="lib/uplot.min.css" />
+
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --surface: rgba(255, 255, 255, 0.05);
+            --text: #ffffff;
+            --accent: #00d4ff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: var(--accent);
+            color: var(--bg);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .stats {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .stats span {
+            margin: 0 15px;
+            font-family: monospace;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        .panel {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .panel h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .chart {
+            width: 100%;
+            height: 250px;
+        }
+
+        .gauge-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+        }
+
+        .gauge-wrap {
+            text-align: center;
+        }
+
+        .gauge {
+            width: 100%;
+            height: 120px;
+        }
+
+        .gauge-title {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 5px;
+        }
+
+        /* uPlot theme overrides */
+        .uplot {
+            --uplot-axis-stroke: rgba(255, 255, 255, 0.5);
+        }
+
+        .u-legend {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+        }
+
+        .u-title {
+            color: var(--text);
+        }
+    </style>
+</head>
+
+<body>
+    <h1>⚡ uPlot Performance Test</h1>
+
+    <div class="controls">
+        <button id="btn-start">▶️ Start Streaming (10 Hz)</button>
+        <button id="btn-stop">⏹️ Stop</button>
+        <button id="btn-batch">📊 Load 10K Points</button>
+        <button id="btn-clear">🗑️ Clear Data</button>
+    </div>
+
+    <div class="stats">
+        <span>Points: <strong id="stat-points">0</strong></span>
+        <span>FPS: <strong id="stat-fps">0</strong></span>
+        <span>Render: <strong id="stat-render">0</strong>ms</span>
+        <span>Messages: <strong id="stat-messages">0</strong></span>
+    </div>
+
+    <div class="grid">
+        <!-- Gauges -->
+        <div class="panel">
+            <h3>📊 Live Gauges</h3>
+            <div class="gauge-grid">
+                <div class="gauge-wrap">
+                    <div class="gauge" id="gauge-speed"></div>
+                    <div class="gauge-title">Speed (m/s)</div>
+                </div>
+                <div class="gauge-wrap">
+                    <div class="gauge" id="gauge-voltage"></div>
+                    <div class="gauge-title">Voltage (V)</div>
+                </div>
+                <div class="gauge-wrap">
+                    <div class="gauge" id="gauge-power"></div>
+                    <div class="gauge-title">Power (W)</div>
+                </div>
+                <div class="gauge-wrap">
+                    <div class="gauge" id="gauge-gforce"></div>
+                    <div class="gauge-title">G-Forces</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Speed Chart -->
+        <div class="panel">
+            <h3>🚗 Speed Over Time</h3>
+            <div class="chart" id="chart-speed"></div>
+        </div>
+
+        <!-- Power Chart -->
+        <div class="panel">
+            <h3>⚡ Voltage & Current</h3>
+            <div class="chart" id="chart-power"></div>
+        </div>
+
+        <!-- IMU Chart -->
+        <div class="panel">
+            <h3>🧭 IMU Sensors</h3>
+            <div class="chart" id="chart-imu"></div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="lib/uplot.iife.min.js"></script>
+    <script src="lib/gauges.js"></script>
+    <script src="lib/charts.js"></script>
+    <script src="lib/mock-data.js"></script>
+
+    <script>
+        (function () {
+            'use strict';
+
+            // State
+            let telemetry = [];
+            let messageCount = 0;
+            let lastRenderTime = 0;
+            let frameCount = 0;
+            let lastFPSUpdate = performance.now();
+
+            // UI elements
+            const statPoints = document.getElementById('stat-points');
+            const statFPS = document.getElementById('stat-fps');
+            const statRender = document.getElementById('stat-render');
+            const statMessages = document.getElementById('stat-messages');
+
+            // Initialize mock data generator
+            const mockGen = new MockDataGenerator({ interval: 100 }); // 10 Hz
+
+            // Initialize gauges
+            const gaugeSpeed = new CanvasGauge(document.getElementById('gauge-speed'), {
+                min: 0, max: 20, color: '#1f77b4', unit: 'm/s', decimals: 1
+            });
+
+            const gaugeVoltage = new CanvasGauge(document.getElementById('gauge-voltage'), {
+                min: 48, max: 60, color: '#22c55e', unit: 'V', decimals: 1
+            });
+
+            const gaugePower = new CanvasGauge(document.getElementById('gauge-power'), {
+                min: 0, max: 1000, color: '#f59e0b', unit: 'W', decimals: 0
+            });
+
+            const gaugeGForce = new GForceGauge(document.getElementById('gauge-gforce'), {
+                maxG: 1.5, color: '#00d4ff'
+            });
+
+            // Initialize charts (lazy - will be created on first update)
+            let chartsInitialized = false;
+
+            function initCharts() {
+                if (chartsInitialized) return;
+                ChartManager.createSpeedChart('chart-speed', telemetry);
+                ChartManager.createPowerChart('chart-power', telemetry);
+                ChartManager.createIMUChart('chart-imu', telemetry);
+                chartsInitialized = true;
+            }
+
+            // Handle new data point
+            function onData(data) {
+                telemetry.push(data);
+                if (telemetry.length > 50000) {
+                    telemetry = telemetry.slice(-50000);
+                }
+                messageCount++;
+                scheduleRender();
+            }
+
+            // Throttled render
+            let renderScheduled = false;
+            function scheduleRender() {
+                if (renderScheduled) return;
+                renderScheduled = true;
+                requestAnimationFrame(doRender);
+            }
+
+            function doRender() {
+                renderScheduled = false;
+                const start = performance.now();
+
+                if (!chartsInitialized && telemetry.length > 0) {
+                    initCharts();
+                }
+
+                // Update gauges with latest values
+                const latest = telemetry[telemetry.length - 1];
+                if (latest) {
+                    gaugeSpeed.setValue(latest.speed_ms ?? 0);
+                    gaugeVoltage.setValue(latest.voltage_v ?? 54);
+                    gaugePower.setValue(latest.power_w ?? 0);
+                    gaugeGForce.setValues(latest.g_lat ?? 0, latest.g_long ?? 0);
+                }
+
+                // Update charts
+                ChartManager.updateChart('speed', telemetry);
+                ChartManager.updateChart('power', telemetry);
+                ChartManager.updateChart('imu', telemetry);
+
+                // Update stats
+                lastRenderTime = performance.now() - start;
+                frameCount++;
+
+                const now = performance.now();
+                if (now - lastFPSUpdate > 1000) {
+                    statFPS.textContent = frameCount;
+                    frameCount = 0;
+                    lastFPSUpdate = now;
+                }
+
+                statPoints.textContent = telemetry.length.toLocaleString();
+                statRender.textContent = lastRenderTime.toFixed(1);
+                statMessages.textContent = messageCount.toLocaleString();
+            }
+
+            // Button handlers
+            document.getElementById('btn-start').onclick = () => {
+                mockGen.start(onData);
+            };
+
+            document.getElementById('btn-stop').onclick = () => {
+                mockGen.stop();
+            };
+
+            document.getElementById('btn-batch').onclick = () => {
+                const batch = mockGen.generateBatch(10000);
+                telemetry = telemetry.concat(batch);
+                if (telemetry.length > 50000) {
+                    telemetry = telemetry.slice(-50000);
+                }
+                messageCount += batch.length;
+                scheduleRender();
+            };
+
+            document.getElementById('btn-clear').onclick = () => {
+                telemetry = [];
+                messageCount = 0;
+                if (chartsInitialized) {
+                    ChartManager.updateChart('speed', []);
+                    ChartManager.updateChart('power', []);
+                    ChartManager.updateChart('imu', []);
+                }
+                scheduleRender();
+            };
+
+            // Handle resize
+            window.addEventListener('resize', () => {
+                ChartManager.resizeAll();
+                gaugeSpeed.resize();
+                gaugeVoltage.resize();
+                gaugePower.resize();
+                gaugeGForce.resize();
+            });
+
+            console.log('✅ uPlot Performance Test Ready');
+            console.log('Click "Start Streaming" to begin mock data flow');
+        })();
+    </script>
+</body>
+
+</html>

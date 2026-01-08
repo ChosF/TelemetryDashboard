@@ -24,6 +24,9 @@
   <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
+  <!-- uPlot (high-performance charts) -->
+  <link rel="stylesheet" href="lib/uplot.min.css" />
+
   <!-- Optional config (define window.CONFIG before app.js if needed) -->
   <script>
     window.CONFIG = window.CONFIG || {
@@ -79,6 +82,15 @@
               <span class="stat-mini-value" id="stat-last">Never</span>
               <span class="stat-mini-label">Last Update</span>
             </div>
+          </div>
+          <!-- Header Actions (Theme + Auth) -->
+          <div class="header-actions">
+            <button id="theme-toggle" class="theme-toggle liquid-hover" aria-label="Toggle theme"
+              title="Toggle light/dark mode">
+              <span class="theme-icon theme-icon-sun">☀️</span>
+              <span class="theme-icon theme-icon-moon">🌙</span>
+            </button>
+            <!-- Auth button will be inserted here by auth-ui.js -->
           </div>
         </div>
       </div>
@@ -378,6 +390,13 @@
   <!-- Auth modules -->
   <script src="auth.js"></script>
   <script src="auth-ui.js"></script>
+
+  <!-- High-performance charting (uPlot) -->
+  <script src="lib/uplot.iife.min.js"></script>
+  <script src="lib/gauges.js"></script>
+  <script src="lib/charts.js"></script>
+  <script src="lib/mock-data.js"></script>
+  <script src="lib/worker-bridge.js"></script>
 
   <!-- App logic -->
   <script src="app.js"></script>
