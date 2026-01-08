@@ -1892,9 +1892,11 @@
   }
   
   /**
-   * Fetch Ably history using TIME-BASED query (faster than untilAttach)
+   * Fetch Ably history using HYBRID approach:
+   * - `start` parameter limits how far back we go (fast)
+   * - `untilAttach` ensures we get messages up to subscription point (no gap)
    * 
-   * Uses `start` parameter to limit the time range, avoiding full history scan.
+   * This is the HACK to eliminate the gap while maintaining speed.
    * 
    * @param {Object} channel - Ably channel
    * @param {string} sessionId - Session to filter by  
@@ -1912,20 +1914,28 @@
     let oldestMsgTime = null;
     let newestMsgTime = null;
     
-    console.log(`🔍 [Ably History] Fetching since: ${startTime.toISOString()}`);
+    console.log(`🔍 [Ably History] HYBRID fetch: start=${startTime.toISOString()} + untilAttach`);
     
     try {
-      // Time-based query: get messages from startTime onwards
-      // direction: forwards gives oldest first, which is what we want
+      // Ensure channel is attached (required for untilAttach)
+      if (channel.state !== 'attached') {
+        await channel.attach();
+      }
+      
+      // HYBRID APPROACH: Combine start + untilAttach
+      // - start: limits how far back (60s) - prevents scanning entire history
+      // - untilAttach: ensures we get up to subscription point - no gap!
+      // - direction: backwards required with untilAttach
       const historyParams = {
-        start: startTime.getTime(), // Unix timestamp in ms
-        direction: 'forwards',
+        start: startTime.getTime(), // Don't go further back than this
+        untilAttach: true,          // Go up to subscription point (eliminates gap!)
+        direction: 'backwards',     // Required with untilAttach
         limit: 1000
       };
       
       const historyResult = await channel.history(historyParams);
       
-      // Process results (usually just 1 page for recent data)
+      // Process results
       let page = historyResult;
       let pageCount = 0;
       
@@ -1958,7 +1968,7 @@
           }
         }
         
-        // Get next page if available (unlikely for 60s window)
+        // Get next page if available
         if (page.hasNext()) {
           page = await page.next();
         } else {
@@ -1968,6 +1978,9 @@
       
       const elapsed = performance.now() - fetchStart;
       
+      // Reverse to chronological order (backwards gives newest first)
+      messages.reverse();
+      
       // Summary
       console.log(`📊 [Ably History] Scanned: ${totalScanned}, Matched: ${messages.length}, Time: ${elapsed.toFixed(0)}ms`);
       if (oldestMsgTime && newestMsgTime) {
@@ -1976,7 +1989,58 @@
       
       return messages;
     } catch (e) {
-      console.error('❌ [Ably History] Error:', e.message);
+      // If hybrid fails (some Ably plans don't support combining params), fall back to time-based only
+      console.warn('⚠️ [Ably History] Hybrid failed, trying time-based only:', e.message);
+      return await fetchAblyHistoryTimeBasedFallback(channel, sessionId, startTime);
+    }
+  }
+  
+  /**
+   * Fallback: Time-based only (if hybrid approach fails)
+   */
+  async function fetchAblyHistoryTimeBasedFallback(channel, sessionId, startTime) {
+    const fetchStart = performance.now();
+    const messages = [];
+    let totalScanned = 0;
+    
+    try {
+      const historyParams = {
+        start: startTime.getTime(),
+        direction: 'forwards',
+        limit: 1000
+      };
+      
+      let page = await channel.history(historyParams);
+      
+      do {
+        if (page.items) {
+          for (const msg of page.items) {
+            totalScanned++;
+            if (msg.name === 'telemetry_update' && msg.data) {
+              let data = msg.data;
+              if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch { continue; }
+              }
+              if (data.session_id === sessionId) {
+                if (!data.timestamp && msg.timestamp) {
+                  data.timestamp = new Date(msg.timestamp).toISOString();
+                }
+                messages.push(data);
+              }
+            }
+          }
+        }
+        if (page.hasNext()) {
+          page = await page.next();
+        } else {
+          break;
+        }
+      } while (page.items && page.items.length > 0);
+      
+      console.log(`📊 [Ably Fallback] Scanned: ${totalScanned}, Matched: ${messages.length}, Time: ${(performance.now() - fetchStart).toFixed(0)}ms`);
+      return messages;
+    } catch (e) {
+      console.error('❌ [Ably Fallback] Error:', e.message);
       return [];
     }
   }
