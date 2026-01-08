@@ -2701,6 +2701,29 @@
         const next = current === "light" ? "dark" : "light";
         document.documentElement.setAttribute("data-theme", next);
         localStorage.setItem("theme", next);
+        
+        // Update charts with new theme
+        if (window.ChartManager) {
+          ChartManager.updateTheme();
+          // Trigger a re-render of visible charts
+          const activePanel = state.activePanel;
+          const rows = state.telemetry;
+          if (rows.length > 0) {
+            if (activePanel === 'speed' || activePanel === 'overview') {
+              renderSpeedChart(rows);
+            }
+            if (activePanel === 'imu' || activePanel === 'overview') {
+              renderIMUChart(rows);
+            }
+            if (activePanel === 'efficiency') {
+              renderEfficiency(rows);
+            }
+            if (activePanel === 'gps') {
+              renderMapAndAltitude(rows);
+            }
+            // Custom charts will be recreated when their panel is shown
+          }
+        }
       });
     }
 

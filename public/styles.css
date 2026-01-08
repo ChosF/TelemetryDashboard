@@ -1728,3 +1728,72 @@ body {
     font-size: 0.875rem;
   }
 }
+
+/* ==========================================================================
+   UPLOT CHART STYLING FOR LIGHT MODE
+   ========================================================================== */
+
+/* Base uPlot styling */
+.uplot {
+  font-family: var(--font-sans);
+}
+
+/* Light mode: Ensure grid lines, axis lines, and labels are visible */
+[data-theme="light"] .uplot .u-axis {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="light"] .uplot .u-axis .u-label {
+  color: rgba(0, 0, 0, 0.6);
+  fill: rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="light"] .uplot .u-axis .u-tick {
+  stroke: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="light"] .uplot .u-grid {
+  stroke: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .uplot .u-legend {
+  color: rgba(0, 0, 0, 0.7);
+}
+
+[data-theme="light"] .uplot .u-legend .u-series {
+  color: rgba(0, 0, 0, 0.7);
+}
+
+[data-theme="light"] .uplot .u-title {
+  color: rgba(0, 0, 0, 0.9);
+}
+
+/* Dark mode: Keep existing styling */
+[data-theme="dark"] .uplot .u-axis {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="dark"] .uplot .u-axis .u-label {
+  color: rgba(255, 255, 255, 0.7);
+  fill: rgba(255, 255, 255, 0.7);
+}
+
+[data-theme="dark"] .uplot .u-axis .u-tick {
+  stroke: rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="dark"] .uplot .u-grid {
+  stroke: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .uplot .u-legend {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-theme="dark"] .uplot .u-legend .u-series {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+[data-theme="dark"] .uplot .u-title {
+  color: rgba(255, 255, 255, 0.9);
+}

@@ -25,13 +25,31 @@ const ChartManager = (function () {
         pitch: '#ff6b6b',
         roll: '#4ecdc4',
         altitude: '#00d4ff',
+        // Theme-aware colors will be set dynamically
         grid: 'rgba(255,255,255,0.1)',
         axis: 'rgba(255,255,255,0.5)',
         text: '#ffffff'
     };
 
+    // Detect current theme
+    function getTheme() {
+        return document.documentElement.getAttribute('data-theme') || 'dark';
+    }
+
+    // Get theme-aware colors
+    function getThemeColors() {
+        const isLight = getTheme() === 'light';
+        return {
+            grid: isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.1)',
+            axis: isLight ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.5)',
+            ticks: isLight ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.5)',
+            text: isLight ? '#09090b' : '#ffffff'
+        };
+    }
+
     // Common uPlot options factory
     function baseOpts(title, width, height) {
+        const themeColors = getThemeColors();
         return {
             title: title,
             width: width,
@@ -46,17 +64,45 @@ const ChartManager = (function () {
             },
             axes: [
                 {
-                    stroke: COLORS.axis,
-                    grid: { stroke: COLORS.grid },
-                    ticks: { stroke: COLORS.grid }
+                    stroke: themeColors.axis,
+                    grid: { 
+                        stroke: themeColors.grid,
+                        width: 1
+                    },
+                    ticks: { 
+                        stroke: themeColors.ticks,
+                        width: 1
+                    },
+                    labelFont: `12px Inter, sans-serif`,
+                    labelGap: 4,
+                    font: `11px Inter, sans-serif`,
+                    labelSize: 30,
+                    side: 2, // bottom
+                    space: 40
                 },
                 {
-                    stroke: COLORS.axis,
-                    grid: { stroke: COLORS.grid },
-                    ticks: { stroke: COLORS.grid }
+                    stroke: themeColors.axis,
+                    grid: { 
+                        stroke: themeColors.grid,
+                        width: 1
+                    },
+                    ticks: { 
+                        stroke: themeColors.ticks,
+                        width: 1
+                    },
+                    labelFont: `12px Inter, sans-serif`,
+                    labelGap: 4,
+                    font: `11px Inter, sans-serif`,
+                    labelSize: 50,
+                    side: 3, // left
+                    space: 60
                 }
             ],
-            legend: { show: true }
+            legend: { 
+                show: true,
+                stroke: themeColors.axis,
+                fill: 'transparent'
+            }
         };
     }
 
@@ -203,6 +249,7 @@ const ChartManager = (function () {
 
         // Create Power chart (Voltage & Current)
         createPowerChart(container, rows = []) {
+            const themeColors = getThemeColors();
             const data = rowsToUPlotData(rows, ['voltage_v', 'current_a']);
             const opts = {
                 ...baseOpts('⚡ Electrical System', 800, 400),
@@ -212,14 +259,15 @@ const ChartManager = (function () {
                     y2: {}
                 },
                 axes: [
-                    { stroke: COLORS.axis, grid: { stroke: COLORS.grid } },
-                    { stroke: COLORS.voltage, scale: 'y', label: 'Voltage (V)' },
+                    { stroke: themeColors.axis, grid: { stroke: themeColors.grid }, ticks: { stroke: themeColors.ticks } },
+                    { stroke: COLORS.voltage, scale: 'y', label: 'Voltage (V)', grid: { stroke: themeColors.grid }, ticks: { stroke: themeColors.ticks } },
                     {
                         stroke: COLORS.current,
                         scale: 'y2',
                         side: 1,
                         label: 'Current (A)',
-                        grid: { show: false }
+                        grid: { show: false },
+                        ticks: { stroke: themeColors.ticks }
                     }
                 ],
                 series: [
@@ -267,24 +315,46 @@ const ChartManager = (function () {
 
         // Create Efficiency scatter plot
         createEfficiencyChart(container, rows = []) {
+            const themeColors = getThemeColors();
             const data = [
                 rows.map(r => r.speed_ms ?? 0),
                 rows.map(r => r.power_w ?? 0)
             ];
+            
+            // Use a darker color for data points to ensure visibility of low values
+            // Use a gradient-like approach: darker orange/red for better contrast
+            const pointColor = '#d97706'; // Darker amber/orange for better visibility
+            
             const opts = {
                 ...baseOpts('📈 Efficiency: Speed vs Power', 800, 400),
                 scales: { x: { time: false } },
                 axes: [
-                    { stroke: COLORS.axis, label: 'Speed (m/s)', grid: { stroke: COLORS.grid } },
-                    { stroke: COLORS.axis, label: 'Power (W)', grid: { stroke: COLORS.grid } }
+                    { 
+                        stroke: themeColors.axis, 
+                        label: 'Speed (m/s)', 
+                        grid: { stroke: themeColors.grid },
+                        ticks: { stroke: themeColors.ticks }
+                    },
+                    { 
+                        stroke: themeColors.axis, 
+                        label: 'Power (W)', 
+                        grid: { stroke: themeColors.grid },
+                        ticks: { stroke: themeColors.ticks }
+                    }
                 ],
                 series: [
                     { label: 'Speed' },
                     {
                         label: 'Power',
-                        stroke: COLORS.power,
+                        stroke: pointColor,
                         paths: () => null, // scatter plot
-                        points: { show: true, size: 4, fill: COLORS.power }
+                        points: { 
+                            show: true, 
+                            size: 5, // Slightly larger for better visibility
+                            fill: pointColor,
+                            stroke: pointColor,
+                            width: 1
+                        }
                     }
                 ],
                 data
@@ -397,6 +467,7 @@ const ChartManager = (function () {
                 series.push(seriesConfig);
             });
 
+            const themeColors = getThemeColors();
             const opts = {
                 title: config.title || 'Custom Chart',
                 width: width,
@@ -406,11 +477,32 @@ const ChartManager = (function () {
                     x: { time: isTimeX }
                 },
                 axes: [
-                    { stroke: COLORS.axis, grid: { stroke: COLORS.grid } },
-                    { stroke: COLORS.axis, grid: { stroke: COLORS.grid }, label: yFields.join(' / ') }
+                    { 
+                        stroke: themeColors.axis, 
+                        grid: { stroke: themeColors.grid },
+                        ticks: { stroke: themeColors.ticks },
+                        labelFont: '12px Inter, sans-serif',
+                        labelGap: 4,
+                        font: '11px Inter, sans-serif',
+                        labelSize: 30
+                    },
+                    { 
+                        stroke: themeColors.axis, 
+                        grid: { stroke: themeColors.grid }, 
+                        label: yFields.join(' / '),
+                        ticks: { stroke: themeColors.ticks },
+                        labelFont: '12px Inter, sans-serif',
+                        labelGap: 4,
+                        font: '11px Inter, sans-serif',
+                        labelSize: 50
+                    }
                 ],
                 series: series,
-                legend: { show: config.showLegend !== false },
+                legend: { 
+                    show: config.showLegend !== false,
+                    stroke: themeColors.axis,
+                    fill: 'transparent'
+                },
                 cursor: {
                     sync: { key: 'custom' },
                     drag: { x: true, y: true }
@@ -492,6 +584,33 @@ const ChartManager = (function () {
         // Check if chart exists
         has(name) {
             return !!charts[name];
+        },
+
+        // Update all charts when theme changes (recreates them with new theme colors)
+        updateTheme() {
+            // Store current chart data and configs
+            const chartData = {};
+            const chartContainers = {};
+            
+            for (const name in charts) {
+                const chart = charts[name];
+                if (chart && chart.root && chart.root.parentElement) {
+                    // Get current data
+                    const data = chart.data;
+                    chartData[name] = data;
+                    
+                    // Get container
+                    chartContainers[name] = chart.root.parentElement;
+                    
+                    // Destroy old chart
+                    chart.destroy();
+                    delete charts[name];
+                }
+            }
+            
+            // Recreate charts with new theme
+            // Note: Charts will be recreated when their render functions are called
+            console.log('ChartManager: Theme updated, charts will be recreated on next render');
         }
     };
 })();
