@@ -20,7 +20,7 @@ A real-time telemetry dashboard for monitoring vehicle performance during Shell 
 - 💾 CSV export functionality
 - 🔐 **Authentication & Role-Based Access Control**
 - 👥 **User Management Dashboard (Admin)**
-- 🎨 **Award-Winning Minimal Design**
+
 
 ## User Roles & Permissions
 
