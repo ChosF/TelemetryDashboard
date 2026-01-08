@@ -1780,6 +1780,17 @@
       console.log(`✅ Fast triangulation complete: ${processed.length} points in ${elapsed.toFixed(0)}ms`);
       console.log(`   Supabase: ${supabaseData.length}, Ably: ${ablyHistoryData.length}, Buffered: ${bufferedForSession.length}`);
       
+      // Check for data freshness - how old is the newest data point?
+      if (processed.length > 0) {
+        const newestData = new Date(processed[processed.length - 1].timestamp);
+        const now = new Date();
+        const dataAge = (now - newestData) / 1000;
+        console.log(`📊 [Triangulation] Data freshness: newest data is ${dataAge.toFixed(1)}s old`);
+        if (dataAge > 5) {
+          console.warn(`⚠️ [Triangulation] Data might have a gap - newest data is ${dataAge.toFixed(1)}s behind current time`);
+        }
+      }
+      
       // Notify user
       if (window.AuthUI && window.AuthUI.showNotification) {
         window.AuthUI.showNotification(
@@ -1820,6 +1831,7 @@
   
   /**
    * Fetch session data from Supabase (paginated)
+   * DEBUG: Logs time range of fetched data
    */
   async function fetchSupabaseSessionData(sessionId) {
     const startTime = performance.now();
@@ -1827,6 +1839,8 @@
     const pageSize = 1000;
     let offset = 0;
     const maxPages = 100;
+    
+    console.log(`🔍 [Supabase] Starting fetch for session: ${sessionId?.slice(0, 8) || 'unknown'}`);
     
     try {
       for (let page = 0; page < maxPages; page++) {
@@ -1839,6 +1853,7 @@
         const { rows } = await response.json();
         if (!rows || rows.length === 0) break;
         
+        console.log(`🔍 [Supabase] Page ${page + 1}: ${rows.length} rows`);
         allRows.push(...rows);
         offset += rows.length;
         
@@ -1846,10 +1861,30 @@
       }
       
       const elapsed = performance.now() - startTime;
-      console.log(`📊 Supabase: ${allRows.length} rows in ${elapsed.toFixed(0)}ms`);
+      
+      // Log time range
+      if (allRows.length > 0) {
+        const times = allRows
+          .filter(r => r && r.timestamp)
+          .map(r => new Date(r.timestamp).getTime())
+          .sort((a, b) => a - b);
+        
+        if (times.length > 0) {
+          const oldest = new Date(times[0]);
+          const newest = new Date(times[times.length - 1]);
+          console.log(`📊 [Supabase] === SUMMARY ===`);
+          console.log(`📊 [Supabase] Total: ${allRows.length} rows in ${elapsed.toFixed(0)}ms`);
+          console.log(`📊 [Supabase] Oldest: ${oldest.toISOString()}`);
+          console.log(`📊 [Supabase] Newest: ${newest.toISOString()}`);
+          console.log(`📊 [Supabase] Span: ${((newest - oldest) / 1000).toFixed(1)}s`);
+        }
+      } else {
+        console.log(`📊 [Supabase] No rows found for session`);
+      }
+      
       return allRows;
     } catch (e) {
-      console.error('Supabase fetch error:', e);
+      console.error('❌ [Supabase] Fetch error:', e);
       return [];
     }
   }
@@ -1857,32 +1892,82 @@
   /**
    * Fetch Ably history using untilAttach for seamless handoff to real-time
    * This is FAST because it doesn't scan all messages - just gets recent ones
+   * 
+   * DEBUG FLAGS:
+   * - ABLY_HISTORY_DEBUG: Set to true to enable verbose logging
    */
+  const ABLY_HISTORY_DEBUG = true; // Enable debug logging
+  
   async function fetchAblyHistoryFast(channel, sessionId) {
-    if (!channel) return [];
+    if (!channel) {
+      console.warn('⚠️ [Ably History] No channel provided');
+      return [];
+    }
     
     const startTime = performance.now();
     const messages = [];
+    let totalScanned = 0;
+    let totalPages = 0;
+    let oldestMsgTime = null;
+    let newestMsgTime = null;
+    
+    console.log(`🔍 [Ably History] Starting fetch for session: ${sessionId?.slice(0, 8) || 'unknown'}`);
+    console.log(`🔍 [Ably History] Channel state: ${channel.state}`);
     
     try {
+      // Check if channel is attached (required for untilAttach)
+      if (channel.state !== 'attached') {
+        console.warn(`⚠️ [Ably History] Channel not attached (state: ${channel.state}), attaching...`);
+        await channel.attach();
+        console.log(`✅ [Ably History] Channel now attached`);
+      }
+      
       // Use untilAttach: true to get history up to the point we subscribed
       // This ensures NO GAP between history and real-time messages
-      // Direction 'forwards' gives us oldest first for proper ordering
-      const historyResult = await channel.history({
+      const historyParams = {
         untilAttach: true,
-        direction: 'forwards',
-        limit: 1000 // Get up to 1000 recent messages
-      });
+        direction: 'forwards', // Oldest first for proper ordering
+        limit: 1000 // Messages per page
+      };
+      
+      console.log(`🔍 [Ably History] Fetching with params:`, historyParams);
+      
+      const historyResult = await channel.history(historyParams);
+      
+      console.log(`🔍 [Ably History] Initial result received, hasItems: ${!!(historyResult.items && historyResult.items.length)}`);
       
       // Process all pages
       let page = historyResult;
       do {
+        totalPages++;
+        
+        if (ABLY_HISTORY_DEBUG) {
+          console.log(`🔍 [Ably History] Processing page ${totalPages}, items: ${page.items?.length || 0}`);
+        }
+        
         if (page.items && page.items.length > 0) {
           for (const msg of page.items) {
+            totalScanned++;
+            
+            // Debug first few messages
+            if (ABLY_HISTORY_DEBUG && totalScanned <= 3) {
+              console.log(`🔍 [Ably History] Message ${totalScanned}:`, {
+                name: msg.name,
+                timestamp: msg.timestamp ? new Date(msg.timestamp).toISOString() : 'none',
+                hasData: !!msg.data,
+                dataType: typeof msg.data
+              });
+            }
+            
             if (msg.name === 'telemetry_update' && msg.data) {
               let data = msg.data;
               if (typeof data === 'string') {
                 try { data = JSON.parse(data); } catch { continue; }
+              }
+              
+              // Track message session IDs for debugging
+              if (ABLY_HISTORY_DEBUG && totalScanned <= 5) {
+                console.log(`🔍 [Ably History] Message session_id: ${data.session_id?.slice(0, 8) || 'none'}, target: ${sessionId?.slice(0, 8)}`);
               }
               
               // Only include messages from target session
@@ -1891,6 +1976,12 @@
                 if (!data.timestamp && msg.timestamp) {
                   data.timestamp = new Date(msg.timestamp).toISOString();
                 }
+                
+                // Track time range
+                const msgTime = new Date(data.timestamp || msg.timestamp);
+                if (!oldestMsgTime || msgTime < oldestMsgTime) oldestMsgTime = msgTime;
+                if (!newestMsgTime || msgTime > newestMsgTime) newestMsgTime = msgTime;
+                
                 messages.push(data);
               }
             }
@@ -1898,7 +1989,12 @@
         }
         
         // Get next page if available
-        if (page.hasNext()) {
+        const hasNext = page.hasNext();
+        if (ABLY_HISTORY_DEBUG) {
+          console.log(`🔍 [Ably History] Page ${totalPages} done, hasNext: ${hasNext}`);
+        }
+        
+        if (hasNext) {
           page = await page.next();
         } else {
           break;
@@ -1906,10 +2002,27 @@
       } while (page.items && page.items.length > 0);
       
       const elapsed = performance.now() - startTime;
-      console.log(`📊 Ably (untilAttach): ${messages.length} messages in ${elapsed.toFixed(0)}ms`);
+      
+      // Detailed summary
+      console.log(`📊 [Ably History] === SUMMARY ===`);
+      console.log(`📊 [Ably History] Total scanned: ${totalScanned} messages across ${totalPages} pages`);
+      console.log(`📊 [Ably History] Matched session: ${messages.length} messages`);
+      console.log(`📊 [Ably History] Time: ${elapsed.toFixed(0)}ms`);
+      if (oldestMsgTime && newestMsgTime) {
+        console.log(`📊 [Ably History] Time range: ${oldestMsgTime.toISOString()} to ${newestMsgTime.toISOString()}`);
+        console.log(`📊 [Ably History] Span: ${((newestMsgTime - oldestMsgTime) / 1000).toFixed(1)} seconds`);
+      } else {
+        console.log(`📊 [Ably History] No messages found for this session`);
+      }
+      
       return messages;
     } catch (e) {
-      console.warn('Ably history error (may not be enabled):', e.message);
+      console.error('❌ [Ably History] Error:', e);
+      console.error('❌ [Ably History] Error details:', {
+        message: e.message,
+        code: e.code,
+        statusCode: e.statusCode
+      });
       return [];
     }
   }
@@ -1917,10 +2030,64 @@
   /**
    * Merge data from all three sources with deduplication
    * Uses timestamp + message_id as unique key
+   * 
+   * DEBUG: Logs time ranges from each source to identify gaps
    */
   function mergeTriangulatedData(supabaseData, ablyHistoryData, bufferedRealtime) {
     const keyOf = (r) => `${new Date(r.timestamp).getTime()}::${r.message_id || ''}`;
     const seen = new Map();
+    
+    // Helper to get time range
+    const getTimeRange = (arr, name) => {
+      if (!arr || arr.length === 0) {
+        console.log(`📊 [Merge] ${name}: 0 records`);
+        return null;
+      }
+      const times = arr
+        .filter(r => r && r.timestamp)
+        .map(r => new Date(r.timestamp).getTime())
+        .sort((a, b) => a - b);
+      
+      if (times.length === 0) {
+        console.log(`📊 [Merge] ${name}: ${arr.length} records but no valid timestamps`);
+        return null;
+      }
+      
+      const oldest = new Date(times[0]);
+      const newest = new Date(times[times.length - 1]);
+      const span = (newest - oldest) / 1000;
+      
+      console.log(`📊 [Merge] ${name}: ${arr.length} records`);
+      console.log(`   Oldest: ${oldest.toISOString()}`);
+      console.log(`   Newest: ${newest.toISOString()}`);
+      console.log(`   Span: ${span.toFixed(1)}s`);
+      
+      return { oldest, newest, count: arr.length };
+    };
+    
+    console.log(`📊 [Merge] === DATA SOURCE TIME RANGES ===`);
+    const supabaseRange = getTimeRange(supabaseData, 'Supabase');
+    const ablyRange = getTimeRange(ablyHistoryData, 'Ably History');
+    const bufferedRange = getTimeRange(bufferedRealtime, 'Buffered RT');
+    
+    // Detect gaps between sources
+    if (supabaseRange && ablyRange) {
+      const gapMs = ablyRange.oldest - supabaseRange.newest;
+      if (gapMs > 0) {
+        console.warn(`⚠️ [Merge] GAP detected between Supabase and Ably: ${(gapMs / 1000).toFixed(1)}s`);
+      } else {
+        console.log(`✅ [Merge] Supabase and Ably overlap by ${(-gapMs / 1000).toFixed(1)}s`);
+      }
+    }
+    
+    if (ablyRange && bufferedRange) {
+      const gapMs = bufferedRange.oldest - ablyRange.newest;
+      if (gapMs > 0) {
+        console.warn(`⚠️ [Merge] GAP detected between Ably and Buffered: ${(gapMs / 1000).toFixed(1)}s`);
+      } else {
+        console.log(`✅ [Merge] Ably and Buffered overlap by ${(-gapMs / 1000).toFixed(1)}s`);
+      }
+    }
     
     // Add in order: Supabase (oldest) -> Ably history -> Buffered (newest)
     // Later entries override earlier ones
@@ -1940,6 +2107,17 @@
     // Sort by timestamp ascending
     let merged = Array.from(seen.values());
     merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    
+    // Log final merged result
+    if (merged.length > 0) {
+      const finalOldest = new Date(merged[0].timestamp);
+      const finalNewest = new Date(merged[merged.length - 1].timestamp);
+      console.log(`📊 [Merge] === FINAL MERGED DATA ===`);
+      console.log(`   Total: ${merged.length} unique records`);
+      console.log(`   Oldest: ${finalOldest.toISOString()}`);
+      console.log(`   Newest: ${finalNewest.toISOString()}`);
+      console.log(`   Span: ${((finalNewest - finalOldest) / 1000).toFixed(1)}s`);
+    }
     
     // Trim to max points if needed
     if (merged.length > state.maxPoints) {
@@ -2114,6 +2292,12 @@
         // Update last message timestamp for UI feedback
         state.lastMsgTs = new Date();
         statLast.textContent = "0s ago";
+        
+        // Debug logging for buffering
+        if (realtimeBuffer.length <= 5 || realtimeBuffer.length % 10 === 0) {
+          console.log(`🔄 [Buffer] Buffered message #${realtimeBuffer.length}, session: ${data.session_id?.slice(0, 8) || 'unknown'}, ts: ${data.timestamp || 'none'}`);
+        }
+        
         return; // Don't process yet, will be merged after triangulation
       }
 
