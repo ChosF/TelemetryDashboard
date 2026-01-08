@@ -1615,6 +1615,10 @@
   }
 
   // Ably realtime
+  // Buffer for real-time messages during initial load
+  let realtimeBuffer = [];
+  let isBufferingRealtime = false;
+  
   async function connectRealtime() {
     if (state.isConnected) return;
 
@@ -1636,7 +1640,7 @@
     realtime.connection.on((change) => {
       if (change.current === "connected") {
         state.isConnected = true;
-        setStatus("✅ Connected");
+        // Don't set status here - let triangulation set it
       } else if (change.current === "disconnected") {
         state.isConnected = false;
         setStatus("❌ Disconnected");
@@ -1653,11 +1657,16 @@
     const ch = realtime.channels.get(ABLY_CHANNEL_NAME);
     state.ablyChannel = ch;
     
-    // Subscribe to real-time updates
+    // CRITICAL: Start buffering real-time messages BEFORE loading history
+    // This ensures no messages are lost during the historical data fetch
+    realtimeBuffer = [];
+    isBufferingRealtime = true;
+    
+    // Subscribe to real-time - messages will be buffered during initial load
     await ch.subscribe("telemetry_update", onTelemetryMessage);
     
-    // Perform initial data triangulation after connection
-    // This loads historical data from Supabase + Ably history to fill any gaps
+    // Perform initial data triangulation
+    // This loads Supabase + Ably history, then merges with buffered real-time
     await performInitialTriangulation(ch);
   }
   
@@ -1669,117 +1678,275 @@
   
   /**
    * Perform initial data triangulation when connecting to real-time
-   * This ensures no data is lost even if user refreshes or connects mid-session
    * 
-   * IMPORTANT: This only runs ONCE per connection. It will not re-run if session_id
-   * changes during the session - real-time data just continues to flow.
+   * STRATEGY (fast, no data loss):
+   * 1. Get session ID from buffered real-time messages or Ably history
+   * 2. Fetch Supabase (historical) + Ably history with untilAttach (recent) in PARALLEL
+   * 3. Merge: Supabase + Ably history + buffered real-time messages
+   * 4. Stop buffering, start normal real-time processing
+   * 
+   * Using Ably's `untilAttach: true` ensures history goes up to the exact moment
+   * we subscribed, eliminating any gap between history and real-time.
    */
   async function performInitialTriangulation(ablyChannel) {
     // Only run once per connection
     if (initialTriangulationDone) {
       console.log('📊 Initial triangulation already done for this connection, skipping');
+      isBufferingRealtime = false;
       return;
     }
     
-    if (!window.DataTriangulator) {
-      console.warn('DataTriangulator not available, skipping initial load');
-      return;
-    }
+    const startTime = performance.now();
     
     try {
-      setStatus("⏳ Loading history...");
-      console.log('📊 Starting initial data triangulation (runs once per connection)...');
+      setStatus("⏳ Loading session...");
+      console.log('📊 Starting fast triangulation (Supabase + Ably untilAttach + buffered real-time)...');
       
-      // Clear existing telemetry to start fresh (avoid mixing old data)
+      // Clear existing telemetry
       state.telemetry = [];
       state.msgCount = 0;
       
-      // Set up progress callback
-      DataTriangulator.onProgress((progress) => {
-        if (progress.source === 'supabase') {
-          setStatus(`⏳ Loading DB (${progress.rowsFetched} rows)...`);
-        } else if (progress.source === 'ably_history') {
-          setStatus(`⏳ Loading recent (${progress.messagesFetched} msgs)...`);
-        }
-      });
-      
-      // Set up error callback
-      DataTriangulator.onError((err) => {
-        if (!err.isExpected) {
-          console.warn('Triangulation warning:', err);
-        }
-      });
-      
-      // Try to get session ID from Ably history first (most recent data)
+      // STEP 1: Determine session ID
+      // First check buffered messages (fastest), then Ably history
       let sessionId = null;
       
-      if (ablyChannel) {
+      // Check buffered real-time messages first
+      if (realtimeBuffer.length > 0) {
+        const firstBuffered = realtimeBuffer[0];
+        sessionId = firstBuffered.session_id;
+        console.log(`📊 Session from buffered real-time: ${sessionId?.slice(0, 8) || 'unknown'} (${realtimeBuffer.length} buffered)`);
+      }
+      
+      // If no buffered messages, check Ably history (just 1 message to get session ID)
+      if (!sessionId && ablyChannel) {
         try {
-          const historyResult = await ablyChannel.history({ limit: 1, direction: 'backwards' });
-          if (historyResult.items && historyResult.items.length > 0) {
-            const latestMsg = historyResult.items[0];
+          // Quick check - just get 1 message to find session ID
+          const quickHistory = await ablyChannel.history({ limit: 1, direction: 'backwards' });
+          if (quickHistory.items && quickHistory.items.length > 0) {
+            const latestMsg = quickHistory.items[0];
             if (latestMsg.name === 'telemetry_update' && latestMsg.data) {
               let data = latestMsg.data;
               if (typeof data === 'string') data = JSON.parse(data);
               sessionId = data.session_id;
-              console.log(`📊 Detected session from Ably history: ${sessionId?.slice(0, 8) || 'unknown'}`);
+              console.log(`📊 Session from Ably (quick check): ${sessionId?.slice(0, 8) || 'unknown'}`);
             }
           }
         } catch (e) {
-          console.warn('Could not get session from Ably history:', e.message);
+          console.warn('Could not get session from Ably:', e.message);
         }
       }
       
-      // If we have a session ID, triangulate data
-      if (sessionId) {
-        state.currentSessionId = sessionId;
-        DataTriangulator.setCurrentSessionId(sessionId);
-        
-        // Triangulate with empty array - start fresh, only load data for THIS session
-        const triangulatedData = await DataTriangulator.triangulate(
-          sessionId,
-          ablyChannel,
-          [], // Start with empty array to avoid mixing sessions
-          { force: true, fullRefresh: true }
-        );
-        
-        if (triangulatedData && triangulatedData.length > 0) {
-          // Apply derived calculations
-          const processed = withDerived(triangulatedData);
-          state.telemetry = processed;
-          state.msgCount = processed.length;
-          
-          // Update UI
-          statMsg.textContent = String(state.msgCount);
-          
-          console.log(`✅ Initial triangulation complete: ${processed.length} data points loaded for session ${sessionId.slice(0, 8)}`);
-          
-          // Notify user
-          if (window.AuthUI && window.AuthUI.showNotification) {
-            window.AuthUI.showNotification(
-              `Loaded ${processed.length.toLocaleString()} data points from session history`,
-              'success',
-              4000
-            );
-          }
-          
-          // Trigger render
-          scheduleRender();
-        }
-      } else {
+      if (!sessionId) {
         console.log('📊 No active session detected, waiting for first data point...');
+        isBufferingRealtime = false;
+        initialTriangulationDone = true;
+        setStatus("✅ Connected");
+        return;
       }
       
-      // Mark triangulation as done for this connection
+      state.currentSessionId = sessionId;
+      if (window.DataTriangulator) {
+        DataTriangulator.setCurrentSessionId(sessionId);
+      }
+      
+      // STEP 2: Fetch Supabase + Ably history in PARALLEL
+      // Use untilAttach for Ably to get history up to subscription point (no gaps!)
+      console.log(`📊 Fetching data for session ${sessionId.slice(0, 8)} in parallel...`);
+      
+      const [supabaseData, ablyHistoryData] = await Promise.all([
+        // Supabase: Get all historical data for this session
+        fetchSupabaseSessionData(sessionId),
+        // Ably: Get recent history with untilAttach (ensures no gap with real-time)
+        fetchAblyHistoryFast(ablyChannel, sessionId)
+      ]);
+      
+      // STEP 3: Process buffered real-time messages (filter by session)
+      const bufferedForSession = realtimeBuffer.filter(d => d.session_id === sessionId);
+      console.log(`📊 Buffered real-time: ${bufferedForSession.length} messages for this session`);
+      
+      // STEP 4: Merge all data sources
+      // Order: Supabase (oldest) -> Ably history (recent) -> Buffered real-time (newest)
+      const allData = mergeTriangulatedData(supabaseData, ablyHistoryData, bufferedForSession);
+      
+      // Apply derived calculations
+      const processed = withDerived(allData);
+      state.telemetry = processed;
+      state.msgCount = processed.length;
+      
+      // Update UI
+      statMsg.textContent = String(state.msgCount);
+      
+      const elapsed = performance.now() - startTime;
+      console.log(`✅ Fast triangulation complete: ${processed.length} points in ${elapsed.toFixed(0)}ms`);
+      console.log(`   Supabase: ${supabaseData.length}, Ably: ${ablyHistoryData.length}, Buffered: ${bufferedForSession.length}`);
+      
+      // Notify user
+      if (window.AuthUI && window.AuthUI.showNotification) {
+        window.AuthUI.showNotification(
+          `Session loaded: ${processed.length.toLocaleString()} data points`,
+          'success',
+          3000
+        );
+      }
+      
+      // STEP 5: Stop buffering, render, start normal processing
+      realtimeBuffer = [];
+      isBufferingRealtime = false;
       initialTriangulationDone = true;
+      
+      // Trigger immediate render with full data
+      scheduleRender();
       
       setStatus("✅ Connected");
     } catch (e) {
-      console.error('Initial triangulation error:', e);
-      setStatus("✅ Connected (history unavailable)");
-      // Still mark as done to prevent retries
+      console.error('Fast triangulation error:', e);
+      
+      // On error, still process any buffered messages and continue
+      if (realtimeBuffer.length > 0) {
+        console.log(`📊 Processing ${realtimeBuffer.length} buffered messages after error...`);
+        const processed = withDerived(realtimeBuffer.map(normalizeData));
+        state.telemetry = mergeTelemetry(state.telemetry, processed);
+        state.msgCount = state.telemetry.length;
+        statMsg.textContent = String(state.msgCount);
+        scheduleRender();
+      }
+      
+      realtimeBuffer = [];
+      isBufferingRealtime = false;
       initialTriangulationDone = true;
+      setStatus("✅ Connected");
     }
+  }
+  
+  /**
+   * Fetch session data from Supabase (paginated)
+   */
+  async function fetchSupabaseSessionData(sessionId) {
+    const startTime = performance.now();
+    const allRows = [];
+    const pageSize = 1000;
+    let offset = 0;
+    const maxPages = 100;
+    
+    try {
+      for (let page = 0; page < maxPages; page++) {
+        const response = await fetch(
+          `/api/sessions/${encodeURIComponent(sessionId)}/records?offset=${offset}&limit=${pageSize}`
+        );
+        
+        if (!response.ok) throw new Error(`Supabase fetch failed: ${response.status}`);
+        
+        const { rows } = await response.json();
+        if (!rows || rows.length === 0) break;
+        
+        allRows.push(...rows);
+        offset += rows.length;
+        
+        if (rows.length < pageSize) break; // Last page
+      }
+      
+      const elapsed = performance.now() - startTime;
+      console.log(`📊 Supabase: ${allRows.length} rows in ${elapsed.toFixed(0)}ms`);
+      return allRows;
+    } catch (e) {
+      console.error('Supabase fetch error:', e);
+      return [];
+    }
+  }
+  
+  /**
+   * Fetch Ably history using untilAttach for seamless handoff to real-time
+   * This is FAST because it doesn't scan all messages - just gets recent ones
+   */
+  async function fetchAblyHistoryFast(channel, sessionId) {
+    if (!channel) return [];
+    
+    const startTime = performance.now();
+    const messages = [];
+    
+    try {
+      // Use untilAttach: true to get history up to the point we subscribed
+      // This ensures NO GAP between history and real-time messages
+      // Direction 'forwards' gives us oldest first for proper ordering
+      const historyResult = await channel.history({
+        untilAttach: true,
+        direction: 'forwards',
+        limit: 1000 // Get up to 1000 recent messages
+      });
+      
+      // Process all pages
+      let page = historyResult;
+      do {
+        if (page.items && page.items.length > 0) {
+          for (const msg of page.items) {
+            if (msg.name === 'telemetry_update' && msg.data) {
+              let data = msg.data;
+              if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch { continue; }
+              }
+              
+              // Only include messages from target session
+              if (data.session_id === sessionId) {
+                // Use Ably message timestamp if data doesn't have one
+                if (!data.timestamp && msg.timestamp) {
+                  data.timestamp = new Date(msg.timestamp).toISOString();
+                }
+                messages.push(data);
+              }
+            }
+          }
+        }
+        
+        // Get next page if available
+        if (page.hasNext()) {
+          page = await page.next();
+        } else {
+          break;
+        }
+      } while (page.items && page.items.length > 0);
+      
+      const elapsed = performance.now() - startTime;
+      console.log(`📊 Ably (untilAttach): ${messages.length} messages in ${elapsed.toFixed(0)}ms`);
+      return messages;
+    } catch (e) {
+      console.warn('Ably history error (may not be enabled):', e.message);
+      return [];
+    }
+  }
+  
+  /**
+   * Merge data from all three sources with deduplication
+   * Uses timestamp + message_id as unique key
+   */
+  function mergeTriangulatedData(supabaseData, ablyHistoryData, bufferedRealtime) {
+    const keyOf = (r) => `${new Date(r.timestamp).getTime()}::${r.message_id || ''}`;
+    const seen = new Map();
+    
+    // Add in order: Supabase (oldest) -> Ably history -> Buffered (newest)
+    // Later entries override earlier ones
+    for (const r of supabaseData) {
+      if (r && r.timestamp) seen.set(keyOf(r), r);
+    }
+    for (const r of ablyHistoryData) {
+      if (r && r.timestamp) seen.set(keyOf(r), r);
+    }
+    for (const r of bufferedRealtime) {
+      if (r && r.timestamp) {
+        const normalized = normalizeData(r);
+        seen.set(keyOf(normalized), normalized);
+      }
+    }
+    
+    // Sort by timestamp ascending
+    let merged = Array.from(seen.values());
+    merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    
+    // Trim to max points if needed
+    if (merged.length > state.maxPoints) {
+      merged = merged.slice(merged.length - state.maxPoints);
+    }
+    
+    return merged;
   }
   async function disconnectRealtime() {
     try {
@@ -1794,8 +1961,10 @@
     } catch { }
     state.isConnected = false;
     
-    // Reset triangulation flag so it runs again on next connection
+    // Reset triangulation and buffering state
     initialTriangulationDone = false;
+    isBufferingRealtime = false;
+    realtimeBuffer = [];
     
     // Reset DataTriangulator state
     if (window.DataTriangulator) {
@@ -1938,6 +2107,15 @@
     try {
       const data =
         typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data;
+
+      // If we're in buffering mode (during initial triangulation), buffer the message
+      if (isBufferingRealtime) {
+        realtimeBuffer.push(data);
+        // Update last message timestamp for UI feedback
+        state.lastMsgTs = new Date();
+        statLast.textContent = "0s ago";
+        return; // Don't process yet, will be merged after triangulation
+      }
 
       // Track current session ID (but don't re-triangulate - that only happens once on connect)
       const incomingSessionId = data.session_id;
