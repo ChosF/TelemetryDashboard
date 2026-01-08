@@ -10,11 +10,11 @@
 
   // Custom notification system - stack multiple notifications
   let notificationStack = [];
-  
+
   function showNotification(message, type = 'info', duration = 5000) {
     // Clean up old notifications from stack
     notificationStack = notificationStack.filter(n => document.body.contains(n));
-    
+
     const notification = document.createElement('div');
     notification.className = `custom-notification custom-notification-${type}`;
 
@@ -46,7 +46,7 @@
     // Calculate position based on existing notifications (stack vertically from top)
     const stackOffset = notificationStack.length * 90;
     notification.style.setProperty('--stack-offset', `${stackOffset}px`);
-    
+
     document.body.appendChild(notification);
     notificationStack.push(notification);
 
@@ -251,7 +251,7 @@
     const closeBtn = modal.querySelector('.auth-modal-close');
     const overlay = modal.querySelector('.auth-modal-overlay');
     let isClosing = false;
-    
+
     const closeModal = (callback) => {
       if (isClosing) return;
       isClosing = true;
@@ -313,7 +313,10 @@
         if (result.success) {
           // Show success message
           if (!isLogin && result.needsApproval) {
+            showNotification('Request submitted! An admin will review your EcoVolt team access. For now, you have External User privileges.', 'info', 8000);
             showApprovalBanner();
+          } else if (!isLogin) {
+            showNotification('Account created! Welcome to the EcoVolt telemetry dashboard.', 'success');
           }
           closeModal();
         } else {
@@ -352,8 +355,8 @@
       <div class="approval-banner-content">
         <span class="approval-banner-icon">⏳</span>
         <div class="approval-banner-text">
-          <strong>Account Pending Approval</strong>
-          <p>Your Internal User access request is being reviewed. You currently have External User privileges.</p>
+          <strong>Awaiting Team Access</strong>
+          <p>Your request is under review. You have External User access in the meantime.</p>
         </div>
         <button class="approval-banner-close liquid-hover" aria-label="Dismiss">×</button>
       </div>
@@ -414,7 +417,7 @@
     const closeBtn = modal.querySelector('.admin-modal-close');
     const overlay = modal.querySelector('.admin-modal-overlay');
     let isClosing = false;
-    
+
     const closeModal = () => {
       if (isClosing) return;
       isClosing = true;
@@ -861,13 +864,32 @@
     */
   }
 
+  // Track previous role for detecting role upgrades
+  let previousRole = null;
+
   // Initialize auth UI
   function initAuthUI() {
     // Always initialize UI, even if AuthModule is not available
     // This allows login buttons to be shown, and errors will appear if Supabase is not configured
 
-    // Update header on auth state change
-    window.addEventListener('auth-state-changed', () => {
+    // Update header on auth state change and detect role upgrades
+    window.addEventListener('auth-state-changed', (e) => {
+      const profile = e.detail?.profile;
+      const currentRole = profile?.role;
+
+      // Detect role upgrade to internal_user (user was approved)
+      if (previousRole && currentRole === 'internal_user' &&
+        (previousRole === 'external_user' || previousRole === 'guest')) {
+        showNotification('Welcome to the team! Your Internal User access has been approved. 🎉', 'success', 8000);
+        // Remove approval banner if present
+        const banner = document.querySelector('.approval-banner');
+        if (banner) {
+          banner.classList.add('closing');
+          setTimeout(() => banner.remove(), 300);
+        }
+      }
+
+      previousRole = currentRole;
       updateHeaderUI();
       addAdminToFAB();
     });

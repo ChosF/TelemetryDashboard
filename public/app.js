@@ -185,7 +185,13 @@
     mockDataGen: null, // Mock data generator for testing
     // Web Worker integration
     useWorker: true,    // Enable Web Worker for data processing
-    workerReady: false  // Tracks if worker is ready
+    workerReady: false, // Tracks if worker is ready
+    // Notification cooldowns (prevent spam)
+    notificationCooldowns: {
+      dataStall: 0,      // Timestamp of last data stall notification
+      sensorAnomaly: 0,  // Timestamp of last sensor anomaly notification
+      connectionLost: 0  // Timestamp of last connection lost notification
+    }
   };
 
   // FAB Menu Toggle
@@ -374,10 +380,20 @@
       if (since > thr) {
         notes.push({
           kind: "err",
-          text: `🚨 Data Stream Stalled: No new data for ${since.toFixed(
-            0
-          )}s (expected ~${avg.toFixed(1)}s).`,
+          text: `Data stream paused — no updates for ${since.toFixed(0)}s.`,
         });
+        // Proactive notification with 60s cooldown
+        const now = Date.now();
+        if (now - state.notificationCooldowns.dataStall > 60000) {
+          state.notificationCooldowns.dataStall = now;
+          if (window.AuthUI && window.AuthUI.showNotification) {
+            window.AuthUI.showNotification(
+              `Data stream paused — no updates for ${since.toFixed(0)}s. Check sensor connection.`,
+              'warning',
+              8000
+            );
+          }
+        }
       }
     }
 
@@ -423,17 +439,37 @@
     if (allFailing && failing.length > 3) {
       notes.push({
         kind: "err",
-        text: `🚨 Critical: Multiple sensors (e.g., ${failing
-          .slice(0, 3)
-          .join(", ")}) look static.`,
+        text: `Critical: Multiple sensors (${failing.slice(0, 3).join(", ")}) showing static values.`,
       });
+      // Proactive notification with 90s cooldown for critical issues
+      const now = Date.now();
+      if (now - state.notificationCooldowns.sensorAnomaly > 90000) {
+        state.notificationCooldowns.sensorAnomaly = now;
+        if (window.AuthUI && window.AuthUI.showNotification) {
+          window.AuthUI.showNotification(
+            `Sensor alert: ${failing.slice(0, 3).join(", ")} showing unusual readings.`,
+            'error',
+            10000
+          );
+        }
+      }
     } else if (failing.length) {
       notes.push({
         kind: "warn",
-        text: `⚠️ Sensor Anomaly: ${failing.join(
-          ", "
-        )} show static/zero values recently.`,
+        text: `Sensor check: ${failing.join(", ")} may need attention.`,
       });
+      // Proactive notification with 90s cooldown
+      const now = Date.now();
+      if (now - state.notificationCooldowns.sensorAnomaly > 90000) {
+        state.notificationCooldowns.sensorAnomaly = now;
+        if (window.AuthUI && window.AuthUI.showNotification) {
+          window.AuthUI.showNotification(
+            `Sensor alert: ${failing.slice(0, 2).join(", ")} showing unusual readings.`,
+            'warning',
+            8000
+          );
+        }
+      }
     }
     return notes;
   }
@@ -2466,7 +2502,7 @@
     // Check permission to view historical sessions
     if (window.AuthModule && !window.AuthModule.hasPermission('canViewHistorical')) {
       if (window.AuthUI && window.AuthUI.showNotification) {
-        window.AuthUI.showNotification('You do not have permission to view historical sessions. Please sign in or upgrade your account.', 'warning');
+        window.AuthUI.showNotification('Sign in to access past sessions. External users can view the latest session.', 'info');
       }
       return;
     }
@@ -2535,6 +2571,15 @@
         state.telemetry = data;
         state.currentSessionId = sid;
         sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
+        // Show success notification
+        if (window.AuthUI && window.AuthUI.showNotification) {
+          const sessionName = opt.textContent.split(' — ')[0] || 'Session';
+          window.AuthUI.showNotification(
+            `Loaded ${state.telemetry.length.toLocaleString()} data points from ${sessionName}.`,
+            'success',
+            4000
+          );
+        }
         scheduleRender();
         // Force resize of all charts after data load
         setTimeout(() => {
@@ -2548,7 +2593,7 @@
             chartIMUDetail?.resize();
             chartEfficiency?.resize();
             chartAltitude?.resize();
-          } catch {}
+          } catch { }
         }, 200);
         // Close both modal and FAB menu
         fabMenu.classList.remove("active");
@@ -2565,7 +2610,7 @@
     // Check permission to download CSV
     if (window.AuthModule && !window.AuthModule.hasPermission('canDownloadCSV')) {
       if (window.AuthUI && window.AuthUI.showNotification) {
-        window.AuthUI.showNotification('You do not have permission to download CSV files. Please sign in or upgrade your account.', 'warning');
+        window.AuthUI.showNotification('Sign in to download data. Guests can view but not export.', 'info');
       }
       return;
     }
@@ -2701,7 +2746,7 @@
         const next = current === "light" ? "dark" : "light";
         document.documentElement.setAttribute("data-theme", next);
         localStorage.setItem("theme", next);
-        
+
         // Update charts with new theme
         if (window.ChartManager) {
           ChartManager.updateTheme();
@@ -2954,18 +2999,18 @@
   function initResponsiveHeader() {
     const heroTitle = document.querySelector('.hero-title');
     const heroSubtitle = document.querySelector('.hero-subtitle');
-    
+
     if (!heroTitle || !heroSubtitle) return;
-    
+
     function updateHeaderText() {
       const width = window.innerWidth;
       const height = window.innerHeight;
       const aspectRatio = width / height;
-      
+
       // Consider it a small screen if width < 480px OR if aspect ratio is very narrow (portrait phone)
       // Typical phone portrait: width ~375-430px, height ~667-932px, aspect ratio ~0.4-0.6
       const isSmallScreen = width < 480 || (width < 768 && aspectRatio < 0.7);
-      
+
       if (isSmallScreen) {
         // Use short text
         heroTitle.textContent = heroTitle.getAttribute('data-short-text') || 'Shell';
@@ -2976,14 +3021,14 @@
         heroSubtitle.textContent = heroSubtitle.getAttribute('data-full-text') || 'Real-time Telemetry Dashboard';
       }
     }
-    
+
     // Update on load
     updateHeaderText();
-    
+
     // Update on resize (debounced for performance)
     const debouncedUpdate = debounce(updateHeaderText, 150);
     window.addEventListener('resize', debouncedUpdate, { passive: true });
-    
+
     // Also update on orientation change
     window.addEventListener('orientationchange', () => {
       setTimeout(updateHeaderText, 100);
@@ -2991,7 +3036,7 @@
   }
 
   main();
-  
+
   // Initialize responsive header after DOM is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initResponsiveHeader);
