@@ -173,18 +173,27 @@ const DataTriangulator = (function() {
      * Fetch recent messages from Ably channel history
      * Ably retains messages for 2 minutes by default (can be configured to 24-72 hours with paid plans)
      * 
+     * IMPORTANT: Filters messages to only include those matching the target sessionId
+     * 
      * @param {Object} channel - Ably channel instance
+     * @param {string} targetSessionId - Session ID to filter messages by
      * @param {string} sinceTimestamp - Optional timestamp to filter messages
      */
-    async function fetchAblyHistory(channel, sinceTimestamp = null) {
+    async function fetchAblyHistory(channel, targetSessionId, sinceTimestamp = null) {
         if (!channel) {
             warn('No Ably channel provided for history fetch');
             return [];
         }
 
-        log('Fetching Ably channel history...');
+        if (!targetSessionId) {
+            warn('No session ID provided for Ably history fetch - skipping to avoid mixing sessions');
+            return [];
+        }
+
+        log(`Fetching Ably channel history for session: ${targetSessionId.slice(0, 8)}...`);
         const startTime = performance.now();
         const allMessages = [];
+        let totalScanned = 0;
 
         try {
             // Ably history() returns a PaginatedResult
@@ -205,6 +214,8 @@ const DataTriangulator = (function() {
             do {
                 if (resultPage.items && resultPage.items.length > 0) {
                     for (const msg of resultPage.items) {
+                        totalScanned++;
+                        
                         // Extract telemetry data from Ably message
                         if (msg.name === 'telemetry_update' && msg.data) {
                             let data = msg.data;
@@ -215,6 +226,11 @@ const DataTriangulator = (function() {
                                 } catch {
                                     continue;
                                 }
+                            }
+                            
+                            // CRITICAL: Only include messages from the target session
+                            if (data.session_id !== targetSessionId) {
+                                continue; // Skip messages from other sessions
                             }
                             
                             // Use Ably message timestamp if data doesn't have one
@@ -230,7 +246,8 @@ const DataTriangulator = (function() {
                     if (onProgress) {
                         onProgress({
                             source: 'ably_history',
-                            messagesFetched: allMessages.length
+                            messagesFetched: allMessages.length,
+                            totalScanned: totalScanned
                         });
                     }
                 }
@@ -244,7 +261,7 @@ const DataTriangulator = (function() {
             } while (resultPage.items && resultPage.items.length > 0);
 
             const elapsed = performance.now() - startTime;
-            log(`Ably History: Fetched ${allMessages.length} messages in ${elapsed.toFixed(0)}ms`);
+            log(`Ably History: Found ${allMessages.length} messages for session (scanned ${totalScanned}) in ${elapsed.toFixed(0)}ms`);
 
             return allMessages;
         } catch (err) {
@@ -301,9 +318,10 @@ const DataTriangulator = (function() {
             }
 
             // Fetch from all sources in parallel
+            // IMPORTANT: Both sources filter by sessionId to avoid mixing data from different sessions
             const [supabaseData, ablyHistoryData] = await Promise.all([
                 fetchSupabaseHistory(sessionId, options.fullRefresh ? null : sinceTimestamp),
-                ablyChannel ? fetchAblyHistory(ablyChannel, options.fullRefresh ? null : sinceTimestamp) : Promise.resolve([])
+                ablyChannel ? fetchAblyHistory(ablyChannel, sessionId, options.fullRefresh ? null : sinceTimestamp) : Promise.resolve([])
             ]);
 
             // Merge all data sources

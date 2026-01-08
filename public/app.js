@@ -1662,10 +1662,25 @@
   }
   
   /**
+   * Flag to track if initial triangulation has been performed for this connection
+   * Reset when disconnecting
+   */
+  let initialTriangulationDone = false;
+  
+  /**
    * Perform initial data triangulation when connecting to real-time
    * This ensures no data is lost even if user refreshes or connects mid-session
+   * 
+   * IMPORTANT: This only runs ONCE per connection. It will not re-run if session_id
+   * changes during the session - real-time data just continues to flow.
    */
   async function performInitialTriangulation(ablyChannel) {
+    // Only run once per connection
+    if (initialTriangulationDone) {
+      console.log('📊 Initial triangulation already done for this connection, skipping');
+      return;
+    }
+    
     if (!window.DataTriangulator) {
       console.warn('DataTriangulator not available, skipping initial load');
       return;
@@ -1673,7 +1688,11 @@
     
     try {
       setStatus("⏳ Loading history...");
-      console.log('📊 Starting initial data triangulation...');
+      console.log('📊 Starting initial data triangulation (runs once per connection)...');
+      
+      // Clear existing telemetry to start fresh (avoid mixing old data)
+      state.telemetry = [];
+      state.msgCount = 0;
       
       // Set up progress callback
       DataTriangulator.onProgress((progress) => {
@@ -1692,9 +1711,9 @@
       });
       
       // Try to get session ID from Ably history first (most recent data)
-      let sessionId = state.currentSessionId;
+      let sessionId = null;
       
-      if (!sessionId && ablyChannel) {
+      if (ablyChannel) {
         try {
           const historyResult = await ablyChannel.history({ limit: 1, direction: 'backwards' });
           if (historyResult.items && historyResult.items.length > 0) {
@@ -1716,15 +1735,16 @@
         state.currentSessionId = sessionId;
         DataTriangulator.setCurrentSessionId(sessionId);
         
+        // Triangulate with empty array - start fresh, only load data for THIS session
         const triangulatedData = await DataTriangulator.triangulate(
           sessionId,
           ablyChannel,
-          state.telemetry,
+          [], // Start with empty array to avoid mixing sessions
           { force: true, fullRefresh: true }
         );
         
         if (triangulatedData && triangulatedData.length > 0) {
-          // Apply derived calculations and merge
+          // Apply derived calculations
           const processed = withDerived(triangulatedData);
           state.telemetry = processed;
           state.msgCount = processed.length;
@@ -1732,7 +1752,7 @@
           // Update UI
           statMsg.textContent = String(state.msgCount);
           
-          console.log(`✅ Initial triangulation complete: ${processed.length} data points loaded`);
+          console.log(`✅ Initial triangulation complete: ${processed.length} data points loaded for session ${sessionId.slice(0, 8)}`);
           
           // Notify user
           if (window.AuthUI && window.AuthUI.showNotification) {
@@ -1750,10 +1770,15 @@
         console.log('📊 No active session detected, waiting for first data point...');
       }
       
+      // Mark triangulation as done for this connection
+      initialTriangulationDone = true;
+      
       setStatus("✅ Connected");
     } catch (e) {
       console.error('Initial triangulation error:', e);
       setStatus("✅ Connected (history unavailable)");
+      // Still mark as done to prevent retries
+      initialTriangulationDone = true;
     }
   }
   async function disconnectRealtime() {
@@ -1768,6 +1793,15 @@
       }
     } catch { }
     state.isConnected = false;
+    
+    // Reset triangulation flag so it runs again on next connection
+    initialTriangulationDone = false;
+    
+    // Reset DataTriangulator state
+    if (window.DataTriangulator) {
+      DataTriangulator.reset();
+    }
+    
     setStatus("❌ Disconnected");
   }
   function setStatus(t) {
@@ -1905,15 +1939,16 @@
       const data =
         typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data;
 
-      // Check for session change FIRST (before any processing)
-      // This ensures we don't miss historical data when session changes
+      // Track current session ID (but don't re-triangulate - that only happens once on connect)
       const incomingSessionId = data.session_id;
       if (incomingSessionId && state.currentSessionId !== incomingSessionId) {
-        console.log(`📊 Session change detected: ${state.currentSessionId?.slice(0, 8) || 'none'} -> ${incomingSessionId.slice(0, 8)}`);
+        console.log(`📊 Session ID in data: ${incomingSessionId.slice(0, 8)} (tracking only, no re-triangulation)`);
         state.currentSessionId = incomingSessionId;
         
-        // Trigger async triangulation for new session (non-blocking)
-        handleSessionChangeTriangulation(incomingSessionId);
+        // Update DataTriangulator's session tracking (for reference only)
+        if (window.DataTriangulator) {
+          DataTriangulator.setCurrentSessionId(incomingSessionId);
+        }
       }
 
       // HYBRID ROUTING: Worker for heavy processing, main thread for UI
@@ -1957,75 +1992,6 @@
       state.errCount += 1;
       console.error("Message error:", e);
     }
-  }
-  
-  /**
-   * Handle session change by loading historical data in background
-   * This runs asynchronously to not block real-time message processing
-   */
-  let pendingTriangulation = null;
-  async function handleSessionChangeTriangulation(sessionId) {
-    // Debounce multiple rapid session changes
-    if (pendingTriangulation) {
-      clearTimeout(pendingTriangulation);
-    }
-    
-    pendingTriangulation = setTimeout(async () => {
-      pendingTriangulation = null;
-      
-      if (!window.DataTriangulator) {
-        // Fallback to simple loadFullSession
-        try {
-          console.log('📊 Loading session history (fallback mode)...');
-          const hist = await loadFullSession(sessionId);
-          if (hist && hist.length > 0) {
-            const processed = withDerived(hist);
-            state.telemetry = mergeTelemetry(state.telemetry, processed);
-            state.msgCount = state.telemetry.length;
-            statMsg.textContent = String(state.msgCount);
-            scheduleRender();
-            console.log(`✅ Loaded ${processed.length} historical points for session ${sessionId.slice(0, 8)}`);
-          }
-        } catch (e) {
-          console.warn("Historical load failed:", e);
-        }
-        return;
-      }
-      
-      // Use DataTriangulator for comprehensive data loading
-      try {
-        console.log(`📊 Triangulating data for session ${sessionId.slice(0, 8)}...`);
-        DataTriangulator.setCurrentSessionId(sessionId);
-        
-        const triangulatedData = await DataTriangulator.triangulate(
-          sessionId,
-          state.ablyChannel,
-          state.telemetry,
-          { force: true, fullRefresh: true }
-        );
-        
-        if (triangulatedData && triangulatedData.length > 0) {
-          const processed = withDerived(triangulatedData);
-          state.telemetry = processed;
-          state.msgCount = processed.length;
-          statMsg.textContent = String(state.msgCount);
-          scheduleRender();
-          
-          console.log(`✅ Session triangulation complete: ${processed.length} total data points`);
-          
-          // Notify user
-          if (window.AuthUI && window.AuthUI.showNotification) {
-            window.AuthUI.showNotification(
-              `Session loaded: ${processed.length.toLocaleString()} data points`,
-              'success',
-              3000
-            );
-          }
-        }
-      } catch (e) {
-        console.error("Session triangulation error:", e);
-      }
-    }, 500); // 500ms debounce for session changes
   }
 
   function normalizeData(d) {
