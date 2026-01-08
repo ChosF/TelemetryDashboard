@@ -1749,27 +1749,18 @@
         DataTriangulator.setCurrentSessionId(sessionId);
       }
       
-      // STEP 2: Fetch Supabase FIRST, then Ably history with smart cutoff
-      // Ably history only needs to cover the gap between Supabase and real-time
-      console.log(`📊 Fetching data for session ${sessionId.slice(0, 8)}...`);
+      // STEP 2: Fetch Supabase and Ably in PARALLEL for speed
+      // Use time-based Ably query (faster than untilAttach)
+      console.log(`📊 Fetching data for session ${sessionId.slice(0, 8)} in PARALLEL...`);
       
-      // Fetch Supabase first to know where we need Ably to start from
-      const supabaseData = await fetchSupabaseSessionData(sessionId);
+      // For Ably: query last 60 seconds (covers typical bridge delay + buffer)
+      // This is faster than untilAttach which has API overhead
+      const ablyStartTime = new Date(Date.now() - 60000); // 60 seconds ago
       
-      // Get the newest Supabase timestamp - Ably only needs to go back this far
-      let supabaseNewest = null;
-      if (supabaseData.length > 0) {
-        const times = supabaseData
-          .filter(r => r && r.timestamp)
-          .map(r => new Date(r.timestamp).getTime());
-        if (times.length > 0) {
-          supabaseNewest = new Date(Math.max(...times));
-          console.log(`📊 Supabase newest: ${supabaseNewest.toISOString()} - Ably will stop here`);
-        }
-      }
-      
-      // Fetch Ably history with smart cutoff (stop once we pass Supabase data)
-      const ablyHistoryData = await fetchAblyHistoryFast(ablyChannel, sessionId, supabaseNewest);
+      const [supabaseData, ablyHistoryData] = await Promise.all([
+        fetchSupabaseSessionData(sessionId),
+        fetchAblyHistoryTimeBased(ablyChannel, sessionId, ablyStartTime)
+      ]);
       
       // STEP 3: Process buffered real-time messages (filter by session)
       const bufferedForSession = realtimeBuffer.filter(d => d.session_id === sessionId);
@@ -1901,74 +1892,49 @@
   }
   
   /**
-   * Fetch Ably history using untilAttach for seamless handoff to real-time
+   * Fetch Ably history using TIME-BASED query (faster than untilAttach)
    * 
-   * OPTIMIZATION: Stops fetching once we've gone past the stopAtTimestamp
-   * This prevents scanning thousands of old messages unnecessarily.
+   * Uses `start` parameter to limit the time range, avoiding full history scan.
    * 
    * @param {Object} channel - Ably channel
-   * @param {string} sessionId - Session to filter by
-   * @param {Date} stopAtTimestamp - Stop fetching once messages are older than this (with 5s buffer)
+   * @param {string} sessionId - Session to filter by  
+   * @param {Date} startTime - Only fetch messages after this time
    */
-  const ABLY_HISTORY_DEBUG = false; // Set to true for verbose logging
-  
-  async function fetchAblyHistoryFast(channel, sessionId, stopAtTimestamp = null) {
+  async function fetchAblyHistoryTimeBased(channel, sessionId, startTime) {
     if (!channel) {
       console.warn('⚠️ [Ably History] No channel provided');
       return [];
     }
     
-    const startTime = performance.now();
+    const fetchStart = performance.now();
     const messages = [];
     let totalScanned = 0;
-    let totalPages = 0;
     let oldestMsgTime = null;
     let newestMsgTime = null;
-    let stoppedEarly = false;
     
-    // Add 5 second buffer to ensure overlap with Supabase
-    const cutoffTime = stopAtTimestamp ? new Date(stopAtTimestamp.getTime() - 5000) : null;
-    
-    console.log(`🔍 [Ably History] Starting fetch for session: ${sessionId?.slice(0, 8) || 'unknown'}`);
-    if (cutoffTime) {
-      console.log(`🔍 [Ably History] Will stop at: ${cutoffTime.toISOString()} (5s before Supabase)`);
-    }
+    console.log(`🔍 [Ably History] Fetching since: ${startTime.toISOString()}`);
     
     try {
-      // Check if channel is attached (required for untilAttach)
-      if (channel.state !== 'attached') {
-        console.warn(`⚠️ [Ably History] Channel not attached, attaching...`);
-        await channel.attach();
-      }
-      
-      // Use untilAttach with backwards direction (API requirement)
+      // Time-based query: get messages from startTime onwards
+      // direction: forwards gives oldest first, which is what we want
       const historyParams = {
-        untilAttach: true,
-        direction: 'backwards',
+        start: startTime.getTime(), // Unix timestamp in ms
+        direction: 'forwards',
         limit: 1000
       };
       
       const historyResult = await channel.history(historyParams);
       
-      // Process pages until we've gone past the cutoff
+      // Process results (usually just 1 page for recent data)
       let page = historyResult;
-      pageLoop: do {
-        totalPages++;
+      let pageCount = 0;
+      
+      do {
+        pageCount++;
         
         if (page.items && page.items.length > 0) {
           for (const msg of page.items) {
             totalScanned++;
-            
-            // Check if we've gone past our cutoff (messages are newest-first)
-            if (cutoffTime && msg.timestamp) {
-              const msgTime = new Date(msg.timestamp);
-              if (msgTime < cutoffTime) {
-                // We've gone past the cutoff, stop fetching
-                stoppedEarly = true;
-                console.log(`⚡ [Ably History] Reached cutoff at page ${totalPages}, msg ${totalScanned}`);
-                break pageLoop;
-              }
-            }
             
             if (msg.name === 'telemetry_update' && msg.data) {
               let data = msg.data;
@@ -1992,30 +1958,21 @@
           }
         }
         
-        // Get next page if available and we haven't stopped
-        if (!stoppedEarly && page.hasNext()) {
+        // Get next page if available (unlikely for 60s window)
+        if (page.hasNext()) {
           page = await page.next();
         } else {
           break;
         }
       } while (page.items && page.items.length > 0);
       
-      const elapsed = performance.now() - startTime;
+      const elapsed = performance.now() - fetchStart;
       
       // Summary
-      console.log(`📊 [Ably History] === SUMMARY ===`);
-      console.log(`📊 [Ably History] Scanned: ${totalScanned} msgs, ${totalPages} pages, ${elapsed.toFixed(0)}ms`);
-      console.log(`📊 [Ably History] Matched: ${messages.length} messages for session`);
-      if (stoppedEarly) {
-        console.log(`⚡ [Ably History] Stopped early (reached Supabase overlap)`);
-      }
+      console.log(`📊 [Ably History] Scanned: ${totalScanned}, Matched: ${messages.length}, Time: ${elapsed.toFixed(0)}ms`);
       if (oldestMsgTime && newestMsgTime) {
         console.log(`📊 [Ably History] Range: ${oldestMsgTime.toISOString()} → ${newestMsgTime.toISOString()}`);
-        console.log(`📊 [Ably History] Span: ${((newestMsgTime - oldestMsgTime) / 1000).toFixed(1)}s`);
       }
-      
-      // Reverse to chronological order
-      messages.reverse();
       
       return messages;
     } catch (e) {
