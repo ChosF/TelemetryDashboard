@@ -19,7 +19,8 @@
 }
 
 .auth-modal.closing {
-  animation: modalFadeOut var(--duration-normal) var(--ease-out);
+  animation: modalFadeOut var(--duration-normal) var(--ease-out) forwards;
+  pointer-events: none;
 }
 
 .auth-modal-overlay {
@@ -562,7 +563,8 @@
 }
 
 .admin-modal.closing {
-  animation: modalFadeOut var(--duration-normal) var(--ease-out);
+  animation: modalFadeOut var(--duration-normal) var(--ease-out) forwards;
+  pointer-events: none;
 }
 
 .admin-modal-overlay {
@@ -1124,6 +1126,164 @@
 
   to {
     opacity: 1;
+  }
+}
+
+/* ========================================
+   Admin Content & Panels (Scrollbar Fix)
+   ======================================== */
+
+.admin-content {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 55vh;
+  padding: var(--space-6) var(--space-8);
+}
+
+.admin-panel {
+  display: none;
+}
+
+.admin-panel.active {
+  display: block;
+}
+
+.admin-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.admin-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12);
+  text-align: center;
+}
+
+.admin-empty-icon {
+  font-size: var(--text-4xl);
+  margin-bottom: var(--space-4);
+}
+
+.admin-empty-text {
+  font-size: var(--text-lg);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ========================================
+   Custom Notifications (Beautiful Alerts)
+   ======================================== */
+
+.custom-notification {
+  position: fixed;
+  top: var(--space-6);
+  right: var(--space-6);
+  z-index: calc(var(--z-modal) + 100);
+  min-width: 320px;
+  max-width: 450px;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-xl);
+  background: var(--surface-primary);
+  border: 1px solid var(--border-default);
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.15),
+    0 10px 10px -5px rgba(0, 0, 0, 0.08);
+  animation: notificationSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.custom-notification.closing {
+  animation: notificationSlideOut 0.3s var(--ease-out) forwards;
+}
+
+.custom-notification-content {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.custom-notification-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.custom-notification-message {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.6;
+  font-weight: var(--font-medium);
+}
+
+.custom-notification-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  margin-left: var(--space-2);
+  opacity: 0.6;
+  transition: all var(--duration-fast) var(--ease-out);
+  line-height: 1;
+}
+
+.custom-notification-close:hover {
+  opacity: 1;
+  color: var(--text-primary);
+  transform: scale(1.1);
+}
+
+/* Notification Variants */
+.custom-notification-success {
+  border-left: 4px solid var(--success);
+  background: linear-gradient(135deg, var(--success-muted), var(--surface-primary));
+}
+
+.custom-notification-error {
+  border-left: 4px solid var(--error);
+  background: linear-gradient(135deg, var(--error-muted), var(--surface-primary));
+}
+
+.custom-notification-warning {
+  border-left: 4px solid var(--warning);
+  background: linear-gradient(135deg, var(--warning-muted), var(--surface-primary));
+}
+
+.custom-notification-info {
+  border-left: 4px solid var(--accent);
+  background: linear-gradient(135deg, var(--accent-muted), var(--surface-primary));
+}
+
+/* Notification Animations */
+@keyframes notificationSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateX(100%) scale(0.9);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes notificationSlideOut {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(100%) scale(0.9);
   }
 }
 

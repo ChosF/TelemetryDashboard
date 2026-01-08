@@ -405,7 +405,10 @@
     const container = modal.querySelector('#admin-pending');
 
     try {
-      const users = await window.AuthModule.getPendingUsers();
+      const allUsers = await window.AuthModule.getPendingUsers();
+
+      // Filter to only show users with pending approval status
+      const users = allUsers.filter(user => user.approval_status === 'pending');
 
       modal.querySelector('#pending-count').textContent = users.length;
 

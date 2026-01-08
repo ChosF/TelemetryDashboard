@@ -91,7 +91,6 @@
   const fabToggle = el("fab-toggle");
   const fabOptions = el("fab-options");
   const fabConnect = el("fab-connect");
-  const fabMode = el("fab-mode");
   const fabExport = el("fab-export");
   const fabSessions = el("fab-sessions");
 
@@ -2021,6 +2020,10 @@
         }
 
         // Resize all charts
+        // First resize uPlot charts via ChartManager
+        if (window.ChartManager) {
+          window.ChartManager.resizeAll();
+        }
         chartSpeed.resize();
         chartPower.resize();
         chartIMU.resize();
