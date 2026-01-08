@@ -18,30 +18,39 @@
     const notification = document.createElement('div');
     notification.className = `custom-notification custom-notification-${type}`;
 
-    const icons = {
-      error: '❌',
-      warning: '⚠️',
-      success: '✅',
-      info: 'ℹ️'
+    // Color mapping for notification types
+    const iconColors = {
+      error: '#F44336',
+      warning: '#FF9800',
+      success: '#4CAF50',
+      info: '#2196F3'
     };
-    const icon = icons[type] || icons.info;
+    const iconColor = iconColors[type] || iconColors.info;
+
+    // SVG icon - minimal "i" in a circle, same design for all types
+    const iconSvg = `
+      <svg class="custom-notification-icon-svg" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="20" cy="20" r="18" stroke="${iconColor}" stroke-width="2" fill="none"/>
+        <path d="M20 12V14M20 18V28" stroke="${iconColor}" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+    `;
 
     notification.innerHTML = `
       <div class="custom-notification-content">
-        <span class="custom-notification-icon">${icon}</span>
+        <span class="custom-notification-icon">${iconSvg}</span>
         <span class="custom-notification-message">${message}</span>
-        <button class="custom-notification-close" aria-label="Close">×</button>
+        <button class="custom-notification-ok" aria-label="OK">OK</button>
       </div>
     `;
 
-    // Calculate position based on existing notifications
-    const topOffset = 24 + (notificationStack.length * 90);
-    notification.style.top = `${topOffset}px`;
+    // Calculate position based on existing notifications (stack vertically from top)
+    const stackOffset = notificationStack.length * 90;
+    notification.style.setProperty('--stack-offset', `${stackOffset}px`);
     
     document.body.appendChild(notification);
     notificationStack.push(notification);
 
-    const closeBtn = notification.querySelector('.custom-notification-close');
+    const okBtn = notification.querySelector('.custom-notification-ok');
     const close = () => {
       notification.classList.add('closing');
       // Remove from stack
@@ -50,13 +59,14 @@
         notificationStack.splice(idx, 1);
         // Reposition remaining notifications
         notificationStack.forEach((n, i) => {
-          n.style.top = `${24 + (i * 90)}px`;
+          const offset = i * 90;
+          n.style.setProperty('--stack-offset', `${offset}px`);
         });
       }
       setTimeout(() => notification.remove(), 300);
     };
 
-    closeBtn.addEventListener('click', close);
+    okBtn.addEventListener('click', close);
 
     // Auto-close after duration
     if (duration > 0) {
