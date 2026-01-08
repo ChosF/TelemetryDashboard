@@ -21,19 +21,32 @@
     // Color mapping for notification types
     const iconColors = {
       error: '#F44336',
+      critical: '#D32F2F',  // Darker red for critical
       warning: '#FF9800',
       success: '#4CAF50',
       info: '#2196F3'
     };
     const iconColor = iconColors[type] || iconColors.info;
 
-    // SVG icon - minimal "i" in a circle, same design for all types
-    const iconSvg = `
-      <svg class="custom-notification-icon-svg" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="20" cy="20" r="18" stroke="${iconColor}" stroke-width="2" fill="none"/>
-        <path d="M20 12V14M20 18V28" stroke="${iconColor}" stroke-width="2.5" stroke-linecap="round"/>
-      </svg>
-    `;
+    // SVG icons - different icon for critical vs other types
+    let iconSvg;
+    if (type === 'critical') {
+      // Exclamation triangle for critical alerts
+      iconSvg = `
+        <svg class="custom-notification-icon-svg" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M20 4L38 36H2L20 4Z" stroke="${iconColor}" stroke-width="2" fill="none"/>
+          <path d="M20 16V24M20 28V30" stroke="${iconColor}" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      `;
+    } else {
+      // Standard "i" in a circle for other types
+      iconSvg = `
+        <svg class="custom-notification-icon-svg" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="20" cy="20" r="18" stroke="${iconColor}" stroke-width="2" fill="none"/>
+          <path d="M20 12V14M20 18V28" stroke="${iconColor}" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      `;
+    }
 
     notification.innerHTML = `
       <div class="custom-notification-content">
@@ -889,6 +902,12 @@
         }
       }
 
+      // Notify admin of pending approvals (check once per session)
+      if (currentRole === 'admin' && !window._adminPendingNotified) {
+        window._adminPendingNotified = true;
+        checkPendingApprovalsForAdmin();
+      }
+
       previousRole = currentRole;
       updateHeaderUI();
       addAdminToFAB();
@@ -897,6 +916,26 @@
     // Initial UI update - always show login buttons
     updateHeaderUI();
     addAdminToFAB();
+  }
+
+  // Check for pending approvals and notify admin
+  async function checkPendingApprovalsForAdmin() {
+    try {
+      if (!window.AuthModule || !window.AuthModule.hasPermission('canAccessAdmin')) {
+        return;
+      }
+      const users = await window.AuthModule.getPendingUsers();
+      if (users && users.length > 0) {
+        const count = users.length;
+        showNotification(
+          `You have ${count} pending user${count > 1 ? 's' : ''} awaiting approval. Open the Dashboard to review.`,
+          'warning',
+          10000
+        );
+      }
+    } catch (error) {
+      console.log('Could not check pending approvals:', error.message);
+    }
   }
 
   // Export auth UI module

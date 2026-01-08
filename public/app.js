@@ -389,7 +389,7 @@
           if (window.AuthUI && window.AuthUI.showNotification) {
             window.AuthUI.showNotification(
               `Data stream paused — no updates for ${since.toFixed(0)}s. Check sensor connection.`,
-              'warning',
+              'critical',
               8000
             );
           }
