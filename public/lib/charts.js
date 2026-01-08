@@ -36,7 +36,7 @@ const ChartManager = (function () {
             title: title,
             width: width,
             height: height,
-            tzDate: ts => uPlot.tzDate(new Date(ts), 'Etc/UTC'),
+            tzDate: ts => new Date(ts * 1000), // Convert seconds to milliseconds for Date constructor
             cursor: {
                 sync: { key: 'telemetry' },
                 drag: { x: true, y: true }
@@ -401,6 +401,7 @@ const ChartManager = (function () {
                 title: config.title || 'Custom Chart',
                 width: width,
                 height: height,
+                tzDate: isTimeX ? (ts => new Date(ts * 1000)) : undefined, // Convert seconds to milliseconds for Date constructor
                 scales: {
                     x: { time: isTimeX }
                 },
