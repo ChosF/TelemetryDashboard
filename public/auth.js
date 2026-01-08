@@ -410,7 +410,9 @@
   // Sign out
   async function signOut() {
     if (!supabaseClient) {
-      showNotification('Supabase not configured', 'error');
+      if (window.AuthUI?.showNotification) {
+        window.AuthUI.showNotification('Supabase not configured', 'error');
+      }
       return;
     }
 
