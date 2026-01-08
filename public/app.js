@@ -206,10 +206,17 @@
     }
   });
 
-  // Merge & dedupe
+  // Merge & dedupe with improved triangulation support
   function mergeTelemetry(existing, incoming) {
-    const keyOf = (r) =>
-      `${new Date(r.timestamp).getTime()}::${r.message_id || ""}`;
+    // Primary key: session_id + message_id (unique per session)
+    // Fallback: timestamp with 50ms tolerance for edge cases
+    const keyOf = (r) => {
+      if (r.session_id && r.message_id != null) {
+        return `${r.session_id}-${r.message_id}`;
+      }
+      // Fallback: round timestamp to 50ms buckets
+      return `${r.session_id || ""}-${Math.floor(new Date(r.timestamp).getTime() / 50)}`;
+    };
     const seen = new Map(existing.map((r) => [keyOf(r), r]));
     for (const r of incoming) seen.set(keyOf(r), r);
     let out = Array.from(seen.values());
@@ -220,6 +227,301 @@
     if (out.length > state.maxPoints)
       out = out.slice(out.length - state.maxPoints);
     return out;
+  }
+
+  // ============================================================
+  // SESSION DATA TRIANGULATION
+  // Combines Supabase (historical), Ably History, and Ably Realtime
+  // to ensure complete session data even after refresh or late connect
+  // ============================================================
+
+  /**
+   * SessionDataTriangulator - Orchestrates three-source data loading
+   * 1. Supabase DB: Bulk historical data (batched every ~9s)
+   * 2. Ably History: Recent messages (last 2 minutes)
+   * 3. Ably Realtime: Live streaming data
+   */
+  class SessionDataTriangulator {
+    constructor(options = {}) {
+      this.sessionId = options.sessionId || null;
+      this.ablyChannel = options.ablyChannel || null;
+      this.onProgress = options.onProgress || (() => { });
+      this.onData = options.onData || (() => { });
+      this.onError = options.onError || console.error;
+
+      // Buffer for realtime messages during triangulation
+      this.realtimeBuffer = [];
+      this.isTriangulating = false;
+      this.lastTriangulationTime = 0;
+
+      // Cooldown to prevent rapid re-triangulation (30 seconds)
+      this.triangulationCooldown = 30000;
+    }
+
+    /**
+     * Main entry point - Load complete session data from all sources
+     * @param {string} sessionId - Target session ID
+     * @returns {Promise<Array>} - Merged telemetry data
+     */
+    async loadSessionWithContinuity(sessionId = this.sessionId) {
+      if (!sessionId) {
+        console.warn("⚠️ Triangulator: No session ID provided");
+        return [];
+      }
+
+      // Check cooldown to prevent rapid re-triangulation
+      const now = Date.now();
+      if (this.isTriangulating || (now - this.lastTriangulationTime) < this.triangulationCooldown) {
+        console.log("⏳ Triangulation skipped (cooldown or in progress)");
+        return [];
+      }
+
+      this.isTriangulating = true;
+      this.sessionId = sessionId;
+      this.realtimeBuffer = [];
+
+      console.log(`🔺 Starting triangulation for session: ${sessionId.slice(0, 8)}...`);
+      this.onProgress(0, "Starting data triangulation...");
+
+      try {
+        // Step 1: Fetch historical data from Supabase (fastest bulk source)
+        this.onProgress(10, "Loading from database...");
+        const supabaseData = await this._fetchSupabaseData(sessionId);
+        console.log(`📊 Supabase: ${supabaseData.length} records`);
+
+        // Step 2: Fetch Ably channel history (fills gap between DB and realtime)
+        this.onProgress(50, "Loading recent history...");
+        const ablyHistoryData = await this._fetchAblyHistory();
+        console.log(`📡 Ably History: ${ablyHistoryData.length} records`);
+
+        // Step 3: Get any buffered realtime messages
+        this.onProgress(80, "Merging data sources...");
+        const realtimeData = [...this.realtimeBuffer];
+        console.log(`⚡ Realtime buffer: ${realtimeData.length} records`);
+
+        // Step 4: Merge and deduplicate all sources
+        let merged = this._mergeAllSources(supabaseData, ablyHistoryData, realtimeData);
+
+        // Filter to only include data for this session
+        merged = merged.filter(r => r.session_id === sessionId);
+
+        this.onProgress(100, `Loaded ${merged.length} data points`);
+        console.log(`✅ Triangulation complete: ${merged.length} total records`);
+
+        this.lastTriangulationTime = Date.now();
+        this.isTriangulating = false;
+
+        return merged;
+
+      } catch (error) {
+        console.error("❌ Triangulation failed:", error);
+        this.onError(error);
+        this.isTriangulating = false;
+        return [];
+      }
+    }
+
+    /**
+     * Fetch all historical data from Supabase for the session
+     */
+    async _fetchSupabaseData(sessionId) {
+      try {
+        const data = await loadFullSession(sessionId);
+        return data || [];
+      } catch (error) {
+        console.warn("⚠️ Supabase fetch failed:", error);
+        return [];
+      }
+    }
+
+    /**
+     * Fetch Ably channel history with pagination
+     * Uses untilAttach for continuous history from attachment point
+     */
+    async _fetchAblyHistory() {
+      if (!this.ablyChannel) {
+        console.warn("⚠️ Ably channel not available for history fetch");
+        return [];
+      }
+
+      const allMessages = [];
+      const limit = 100;
+
+      try {
+        // Ensure channel is attached before fetching history
+        if (this.ablyChannel.state !== 'attached') {
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error("Channel attach timeout")), 5000);
+            this.ablyChannel.once('attached', () => {
+              clearTimeout(timeout);
+              resolve();
+            });
+          });
+        }
+
+        // Fetch history with untilAttach for continuous data
+        let result = await this.ablyChannel.history({
+          untilAttach: true,
+          limit: limit,
+          direction: 'forwards'
+        });
+
+        // Paginate through all available history
+        let pageCount = 0;
+        const maxPages = 10; // Safety limit (1000 messages max)
+
+        while (result.items && result.items.length > 0 && pageCount < maxPages) {
+          for (const msg of result.items) {
+            if (msg.name === 'telemetry_update' && msg.data) {
+              const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+              if (data && typeof data === 'object') {
+                // Normalize the data before adding
+                const normalized = normalizeFieldNames(data);
+                allMessages.push(normalized);
+              }
+            }
+          }
+
+          if (!result.hasNext || typeof result.hasNext !== 'function') break;
+          const hasNext = result.hasNext();
+          if (!hasNext) break;
+
+          result = await result.next();
+          pageCount++;
+        }
+
+      } catch (error) {
+        console.warn("⚠️ Ably history fetch error:", error.message);
+      }
+
+      return allMessages;
+    }
+
+    /**
+     * Buffer a realtime message during triangulation
+     * Called from the main telemetry message handler
+     */
+    bufferRealtimeMessage(data) {
+      if (this.isTriangulating) {
+        this.realtimeBuffer.push(data);
+      }
+    }
+
+    /**
+     * Merge data from all three sources with deduplication
+     */
+    _mergeAllSources(supabaseData, ablyHistoryData, realtimeData) {
+      // Use mergeTelemetry for consistent deduplication
+      let merged = mergeTelemetry([], supabaseData);
+      merged = mergeTelemetry(merged, ablyHistoryData);
+      merged = mergeTelemetry(merged, realtimeData);
+      return merged;
+    }
+
+    /**
+     * Check if triangulation is currently in progress
+     */
+    isInProgress() {
+      return this.isTriangulating;
+    }
+
+    /**
+     * Reset the triangulator state
+     */
+    reset() {
+      this.isTriangulating = false;
+      this.realtimeBuffer = [];
+      this.sessionId = null;
+    }
+  }
+
+  // Global triangulator instance
+  let sessionTriangulator = null;
+
+  /**
+   * Trigger triangulation for a session
+   * Called when connecting to realtime or detecting a new session
+   */
+  async function triangulateSessionData(sessionId, ablyChannel) {
+    if (!sessionId) {
+      console.warn("⚠️ Cannot triangulate: no session ID");
+      return;
+    }
+
+    // Initialize triangulator if needed
+    if (!sessionTriangulator) {
+      sessionTriangulator = new SessionDataTriangulator({
+        ablyChannel,
+        onProgress: (pct, msg) => setStatus(`⏳ ${msg}`),
+        onData: (data) => {
+          state.telemetry = mergeTelemetry(state.telemetry, data);
+          scheduleRender();
+        },
+        onError: (err) => {
+          console.error("Triangulation error:", err);
+          setStatus("⚠️ Partial data loaded");
+        }
+      });
+    } else {
+      sessionTriangulator.ablyChannel = ablyChannel;
+    }
+
+    setStatus("⏳ Loading session data...");
+
+    try {
+      const data = await sessionTriangulator.loadSessionWithContinuity(sessionId);
+
+      if (data.length > 0) {
+        state.telemetry = mergeTelemetry(state.telemetry, data);
+        state.currentSessionId = sessionId;
+        state.msgCount = data.length;
+        statMsg.textContent = String(state.msgCount);
+
+        // Show success notification
+        if (window.AuthUI && window.AuthUI.showNotification) {
+          window.AuthUI.showNotification(
+            `Loaded ${data.length.toLocaleString()} data points from session history.`,
+            'success',
+            3000
+          );
+        }
+
+        scheduleRender();
+        setStatus("✅ Connected");
+      } else {
+        setStatus("✅ Connected (awaiting data)");
+      }
+
+    } catch (error) {
+      console.error("Triangulation failed:", error);
+      setStatus("⚠️ Connected (history load failed)");
+    }
+  }
+
+  /**
+   * Detect session ID from incoming telemetry message
+   * Triggers triangulation on first message of a new session
+   */
+  function detectAndTriangulateSession(data) {
+    const incomingSessionId = data.session_id;
+
+    if (!incomingSessionId) return;
+
+    // Check if this is a new session
+    if (state.currentSessionId !== incomingSessionId) {
+      console.log(`🆕 New session detected: ${incomingSessionId.slice(0, 8)}...`);
+      state.currentSessionId = incomingSessionId;
+
+      // Trigger triangulation for the new session
+      if (state.ablyChannel && !sessionTriangulator?.isInProgress()) {
+        triangulateSessionData(incomingSessionId, state.ablyChannel);
+      }
+    }
+
+    // Buffer message if triangulation is in progress
+    if (sessionTriangulator?.isInProgress()) {
+      sessionTriangulator.bufferRealtimeMessage(data);
+    }
   }
 
   // Derived (roll/pitch and g-forces)
@@ -1601,6 +1903,77 @@
     return merged;
   }
 
+  /**
+   * Normalize incoming telemetry data
+   * Ensures all required fields exist with defaults
+   */
+  function normalizeData(data) {
+    const normalized = { ...data };
+
+    // Apply field name normalization
+    normalizeFieldNames(normalized);
+
+    // Ensure timestamp exists
+    if (!normalized.timestamp) {
+      normalized.timestamp = new Date().toISOString();
+    }
+
+    return normalized;
+  }
+
+  /**
+   * Handle incoming telemetry messages from Ably realtime
+   * Integrates with triangulation for session detection and message buffering
+   */
+  function onTelemetryMessage(message) {
+    try {
+      // Parse message data
+      let data = message.data;
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch (e) {
+          console.warn('Failed to parse telemetry message:', e);
+          return;
+        }
+      }
+
+      if (!data || typeof data !== 'object') {
+        return;
+      }
+
+      // Normalize the data
+      const normalized = normalizeData(data);
+
+      // Detect new session and trigger triangulation if needed
+      detectAndTriangulateSession(normalized);
+
+      // If triangulation is in progress, messages are being buffered
+      // Otherwise, add to telemetry directly
+      if (!sessionTriangulator?.isInProgress()) {
+        // Process through worker if available
+        if (state.useWorker && window.DataWorkerBridge && DataWorkerBridge.isReady()) {
+          DataWorkerBridge.sendData(normalized);
+        } else {
+          // Direct main thread processing
+          const rows = withDerived([normalized]);
+          state.telemetry = mergeTelemetry(state.telemetry, rows);
+          state.msgCount += 1;
+          state.lastMsgTs = new Date();
+
+          if (statMsg) statMsg.textContent = String(state.msgCount);
+          if (statLast) statLast.textContent = "0s ago";
+
+          throttledRender();
+        }
+      }
+
+    } catch (error) {
+      console.error('Error processing telemetry message:', error);
+      state.errCount += 1;
+    }
+  }
+
   // Dynamic Ably loader
   function ensureAblyLoaded() {
     return new Promise((resolve, reject) => {
@@ -1665,6 +2038,12 @@
         state.ablyRealtime = null;
       }
     } catch { }
+
+    // Reset triangulator state for clean reconnection
+    if (sessionTriangulator) {
+      sessionTriangulator.reset();
+    }
+
     state.isConnected = false;
     setStatus("❌ Disconnected");
   }
