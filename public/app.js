@@ -2927,5 +2927,52 @@
     panels.overview.style.display = "block";
   }
 
+  // Responsive Header Text Handler
+  function initResponsiveHeader() {
+    const heroTitle = document.querySelector('.hero-title');
+    const heroSubtitle = document.querySelector('.hero-subtitle');
+    
+    if (!heroTitle || !heroSubtitle) return;
+    
+    function updateHeaderText() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const aspectRatio = width / height;
+      
+      // Consider it a small screen if width < 480px OR if aspect ratio is very narrow (portrait phone)
+      // Typical phone portrait: width ~375-430px, height ~667-932px, aspect ratio ~0.4-0.6
+      const isSmallScreen = width < 480 || (width < 768 && aspectRatio < 0.7);
+      
+      if (isSmallScreen) {
+        // Use short text
+        heroTitle.textContent = heroTitle.getAttribute('data-short-text') || 'Shell';
+        heroSubtitle.textContent = heroSubtitle.getAttribute('data-short-text') || 'DASHBOARD';
+      } else {
+        // Use full text
+        heroTitle.textContent = heroTitle.getAttribute('data-full-text') || 'Shell Eco-marathon';
+        heroSubtitle.textContent = heroSubtitle.getAttribute('data-full-text') || 'Real-time Telemetry Dashboard';
+      }
+    }
+    
+    // Update on load
+    updateHeaderText();
+    
+    // Update on resize (debounced for performance)
+    const debouncedUpdate = debounce(updateHeaderText, 150);
+    window.addEventListener('resize', debouncedUpdate, { passive: true });
+    
+    // Also update on orientation change
+    window.addEventListener('orientationchange', () => {
+      setTimeout(updateHeaderText, 100);
+    });
+  }
+
   main();
+  
+  // Initialize responsive header after DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initResponsiveHeader);
+  } else {
+    initResponsiveHeader();
+  }
 })();
