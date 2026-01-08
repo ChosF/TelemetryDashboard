@@ -192,12 +192,11 @@
     notificationCooldowns: {
       dataStall: 0,      // Timestamp of last data stall notification
       sensorAnomaly: 0,  // Timestamp of last sensor anomaly notification
-      connectionLost: 0  // Timestamp of last connection lost notification
+      connectionLost: 0, // Timestamp of last connection lost notification
+      noSession: 0       // Timestamp of last "no session" notification
     },
-    // Global quality monitoring (runs independently of active panel)
-    qualityMonitorInterval: null,
-    // Flag: true when connected but no active session found yet
-    awaitingSession: false
+    // Real-time session detection
+    waitingForSession: false  // True when connected to Ably but no active session detected
   };
 
   // FAB Menu Toggle
@@ -1740,38 +1739,6 @@
   let realtimeBuffer = [];
   let isBufferingRealtime = false;
 
-  /**
-   * Global quality monitor - runs independently of active panel
-   * Ensures data stall and sensor anomaly notifications always appear
-   */
-  function startQualityMonitor() {
-    // Stop any existing monitor
-    stopQualityMonitor();
-
-    // Run every 5 seconds
-    state.qualityMonitorInterval = setInterval(() => {
-      // Only monitor in real-time mode when connected
-      if (state.mode !== 'realtime' || !state.isConnected) return;
-      // Don't monitor if awaiting session (no data yet)
-      if (state.awaitingSession) return;
-      // Need data to analyze
-      if (state.telemetry.length < 10) return;
-
-      // Run quality analysis (this triggers notifications via cooldown system)
-      analyzeDataQuality(state.telemetry, true);
-    }, 5000);
-
-    console.log('✅ Quality monitor started');
-  }
-
-  function stopQualityMonitor() {
-    if (state.qualityMonitorInterval) {
-      clearInterval(state.qualityMonitorInterval);
-      state.qualityMonitorInterval = null;
-      console.log('🛑 Quality monitor stopped');
-    }
-  }
-
   async function connectRealtime() {
     if (state.isConnected) return;
 
@@ -1821,9 +1788,6 @@
     // Perform initial data triangulation
     // This loads Supabase + Ably history, then merges with buffered real-time
     await performInitialTriangulation(ch);
-
-    // Start global quality monitor (runs independently of Data tab)
-    startQualityMonitor();
   }
 
   /**
@@ -1834,6 +1798,9 @@
   /**
    * Perform initial data triangulation when connecting to real-time
    * Loads historical data from Supabase + Ably, merges with buffered real-time
+   * 
+   * IMPROVED: Now checks if there's an active session (recent messages within 30s)
+   * before loading historical data. Shows "waiting for session" if no active session.
    */
   async function performInitialTriangulation(ablyChannel) {
     if (initialTriangulationDone) {
@@ -1842,12 +1809,13 @@
     }
 
     try {
-      setStatus("⏳ Loading session...");
+      setStatus("⏳ Checking for active session...");
       state.telemetry = [];
       state.msgCount = 0;
 
-      // Get session ID from buffer or Ably
+      // Get session ID from buffer or Ably history
       let sessionId = realtimeBuffer[0]?.session_id;
+      let lastMessageTimestamp = null;
 
       if (!sessionId && ablyChannel) {
         try {
@@ -1856,27 +1824,44 @@
             let data = quickHistory.items[0].data;
             if (typeof data === 'string') data = JSON.parse(data);
             sessionId = data.session_id;
+            // Get timestamp of last message to check recency
+            lastMessageTimestamp = quickHistory.items[0].timestamp ||
+              (data.timestamp ? new Date(data.timestamp).getTime() : null);
           }
         } catch { /* ignore */ }
       }
 
-      if (!sessionId) {
+      // Check if session is truly active (message within last 30 seconds)
+      const ACTIVE_SESSION_THRESHOLD_MS = 30000; // 30 seconds
+      const now = Date.now();
+      const isSessionActive = lastMessageTimestamp &&
+        (now - lastMessageTimestamp) < ACTIVE_SESSION_THRESHOLD_MS;
+
+      // If no session found OR session is stale, show waiting notification
+      if (!sessionId || !isSessionActive) {
         isBufferingRealtime = false;
         initialTriangulationDone = true;
-        state.awaitingSession = true;
-        setStatus("⏳ Awaiting data...");
+        state.waitingForSession = true;
+        setStatus("✅ Connected — Waiting");
 
-        // Notify user that we're connected but waiting for session data
-        if (window.AuthUI?.showNotification) {
-          window.AuthUI.showNotification(
-            'Connected. Awaiting session data — start a telemetry session to see live data.',
-            'info',
-            6000
-          );
+        // Show notification (with cooldown to prevent spam on reconnects)
+        const notifCooldown = 10000; // 10 second cooldown
+        if (now - state.notificationCooldowns.noSession > notifCooldown) {
+          state.notificationCooldowns.noSession = now;
+          if (window.AuthUI?.showNotification) {
+            window.AuthUI.showNotification(
+              'No active realtime session found — waiting for data stream to begin.',
+              'info',
+              6000
+            );
+          }
         }
         return;
       }
 
+      // Active session found - proceed with triangulation
+      state.waitingForSession = false;
+      setStatus("⏳ Loading session...");
       state.currentSessionId = sessionId;
       if (window.DataTriangulator) {
         DataTriangulator.setCurrentSessionId(sessionId);
@@ -2116,10 +2101,6 @@
     return merged;
   }
   async function disconnectRealtime() {
-    // Stop quality monitor first
-    stopQualityMonitor();
-    state.awaitingSession = false;
-
     try {
       if (state.ablyChannel) {
         await state.ablyChannel.unsubscribe();
@@ -2131,6 +2112,7 @@
       }
     } catch { }
     state.isConnected = false;
+    state.waitingForSession = false;  // Reset waiting state
 
     // Reset triangulation and buffering state
     initialTriangulationDone = false;
@@ -2287,6 +2269,21 @@
         return;
       }
 
+      // Handle transition from "waiting for session" to receiving data
+      if (state.waitingForSession) {
+        state.waitingForSession = false;
+        setStatus("✅ Connected");
+        console.log('📊 Session started — receiving data');
+
+        if (window.AuthUI?.showNotification) {
+          window.AuthUI.showNotification(
+            'Realtime session started — receiving data.',
+            'success',
+            3000
+          );
+        }
+      }
+
       // Track current session ID (but don't re-triangulate - that only happens once on connect)
       const incomingSessionId = data.session_id;
       if (incomingSessionId && state.currentSessionId !== incomingSessionId) {
@@ -2296,19 +2293,6 @@
         // Update DataTriangulator's session tracking (for reference only)
         if (window.DataTriangulator) {
           DataTriangulator.setCurrentSessionId(incomingSessionId);
-        }
-
-        // If we were awaiting session data, we now have it
-        if (state.awaitingSession) {
-          state.awaitingSession = false;
-          setStatus("✅ Connected");
-          if (window.AuthUI?.showNotification) {
-            window.AuthUI.showNotification(
-              'Session detected. Receiving live telemetry data.',
-              'success',
-              4000
-            );
-          }
         }
       }
 
@@ -2527,6 +2511,10 @@
       } else if (activePanelName === 'gps') {
         renderMapAndAltitude(rows);
       }
+
+      // IMPORTANT: Always analyze data quality for notifications regardless of active panel
+      // This ensures data stall and sensor anomaly notifications appear on any tab
+      analyzeDataQuality(rows, state.mode === "realtime");
 
       if (panels.data.classList.contains("active")) {
         updateDataQualityUI(rows);
