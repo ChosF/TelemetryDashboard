@@ -193,7 +193,11 @@
       dataStall: 0,      // Timestamp of last data stall notification
       sensorAnomaly: 0,  // Timestamp of last sensor anomaly notification
       connectionLost: 0  // Timestamp of last connection lost notification
-    }
+    },
+    // Global quality monitoring (runs independently of active panel)
+    qualityMonitorInterval: null,
+    // Flag: true when connected but no active session found yet
+    awaitingSession: false
   };
 
   // FAB Menu Toggle
@@ -1736,6 +1740,38 @@
   let realtimeBuffer = [];
   let isBufferingRealtime = false;
 
+  /**
+   * Global quality monitor - runs independently of active panel
+   * Ensures data stall and sensor anomaly notifications always appear
+   */
+  function startQualityMonitor() {
+    // Stop any existing monitor
+    stopQualityMonitor();
+
+    // Run every 5 seconds
+    state.qualityMonitorInterval = setInterval(() => {
+      // Only monitor in real-time mode when connected
+      if (state.mode !== 'realtime' || !state.isConnected) return;
+      // Don't monitor if awaiting session (no data yet)
+      if (state.awaitingSession) return;
+      // Need data to analyze
+      if (state.telemetry.length < 10) return;
+
+      // Run quality analysis (this triggers notifications via cooldown system)
+      analyzeDataQuality(state.telemetry, true);
+    }, 5000);
+
+    console.log('✅ Quality monitor started');
+  }
+
+  function stopQualityMonitor() {
+    if (state.qualityMonitorInterval) {
+      clearInterval(state.qualityMonitorInterval);
+      state.qualityMonitorInterval = null;
+      console.log('🛑 Quality monitor stopped');
+    }
+  }
+
   async function connectRealtime() {
     if (state.isConnected) return;
 
@@ -1785,6 +1821,9 @@
     // Perform initial data triangulation
     // This loads Supabase + Ably history, then merges with buffered real-time
     await performInitialTriangulation(ch);
+
+    // Start global quality monitor (runs independently of Data tab)
+    startQualityMonitor();
   }
 
   /**
@@ -1824,7 +1863,17 @@
       if (!sessionId) {
         isBufferingRealtime = false;
         initialTriangulationDone = true;
-        setStatus("✅ Connected");
+        state.awaitingSession = true;
+        setStatus("⏳ Awaiting data...");
+
+        // Notify user that we're connected but waiting for session data
+        if (window.AuthUI?.showNotification) {
+          window.AuthUI.showNotification(
+            'Connected. Awaiting session data — start a telemetry session to see live data.',
+            'info',
+            6000
+          );
+        }
         return;
       }
 
@@ -2067,6 +2116,10 @@
     return merged;
   }
   async function disconnectRealtime() {
+    // Stop quality monitor first
+    stopQualityMonitor();
+    state.awaitingSession = false;
+
     try {
       if (state.ablyChannel) {
         await state.ablyChannel.unsubscribe();
@@ -2243,6 +2296,19 @@
         // Update DataTriangulator's session tracking (for reference only)
         if (window.DataTriangulator) {
           DataTriangulator.setCurrentSessionId(incomingSessionId);
+        }
+
+        // If we were awaiting session data, we now have it
+        if (state.awaitingSession) {
+          state.awaitingSession = false;
+          setStatus("✅ Connected");
+          if (window.AuthUI?.showNotification) {
+            window.AuthUI.showNotification(
+              'Session detected. Receiving live telemetry data.',
+              'success',
+              4000
+            );
+          }
         }
       }
 
