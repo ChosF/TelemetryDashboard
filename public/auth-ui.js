@@ -8,16 +8,23 @@
 (function () {
   "use strict";
 
-  // Custom notification system
-  function showNotification(message, type = 'info') {
-    // Remove existing notifications
-    const existing = document.querySelectorAll('.custom-notification');
-    existing.forEach(n => n.remove());
-
+  // Custom notification system - stack multiple notifications
+  let notificationStack = [];
+  
+  function showNotification(message, type = 'info', duration = 5000) {
+    // Clean up old notifications from stack
+    notificationStack = notificationStack.filter(n => document.body.contains(n));
+    
     const notification = document.createElement('div');
     notification.className = `custom-notification custom-notification-${type}`;
 
-    const icon = type === 'error' ? '❌' : type === 'warning' ? '⚠️' : type === 'success' ? '✅' : 'ℹ️';
+    const icons = {
+      error: '❌',
+      warning: '⚠️',
+      success: '✅',
+      info: 'ℹ️'
+    };
+    const icon = icons[type] || icons.info;
 
     notification.innerHTML = `
       <div class="custom-notification-content">
@@ -27,18 +34,36 @@
       </div>
     `;
 
+    // Calculate position based on existing notifications
+    const topOffset = 24 + (notificationStack.length * 90);
+    notification.style.top = `${topOffset}px`;
+    
     document.body.appendChild(notification);
+    notificationStack.push(notification);
 
     const closeBtn = notification.querySelector('.custom-notification-close');
     const close = () => {
       notification.classList.add('closing');
+      // Remove from stack
+      const idx = notificationStack.indexOf(notification);
+      if (idx > -1) {
+        notificationStack.splice(idx, 1);
+        // Reposition remaining notifications
+        notificationStack.forEach((n, i) => {
+          n.style.top = `${24 + (i * 90)}px`;
+        });
+      }
       setTimeout(() => notification.remove(), 300);
     };
 
     closeBtn.addEventListener('click', close);
 
-    // Auto-close after 5 seconds
-    setTimeout(close, 5000);
+    // Auto-close after duration
+    if (duration > 0) {
+      // Set progress bar animation duration dynamically
+      notification.style.setProperty('--notification-duration', `${duration}ms`);
+      setTimeout(close, duration);
+    }
 
     return notification;
   }
@@ -215,25 +240,36 @@
     // Close modal handlers
     const closeBtn = modal.querySelector('.auth-modal-close');
     const overlay = modal.querySelector('.auth-modal-overlay');
-    const closeModal = () => {
+    let isClosing = false;
+    
+    const closeModal = (callback) => {
+      if (isClosing) return;
+      isClosing = true;
       modal.classList.add('closing');
-      setTimeout(() => modal.remove(), 300);
+      // Immediately hide to prevent flash
+      modal.style.pointerEvents = 'none';
+      setTimeout(() => {
+        modal.remove();
+        if (callback) callback();
+      }, 280);
     };
 
-    closeBtn.addEventListener('click', closeModal);
-    overlay.addEventListener('click', closeModal);
+    closeBtn.addEventListener('click', () => closeModal());
+    overlay.addEventListener('click', () => closeModal());
 
     // Switch between login and signup
     const switchBtn = modal.querySelector('.auth-switch-btn');
     switchBtn.addEventListener('click', () => {
-      closeModal();
-      setTimeout(() => {
-        if (isLogin) {
-          showSignupModal();
-        } else {
-          showLoginModal();
-        }
-      }, 300);
+      closeModal(() => {
+        // Open new modal after current one is fully removed
+        setTimeout(() => {
+          if (isLogin) {
+            showSignupModal();
+          } else {
+            showLoginModal();
+          }
+        }, 20);
+      });
     });
 
     // Form submission
@@ -354,10 +390,10 @@
         </div>
 
         <div class="admin-content">
-          <div class="admin-panel active" id="admin-pending">
+          <div class="admin-panel active" id="admin-pending" style="display: block;">
             <div class="admin-loading">Loading...</div>
           </div>
-          <div class="admin-panel" id="admin-all">
+          <div class="admin-panel" id="admin-all" style="display: none;">
             <div class="admin-loading">Loading...</div>
           </div>
         </div>
@@ -367,9 +403,15 @@
     // Close modal handlers
     const closeBtn = modal.querySelector('.admin-modal-close');
     const overlay = modal.querySelector('.admin-modal-overlay');
+    let isClosing = false;
+    
     const closeModal = () => {
+      if (isClosing) return;
+      isClosing = true;
       modal.classList.add('closing');
-      setTimeout(() => modal.remove(), 300);
+      // Immediately hide to prevent flash
+      modal.style.pointerEvents = 'none';
+      setTimeout(() => modal.remove(), 280);
     };
 
     closeBtn.addEventListener('click', closeModal);
@@ -384,10 +426,15 @@
         const targetTab = tab.dataset.tab;
 
         tabs.forEach(t => t.classList.remove('active'));
-        panels.forEach(p => p.classList.remove('active'));
+        panels.forEach(p => {
+          p.classList.remove('active');
+          p.style.display = 'none';
+        });
 
         tab.classList.add('active');
-        modal.querySelector(`#admin-${targetTab}`).classList.add('active');
+        const activePanel = modal.querySelector(`#admin-${targetTab}`);
+        activePanel.classList.add('active');
+        activePanel.style.display = 'block';
       });
     });
 
@@ -405,10 +452,7 @@
     const container = modal.querySelector('#admin-pending');
 
     try {
-      const allUsers = await window.AuthModule.getPendingUsers();
-
-      // Filter to only show users with pending approval status
-      const users = allUsers.filter(user => user.approval_status === 'pending');
+      const users = await window.AuthModule.getPendingUsers();
 
       modal.querySelector('#pending-count').textContent = users.length;
 
