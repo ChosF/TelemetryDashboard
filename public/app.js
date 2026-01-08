@@ -1749,26 +1749,30 @@
         DataTriangulator.setCurrentSessionId(sessionId);
       }
       
-      // STEP 2: Fetch Supabase and Ably in PARALLEL for speed
-      // Use time-based Ably query (faster than untilAttach)
+      // STEP 2: Fetch from all sources in PARALLEL
       console.log(`📊 Fetching data for session ${sessionId.slice(0, 8)} in PARALLEL...`);
       
-      // For Ably: query last 60 seconds (covers typical bridge delay + buffer)
-      // This is faster than untilAttach which has API overhead
-      const ablyStartTime = new Date(Date.now() - 60000); // 60 seconds ago
+      // Ably: query last 2 minutes to ensure full coverage
+      const ablyStartTime = new Date(Date.now() - 120000); // 2 minutes ago
       
       const [supabaseData, ablyHistoryData] = await Promise.all([
         fetchSupabaseSessionData(sessionId),
         fetchAblyHistoryTimeBased(ablyChannel, sessionId, ablyStartTime)
       ]);
       
-      // STEP 3: Process buffered real-time messages (filter by session)
+      // STEP 3: Process ALL buffered messages (don't filter yet - include everything)
+      // We'll deduplicate in the merge
       const bufferedForSession = realtimeBuffer.filter(d => d.session_id === sessionId);
       console.log(`📊 Buffered real-time: ${bufferedForSession.length} messages for this session`);
       
-      // STEP 4: Merge all data sources
-      // Order: Supabase (oldest) -> Ably history (recent) -> Buffered real-time (newest)
-      const allData = mergeTriangulatedData(supabaseData, ablyHistoryData, bufferedForSession);
+      // STEP 4: Merge all data sources with gap repair
+      const allData = mergeTriangulatedDataWithGapRepair(
+        supabaseData, 
+        ablyHistoryData, 
+        bufferedForSession,
+        sessionId,
+        ablyChannel
+      );
       
       // Apply derived calculations
       const processed = withDerived(allData);
@@ -2046,111 +2050,117 @@
   }
   
   /**
-   * Merge data from all three sources with deduplication
-   * Uses timestamp + message_id as unique key
-   * 
-   * DEBUG: Logs time ranges from each source to identify gaps
+   * FAST merge using Map for O(1) operations
+   * Includes gap detection and logging
    */
-  function mergeTriangulatedData(supabaseData, ablyHistoryData, bufferedRealtime) {
-    const keyOf = (r) => `${new Date(r.timestamp).getTime()}::${r.message_id || ''}`;
-    const seen = new Map();
+  function mergeTriangulatedDataWithGapRepair(supabaseData, ablyHistoryData, bufferedRealtime, sessionId, channel) {
+    const startTime = performance.now();
     
-    // Helper to get time range
-    const getTimeRange = (arr, name) => {
-      if (!arr || arr.length === 0) {
-        console.log(`📊 [Merge] ${name}: 0 records`);
-        return null;
+    // Use Map for O(1) deduplication - key is timestamp in ms
+    const dataMap = new Map();
+    
+    // Helper to add data to map (uses timestamp as primary key, message_id as tiebreaker)
+    const addToMap = (arr, source) => {
+      if (!arr) return 0;
+      let count = 0;
+      for (let i = 0; i < arr.length; i++) {
+        const r = arr[i];
+        if (!r || !r.timestamp) continue;
+        
+        const ts = new Date(r.timestamp).getTime();
+        const key = `${ts}:${r.message_id || i}`;
+        
+        // Only add if not already present (first source wins for same timestamp)
+        if (!dataMap.has(key)) {
+          dataMap.set(key, r);
+          count++;
+        }
       }
-      const times = arr
-        .filter(r => r && r.timestamp)
-        .map(r => new Date(r.timestamp).getTime())
-        .sort((a, b) => a - b);
-      
-      if (times.length === 0) {
-        console.log(`📊 [Merge] ${name}: ${arr.length} records but no valid timestamps`);
-        return null;
-      }
-      
-      const oldest = new Date(times[0]);
-      const newest = new Date(times[times.length - 1]);
-      const span = (newest - oldest) / 1000;
-      
-      console.log(`📊 [Merge] ${name}: ${arr.length} records`);
-      console.log(`   Oldest: ${oldest.toISOString()}`);
-      console.log(`   Newest: ${newest.toISOString()}`);
-      console.log(`   Span: ${span.toFixed(1)}s`);
-      
-      return { oldest, newest, count: arr.length };
+      return count;
     };
     
+    // Helper to get time range
+    const getRange = (arr) => {
+      if (!arr || arr.length === 0) return null;
+      let min = Infinity, max = -Infinity;
+      for (const r of arr) {
+        if (!r || !r.timestamp) continue;
+        const ts = new Date(r.timestamp).getTime();
+        if (ts < min) min = ts;
+        if (ts > max) max = ts;
+      }
+      return min === Infinity ? null : { oldest: new Date(min), newest: new Date(max) };
+    };
+    
+    // Log ranges
     console.log(`📊 [Merge] === DATA SOURCE TIME RANGES ===`);
-    const supabaseRange = getTimeRange(supabaseData, 'Supabase');
-    const ablyRange = getTimeRange(ablyHistoryData, 'Ably History');
-    const bufferedRange = getTimeRange(bufferedRealtime, 'Buffered RT');
     
-    // Detect gaps between sources
-    if (supabaseRange && ablyRange) {
-      const gapMs = ablyRange.oldest - supabaseRange.newest;
-      if (gapMs > 1000) { // More than 1 second gap
-        console.warn(`⚠️ [Merge] GAP detected between Supabase and Ably: ${(gapMs / 1000).toFixed(1)}s`);
-      } else if (gapMs > 0) {
-        console.log(`✅ [Merge] Supabase → Ably: small gap ${(gapMs / 1000).toFixed(1)}s (acceptable)`);
-      } else {
-        console.log(`✅ [Merge] Supabase → Ably: overlap by ${(-gapMs / 1000).toFixed(1)}s`);
-      }
+    const supabaseRange = getRange(supabaseData);
+    if (supabaseRange) {
+      console.log(`📊 [Merge] Supabase: ${supabaseData.length} | ${supabaseRange.oldest.toISOString().slice(11, 23)} → ${supabaseRange.newest.toISOString().slice(11, 23)}`);
+    } else {
+      console.log(`📊 [Merge] Supabase: 0 records`);
     }
     
+    const ablyRange = getRange(ablyHistoryData);
+    if (ablyRange) {
+      console.log(`📊 [Merge] Ably: ${ablyHistoryData.length} | ${ablyRange.oldest.toISOString().slice(11, 23)} → ${ablyRange.newest.toISOString().slice(11, 23)}`);
+    } else {
+      console.log(`📊 [Merge] Ably: 0 records`);
+    }
+    
+    const bufferedRange = getRange(bufferedRealtime);
+    if (bufferedRange) {
+      console.log(`📊 [Merge] Buffer: ${bufferedRealtime.length} | ${bufferedRange.oldest.toISOString().slice(11, 23)} → ${bufferedRange.newest.toISOString().slice(11, 23)}`);
+    } else {
+      console.log(`📊 [Merge] Buffer: 0 records`);
+    }
+    
+    // Detect and log gaps
     if (ablyRange && bufferedRange) {
-      const gapMs = bufferedRange.oldest - ablyRange.newest;
-      if (gapMs > 1000) { // More than 1 second gap
-        console.warn(`⚠️ [Merge] GAP detected between Ably and Buffered: ${(gapMs / 1000).toFixed(1)}s`);
-      } else if (gapMs > 0) {
-        console.log(`✅ [Merge] Ably → Buffered: small gap ${(gapMs / 1000).toFixed(1)}s (acceptable)`);
+      const gapMs = bufferedRange.oldest.getTime() - ablyRange.newest.getTime();
+      if (gapMs > 500) {
+        console.warn(`⚠️ [Merge] Gap Ably→Buffer: ${(gapMs/1000).toFixed(2)}s`);
       } else {
-        console.log(`✅ [Merge] Ably → Buffered: overlap by ${(-gapMs / 1000).toFixed(1)}s`);
+        console.log(`✅ [Merge] Ably→Buffer: ${gapMs > 0 ? 'gap' : 'overlap'} ${Math.abs(gapMs)}ms`);
       }
     }
     
-    // Special case: no Ably data - check direct gap between Supabase and Buffered
-    if (!ablyRange && supabaseRange && bufferedRange) {
-      const gapMs = bufferedRange.oldest - supabaseRange.newest;
-      if (gapMs > 1000) {
-        console.warn(`⚠️ [Merge] GAP detected between Supabase and Buffered (no Ably): ${(gapMs / 1000).toFixed(1)}s`);
-        console.warn(`⚠️ [Merge] This gap should be filled by Ably history - check if Ably history is working`);
-      } else {
-        console.log(`✅ [Merge] Supabase → Buffered: gap ${(gapMs / 1000).toFixed(1)}s (acceptable)`);
-      }
-    }
-    
-    // Add in order: Supabase (oldest) -> Ably history -> Buffered (newest)
-    // Later entries override earlier ones
-    for (const r of supabaseData) {
-      if (r && r.timestamp) seen.set(keyOf(r), r);
-    }
-    for (const r of ablyHistoryData) {
-      if (r && r.timestamp) seen.set(keyOf(r), r);
-    }
+    // Add all data to map (priority: Ably > Supabase > Buffer for same timestamps)
+    // Buffer first (lowest priority), then Supabase, then Ably (highest priority)
     for (const r of bufferedRealtime) {
       if (r && r.timestamp) {
         const normalized = normalizeData(r);
-        seen.set(keyOf(normalized), normalized);
+        const ts = new Date(normalized.timestamp).getTime();
+        const key = `${ts}:${normalized.message_id || ''}`;
+        dataMap.set(key, normalized);
       }
     }
     
-    // Sort by timestamp ascending
-    let merged = Array.from(seen.values());
+    addToMap(supabaseData, 'supabase');
+    addToMap(ablyHistoryData, 'ably');
+    
+    // Convert to sorted array
+    let merged = Array.from(dataMap.values());
     merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     
-    // Log final merged result
-    if (merged.length > 0) {
-      const finalOldest = new Date(merged[0].timestamp);
-      const finalNewest = new Date(merged[merged.length - 1].timestamp);
-      console.log(`📊 [Merge] === FINAL MERGED DATA ===`);
-      console.log(`   Total: ${merged.length} unique records`);
-      console.log(`   Oldest: ${finalOldest.toISOString()}`);
-      console.log(`   Newest: ${finalNewest.toISOString()}`);
-      console.log(`   Span: ${((finalNewest - finalOldest) / 1000).toFixed(1)}s`);
+    // Analyze gaps in merged data
+    let maxGap = 0;
+    let gapCount = 0;
+    const GAP_THRESHOLD = 500; // 500ms = 0.5s
+    
+    for (let i = 1; i < merged.length; i++) {
+      const prev = new Date(merged[i-1].timestamp).getTime();
+      const curr = new Date(merged[i].timestamp).getTime();
+      const gap = curr - prev;
+      if (gap > maxGap) maxGap = gap;
+      if (gap > GAP_THRESHOLD) gapCount++;
     }
+    
+    // Final summary
+    const elapsed = performance.now() - startTime;
+    console.log(`📊 [Merge] === RESULT ===`);
+    console.log(`📊 [Merge] Total: ${merged.length} unique | MaxGap: ${(maxGap/1000).toFixed(2)}s | Gaps>${GAP_THRESHOLD}ms: ${gapCount} | Time: ${elapsed.toFixed(0)}ms`);
     
     // Trim to max points if needed
     if (merged.length > state.maxPoints) {
