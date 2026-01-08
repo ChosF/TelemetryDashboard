@@ -20,7 +20,11 @@
 
 .auth-modal.closing {
   animation: modalFadeOut var(--duration-normal) var(--ease-out) forwards;
-  pointer-events: none;
+  pointer-events: none !important;
+}
+
+.auth-modal.closing .auth-modal-content {
+  animation: modalSlideDown var(--duration-normal) var(--ease-out) forwards;
 }
 
 .auth-modal-overlay {
@@ -564,7 +568,11 @@
 
 .admin-modal.closing {
   animation: modalFadeOut var(--duration-normal) var(--ease-out) forwards;
-  pointer-events: none;
+  pointer-events: none !important;
+}
+
+.admin-modal.closing .admin-modal-content {
+  animation: modalSlideDown var(--duration-normal) var(--ease-out) forwards;
 }
 
 .admin-modal-overlay {
@@ -587,6 +595,62 @@
   background: var(--surface-primary);
   border: 1px solid var(--border-default);
   box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+/* Admin content area with scrollbar */
+.admin-content {
+  flex: 1;
+  overflow-y: auto;
+  max-height: calc(90vh - 200px);
+  padding: var(--space-6);
+}
+
+.admin-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.admin-content::-webkit-scrollbar-track {
+  background: var(--surface-secondary);
+  border-radius: var(--radius-full);
+}
+
+.admin-content::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-full);
+}
+
+.admin-content::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Admin panel visibility - controlled by inline styles */
+
+.admin-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+.admin-users-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.admin-users-list::-webkit-scrollbar-track {
+  background: var(--surface-secondary);
+  border-radius: var(--radius-full);
+}
+
+.admin-users-list::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-full);
+}
+
+.admin-users-list::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
 }
 
 .admin-modal.closing .admin-modal-content {
@@ -1129,161 +1193,217 @@
   }
 }
 
-/* ========================================
-   Admin Content & Panels (Scrollbar Fix)
-   ======================================== */
-
-.admin-content {
-  flex: 1;
-  overflow-y: auto;
-  max-height: 55vh;
-  padding: var(--space-6) var(--space-8);
-}
-
-.admin-panel {
-  display: none;
-}
-
-.admin-panel.active {
-  display: block;
-}
-
-.admin-users-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.admin-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-12);
-  text-align: center;
-}
-
-.admin-empty-icon {
-  font-size: var(--text-4xl);
-  margin-bottom: var(--space-4);
-}
-
-.admin-empty-text {
-  font-size: var(--text-lg);
-  color: var(--text-muted);
-  margin: 0;
-}
-
-/* ========================================
-   Custom Notifications (Beautiful Alerts)
-   ======================================== */
+/* ==========================================================================
+   Beautiful Notification System
+   ========================================================================== */
 
 .custom-notification {
   position: fixed;
   top: var(--space-6);
   right: var(--space-6);
-  z-index: calc(var(--z-modal) + 100);
+  z-index: 10000;
   min-width: 320px;
-  max-width: 450px;
+  max-width: 480px;
   padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-xl);
   background: var(--surface-primary);
   border: 1px solid var(--border-default);
-  box-shadow:
-    0 20px 25px -5px rgba(0, 0, 0, 0.15),
-    0 10px 10px -5px rgba(0, 0, 0, 0.08);
-  animation: notificationSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25), 0 8px 16px rgba(0, 0, 0, 0.15);
+  animation: notificationSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
 
 .custom-notification.closing {
-  animation: notificationSlideOut 0.3s var(--ease-out) forwards;
+  animation: notificationSlideOut 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  pointer-events: none;
 }
 
-.custom-notification-content {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-4);
-}
-
-.custom-notification-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-  line-height: 1;
-}
-
-.custom-notification-message {
-  flex: 1;
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  line-height: 1.6;
-  font-weight: var(--font-medium);
-}
-
-.custom-notification-close {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  font-size: 1.2rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0;
-  margin-left: var(--space-2);
-  opacity: 0.6;
-  transition: all var(--duration-fast) var(--ease-out);
-  line-height: 1;
-}
-
-.custom-notification-close:hover {
-  opacity: 1;
-  color: var(--text-primary);
-  transform: scale(1.1);
-}
-
-/* Notification Variants */
-.custom-notification-success {
-  border-left: 4px solid var(--success);
-  background: linear-gradient(135deg, var(--success-muted), var(--surface-primary));
-}
-
-.custom-notification-error {
-  border-left: 4px solid var(--error);
-  background: linear-gradient(135deg, var(--error-muted), var(--surface-primary));
-}
-
-.custom-notification-warning {
-  border-left: 4px solid var(--warning);
-  background: linear-gradient(135deg, var(--warning-muted), var(--surface-primary));
-}
-
-.custom-notification-info {
-  border-left: 4px solid var(--accent);
-  background: linear-gradient(135deg, var(--accent-muted), var(--surface-primary));
-}
-
-/* Notification Animations */
 @keyframes notificationSlideIn {
-  0% {
+  from {
     opacity: 0;
     transform: translateX(100%) scale(0.9);
   }
-
-  100% {
+  to {
     opacity: 1;
     transform: translateX(0) scale(1);
   }
 }
 
 @keyframes notificationSlideOut {
-  0% {
+  from {
     opacity: 1;
     transform: translateX(0) scale(1);
   }
-
-  100% {
+  to {
     opacity: 0;
     transform: translateX(100%) scale(0.9);
+  }
+}
+
+.custom-notification-content {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.custom-notification-icon {
+  font-size: var(--text-xl);
+  line-height: 1;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--surface-secondary);
+}
+
+.custom-notification-message {
+  flex: 1;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  line-height: var(--leading-normal);
+  padding-top: 4px;
+}
+
+.custom-notification-close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: var(--surface-tertiary);
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-fast) var(--ease-out);
+  line-height: 1;
+}
+
+.custom-notification-close:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  transform: scale(1.1);
+}
+
+/* Notification Types */
+.custom-notification-success {
+  border-left: 4px solid var(--success);
+}
+
+.custom-notification-success .custom-notification-icon {
+  background: var(--success-muted);
+  color: var(--success-text);
+}
+
+.custom-notification-error {
+  border-left: 4px solid var(--error);
+}
+
+.custom-notification-error .custom-notification-icon {
+  background: var(--error-muted);
+  color: var(--error-text);
+}
+
+.custom-notification-warning {
+  border-left: 4px solid var(--warning);
+}
+
+.custom-notification-warning .custom-notification-icon {
+  background: var(--warning-muted);
+  color: var(--warning-text);
+}
+
+.custom-notification-info {
+  border-left: 4px solid var(--info);
+}
+
+.custom-notification-info .custom-notification-icon {
+  background: var(--info-muted);
+  color: var(--info-text);
+}
+
+/* Progress bar for auto-close */
+.custom-notification::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+  animation: notificationProgress var(--notification-duration, 5000ms) linear forwards;
+}
+
+/* Smooth repositioning transition */
+.custom-notification {
+  transition: top 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.custom-notification-success::after {
+  background: var(--success);
+}
+
+.custom-notification-error::after {
+  background: var(--error);
+}
+
+.custom-notification-warning::after {
+  background: var(--warning);
+}
+
+.custom-notification-info::after {
+  background: var(--info);
+}
+
+@keyframes notificationProgress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 480px) {
+  .custom-notification {
+    top: var(--space-4);
+    right: var(--space-4);
+    left: var(--space-4);
+    min-width: auto;
+    max-width: none;
+  }
+  
+  @keyframes notificationSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-100%) scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  
+  @keyframes notificationSlideOut {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-100%) scale(0.9);
+    }
   }
 }
 
