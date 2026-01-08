@@ -91,6 +91,7 @@
   const fabToggle = el("fab-toggle");
   const fabOptions = el("fab-options");
   const fabConnect = el("fab-connect");
+  // const fabMode = el("fab-mode"); // Removed - Toggle Mode button deleted
   const fabExport = el("fab-export");
   const fabSessions = el("fab-sessions");
 
@@ -2020,10 +2021,6 @@
         }
 
         // Resize all charts
-        // First resize uPlot charts via ChartManager
-        if (window.ChartManager) {
-          window.ChartManager.resizeAll();
-        }
         chartSpeed.resize();
         chartPower.resize();
         chartIMU.resize();
@@ -2041,8 +2038,19 @@
           updateDataQualityUI(state.telemetry);
           ensureDataTable(state.telemetry);
         }
+        // Also resize uPlot charts
+        if (window.ChartManager) {
+          ChartManager.resizeAll();
+        }
       } catch { }
     }, 100);
+
+    // Additional delayed resize to handle any layout shifts
+    setTimeout(() => {
+      if (window.ChartManager) {
+        ChartManager.resizeAll();
+      }
+    }, 300);
   }
 
   // Custom charts
@@ -2528,6 +2536,20 @@
         state.currentSessionId = sid;
         sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
         scheduleRender();
+        // Force resize of all charts after data load
+        setTimeout(() => {
+          if (window.ChartManager) {
+            ChartManager.resizeAll();
+          }
+          try {
+            chartSpeed?.resize();
+            chartPower?.resize();
+            chartIMU?.resize();
+            chartIMUDetail?.resize();
+            chartEfficiency?.resize();
+            chartAltitude?.resize();
+          } catch {}
+        }, 200);
         // Close both modal and FAB menu
         fabMenu.classList.remove("active");
         setTimeout(close, 1500);
@@ -2651,15 +2673,7 @@
       fabMenu.classList.remove("active");
     });
 
-    // FAB Mode button - Toggle between realtime and historical
-    fabMode?.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      state.mode = state.mode === "realtime" ? "historical" : "realtime";
-      if (state.mode === "historical") {
-        await showSessionsModal();
-      }
-      fabMenu.classList.remove("active");
-    });
+    // FAB Mode button removed - Toggle Mode functionality is not needed
 
     // FAB Export button - Show export menu
     fabExport?.addEventListener("click", (e) => {
@@ -2786,6 +2800,10 @@
               throttledRender();
             }
           });
+          // Force resize charts after initial data starts flowing
+          setTimeout(() => {
+            if (window.ChartManager) ChartManager.resizeAll();
+          }, 500);
           console.log('🚗 Mock streaming started. Call telemetryTest.stopMock() to stop.');
         },
         stopMock: () => {
@@ -2805,6 +2823,10 @@
             scheduleRender();
             console.log(`📊 Loaded ${count} mock data points. Total: ${state.telemetry.length}`);
           }
+          // Force resize charts after batch load
+          setTimeout(() => {
+            if (window.ChartManager) ChartManager.resizeAll();
+          }, 300);
         },
         clear: () => {
           state.telemetry = [];
