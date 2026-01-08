@@ -1601,227 +1601,7 @@
     return merged;
   }
 
-  // ============================================================================
-  // DATA TRIANGULATION SYSTEM
-  // Merges data from three sources to ensure no datapoints are lost:
-  // 1. Supabase DB (historical, batched every ~9s)
-  // 2. Ably History (recent messages not yet in Supabase, up to 2 min)
-  // 3. Ably Realtime (live stream)
-  // ============================================================================
-
-  /**
-   * Fetch historical messages from Ably channel with automatic pagination.
-   * @param {Object} channel - Ably channel object
-   * @param {number|null} startTime - Start timestamp in ms (null = from beginning)
-   * @param {number|null} endTime - End timestamp in ms (null = now)
-   * @param {number} maxMessages - Maximum messages to retrieve (default 1000)
-   * @returns {Promise<Array>} Array of parsed telemetry messages
-   */
-  async function fetchAblyHistory(channel, startTime = null, endTime = null, maxMessages = 1000) {
-    if (!channel) {
-      console.warn('fetchAblyHistory: No channel provided');
-      return [];
-    }
-
-    const messages = [];
-    let params = {
-      direction: 'forwards',
-      limit: 100
-    };
-
-    if (startTime) params.start = startTime;
-    if (endTime) params.end = endTime;
-
-    try {
-      console.log(`📜 Fetching Ably history (start: ${startTime ? new Date(startTime).toISOString() : 'beginning'}, end: ${endTime ? new Date(endTime).toISOString() : 'now'})`);
-
-      let page = await channel.history(params);
-      let pageCount = 0;
-      const maxPages = Math.ceil(maxMessages / 100);
-
-      while (page && pageCount < maxPages) {
-        for (const msg of page.items) {
-          if (messages.length >= maxMessages) break;
-
-          try {
-            const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
-            if (data && typeof data === 'object') {
-              if (!data.timestamp && msg.timestamp) {
-                data.timestamp = new Date(msg.timestamp).toISOString();
-              }
-              data._source = 'ably_history';
-              messages.push(data);
-            }
-          } catch (parseErr) {
-            console.warn('Failed to parse Ably history message:', parseErr);
-          }
-        }
-
-        if (messages.length >= maxMessages) break;
-
-        if (page.hasNext()) {
-          page = await page.next();
-          pageCount++;
-        } else {
-          break;
-        }
-      }
-
-      console.log(`📜 Ably history: Retrieved ${messages.length} messages across ${pageCount + 1} pages`);
-      return messages;
-
-    } catch (err) {
-      console.error('Failed to fetch Ably history:', err);
-      return [];
-    }
-  }
-
-  /**
-   * Triangulate session data from all sources for complete continuity.
-   * @param {string} sessionId - Session ID to triangulate
-   * @param {Object} channel - Ably channel for history fetch
-   * @returns {Promise<{data: Array, stats: Object}>} Merged data and stats
-   */
-  async function triangulateSessionData(sessionId, channel) {
-    const stats = {
-      supabaseRecords: 0,
-      ablyHistoryRecords: 0,
-      totalMerged: 0,
-      duplicatesRemoved: 0,
-      gapFilledMs: 0,
-      triangulationTimeMs: 0
-    };
-
-    const startTime = performance.now();
-    let mergedData = [];
-
-    try {
-      console.log(`🔺 Triangulating session: ${sessionId}`);
-      setStatus('⏳ Loading history...');
-
-      // Step 1: Load from Supabase
-      let supabaseData = [];
-      try {
-        supabaseData = await loadFullSession(sessionId);
-        stats.supabaseRecords = supabaseData.length;
-        console.log(`   📊 Supabase: ${supabaseData.length} records`);
-      } catch (err) {
-        console.warn('Supabase load failed during triangulation:', err);
-      }
-
-      // Step 2: Determine gap window
-      let latestSupabaseTimestamp = null;
-      if (supabaseData.length > 0) {
-        const timestamps = supabaseData
-          .map(r => new Date(r.timestamp).getTime())
-          .filter(t => !isNaN(t));
-        if (timestamps.length > 0) {
-          latestSupabaseTimestamp = Math.max(...timestamps);
-        }
-      }
-
-      // Step 3: Fetch Ably history to fill gap
-      let ablyData = [];
-      if (channel) {
-        const fetchStart = latestSupabaseTimestamp
-          ? latestSupabaseTimestamp - 1000
-          : null;
-
-        try {
-          const rawAblyData = await fetchAblyHistory(channel, fetchStart, null, 1000);
-          ablyData = rawAblyData.filter(d =>
-            d.session_id === sessionId || !d.session_id
-          );
-          ablyData = ablyData.map(d => normalizeData(d));
-          ablyData = withDerived(ablyData);
-
-          stats.ablyHistoryRecords = ablyData.length;
-          console.log(`   📜 Ably History: ${ablyData.length} records`);
-
-          if (latestSupabaseTimestamp && ablyData.length > 0) {
-            stats.gapFilledMs = Math.max(0, Date.now() - latestSupabaseTimestamp);
-          }
-        } catch (err) {
-          console.warn('Ably history fetch failed during triangulation:', err);
-        }
-      }
-
-      // Step 4: Merge all data
-      const originalTotal = supabaseData.length + ablyData.length;
-      mergedData = mergeTelemetry(supabaseData, ablyData);
-      stats.duplicatesRemoved = originalTotal - mergedData.length;
-      stats.totalMerged = mergedData.length;
-
-      mergedData.sort((a, b) => {
-        const ta = new Date(a.timestamp).getTime();
-        const tb = new Date(b.timestamp).getTime();
-        return ta - tb;
-      });
-
-      stats.triangulationTimeMs = performance.now() - startTime;
-
-      console.log(`🔺 Triangulation complete in ${stats.triangulationTimeMs.toFixed(0)}ms:`);
-      console.log(`   📊 Supabase: ${stats.supabaseRecords}, 📜 Ably: ${stats.ablyHistoryRecords}, 🔗 Merged: ${stats.totalMerged}`);
-
-      setStatus('✅ Connected');
-
-    } catch (err) {
-      console.error('Triangulation failed:', err);
-      setStatus('⚠️ Partial data');
-    }
-
-    return { data: mergedData, stats };
-  }
-
-  /**
-   * Handle reconnection: triangulate any gaps that occurred during disconnect.
-   */
-  async function handleReconnectionTriangulation(sessionId) {
-    if (!sessionId || !state.ablyChannel) return;
-
-    let latestLocalTimestamp = null;
-    if (state.telemetry.length > 0) {
-      const timestamps = state.telemetry
-        .map(r => new Date(r.timestamp).getTime())
-        .filter(t => !isNaN(t));
-      if (timestamps.length > 0) {
-        latestLocalTimestamp = Math.max(...timestamps);
-      }
-    }
-
-    if (!latestLocalTimestamp) {
-      const { data } = await triangulateSessionData(sessionId, state.ablyChannel);
-      state.telemetry = data;
-      return;
-    }
-
-    const gapMs = Date.now() - latestLocalTimestamp;
-    if (gapMs > 2000) {
-      console.log(`🔄 Reconnection gap detected: ${(gapMs / 1000).toFixed(1)}s`);
-
-      try {
-        const ablyData = await fetchAblyHistory(
-          state.ablyChannel,
-          latestLocalTimestamp - 1000,
-          null,
-          500
-        );
-
-        const normalizedAbly = withDerived(ablyData.map(d => normalizeData(d)));
-        const filteredAbly = normalizedAbly.filter(d => d.session_id === sessionId);
-
-        if (filteredAbly.length > 0) {
-          state.telemetry = mergeTelemetry(state.telemetry, filteredAbly);
-          console.log(`🔄 Reconnection: Filled gap with ${filteredAbly.length} messages`);
-        }
-      } catch (err) {
-        console.warn('Reconnection gap fill failed:', err);
-      }
-    }
-  }
-
   // Dynamic Ably loader
-
   function ensureAblyLoaded() {
     return new Promise((resolve, reject) => {
       if (window.Ably && window.Ably.Realtime) return resolve();
@@ -1855,17 +1635,8 @@
 
     realtime.connection.on((change) => {
       if (change.current === "connected") {
-        const wasDisconnected = !state.isConnected;
         state.isConnected = true;
         setStatus("✅ Connected");
-
-        // On reconnection, trigger gap-filling if we have a session
-        if (wasDisconnected && state.currentSessionId && state.ablyChannel) {
-          console.log('🔄 Connection restored, checking for data gaps...');
-          handleReconnectionTriangulation(state.currentSessionId).catch(err => {
-            console.warn('Reconnection triangulation failed:', err);
-          });
-        }
       } else if (change.current === "disconnected") {
         state.isConnected = false;
         setStatus("❌ Disconnected");
@@ -1874,7 +1645,6 @@
         setStatus("💥 Connection failed");
       }
     });
-
 
     await new Promise((resolve) => {
       realtime.connection.once("connected", resolve);
@@ -2015,20 +1785,12 @@
       if (!state.currentSessionId || state.currentSessionId !== norm.session_id) {
         state.currentSessionId = norm.session_id;
         try {
-          // Use full triangulation for complete data continuity
-          const { data } = await triangulateSessionData(state.currentSessionId, state.ablyChannel);
-          state.telemetry = mergeTelemetry(state.telemetry, data);
+          const hist = await loadFullSession(state.currentSessionId);
+          state.telemetry = mergeTelemetry(state.telemetry, hist);
         } catch (e) {
-          console.warn("Triangulation failed, falling back to Supabase only:", e);
-          try {
-            const hist = await loadFullSession(state.currentSessionId);
-            state.telemetry = mergeTelemetry(state.telemetry, hist);
-          } catch (e2) {
-            console.warn("Historical load also failed:", e2);
-          }
+          console.warn("Historical load failed:", e);
         }
       }
-
 
       state.telemetry = mergeTelemetry(state.telemetry, rows);
       state.msgCount += 1;
