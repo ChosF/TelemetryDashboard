@@ -25,61 +25,11 @@ const ChartManager = (function () {
         pitch: '#ff6b6b',
         roll: '#4ecdc4',
         altitude: '#00d4ff',
-        outlier: 'rgba(255, 107, 107, 0.7)',  // Red-orange for outlier points
-        outlierStroke: '#ff6b6b',
         // Theme-aware colors will be set dynamically
         grid: 'rgba(255,255,255,0.1)',
         axis: 'rgba(255,255,255,0.5)',
         text: '#ffffff'
     };
-
-    /**
-     * Filter visibility-affecting outliers from data.
-     * Excludes points that would distort chart scale significantly.
-     * Criteria: value > 10x median OR > 5x IQR from Q3
-     * @param {Array} values - Array of numeric values
-     * @returns {Object} { filtered: cleaned values, excluded: indices of excluded points, count: number excluded }
-     */
-    function filterVisibilityOutliers(values) {
-        if (!values || values.length < 10) {
-            return { filtered: values, excluded: [], count: 0 };
-        }
-
-        // Calculate statistics
-        const validValues = values.filter(v => v !== null && !isNaN(v) && isFinite(v));
-        if (validValues.length < 5) {
-            return { filtered: values, excluded: [], count: 0 };
-        }
-
-        const sorted = [...validValues].sort((a, b) => a - b);
-        const median = sorted[Math.floor(sorted.length / 2)];
-        const q1 = sorted[Math.floor(sorted.length * 0.25)];
-        const q3 = sorted[Math.floor(sorted.length * 0.75)];
-        const iqr = q3 - q1;
-
-        // Thresholds
-        const medianThreshold = Math.abs(median) * 10;
-        const iqrThreshold = q3 + iqr * 5;
-
-        const excluded = [];
-        const filtered = values.map((v, i) => {
-            if (v === null || isNaN(v)) return v;
-
-            // Check if visibility-affecting
-            const absVal = Math.abs(v);
-            if (absVal > medianThreshold || v > iqrThreshold) {
-                excluded.push(i);
-                return null; // Exclude from chart
-            }
-            return v;
-        });
-
-        return {
-            filtered,
-            excluded,
-            count: excluded.length
-        };
-    }
 
     // Detect current theme
     function getTheme() {
@@ -277,7 +227,6 @@ const ChartManager = (function () {
         COLORS,
         lttbDownsample,
         rowsToUPlotData,
-        filterVisibilityOutliers,  // For outlier visibility filtering
 
         // Create Speed chart
         createSpeedChart(container, rows = []) {

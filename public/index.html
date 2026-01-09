@@ -32,9 +32,7 @@
     window.CONFIG = window.CONFIG || {
       ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
       ABLY_AUTH_URL: "/api/ably/token",
-      ABLY_API_KEY: "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ", // Local testing
-      SUPABASE_URL: "https://dsfmdziehhgmrconjcns.supabase.co",
-      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRzZm1kemllaGhnbXJjb25qY25zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE5MDEyOTIsImV4cCI6MjA2NzQ3NzI5Mn0.P41bpLkP0tKpTktLx6hFOnnyrAB9N_yihQP1v6zTRwc"
+      // ABLY_API_KEY: "your-ably-key" // only if you choose to embed it
     };
   </script>
 </head>
@@ -336,7 +334,7 @@
             <div class="bridge-health glass-panel">
               <h3>
                 <span class="bridge-status-dot" id="bridge-status-dot"></span>
-                🔗 Bridge Health
+                🔗 Server Health
               </h3>
               <div class="bridge-health-grid">
                 <div class="bridge-metric">
