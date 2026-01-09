@@ -25,11 +25,61 @@ const ChartManager = (function () {
         pitch: '#ff6b6b',
         roll: '#4ecdc4',
         altitude: '#00d4ff',
+        outlier: 'rgba(255, 107, 107, 0.7)',  // Red-orange for outlier points
+        outlierStroke: '#ff6b6b',
         // Theme-aware colors will be set dynamically
         grid: 'rgba(255,255,255,0.1)',
         axis: 'rgba(255,255,255,0.5)',
         text: '#ffffff'
     };
+
+    /**
+     * Filter visibility-affecting outliers from data.
+     * Excludes points that would distort chart scale significantly.
+     * Criteria: value > 10x median OR > 5x IQR from Q3
+     * @param {Array} values - Array of numeric values
+     * @returns {Object} { filtered: cleaned values, excluded: indices of excluded points, count: number excluded }
+     */
+    function filterVisibilityOutliers(values) {
+        if (!values || values.length < 10) {
+            return { filtered: values, excluded: [], count: 0 };
+        }
+
+        // Calculate statistics
+        const validValues = values.filter(v => v !== null && !isNaN(v) && isFinite(v));
+        if (validValues.length < 5) {
+            return { filtered: values, excluded: [], count: 0 };
+        }
+
+        const sorted = [...validValues].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        const q1 = sorted[Math.floor(sorted.length * 0.25)];
+        const q3 = sorted[Math.floor(sorted.length * 0.75)];
+        const iqr = q3 - q1;
+
+        // Thresholds
+        const medianThreshold = Math.abs(median) * 10;
+        const iqrThreshold = q3 + iqr * 5;
+
+        const excluded = [];
+        const filtered = values.map((v, i) => {
+            if (v === null || isNaN(v)) return v;
+
+            // Check if visibility-affecting
+            const absVal = Math.abs(v);
+            if (absVal > medianThreshold || v > iqrThreshold) {
+                excluded.push(i);
+                return null; // Exclude from chart
+            }
+            return v;
+        });
+
+        return {
+            filtered,
+            excluded,
+            count: excluded.length
+        };
+    }
 
     // Detect current theme
     function getTheme() {
@@ -65,11 +115,11 @@ const ChartManager = (function () {
             axes: [
                 {
                     stroke: themeColors.axis,
-                    grid: { 
+                    grid: {
                         stroke: themeColors.grid,
                         width: 1
                     },
-                    ticks: { 
+                    ticks: {
                         stroke: themeColors.ticks,
                         width: 1
                     },
@@ -82,11 +132,11 @@ const ChartManager = (function () {
                 },
                 {
                     stroke: themeColors.axis,
-                    grid: { 
+                    grid: {
                         stroke: themeColors.grid,
                         width: 1
                     },
-                    ticks: { 
+                    ticks: {
                         stroke: themeColors.ticks,
                         width: 1
                     },
@@ -98,7 +148,7 @@ const ChartManager = (function () {
                     space: 60
                 }
             ],
-            legend: { 
+            legend: {
                 show: true,
                 stroke: themeColors.axis,
                 fill: 'transparent'
@@ -227,6 +277,7 @@ const ChartManager = (function () {
         COLORS,
         lttbDownsample,
         rowsToUPlotData,
+        filterVisibilityOutliers,  // For outlier visibility filtering
 
         // Create Speed chart
         createSpeedChart(container, rows = []) {
@@ -320,24 +371,24 @@ const ChartManager = (function () {
                 rows.map(r => r.speed_ms ?? 0),
                 rows.map(r => r.power_w ?? 0)
             ];
-            
+
             // Use a darker color for data points to ensure visibility of low values
             // Use a gradient-like approach: darker orange/red for better contrast
             const pointColor = '#d97706'; // Darker amber/orange for better visibility
-            
+
             const opts = {
                 ...baseOpts('📈 Efficiency: Speed vs Power', 800, 400),
                 scales: { x: { time: false } },
                 axes: [
-                    { 
-                        stroke: themeColors.axis, 
-                        label: 'Speed (m/s)', 
+                    {
+                        stroke: themeColors.axis,
+                        label: 'Speed (m/s)',
                         grid: { stroke: themeColors.grid },
                         ticks: { stroke: themeColors.ticks }
                     },
-                    { 
-                        stroke: themeColors.axis, 
-                        label: 'Power (W)', 
+                    {
+                        stroke: themeColors.axis,
+                        label: 'Power (W)',
                         grid: { stroke: themeColors.grid },
                         ticks: { stroke: themeColors.ticks }
                     }
@@ -348,8 +399,8 @@ const ChartManager = (function () {
                         label: 'Power',
                         stroke: pointColor,
                         paths: () => null, // scatter plot
-                        points: { 
-                            show: true, 
+                        points: {
+                            show: true,
                             size: 5, // Slightly larger for better visibility
                             fill: pointColor,
                             stroke: pointColor,
@@ -477,8 +528,8 @@ const ChartManager = (function () {
                     x: { time: isTimeX }
                 },
                 axes: [
-                    { 
-                        stroke: themeColors.axis, 
+                    {
+                        stroke: themeColors.axis,
                         grid: { stroke: themeColors.grid },
                         ticks: { stroke: themeColors.ticks },
                         labelFont: '12px Inter, sans-serif',
@@ -486,9 +537,9 @@ const ChartManager = (function () {
                         font: '11px Inter, sans-serif',
                         labelSize: 30
                     },
-                    { 
-                        stroke: themeColors.axis, 
-                        grid: { stroke: themeColors.grid }, 
+                    {
+                        stroke: themeColors.axis,
+                        grid: { stroke: themeColors.grid },
                         label: yFields.join(' / '),
                         ticks: { stroke: themeColors.ticks },
                         labelFont: '12px Inter, sans-serif',
@@ -498,7 +549,7 @@ const ChartManager = (function () {
                     }
                 ],
                 series: series,
-                legend: { 
+                legend: {
                     show: config.showLegend !== false,
                     stroke: themeColors.axis,
                     fill: 'transparent'
@@ -591,23 +642,23 @@ const ChartManager = (function () {
             // Store current chart data and configs
             const chartData = {};
             const chartContainers = {};
-            
+
             for (const name in charts) {
                 const chart = charts[name];
                 if (chart && chart.root && chart.root.parentElement) {
                     // Get current data
                     const data = chart.data;
                     chartData[name] = data;
-                    
+
                     // Get container
                     chartContainers[name] = chart.root.parentElement;
-                    
+
                     // Destroy old chart
                     chart.destroy();
                     delete charts[name];
                 }
             }
-            
+
             // Recreate charts with new theme
             // Note: Charts will be recreated when their render functions are called
             console.log('ChartManager: Theme updated, charts will be recreated on next render');

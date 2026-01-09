@@ -19,6 +19,12 @@ import queue
 import struct
 
 try:
+    import numpy as np
+except ImportError:
+    print("Error: NumPy library not installed. Run: pip install numpy")
+    sys.exit(1)
+
+try:
     from ably import AblyRealtime
 except ImportError:
     print("Error: Ably library not installed. Run: pip install ably")
@@ -73,6 +79,30 @@ RECONNECT_BASE_DELAY = 1.0  # seconds
 # Durability paths
 SPOOL_DIR = "./spool"
 EXPORT_DIR = "./export"
+
+# Rate limiting for Ably publishing (to prevent exceeding 600 msg/sec limit)
+PUBLISH_RATE_LIMIT = 500  # messages per second (Ably limit is 600)
+PUBLISH_BURST_CAPACITY = 50  # allow small bursts before rate limiting kicks in
+PUBLISH_QUEUE_MAX_SIZE = 10000  # max queue size during disconnection
+PUBLISH_DRAIN_INTERVAL = 0.002  # 2ms between messages during controlled drain
+
+# Outlier Detection Configuration
+OUTLIER_ROLLING_WINDOW_SIZE = 50  # samples for rolling statistics
+OUTLIER_ZSCORE_THRESHOLD = 4.0  # sigma threshold for Z-score detection
+OUTLIER_STUCK_SENSOR_COUNT = 10  # consecutive identical values to flag stuck
+OUTLIER_GPS_SPEED_FACTOR = 3.0  # max ratio of GPS distance vs expected
+OUTLIER_GPS_MAX_SPEED = 100.0  # m/s (360 km/h) - impossible GPS jump speed
+OUTLIER_GPS_TRAJECTORY_WINDOW = 20  # samples for trajectory coherence
+OUTLIER_ALTITUDE_MAX_CHANGE = 5.0  # meters per 0.2s sample
+
+# Electrical sensor bounds
+VOLTAGE_MIN = 40.0  # V
+VOLTAGE_MAX = 60.0  # V
+CURRENT_MIN = -5.0  # A (regenerative braking)
+CURRENT_MAX = 30.0  # A
+POWER_MIN = -200.0  # W
+POWER_MAX = 2000.0  # W
+SPEED_MAX = 40.0  # m/s (144 km/h)
 
 # Logging
 logging.basicConfig(
@@ -161,6 +191,641 @@ class MockModeConfig:
             config.gps_jump_probability = 0.005
             
         return config
+
+
+# ------------------------------
+# Rate-Limited Publisher
+# ------------------------------
+
+class RateLimitedPublisher:
+    """
+    Token bucket rate limiter for Ably message publishing.
+    Prevents exceeding Ably's message rate limits during bursts.
+    """
+
+    def __init__(
+        self,
+        rate_limit: float = PUBLISH_RATE_LIMIT,
+        burst_capacity: int = PUBLISH_BURST_CAPACITY,
+        max_queue_size: int = PUBLISH_QUEUE_MAX_SIZE,
+        drain_interval: float = PUBLISH_DRAIN_INTERVAL,
+    ):
+        self.rate_limit = rate_limit
+        self.burst_capacity = burst_capacity
+        self.max_queue_size = max_queue_size
+        self.drain_interval = drain_interval
+
+        # Token bucket state
+        self.tokens = float(burst_capacity)
+        self.last_refill_time = time.monotonic()
+        self.refill_rate = rate_limit  # tokens per second
+
+        # Message queue for burst accumulation
+        self._queue: asyncio.Queue = None  # Initialized in async context
+        self._is_connected = False
+        self._drain_task: Optional[asyncio.Task] = None
+
+        # Statistics
+        self.stats = {
+            "queue_depth": 0,
+            "burst_events": 0,
+            "max_queue_depth_reached": 0,
+            "messages_delayed": 0,
+            "messages_published": 0,
+            "messages_dropped": 0,
+        }
+
+        self._lock = asyncio.Lock()
+
+    async def initialize(self):
+        """Initialize async components"""
+        self._queue = asyncio.Queue(maxsize=self.max_queue_size)
+
+    def _refill_tokens(self) -> None:
+        """Refill tokens based on elapsed time"""
+        now = time.monotonic()
+        elapsed = now - self.last_refill_time
+        self.last_refill_time = now
+
+        # Add tokens based on time elapsed
+        self.tokens = min(
+            self.burst_capacity,
+            self.tokens + elapsed * self.refill_rate
+        )
+
+    async def enqueue(self, message: Dict[str, Any]) -> bool:
+        """
+        Add a message to the publishing queue.
+        Returns True if queued, False if dropped due to full queue.
+        """
+        if self._queue is None:
+            await self.initialize()
+
+        try:
+            self._queue.put_nowait(message)
+            self.stats["queue_depth"] = self._queue.qsize()
+            self.stats["max_queue_depth_reached"] = max(
+                self.stats["max_queue_depth_reached"],
+                self._queue.qsize()
+            )
+            return True
+        except asyncio.QueueFull:
+            # Drop oldest message to make room
+            try:
+                self._queue.get_nowait()
+                self._queue.put_nowait(message)
+                self.stats["messages_dropped"] += 1
+                return True
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                return False
+
+    async def publish_immediately(
+        self,
+        channel,
+        message: Dict[str, Any],
+        event_name: str = "telemetry_update"
+    ) -> bool:
+        """
+        Attempt to publish immediately if rate allows, otherwise queue.
+        Returns True if published immediately, False if queued/dropped.
+        """
+        async with self._lock:
+            self._refill_tokens()
+
+            if self.tokens >= 1.0:
+                # Have capacity - publish immediately
+                self.tokens -= 1.0
+                try:
+                    await channel.publish(event_name, message)
+                    self.stats["messages_published"] += 1
+                    return True
+                except Exception as e:
+                    logger.error(f"❌ Rate limiter publish failed: {e}")
+                    # Queue for retry
+                    await self.enqueue(message)
+                    return False
+            else:
+                # Rate limited - queue the message
+                self.stats["messages_delayed"] += 1
+                if self.stats["messages_delayed"] % 100 == 1:
+                    self.stats["burst_events"] += 1
+                    logger.warning(f"⚠️ Rate limit burst - queueing messages (depth: {self._queue.qsize() if self._queue else 0})")
+                await self.enqueue(message)
+                return False
+
+    async def drain_queue(self, channel, event_name: str = "telemetry_update"):
+        """Drain queued messages at controlled rate"""
+        if self._queue is None:
+            return
+
+        while not self._queue.empty():
+            try:
+                message = await asyncio.wait_for(
+                    self._queue.get(),
+                    timeout=0.1
+                )
+            except asyncio.TimeoutError:
+                break
+
+            async with self._lock:
+                self._refill_tokens()
+
+                # Wait if no tokens available
+                if self.tokens < 1.0:
+                    wait_time = (1.0 - self.tokens) / self.refill_rate
+                    await asyncio.sleep(min(wait_time, self.drain_interval))
+                    self._refill_tokens()
+
+                self.tokens = max(0, self.tokens - 1.0)
+
+            try:
+                await channel.publish(event_name, message)
+                self.stats["messages_published"] += 1
+            except Exception as e:
+                logger.error(f"❌ Drain publish failed: {e}")
+                # Re-queue at front
+                try:
+                    self._queue.put_nowait(message)
+                except asyncio.QueueFull:
+                    self.stats["messages_dropped"] += 1
+
+            self.stats["queue_depth"] = self._queue.qsize()
+            await asyncio.sleep(self.drain_interval)
+
+    def set_connected(self, connected: bool):
+        """Update connection state"""
+        self._is_connected = connected
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get current statistics"""
+        self.stats["queue_depth"] = self._queue.qsize() if self._queue else 0
+        return self.stats.copy()
+
+
+# ------------------------------
+# Outlier Detection Engine
+# ------------------------------
+
+class OutlierDetector:
+    """
+    High-performance outlier detection using NumPy.
+    Designed for <5ms latency per message.
+    """
+
+    def __init__(
+        self,
+        window_size: int = OUTLIER_ROLLING_WINDOW_SIZE,
+        zscore_threshold: float = OUTLIER_ZSCORE_THRESHOLD,
+        stuck_count: int = OUTLIER_STUCK_SENSOR_COUNT,
+    ):
+        self.window_size = window_size
+        self.zscore_threshold = zscore_threshold
+        self.stuck_count = stuck_count
+
+        # Pre-allocated rolling windows (NumPy arrays for speed)
+        self._windows: Dict[str, np.ndarray] = {}
+        self._window_idx: Dict[str, int] = {}
+        self._window_filled: Dict[str, bool] = {}
+
+        # GPS trajectory history
+        self._gps_history: List[Dict[str, float]] = []
+        self._gps_max_history = OUTLIER_GPS_TRAJECTORY_WINDOW
+
+        # Stuck sensor counters
+        self._last_values: Dict[str, float] = {}
+        self._stuck_counters: Dict[str, int] = {}
+
+        # Previous message for rate-of-change detection
+        self._prev_message: Optional[Dict[str, Any]] = None
+        self._prev_timestamp: Optional[float] = None
+
+        # Sensor groups for detection
+        self._electrical_fields = ["voltage_v", "current_a", "power_w"]
+        self._imu_fields = ["gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z"]
+        self._gps_fields = ["latitude", "longitude", "altitude"]
+
+        # Performance tracking
+        self._detection_times: List[float] = []
+
+    def _get_or_create_window(self, field: str) -> np.ndarray:
+        """Get or create a rolling window for a field"""
+        if field not in self._windows:
+            self._windows[field] = np.zeros(self.window_size, dtype=np.float64)
+            self._window_idx[field] = 0
+            self._window_filled[field] = False
+        return self._windows[field]
+
+    def _add_to_window(self, field: str, value: float) -> None:
+        """Add a value to the rolling window"""
+        window = self._get_or_create_window(field)
+        idx = self._window_idx[field]
+        window[idx] = value
+        self._window_idx[field] = (idx + 1) % self.window_size
+        if idx == self.window_size - 1:
+            self._window_filled[field] = True
+
+    def _get_window_stats(self, field: str) -> tuple:
+        """Get mean and std of the rolling window"""
+        if field not in self._windows:
+            return None, None
+        window = self._windows[field]
+        if self._window_filled.get(field, False):
+            return np.mean(window), np.std(window)
+        else:
+            idx = self._window_idx[field]
+            if idx < 3:
+                return None, None
+            valid = window[:idx]
+            return np.mean(valid), np.std(valid)
+
+    def _check_stuck_sensor(self, field: str, value: float) -> bool:
+        """Check if sensor is stuck (identical values)"""
+        last_val = self._last_values.get(field)
+        if last_val is not None and abs(value - last_val) < 1e-9:
+            self._stuck_counters[field] = self._stuck_counters.get(field, 0) + 1
+        else:
+            self._stuck_counters[field] = 0
+        self._last_values[field] = value
+        return self._stuck_counters.get(field, 0) >= self.stuck_count
+
+    def _haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Calculate Haversine distance between two GPS points in meters"""
+        R = 6371000  # Earth radius in meters
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+        return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    def detect(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Run all outlier detection on a message.
+        Returns outlier info dict or None if no outliers.
+        Target: <5ms processing time.
+        """
+        start_time = time.perf_counter()
+
+        flagged_fields: List[str] = []
+        confidence: Dict[str, float] = {}
+        reasons: Dict[str, str] = {}
+
+        try:
+            # Get timestamp delta for rate-of-change detection
+            dt = MOCK_DATA_INTERVAL  # default
+            timestamp_str = data.get("timestamp")
+            if timestamp_str and self._prev_timestamp:
+                try:
+                    ts = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00")).timestamp()
+                    dt = max(0.01, ts - self._prev_timestamp)
+                except Exception:
+                    pass
+
+            # 1. Electrical sensor outliers
+            self._detect_electrical(data, flagged_fields, confidence, reasons, dt)
+
+            # 2. IMU sensor outliers
+            self._detect_imu(data, flagged_fields, confidence, reasons, dt)
+
+            # 3. GPS outliers (most complex)
+            self._detect_gps(data, flagged_fields, confidence, reasons, dt)
+
+            # 4. Speed outliers
+            self._detect_speed(data, flagged_fields, confidence, reasons, dt)
+
+            # 5. Cumulative outliers (energy_j, distance_m)
+            self._detect_cumulative(data, flagged_fields, confidence, reasons)
+
+            # Update rolling windows with current values
+            for field in self._electrical_fields + ["speed_ms"]:
+                val = data.get(field)
+                if val is not None and isinstance(val, (int, float)):
+                    self._add_to_window(field, float(val))
+
+            # Update GPS history
+            lat, lon = data.get("latitude"), data.get("longitude")
+            if lat is not None and lon is not None:
+                self._gps_history.append({
+                    "lat": lat, "lon": lon,
+                    "alt": data.get("altitude", 0),
+                    "speed": data.get("speed_ms", 0),
+                    "ts": time.time()
+                })
+                if len(self._gps_history) > self._gps_max_history:
+                    self._gps_history.pop(0)
+
+            # Store for next iteration
+            if timestamp_str:
+                try:
+                    self._prev_timestamp = datetime.fromisoformat(
+                        timestamp_str.replace("Z", "+00:00")
+                    ).timestamp()
+                except Exception:
+                    pass
+            self._prev_message = data.copy()
+
+        except Exception as e:
+            logger.error(f"❌ Outlier detection error: {e}")
+
+        # Track performance
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        self._detection_times.append(elapsed_ms)
+        if len(self._detection_times) > 100:
+            self._detection_times.pop(0)
+
+        # Return outlier info if any flagged
+        if flagged_fields:
+            # Determine severity
+            max_conf = max(confidence.values()) if confidence else 0
+            if max_conf >= 0.9 or len(flagged_fields) >= 3:
+                severity = "critical"
+            elif max_conf >= 0.7 or len(flagged_fields) >= 2:
+                severity = "warning"
+            else:
+                severity = "info"
+
+            return {
+                "flagged_fields": flagged_fields,
+                "confidence": confidence,
+                "reasons": reasons,
+                "severity": severity,
+            }
+        return None
+
+    def _detect_electrical(
+        self,
+        data: Dict[str, Any],
+        flagged: List[str],
+        conf: Dict[str, float],
+        reasons: Dict[str, str],
+        dt: float
+    ):
+        """Detect electrical sensor outliers"""
+        bounds = {
+            "voltage_v": (VOLTAGE_MIN, VOLTAGE_MAX),
+            "current_a": (CURRENT_MIN, CURRENT_MAX),
+            "power_w": (POWER_MIN, POWER_MAX),
+        }
+
+        for field, (min_val, max_val) in bounds.items():
+            val = data.get(field)
+            if val is None or not isinstance(val, (int, float)):
+                continue
+
+            # Absolute bounds check
+            if val < min_val or val > max_val:
+                flagged.append(field)
+                conf[field] = 0.95
+                reasons[field] = f"out_of_bounds_{min_val}_{max_val}"
+                continue
+
+            # Z-score check
+            mean, std = self._get_window_stats(field)
+            if mean is not None and std is not None and std > 0.01:
+                zscore = abs((val - mean) / std)
+                if zscore > self.zscore_threshold:
+                    flagged.append(field)
+                    conf[field] = min(0.99, 0.5 + zscore / 10)
+                    reasons[field] = "exceeded_z_score_threshold"
+                    continue
+
+            # Sudden jump detection (>20% of mean)
+            if mean is not None and mean != 0:
+                change_pct = abs(val - mean) / abs(mean)
+                if change_pct > 0.2:
+                    flagged.append(field)
+                    conf[field] = min(0.85, 0.5 + change_pct)
+                    reasons[field] = "sudden_jump"
+                    continue
+
+            # Stuck sensor detection
+            if self._check_stuck_sensor(field, val):
+                flagged.append(field)
+                conf[field] = 0.8
+                reasons[field] = "stuck_sensor"
+
+    def _detect_imu(
+        self,
+        data: Dict[str, Any],
+        flagged: List[str],
+        conf: Dict[str, float],
+        reasons: Dict[str, str],
+        dt: float
+    ):
+        """Detect IMU sensor outliers"""
+        # Get accelerometer values
+        ax = data.get("accel_x", 0)
+        ay = data.get("accel_y", 0)
+        az = data.get("accel_z", 0)
+
+        # Magnitude check - should be near 9.81 when stationary
+        if all(isinstance(v, (int, float)) for v in [ax, ay, az]):
+            total_accel = math.sqrt(ax**2 + ay**2 + az**2)
+            if total_accel > 50:  # Physically implausible
+                for field in ["accel_x", "accel_y", "accel_z"]:
+                    flagged.append(field)
+                    conf[field] = 0.95
+                    reasons[field] = "implausible_acceleration"
+
+        # Gyroscope rate-of-change check
+        if self._prev_message:
+            for field in ["gyro_x", "gyro_y", "gyro_z"]:
+                curr = data.get(field)
+                prev = self._prev_message.get(field)
+                if curr is not None and prev is not None:
+                    rate = abs(curr - prev) / dt if dt > 0 else 0
+                    if rate > 500:  # >500°/s change is implausible
+                        flagged.append(field)
+                        conf[field] = 0.85
+                        reasons[field] = "excessive_rate_of_change"
+
+        # Stuck sensor detection for IMU
+        for field in self._imu_fields:
+            val = data.get(field)
+            if val is not None and isinstance(val, (int, float)):
+                if self._check_stuck_sensor(field, val):
+                    if field not in flagged:
+                        flagged.append(field)
+                        conf[field] = 0.75
+                        reasons[field] = "stuck_sensor"
+
+    def _detect_gps(
+        self,
+        data: Dict[str, Any],
+        flagged: List[str],
+        conf: Dict[str, float],
+        reasons: Dict[str, str],
+        dt: float
+    ):
+        """Multi-layer GPS outlier detection"""
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+        alt = data.get("altitude")
+        speed = data.get("speed_ms", 0)
+
+        if lat is None or lon is None:
+            return
+
+        # Layer 1: Absolute bounds
+        if not (-90 <= lat <= 90):
+            flagged.append("latitude")
+            conf["latitude"] = 1.0
+            reasons["latitude"] = "invalid_latitude_range"
+        if not (-180 <= lon <= 180):
+            flagged.append("longitude")
+            conf["longitude"] = 1.0
+            reasons["longitude"] = "invalid_longitude_range"
+        if alt is not None and not (-500 <= alt <= 10000):
+            flagged.append("altitude")
+            conf["altitude"] = 0.9
+            reasons["altitude"] = "implausible_altitude"
+
+        # Layer 2: Speed-distance consistency
+        if self._gps_history and len(self._gps_history) >= 1:
+            prev = self._gps_history[-1]
+            gps_dist = self._haversine_distance(prev["lat"], prev["lon"], lat, lon)
+            expected_dist = speed * dt if speed >= 0 else 0
+
+            # GPS implies impossible speed
+            gps_speed = gps_dist / dt if dt > 0 else 0
+            if gps_speed > OUTLIER_GPS_MAX_SPEED:
+                if "latitude" not in flagged:
+                    flagged.append("latitude")
+                    conf["latitude"] = 0.9
+                    reasons["latitude"] = "gps_impossible_jump"
+                if "longitude" not in flagged:
+                    flagged.append("longitude")
+                    conf["longitude"] = 0.9
+                    reasons["longitude"] = "gps_impossible_jump"
+
+            # GPS distance vs expected (from speed)
+            if expected_dist > 0.1:  # At least 10cm expected movement
+                ratio = gps_dist / expected_dist if expected_dist > 0 else float("inf")
+                if ratio > OUTLIER_GPS_SPEED_FACTOR:
+                    if "latitude" not in flagged:
+                        flagged.append("latitude")
+                        conf["latitude"] = min(0.85, 0.5 + ratio / 10)
+                        reasons["latitude"] = "gps_speed_inconsistent"
+                    if "longitude" not in flagged:
+                        flagged.append("longitude")
+                        conf["longitude"] = min(0.85, 0.5 + ratio / 10)
+                        reasons["longitude"] = "gps_speed_inconsistent"
+
+        # Layer 4: Track coherence using MAD
+        if len(self._gps_history) >= 5:
+            recent_lats = np.array([p["lat"] for p in self._gps_history[-5:]])
+            recent_lons = np.array([p["lon"] for p in self._gps_history[-5:]])
+
+            lat_median = np.median(recent_lats)
+            lon_median = np.median(recent_lons)
+            lat_mad = np.median(np.abs(recent_lats - lat_median))
+            lon_mad = np.median(np.abs(recent_lons - lon_median))
+
+            if lat_mad > 0:
+                lat_dev = abs(lat - lat_median) / (lat_mad * 1.4826)  # Scale to std
+                if lat_dev > 5:  # 5 MAD-scaled deviations
+                    if "latitude" not in flagged:
+                        flagged.append("latitude")
+                        conf["latitude"] = min(0.8, 0.5 + lat_dev / 10)
+                        reasons["latitude"] = "trajectory_deviation"
+
+            if lon_mad > 0:
+                lon_dev = abs(lon - lon_median) / (lon_mad * 1.4826)
+                if lon_dev > 5:
+                    if "longitude" not in flagged:
+                        flagged.append("longitude")
+                        conf["longitude"] = min(0.8, 0.5 + lon_dev / 10)
+                        reasons["longitude"] = "trajectory_deviation"
+
+        # Layer 5: Altitude consistency
+        if alt is not None and self._gps_history:
+            prev_alt = self._gps_history[-1].get("alt")
+            if prev_alt is not None:
+                alt_change = abs(alt - prev_alt)
+                if alt_change > OUTLIER_ALTITUDE_MAX_CHANGE:
+                    if "altitude" not in flagged:
+                        flagged.append("altitude")
+                        conf["altitude"] = min(0.85, 0.5 + alt_change / 10)
+                        reasons["altitude"] = "excessive_altitude_change"
+
+    def _detect_speed(
+        self,
+        data: Dict[str, Any],
+        flagged: List[str],
+        conf: Dict[str, float],
+        reasons: Dict[str, str],
+        dt: float
+    ):
+        """Detect speed outliers"""
+        speed = data.get("speed_ms")
+        if speed is None or not isinstance(speed, (int, float)):
+            return
+
+        # Negative speed check
+        if speed < 0:
+            flagged.append("speed_ms")
+            conf["speed_ms"] = 0.95
+            reasons["speed_ms"] = "negative_speed"
+            return
+
+        # Maximum speed check
+        if speed > SPEED_MAX:
+            flagged.append("speed_ms")
+            conf["speed_ms"] = 0.9
+            reasons["speed_ms"] = "exceeds_physical_maximum"
+            return
+
+        # Impossible acceleration
+        if self._prev_message:
+            prev_speed = self._prev_message.get("speed_ms", 0)
+            if prev_speed is not None:
+                accel = abs(speed - prev_speed) / dt if dt > 0 else 0
+                if accel > 75:  # >7.6g
+                    flagged.append("speed_ms")
+                    conf["speed_ms"] = 0.85
+                    reasons["speed_ms"] = "impossible_acceleration"
+
+    def _detect_cumulative(
+        self,
+        data: Dict[str, Any],
+        flagged: List[str],
+        conf: Dict[str, float],
+        reasons: Dict[str, str]
+    ):
+        """Detect cumulative field outliers (energy_j, distance_m)"""
+        if not self._prev_message:
+            return
+
+        for field in ["energy_j", "distance_m"]:
+            curr = data.get(field)
+            prev = self._prev_message.get(field)
+            if curr is None or prev is None:
+                continue
+            if not isinstance(curr, (int, float)) or not isinstance(prev, (int, float)):
+                continue
+
+            # Should be monotonically increasing
+            if curr < prev:
+                flagged.append(field)
+                conf[field] = 0.85
+                reasons[field] = "decreased_cumulative"
+
+    def get_avg_latency_ms(self) -> float:
+        """Get average detection latency"""
+        if not self._detection_times:
+            return 0.0
+        return sum(self._detection_times) / len(self._detection_times)
+
+    def reset(self):
+        """Reset all state for new session"""
+        self._windows.clear()
+        self._window_idx.clear()
+        self._window_filled.clear()
+        self._gps_history.clear()
+        self._last_values.clear()
+        self._stuck_counters.clear()
+        self._prev_message = None
+        self._prev_timestamp = None
+        self._detection_times.clear()
 
 
 # ------------------------------
@@ -320,6 +985,12 @@ class TelemetryBridgeWithDB:
         self.dashboard_health = ConnectionHealth()
         self._reconnect_lock = asyncio.Lock()
 
+        # Rate-limited publisher for controlled Ably message delivery
+        self.rate_limited_publisher = RateLimitedPublisher()
+
+        # Outlier detection engine
+        self.outlier_detector = OutlierDetector()
+
         self.stats = {
             "messages_received": 0,
             "messages_republished": 0,
@@ -334,6 +1005,14 @@ class TelemetryBridgeWithDB:
             "session_start_time": self.session_start_time.isoformat(),
             "mock_scenario": self.mock_config.scenario.value if mock_mode else None,
             "reconnect_count": 0,
+            # Rate limiter stats
+            "queue_depth": 0,
+            "burst_events": 0,
+            "max_queue_depth_reached": 0,
+            "messages_delayed": 0,
+            # Outlier stats
+            "outliers_detected": 0,
+            "outlier_detection_avg_ms": 0.0,
         }
 
         # ESP32 binary format
@@ -851,6 +1530,19 @@ class TelemetryBridgeWithDB:
         if out.get("brake", 0) == 0 and out.get("brake_pct", 0) != 0:
             out["brake"] = round(_clamp01(out["brake_pct"] / 100.0), 3)
 
+        # Run outlier detection (target: <5ms)
+        outlier_info = self.outlier_detector.detect(out)
+        if outlier_info:
+            out["outliers"] = outlier_info
+            self.stats["outliers_detected"] += 1
+        else:
+            out["outliers"] = None  # Explicit null for no outliers
+
+        # Update outlier detection latency stat
+        self.stats["outlier_detection_avg_ms"] = round(
+            self.outlier_detector.get_avg_latency_ms(), 3
+        )
+
         return out
 
     # ------------- ESP32 handler -------------
@@ -945,38 +1637,62 @@ class TelemetryBridgeWithDB:
     # ------------- Republish with reconnection -------------
 
     async def republish_messages(self):
+        """Republish messages with rate limiting to prevent Ably limits"""
+        # Initialize rate limiter async components
+        await self.rate_limited_publisher.initialize()
+
         while self.running and not self.shutdown_event.is_set():
             try:
                 # Check connection health
                 if not self.dashboard_health.is_connected:
+                    self.rate_limited_publisher.set_connected(False)
                     await self._reconnect_dashboard()
                     if not self.dashboard_health.is_connected:
                         await asyncio.sleep(1)
                         continue
-                
+                    else:
+                        self.rate_limited_publisher.set_connected(True)
+                        # Drain any queued messages from disconnection period
+                        if self.rate_limited_publisher._queue and not self.rate_limited_publisher._queue.empty():
+                            logger.info(f"🔄 Draining {self.rate_limited_publisher._queue.qsize()} queued messages...")
+                            await self.rate_limited_publisher.drain_queue(self.dashboard_channel)
+
+                # Get messages from the incoming queue
                 batch = []
                 while not self.message_queue.empty() and len(batch) < 20:
                     try:
                         batch.append(self.message_queue.get_nowait())
                     except queue.Empty:
                         break
-                
+
+                # Publish each message through rate limiter
                 for m in batch:
                     try:
-                        await self.dashboard_channel.publish("telemetry_update", m)
-                        self.stats["messages_republished"] += 1
-                        self.dashboard_health.record_message()
+                        published = await self.rate_limited_publisher.publish_immediately(
+                            self.dashboard_channel, m
+                        )
+                        if published:
+                            self.stats["messages_republished"] += 1
+                            self.dashboard_health.record_message()
                     except Exception as e:
                         self._count_error(f"Republish failed: {e}")
                         self.dashboard_health.record_error()
                         self.dashboard_health.is_connected = False
-                        # Put message back for retry
-                        try:
-                            self.message_queue.put_nowait(m)
-                        except queue.Full:
-                            pass
+                        # Re-queue message for retry
+                        await self.rate_limited_publisher.enqueue(m)
                         break
-                
+
+                # Update rate limiter stats
+                rl_stats = self.rate_limited_publisher.get_stats()
+                self.stats["queue_depth"] = rl_stats["queue_depth"]
+                self.stats["burst_events"] = rl_stats["burst_events"]
+                self.stats["max_queue_depth_reached"] = rl_stats["max_queue_depth_reached"]
+                self.stats["messages_delayed"] = rl_stats["messages_delayed"]
+
+                # Periodically drain the rate limiter queue
+                if self.rate_limited_publisher._queue and not self.rate_limited_publisher._queue.empty():
+                    await self.rate_limited_publisher.drain_queue(self.dashboard_channel)
+
                 await asyncio.sleep(0.05)
             except Exception as e:
                 self._count_error(f"Republish loop error: {e}")
@@ -1121,6 +1837,11 @@ class TelemetryBridgeWithDB:
                 retry_batches = len(self.db_retry_queue)
                 dropped = self.stats.get("messages_dropped", 0)
                 reconnects = self.stats.get("reconnect_count", 0)
+                queue_depth = self.stats.get("queue_depth", 0)
+                burst_events = self.stats.get("burst_events", 0)
+                outliers = self.stats.get("outliers_detected", 0)
+                outlier_latency = self.stats.get("outlier_detection_avg_ms", 0)
+                
                 logger.info(
                     f"📊 STATS ({mode}) - "
                     f"Received: {self.stats['messages_received']}, "
@@ -1130,6 +1851,10 @@ class TelemetryBridgeWithDB:
                     f"Buffer: {buf_len}, RetryBatches: {retry_batches}, "
                     f"Reconnects: {reconnects}, "
                     f"Errors: {self.stats['errors']}"
+                )
+                logger.info(
+                    f"   📈 RateLimiter: QueueDepth={queue_depth}, Bursts={burst_events} | "
+                    f"Outliers: {outliers} detected, Latency: {outlier_latency:.2f}ms"
                 )
                 if self.stats["last_error"]:
                     logger.info(f"🔍 Last Error: {self.stats['last_error']}")

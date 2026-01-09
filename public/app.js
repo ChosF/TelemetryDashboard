@@ -196,7 +196,17 @@
       noSession: 0       // Timestamp of last "no session" notification
     },
     // Real-time session detection
-    waitingForSession: false  // True when connected to Ably but no active session detected
+    waitingForSession: false,  // True when connected to Ably but no active session detected
+    // Bridge outlier detection tracking
+    bridgeOutliersAvailable: false,  // True when bridge provides outlier data
+    outlierStats: {                   // Counts by field and severity
+      byField: {},                    // e.g., { voltage_v: 5, latitude: 3 }
+      bySeverity: { info: 0, warning: 0, critical: 0 },
+      total: 0,
+      lastOutlierTime: null
+    },
+    bridgeQuality: null,             // Latest bridge quality metrics
+    excludedOutliers: {}              // Outliers excluded from charts per chart ID
   };
 
   // FAB Menu Toggle
@@ -548,25 +558,37 @@
     }
     report.missing_rates = missing;
 
-    const outlierCols = ["speed_ms", "power_w", "voltage_v", "current_a"];
+    // Use bridge-provided outlier data if available, otherwise fall back to client-side detection
     const outliers = {};
-    for (const c of outlierCols) {
-      const vals = rows
-        .map((r) => toNum(r[c], null))
-        .filter((v) => v != null);
-      if (vals.length > 10) {
-        const mean =
-          vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
-        const std =
-          Math.sqrt(
-            vals.map((v) => (v - mean) ** 2).reduce((a, b) => a + b, 0) /
-            (vals.length || 1)
-          ) || 0;
-        outliers[c] =
-          std > 0
-            ? vals.filter((v) => Math.abs((v - mean) / std) > 4).length
-            : 0;
-      } else outliers[c] = 0;
+    if (state.bridgeOutliersAvailable && state.outlierStats.total > 0) {
+      // Use accumulated bridge outlier stats
+      const outlierCols = ["speed_ms", "power_w", "voltage_v", "current_a", "latitude", "longitude", "altitude"];
+      for (const c of outlierCols) {
+        outliers[c] = state.outlierStats.byField[c] || 0;
+      }
+      report.bridgeOutliers = true;  // Flag that data is from bridge
+    } else {
+      // Client-side fallback detection (legacy mode)
+      const outlierCols = ["speed_ms", "power_w", "voltage_v", "current_a"];
+      for (const c of outlierCols) {
+        const vals = rows
+          .map((r) => toNum(r[c], null))
+          .filter((v) => v != null);
+        if (vals.length > 10) {
+          const mean =
+            vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
+          const std =
+            Math.sqrt(
+              vals.map((v) => (v - mean) ** 2).reduce((a, b) => a + b, 0) /
+              (vals.length || 1)
+            ) || 0;
+          outliers[c] =
+            std > 0
+              ? vals.filter((v) => Math.abs((v - mean) / std) > 4).length
+              : 0;
+        } else outliers[c] = 0;
+      }
+      report.bridgeOutliers = false;
     }
     report.outliers = outliers;
 
@@ -580,6 +602,50 @@
     score -= Math.min(25, outlierSum * 0.1);
     report.quality_score = Math.max(0, Math.round(score * 10) / 10);
     return report;
+  }
+
+  // Extract and track outliers from bridge-provided data
+  function processBridgeOutliers(data) {
+    if (!data || !data.outliers) {
+      return;
+    }
+
+    // Mark that bridge outliers are available
+    state.bridgeOutliersAvailable = true;
+
+    const outlierInfo = data.outliers;
+    if (!outlierInfo.flagged_fields || outlierInfo.flagged_fields.length === 0) {
+      return;
+    }
+
+    // Update field counts
+    for (const field of outlierInfo.flagged_fields) {
+      state.outlierStats.byField[field] = (state.outlierStats.byField[field] || 0) + 1;
+    }
+
+    // Update severity counts
+    const severity = outlierInfo.severity || 'info';
+    state.outlierStats.bySeverity[severity] = (state.outlierStats.bySeverity[severity] || 0) + 1;
+
+    // Update totals
+    state.outlierStats.total += 1;
+    state.outlierStats.lastOutlierTime = Date.now();
+
+    // Show notification for critical outliers
+    if (severity === 'critical') {
+      const now = Date.now();
+      if (now - state.notificationCooldowns.sensorAnomaly > 60000) {
+        state.notificationCooldowns.sensorAnomaly = now;
+        if (window.AuthUI && window.AuthUI.showNotification) {
+          const fields = outlierInfo.flagged_fields.slice(0, 3).join(', ');
+          window.AuthUI.showNotification(
+            `Critical outlier detected: ${fields}`,
+            'critical',
+            8000
+          );
+        }
+      }
+    }
   }
 
   // Update data quality UI
@@ -2260,6 +2326,9 @@
     try {
       const data =
         typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data;
+
+      // Process bridge-provided outlier data (always, before routing)
+      processBridgeOutliers(data);
 
       // Buffer messages during initial triangulation
       if (isBufferingRealtime) {
