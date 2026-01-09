@@ -264,4 +264,4 @@ This project is private and not licensed for public use.
 
 ## Support
 
-For questions or issues, please contact the repository maintainer.
+For questions or issues, please contact me at a01661298@tec.mx.
