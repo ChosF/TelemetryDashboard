@@ -1154,14 +1154,23 @@ table.dataTable tbody tr:last-child td {
 
 /* Bridge Health Section */
 .bridge-health {
-  padding: var(--space-5);
+  padding: var(--space-3);
+  border-radius: var(--radius-xl);
+  margin-bottom: 0;
+}
+
+@media (min-width: 768px) {
+  .bridge-health {
+    padding: var(--space-4);
+  }
 }
 
 .bridge-health h3 {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
 }
 
 .bridge-status-dot {
@@ -1208,32 +1217,17 @@ table.dataTable tbody tr:last-child td {
   }
 }
 
-@media (min-width: 768px) {
-  .bridge-health-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-4);
-  }
-}
-
 .bridge-metric {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-5);
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3);
   background: var(--surface-secondary);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
   transition: all var(--duration-fast) var(--ease-out);
   width: 100%;
   min-width: 0;
-  min-height: 80px;
-}
-
-@media (min-width: 768px) {
-  .bridge-metric {
-    padding: var(--space-6) var(--space-5);
-    min-height: 100px;
-  }
 }
 
 .bridge-metric:hover {
@@ -1242,25 +1236,25 @@ table.dataTable tbody tr:last-child td {
 }
 
 .bridge-metric-icon {
-  font-size: var(--text-xl);
+  font-size: var(--text-base);
   flex-shrink: 0;
 }
 
 @media (min-width: 768px) {
   .bridge-metric-icon {
-    font-size: var(--text-2xl);
+    font-size: var(--text-lg);
   }
 }
 
 .bridge-metric-info {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
   min-width: 0;
 }
 
 .bridge-metric-value {
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
@@ -1271,7 +1265,7 @@ table.dataTable tbody tr:last-child td {
 
 @media (min-width: 768px) {
   .bridge-metric-value {
-    font-size: var(--text-lg);
+    font-size: var(--text-sm);
   }
 }
 
@@ -1280,12 +1274,6 @@ table.dataTable tbody tr:last-child td {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
-}
-
-@media (min-width: 768px) {
-  .bridge-metric-label {
-    font-size: var(--text-sm);
-  }
 }
 
 /* Secondary Metrics Grid */
@@ -2838,74 +2826,57 @@ body {
 
 /* Bridge Health - Compact & Elegant */
 .bridge-health {
-  padding: var(--space-4);
+  padding: var(--space-3);
   border-radius: var(--radius-xl);
+  margin-bottom: 0;
 }
 
 @media (min-width: 768px) {
   .bridge-health {
-    padding: var(--space-5);
+    padding: var(--space-4);
   }
 }
 
 .bridge-health h3 {
   font-size: var(--text-sm);
-  margin-bottom: var(--space-4);
-}
-
-@media (min-width: 768px) {
-  .bridge-health h3 {
-    margin-bottom: var(--space-5);
-  }
+  margin-bottom: var(--space-3);
 }
 
 .bridge-health-grid {
-  gap: var(--space-3);
+  gap: var(--space-2);
+  min-height: 0;
+  grid-auto-rows: 1fr;
 }
 
 @media (min-width: 640px) {
   .bridge-health-grid {
-    gap: var(--space-4);
-  }
-}
-
-@media (min-width: 768px) {
-  .bridge-health-grid {
-    gap: var(--space-5);
+    gap: var(--space-3);
   }
 }
 
 .bridge-metric {
-  padding: var(--space-5) var(--space-5);
-  gap: var(--space-4);
-  min-height: 80px;
+  padding: var(--space-3) var(--space-3);
+  gap: var(--space-2);
+  min-height: 0;
+  display: flex;
+  align-items: center;
 }
 
 .bridge-metric-icon {
-  font-size: var(--text-xl);
+  font-size: var(--text-base);
+  flex-shrink: 0;
 }
 
 .bridge-metric-value {
-  font-size: var(--text-base);
-}
-
-.bridge-metric-label {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 @media (min-width: 768px) {
-  .bridge-metric {
-    padding: var(--space-6) var(--space-5);
-    min-height: 100px;
-  }
   .bridge-metric-value {
-    font-size: var(--text-lg);
+    font-size: var(--text-sm);
   }
   .bridge-metric-icon {
-    font-size: var(--text-2xl);
-  }
-  .bridge-metric-label {
-    font-size: var(--text-sm);
+    font-size: var(--text-lg);
   }
 }
 
