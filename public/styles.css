@@ -2572,12 +2572,35 @@ body {
 }
 
 .outlier-timeline-items {
-  max-height: 140px; /* Fixed height to accommodate max 2 items */
-  min-height: 70px; /* Minimum height for 1 item */
-  overflow: hidden; /* Prevent scrolling, just show max 2 items */
+  max-height: 140px; /* Shows max 2 items by default */
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+
+.outlier-timeline-items.single-item {
+  max-height: 70px; /* Shows only 1 item when fields have 2 rows */
+}
+
+/* Custom scrollbar styling for webkit browsers */
+.outlier-timeline-items::-webkit-scrollbar {
+  width: 6px;
+}
+
+.outlier-timeline-items::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.outlier-timeline-items::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+.outlier-timeline-items::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
 }
 
 .outlier-timeline-empty {

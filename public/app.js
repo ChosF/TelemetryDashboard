@@ -944,6 +944,10 @@
 
       if (entries.length === 0) {
         fieldsContainer.innerHTML = `<div class="outlier-fields-placeholder">No outliers detected</div>`;
+        // Reset timeline height when no fields
+        if (timelineItems) {
+          timelineItems.classList.remove('single-item');
+        }
       } else {
         let html = `<div class="outlier-field-grid">`;
         for (const [field, count] of entries) {
@@ -978,11 +982,10 @@
 
       if (recentOutliers.length === 0) {
         timelineItems.innerHTML = `<div class="outlier-timeline-empty">No recent outliers</div>`;
+        timelineItems.classList.remove('single-item');
       } else {
-        // Limit display to maximum 2 items to maintain fixed box dimensions
-        const displayOutliers = recentOutliers.slice(0, 2);
         let html = '';
-        for (const outlier of displayOutliers) {
+        for (const outlier of recentOutliers) {
           const time = new Date(outlier.timestamp);
           const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           const fieldsStr = outlier.fields.slice(0, 3).join(', ') + (outlier.fields.length > 3 ? '...' : '');
@@ -1000,6 +1003,35 @@
           `;
         }
         timelineItems.innerHTML = html;
+        
+        // Check if fields grid has 2 rows and adjust timeline height accordingly
+        // Use setTimeout to ensure DOM is updated before checking layout
+        setTimeout(() => {
+          const fieldGrid = fieldsContainer?.querySelector('.outlier-field-grid');
+          if (fieldGrid) {
+            // Get computed grid properties
+            const gridStyle = window.getComputedStyle(fieldGrid);
+            const gridTemplateColumns = gridStyle.gridTemplateColumns;
+            const columns = gridTemplateColumns.split(' ').length;
+            
+            // Get all field items
+            const fieldItems = fieldGrid.querySelectorAll('.outlier-field-item');
+            const totalItems = fieldItems.length;
+            
+            // Calculate number of rows (ceiling division)
+            const rows = Math.ceil(totalItems / columns);
+            
+            // If 2 or more rows, show only 1 timeline item; otherwise show 2
+            if (rows >= 2) {
+              timelineItems.classList.add('single-item');
+            } else {
+              timelineItems.classList.remove('single-item');
+            }
+          } else {
+            // No fields grid, default to showing 2 items
+            timelineItems.classList.remove('single-item');
+          }
+        }, 0);
       }
     }
   }
