@@ -3418,28 +3418,22 @@
       const sid = opt.value;
       sessionInfo.textContent = "Loading session data...";
       try {
-        let data;
-
-        // Use DataTriangulator for comprehensive data loading if available
-        if (window.DataTriangulator) {
-          sessionInfo.textContent = "Triangulating data sources...";
-          DataTriangulator.setCurrentSessionId(sid);
-
-          // Get data from both Supabase and Ably history
-          data = await DataTriangulator.triangulate(
-            sid,
-            state.ablyChannel, // May be null if not connected to real-time
-            [],
-            { force: true, fullRefresh: true }
-          );
-
-          if (data && data.length > 0) {
-            data = withDerived(data);
+        // Disconnect from Ably if connected - historical sessions should not mix with real-time
+        if (state.isConnected) {
+          sessionInfo.textContent = "Disconnecting from real-time...";
+          await disconnectRealtime();
+          // Update UI to reflect disconnected state
+          if (btnConnect) {
+            btnConnect.textContent = "⚡ Connect Real-Time";
           }
-        } else {
-          // Fallback to simple Supabase fetch
-          data = await loadFullSession(sid);
         }
+
+        // For historical sessions, only use Supabase DB as the source
+        // Triangulation is not appropriate here because:
+        // 1. Ably history has limited retention (2 minutes by default)
+        // 2. Historical data is already fully persisted in Supabase
+        sessionInfo.textContent = "Loading from database...";
+        let data = await loadFullSession(sid);
 
         state.telemetry = data || [];
         state.currentSessionId = sid;
