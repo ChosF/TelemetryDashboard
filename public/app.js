@@ -2060,6 +2060,21 @@
   async function connectRealtime() {
     if (state.isConnected) return;
 
+    // IMMEDIATELY clear all data and render blank charts
+    // This ensures historical session data is cleared when switching to real-time
+    state.telemetry = [];
+    state.currentSessionId = null;
+    state.msgCount = 0;
+    if (statMsg) statMsg.textContent = "0";
+    
+    // Reset DataTriangulator state
+    if (window.DataTriangulator) {
+      DataTriangulator.reset();
+    }
+    
+    // Render blank charts immediately
+    scheduleRender();
+
     try {
       setStatus("⏳ Loading Ably...");
       await ensureAblyLoaded();
@@ -2095,17 +2110,107 @@
     const ch = realtime.channels.get(ABLY_CHANNEL_NAME);
     state.ablyChannel = ch;
 
-    // CRITICAL: Start buffering real-time messages BEFORE loading history
-    // This ensures no messages are lost during the historical data fetch
+    // Start buffering real-time messages
     realtimeBuffer = [];
     isBufferingRealtime = true;
 
     // Subscribe to real-time - messages will be buffered during initial load
     await ch.subscribe("telemetry_update", onTelemetryMessage);
 
-    // Perform initial data triangulation
-    // This loads Supabase + Ably history, then merges with buffered real-time
-    await performInitialTriangulation(ch);
+    // Check for active session - but DON'T load historical data
+    // Real-time mode should start fresh and only show incoming data points
+    await checkForActiveSession(ch);
+  }
+
+  /**
+   * Check if there's an active real-time session, but don't load historical data.
+   * Real-time mode starts with a blank slate and only shows incoming data.
+   */
+  async function checkForActiveSession(ablyChannel) {
+    try {
+      setStatus("⏳ Checking for active session...");
+
+      // Check Ably history for recent session activity
+      let sessionId = null;
+      let lastMessageTimestamp = null;
+
+      if (ablyChannel) {
+        try {
+          const quickHistory = await ablyChannel.history({ limit: 1, direction: 'backwards' });
+          if (quickHistory.items?.[0]?.data) {
+            let data = quickHistory.items[0].data;
+            if (typeof data === 'string') data = JSON.parse(data);
+            sessionId = data.session_id;
+            lastMessageTimestamp = quickHistory.items[0].timestamp ||
+              (data.timestamp ? new Date(data.timestamp).getTime() : null);
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Check if session is truly active (message within last 30 seconds)
+      const ACTIVE_SESSION_THRESHOLD_MS = 30000; // 30 seconds
+      const now = Date.now();
+      const isSessionActive = lastMessageTimestamp &&
+        (now - lastMessageTimestamp) < ACTIVE_SESSION_THRESHOLD_MS;
+
+      isBufferingRealtime = false;
+      initialTriangulationDone = true;
+
+      if (!sessionId || !isSessionActive) {
+        // No active session - waiting for data
+        state.waitingForSession = true;
+        setStatus("✅ Connected — Waiting");
+
+        const notifCooldown = 10000;
+        if (now - state.notificationCooldowns.noSession > notifCooldown) {
+          state.notificationCooldowns.noSession = now;
+          if (window.AuthUI?.showNotification) {
+            window.AuthUI.showNotification(
+              'Connected to real-time — waiting for data stream to begin.',
+              'info',
+              6000
+            );
+          }
+        }
+      } else {
+        // Active session found - set session ID but don't load historical data
+        state.waitingForSession = false;
+        state.currentSessionId = sessionId;
+        if (window.DataTriangulator) {
+          DataTriangulator.setCurrentSessionId(sessionId);
+        }
+        setStatus("✅ Connected");
+
+        if (window.AuthUI?.showNotification) {
+          window.AuthUI.showNotification(
+            'Connected to real-time session — receiving live data.',
+            'success',
+            4000
+          );
+        }
+      }
+
+      // Process any buffered messages that arrived during setup
+      if (realtimeBuffer.length > 0) {
+        const bufferedForSession = sessionId 
+          ? realtimeBuffer.filter(d => d.session_id === sessionId)
+          : realtimeBuffer;
+        
+        if (bufferedForSession.length > 0) {
+          const processed = withDerived(bufferedForSession);
+          state.telemetry = processed;
+          state.msgCount = processed.length;
+          if (statMsg) statMsg.textContent = String(state.msgCount);
+          scheduleRender();
+        }
+        realtimeBuffer = [];
+      }
+    } catch (e) {
+      console.error('Session check error:', e);
+      isBufferingRealtime = false;
+      initialTriangulationDone = true;
+      setStatus("✅ Connected");
+    }
   }
 
   /**
