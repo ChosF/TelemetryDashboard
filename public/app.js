@@ -175,6 +175,7 @@
     _raf: null,
     activePanel: 'overview', // Track active panel for performance
     lastGaugeValues: {}, // Track last gauge values for smart updates
+    peakRate: 0, // Track peak message rate (Hz)
     // uPlot migration flags - enable incrementally
     useUPlot: {
       speed: true,      // Speed chart migrated to uPlot
@@ -687,7 +688,7 @@
       : "N/A");
 
     // Update bridge health (simulated from state)
-    updateBridgeHealthUI();
+    updateBridgeHealthUI(rpt);
 
     const alertsHost = el("quality-alerts");
     if (alertsHost) {
@@ -752,10 +753,6 @@
           <span class="freshness-value">${spanTxt}</span>
         </div>
         <div class="freshness-item">
-          <span class="freshness-label">Median Rate</span>
-          <span class="freshness-value">${hzTxt}</span>
-        </div>
-        <div class="freshness-item">
           <span class="freshness-label">Max Gap</span>
           <span class="freshness-value">${maxGap}</span>
         </div>
@@ -779,7 +776,7 @@
   }
 
   // Update bridge health UI with connection stats
-  function updateBridgeHealthUI() {
+  function updateBridgeHealthUI(dataQualityReport = null) {
     const setTxt = (id, v) => el(id) && (el(id).textContent = v);
 
     // Determine connection status
@@ -819,6 +816,13 @@
       return durSec > 0 ? (recent.length / durSec).toFixed(1) : "0";
     })() : "0";
     setTxt("bridge-msg-rate", `${msgRate} Hz`);
+
+    // Track peak rate
+    const msgRateNum = parseFloat(msgRate);
+    if (!isNaN(msgRateNum) && msgRateNum > state.peakRate) {
+      state.peakRate = msgRateNum;
+    }
+    setTxt("bridge-peak-rate", state.peakRate > 0 ? `${state.peakRate.toFixed(1)} Hz` : "—");
 
     // Messages since connect
     setTxt("bridge-messages-count", state.msgCount.toLocaleString());
@@ -865,6 +869,13 @@
       }
     }
     setTxt("bridge-latency", latencyStr);
+
+    // Median Hz (from data quality report)
+    if (dataQualityReport && dataQualityReport.hz && Number.isFinite(dataQualityReport.hz)) {
+      setTxt("bridge-median-hz", `${dataQualityReport.hz.toFixed(2)} Hz`);
+    } else {
+      setTxt("bridge-median-hz", "—");
+    }
   }
 
   // Update Outlier Analysis Panel (Phase 2 enhancement)
