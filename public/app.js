@@ -275,6 +275,15 @@
       }
     }
 
+    // Parse outliers if stored as JSON string (from Supabase)
+    if (row.outliers && typeof row.outliers === 'string') {
+      try {
+        row.outliers = JSON.parse(row.outliers);
+      } catch {
+        row.outliers = null;
+      }
+    }
+
     // Ensure all required fields exist (same as normalizeData)
     for (const k of REQUIRED_FIELDS) if (!(k in row)) row[k] = 0;
 
@@ -753,54 +762,7 @@
       `;
     }
 
-    // Render data accuracy as cards with severity breakdown
-    const da = el("data-accuracy");
-    if (da) {
-      let html = "";
 
-      // Show severity summary first
-      const sev = rpt.outlier_severity || { info: 0, warning: 0, critical: 0 };
-      const hasOutliers = sev.info + sev.warning + sev.critical > 0;
-
-      if (hasOutliers) {
-        html += `
-          <div class="accuracy-summary">
-            <div class="severity-badges">
-              ${sev.critical > 0 ? `<span class="severity-badge critical">${sev.critical} Critical</span>` : ''}
-              ${sev.warning > 0 ? `<span class="severity-badge warning">${sev.warning} Warning</span>` : ''}
-              ${sev.info > 0 ? `<span class="severity-badge info">${sev.info} Info</span>` : ''}
-            </div>
-          </div>
-        `;
-      }
-
-      // Show per-field outlier counts
-      for (const [k, v] of Object.entries(rpt.outliers)) {
-        let valueClass = "good";
-        if (v > 10) valueClass = "error";
-        else if (v > 3) valueClass = "warning";
-
-        html += `
-          <div class="accuracy-item">
-            <span class="accuracy-field">${k}</span>
-            <span class="accuracy-value ${valueClass}">${v}</span>
-            <span class="accuracy-label">outliers</span>
-          </div>
-        `;
-      }
-
-      // If no outliers, show success message
-      if (!hasOutliers && Object.keys(rpt.outliers).length === 0) {
-        html = `
-          <div class="accuracy-success">
-            <span class="success-icon">✓</span>
-            <span>No outliers detected by the server</span>
-          </div>
-        `;
-      }
-
-      da.innerHTML = html;
-    }
 
     const dataCount = el("data-count");
     if (dataCount) {
@@ -811,6 +773,9 @@
     if (chartQualityScore && rows.length > 0) {
       renderQualityScoreChart(rows, rpt);
     }
+
+    // Update dedicated outlier analysis panel
+    updateOutlierAnalysisUI(rows, rpt);
   }
 
   // Update bridge health UI with connection stats
@@ -839,7 +804,9 @@
     setTxt("bridge-reconnects", state.reconnectCount || 0);
 
     // Error rate (errors per minute, simulated)
-    const errorRate = state.errCount > 0 ? (state.errCount / Math.max(1, (Date.now() - (state.sessionStartTime || Date.now())) / 60000)).toFixed(1) : "0";
+    const sessionDurationMs = Date.now() - (state.sessionStartTime || Date.now());
+    const sessionDurationMin = Math.max(1, sessionDurationMs / 60000);
+    const errorRate = state.errCount > 0 ? (state.errCount / sessionDurationMin).toFixed(1) : "0";
     setTxt("bridge-error-rate", `${errorRate}/min`);
 
     // Message rate (based on telemetry data)
@@ -861,9 +828,205 @@
       `${Math.round((Date.now() - state.lastMsgTs) / 1000)}s ago` :
       "Never";
     setTxt("bridge-last-update", lastUpdate);
+
+    // --- New metrics ---
+
+    // Uptime percentage (time connected / total session time)
+    const uptimePct = isConnected && sessionDurationMs > 1000
+      ? Math.min(100, Math.round((state.msgCount > 0 ? sessionDurationMs : 0) / sessionDurationMs * 100))
+      : (state.msgCount > 0 ? 100 : 0);
+    setTxt("bridge-uptime-pct", `${uptimePct}%`);
+
+    // Data points per minute
+    const dataRate = sessionDurationMin > 0 ? Math.round(state.telemetry.length / sessionDurationMin) : 0;
+    setTxt("bridge-data-rate", `${dataRate}/min`);
+
+    // Session time (formatted as HH:MM:SS or MM:SS)
+    const sessionSec = Math.floor(sessionDurationMs / 1000);
+    const sessionHrs = Math.floor(sessionSec / 3600);
+    const sessionMins = Math.floor((sessionSec % 3600) / 60);
+    const sessionSecs = sessionSec % 60;
+    const sessionTimeStr = sessionHrs > 0
+      ? `${sessionHrs}:${String(sessionMins).padStart(2, '0')}:${String(sessionSecs).padStart(2, '0')}`
+      : `${sessionMins}:${String(sessionSecs).padStart(2, '0')}`;
+    setTxt("bridge-session-time", sessionTimeStr);
+
+    // Latency estimate (based on message timestamps)
+    let latencyStr = "—";
+    if (state.lastMsgTs && state.telemetry.length > 0) {
+      const lastRow = state.telemetry[state.telemetry.length - 1];
+      if (lastRow && lastRow.timestamp) {
+        const dataTs = new Date(lastRow.timestamp).getTime();
+        const receivedTs = state.lastMsgTs;
+        const latency = Math.max(0, receivedTs - dataTs);
+        if (latency < 10000) { // Reasonable latency < 10s
+          latencyStr = latency < 1000 ? `${latency}ms` : `${(latency / 1000).toFixed(1)}s`;
+        }
+      }
+    }
+    setTxt("bridge-latency", latencyStr);
   }
 
-  // Render quality score chart
+  // Update Outlier Analysis Panel (Phase 2 enhancement)
+  function updateOutlierAnalysisUI(rows, report) {
+    const setTxt = (id, v) => el(id) && (el(id).textContent = v);
+    const outlierPanel = el("outlier-analysis");
+    const fieldsContainer = el("outlier-fields-breakdown");
+    const timelineItems = el("outlier-timeline-items");
+
+    // Check if outlier column exists in the data at all
+    // We check if ANY row has an 'outliers' key (regardless of value)
+    const hasOutlierColumn = rows.length > 0 && rows.some(r => 'outliers' in r);
+
+    // Update status indicator
+    const statusIndicator = el("outlier-status-indicator");
+
+    // If outlier column doesn't exist at all, show unavailable state
+    if (rows.length > 0 && !hasOutlierColumn) {
+      // Add unavailable class to panel
+      if (outlierPanel) {
+        outlierPanel.classList.add("outlier-unavailable");
+      }
+
+      // Update status indicator to show error
+      if (statusIndicator) {
+        statusIndicator.classList.remove("has-critical", "has-warning");
+        statusIndicator.classList.add("unavailable");
+      }
+
+      // Update severity counts to N/A
+      setTxt("outlier-critical-count", "—");
+      setTxt("outlier-warning-count", "—");
+      setTxt("outlier-info-count", "—");
+
+      // Show unavailable message in fields container
+      if (fieldsContainer) {
+        fieldsContainer.innerHTML = `
+          <div class="outlier-unavailable-message">
+            <span class="unavailable-icon">⚠️</span>
+            <div class="unavailable-content">
+              <span class="unavailable-title">Sensor Failure Detection Unavailable</span>
+              <span class="unavailable-desc">Check server connection or ensure the backend is sending outlier data.</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // Clear timeline
+      if (timelineItems) {
+        timelineItems.innerHTML = `<div class="outlier-timeline-empty unavailable">Detection unavailable</div>`;
+      }
+
+      // Send red notification with cooldown (120s)
+      const now = Date.now();
+      if (!state.notificationCooldowns.outlierUnavailable) {
+        state.notificationCooldowns.outlierUnavailable = 0;
+      }
+      if (now - state.notificationCooldowns.outlierUnavailable > 120000) {
+        state.notificationCooldowns.outlierUnavailable = now;
+        if (window.AuthUI && window.AuthUI.showNotification) {
+          window.AuthUI.showNotification(
+            "Sensor failure detection unavailable. Check server connection.",
+            'error',
+            10000
+          );
+        }
+      }
+      return;
+    }
+
+    // Remove unavailable class if present
+    if (outlierPanel) {
+      outlierPanel.classList.remove("outlier-unavailable");
+    }
+    if (statusIndicator) {
+      statusIndicator.classList.remove("unavailable");
+    }
+
+    // Get severity counts from report
+    const sev = report.outlier_severity || { info: 0, warning: 0, critical: 0 };
+
+    // Update severity counts
+    setTxt("outlier-critical-count", sev.critical || 0);
+    setTxt("outlier-warning-count", sev.warning || 0);
+    setTxt("outlier-info-count", sev.info || 0);
+
+    // Update status indicator
+    if (statusIndicator) {
+      statusIndicator.classList.remove("has-critical", "has-warning");
+      if (sev.critical > 0) {
+        statusIndicator.classList.add("has-critical");
+      } else if (sev.warning > 0) {
+        statusIndicator.classList.add("has-warning");
+      }
+    }
+
+    // Update per-field breakdown
+    if (fieldsContainer) {
+      const outliers = report.outliers || {};
+      const entries = Object.entries(outliers).sort((a, b) => b[1] - a[1]);
+
+      if (entries.length === 0) {
+        fieldsContainer.innerHTML = `<div class="outlier-fields-placeholder">No outliers detected</div>`;
+      } else {
+        let html = `<div class="outlier-field-grid">`;
+        for (const [field, count] of entries) {
+          const isHigh = count > 10;
+          html += `
+            <div class="outlier-field-item">
+              <span class="outlier-field-name">${field}</span>
+              <span class="outlier-field-count ${isHigh ? 'critical' : 'warning'}">${count}</span>
+            </div>
+          `;
+        }
+        html += `</div>`;
+        fieldsContainer.innerHTML = html;
+      }
+    }
+
+    // Update recent outliers timeline
+    if (timelineItems) {
+      // Collect recent rows with outliers (last 10)
+      const recentOutliers = [];
+      for (let i = rows.length - 1; i >= 0 && recentOutliers.length < 10; i--) {
+        const r = rows[i];
+        if (r.outliers && r.outliers.flagged_fields && r.outliers.flagged_fields.length > 0) {
+          recentOutliers.push({
+            timestamp: r.timestamp,
+            fields: r.outliers.flagged_fields,
+            severity: r.outliers.severity || 'info',
+            reasons: r.outliers.reasons || {}
+          });
+        }
+      }
+
+      if (recentOutliers.length === 0) {
+        timelineItems.innerHTML = `<div class="outlier-timeline-empty">No recent outliers</div>`;
+      } else {
+        let html = '';
+        for (const outlier of recentOutliers) {
+          const time = new Date(outlier.timestamp);
+          const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const fieldsStr = outlier.fields.slice(0, 3).join(', ') + (outlier.fields.length > 3 ? '...' : '');
+          const reasonValues = Object.values(outlier.reasons);
+          const reasonStr = reasonValues.length > 0 ? reasonValues[0].replace(/_/g, ' ') : '';
+
+          html += `
+            <div class="outlier-timeline-item ${outlier.severity}">
+              <span class="outlier-timeline-time">${timeStr}</span>
+              <div class="outlier-timeline-content">
+                <div class="outlier-timeline-fields">${fieldsStr}</div>
+                ${reasonStr ? `<div class="outlier-timeline-reason">${reasonStr}</div>` : ''}
+              </div>
+            </div>
+          `;
+        }
+        timelineItems.innerHTML = html;
+      }
+    }
+  }
+
+  // Render quality score chart with outlier markers (Phase 3 enhancement)
   function renderQualityScoreChart(rows, report) {
     if (!rows || rows.length === 0) {
       console.log("renderQualityScoreChart: no rows");
@@ -894,25 +1057,165 @@
       }
     }
 
+    // Extract outlier points from rows (Phase 3 enhancement)
+    const outlierPoints = [];
+    for (const r of rows) {
+      if (r.outliers && r.outliers.flagged_fields && r.outliers.flagged_fields.length > 0) {
+        const ts = new Date(r.timestamp);
+        if (!isNaN(ts.getTime())) {
+          // Find matching quality score for this timestamp
+          let score = 85; // Default if no match
+          for (const dp of dataPoints) {
+            if (Math.abs(dp.time.getTime() - ts.getTime()) < 30000) { // Within 30 seconds
+              score = dp.score;
+              break;
+            }
+          }
+          outlierPoints.push({
+            time: ts,
+            score: score,
+            severity: r.outliers.severity || 'info',
+            fields: r.outliers.flagged_fields,
+            reasons: r.outliers.reasons || {}
+          });
+        }
+      }
+    }
+
     // If no valid data points, exit early
     if (dataPoints.length === 0) {
       console.log("renderQualityScoreChart: no valid data points");
       return;
     }
 
-    console.log(`renderQualityScoreChart: rendering ${dataPoints.length} points`);
+    console.log(`renderQualityScoreChart: rendering ${dataPoints.length} points, ${outlierPoints.length} outliers`);
+
+    // Build series array
+    const series = [
+      // Main quality score line
+      {
+        type: "line",
+        name: "Quality Score",
+        data: dataPoints.map((d) => [d.time, d.score]),
+        smooth: true,
+        showSymbol: false,
+        lineStyle: {
+          width: 3,
+          color: {
+            type: "linear",
+            x: 0, y: 0, x2: 1, y2: 0,
+            colorStops: [
+              { offset: 0, color: "#ef4444" },
+              { offset: 0.5, color: "#f59e0b" },
+              { offset: 1, color: "#22c55e" },
+            ],
+          },
+        },
+        areaStyle: {
+          opacity: 0.2,
+          color: {
+            type: "linear",
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: "#22c55e" },
+              { offset: 1, color: "transparent" },
+            ],
+          },
+        },
+        markLine: {
+          silent: true,
+          symbol: "none",
+          lineStyle: { color: "#f59e0b", type: "dashed", width: 2 },
+          data: [{ yAxis: 80, name: "Target" }],
+          label: { show: true, formatter: "Target: 80%", fontSize: 10 },
+        },
+        z: 1
+      }
+    ];
+
+    // Add outlier scatter points if any exist (Phase 3)
+    if (outlierPoints.length > 0) {
+      // Group by severity
+      const criticalPts = outlierPoints.filter(p => p.severity === 'critical');
+      const warningPts = outlierPoints.filter(p => p.severity === 'warning');
+      const infoPts = outlierPoints.filter(p => p.severity === 'info');
+
+      if (criticalPts.length > 0) {
+        series.push({
+          type: "scatter",
+          name: "Critical Outliers",
+          data: criticalPts.map(p => ({
+            value: [p.time, p.score],
+            fields: p.fields,
+            reasons: p.reasons
+          })),
+          symbolSize: 12,
+          itemStyle: { color: "#ef4444" },
+          z: 3
+        });
+      }
+
+      if (warningPts.length > 0) {
+        series.push({
+          type: "scatter",
+          name: "Warning Outliers",
+          data: warningPts.map(p => ({
+            value: [p.time, p.score],
+            fields: p.fields,
+            reasons: p.reasons
+          })),
+          symbolSize: 10,
+          itemStyle: { color: "#f59e0b" },
+          z: 2
+        });
+      }
+
+      if (infoPts.length > 0) {
+        series.push({
+          type: "scatter",
+          name: "Info Outliers",
+          data: infoPts.map(p => ({
+            value: [p.time, p.score],
+            fields: p.fields,
+            reasons: p.reasons
+          })),
+          symbolSize: 8,
+          itemStyle: { color: "#3b82f6" },
+          z: 2
+        });
+      }
+    }
 
     const opt = {
       title: { show: false },
       tooltip: {
-        trigger: "axis",
+        trigger: "item",
         formatter: (params) => {
-          const p = params[0];
-          const date = new Date(p.value[0]);
-          return `${date.toLocaleTimeString()}<br/>Quality: <strong>${p.value[1].toFixed(1)}%</strong>`;
+          const date = new Date(params.value[0]);
+          const timeStr = date.toLocaleTimeString();
+
+          // Check if this is an outlier point
+          if (params.data.fields) {
+            const fields = params.data.fields.slice(0, 3).join(', ');
+            const reasonVals = Object.values(params.data.reasons || {});
+            const reason = reasonVals.length > 0 ? reasonVals[0].replace(/_/g, ' ') : '';
+            return `<strong>${params.seriesName}</strong><br/>
+              ${timeStr}<br/>
+              Fields: ${fields}<br/>
+              ${reason ? `Reason: ${reason}` : ''}`;
+          }
+
+          // Regular quality score point
+          return `${timeStr}<br/>Quality: <strong>${params.value[1].toFixed(1)}%</strong>`;
         },
       },
-      grid: { left: "8%", right: "6%", top: "10%", bottom: "15%", containLabel: true },
+      legend: {
+        show: outlierPoints.length > 0,
+        top: 5,
+        right: 10,
+        textStyle: { fontSize: 10 },
+      },
+      grid: { left: "8%", right: "6%", top: outlierPoints.length > 0 ? "18%" : "10%", bottom: "15%", containLabel: true },
       xAxis: {
         type: "time",
         axisLabel: { fontSize: 10 },
@@ -928,50 +1231,7 @@
         axisLine: { lineStyle: { color: "var(--hairline)" } },
         splitLine: { lineStyle: { color: "var(--hairline)", opacity: 0.3 } },
       },
-      series: [
-        {
-          type: "line",
-          data: dataPoints.map((d) => [d.time, d.score]),
-          smooth: true,
-          showSymbol: false,
-          lineStyle: {
-            width: 3,
-            color: {
-              type: "linear",
-              x: 0,
-              y: 0,
-              x2: 1,
-              y2: 0,
-              colorStops: [
-                { offset: 0, color: "#ef4444" },
-                { offset: 0.5, color: "#f59e0b" },
-                { offset: 1, color: "#22c55e" },
-              ],
-            },
-          },
-          areaStyle: {
-            opacity: 0.2,
-            color: {
-              type: "linear",
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-              colorStops: [
-                { offset: 0, color: "#22c55e" },
-                { offset: 1, color: "transparent" },
-              ],
-            },
-          },
-          markLine: {
-            silent: true,
-            symbol: "none",
-            lineStyle: { color: "#f59e0b", type: "dashed", width: 2 },
-            data: [{ yAxis: 80, name: "Target" }],
-            label: { show: true, formatter: "Target: 80%", fontSize: 10 },
-          },
-        },
-      ],
+      series: series,
       animation: false, // Disabled for better performance
     };
 
@@ -2097,11 +2357,12 @@
       }
     }
 
-    // Add Supabase data
+    // Add Supabase data (normalize to parse outlier JSON)
     if (supabaseData) {
       for (let i = 0; i < supabaseData.length; i++) {
         const r = supabaseData[i];
         if (r?.timestamp) {
+          normalizeFieldNames(r); // Parse outliers JSON from Supabase
           const ts = new Date(r.timestamp).getTime();
           const key = `${ts}:${r.message_id || i}`;
           if (!dataMap.has(key)) dataMap.set(key, r);
@@ -2114,6 +2375,7 @@
       for (let i = 0; i < ablyHistoryData.length; i++) {
         const r = ablyHistoryData[i];
         if (r?.timestamp) {
+          normalizeFieldNames(r); // Parse outliers JSON if present
           const ts = new Date(r.timestamp).getTime();
           const key = `${ts}:${r.message_id || i}`;
           if (!dataMap.has(key)) dataMap.set(key, r);

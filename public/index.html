@@ -379,6 +379,68 @@
                     <span class="bridge-metric-label">Last Update</span>
                   </div>
                 </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">✅</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-uptime-pct">0%</span>
+                    <span class="bridge-metric-label">Uptime</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">📊</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-data-rate">0/min</span>
+                    <span class="bridge-metric-label">Data Pts/min</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">🕐</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-session-time">0:00</span>
+                    <span class="bridge-metric-label">Session Time</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">⚡</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-latency">—</span>
+                    <span class="bridge-metric-label">Latency</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Outlier Analysis Panel (NEW) -->
+            <div class="outlier-analysis glass-panel">
+              <h3>
+                <span class="outlier-status-indicator" id="outlier-status-indicator"></span>
+                🔍 Outlier Analysis
+              </h3>
+              <!-- Severity Badges -->
+              <div class="outlier-severity-row" id="outlier-severity-badges">
+                <div class="severity-card critical" id="severity-critical-card">
+                  <span class="severity-count" id="outlier-critical-count">0</span>
+                  <span class="severity-label">Critical</span>
+                </div>
+                <div class="severity-card warning" id="severity-warning-card">
+                  <span class="severity-count" id="outlier-warning-count">0</span>
+                  <span class="severity-label">Warning</span>
+                </div>
+                <div class="severity-card info" id="severity-info-card">
+                  <span class="severity-count" id="outlier-info-count">0</span>
+                  <span class="severity-label">Info</span>
+                </div>
+              </div>
+              <!-- Per-Field Outlier Breakdown -->
+              <div class="outlier-fields-container" id="outlier-fields-breakdown">
+                <div class="outlier-fields-placeholder">No outliers detected</div>
+              </div>
+              <!-- Recent Outliers Timeline -->
+              <div class="outlier-timeline" id="outlier-timeline">
+                <h4>Recent Outliers</h4>
+                <div class="outlier-timeline-items" id="outlier-timeline-items">
+                  <div class="outlier-timeline-empty">No recent outliers</div>
+                </div>
               </div>
             </div>
 
@@ -406,7 +468,7 @@
             <div id="quality-alerts" class="note-list"></div>
 
             <!-- Quality Score Trend Chart -->
-            <div class="glass-panel">
+            <div class="glass-panel quality-trend-chart">
               <h4>📈 Quality Score Trend</h4>
               <div class="chart h-200" id="chart-quality-score"></div>
             </div>
@@ -425,17 +487,7 @@
                 </div>
               </details>
 
-              <!-- Data Accuracy -->
-              <details class="collapsible-section">
-                <summary class="collapsible-header">
-                  <span class="collapsible-icon">🎯</span>
-                  <span class="collapsible-title">Data Accuracy</span>
-                  <span class="collapsible-arrow">▼</span>
-                </summary>
-                <div class="collapsible-content">
-                  <div id="data-accuracy" class="accuracy-metrics"></div>
-                </div>
-              </details>
+
 
               <!-- Field Completeness (moved to bottom) -->
               <details class="collapsible-section">

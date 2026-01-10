@@ -1704,6 +1704,7 @@ class TelemetryBridgeWithDB:
                             "throttle": r.get("throttle"),
                             "brake": r.get("brake"),
                             "data_source": r.get("data_source"),
+                            "outliers": json.dumps(r.get("outliers")) if r.get("outliers") else None,
                         }
                     )
 
