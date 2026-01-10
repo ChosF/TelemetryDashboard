@@ -2572,8 +2572,9 @@ body {
 }
 
 .outlier-timeline-items {
-  max-height: 200px;
-  overflow-y: auto;
+  max-height: 140px; /* Fixed height to accommodate max 2 items */
+  min-height: 70px; /* Minimum height for 1 item */
+  overflow: hidden; /* Prevent scrolling, just show max 2 items */
   display: flex;
   flex-direction: column;
   gap: var(--space-2);

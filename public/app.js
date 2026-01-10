@@ -979,8 +979,10 @@
       if (recentOutliers.length === 0) {
         timelineItems.innerHTML = `<div class="outlier-timeline-empty">No recent outliers</div>`;
       } else {
+        // Limit display to maximum 2 items to maintain fixed box dimensions
+        const displayOutliers = recentOutliers.slice(0, 2);
         let html = '';
-        for (const outlier of recentOutliers) {
+        for (const outlier of displayOutliers) {
           const time = new Date(outlier.timestamp);
           const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           const fieldsStr = outlier.fields.slice(0, 3).join(', ') + (outlier.fields.length > 3 ? '...' : '');
