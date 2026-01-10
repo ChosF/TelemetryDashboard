@@ -1218,14 +1218,22 @@ table.dataTable tbody tr:last-child td {
 .bridge-metric {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  gap: var(--space-4);
+  padding: var(--space-5);
   background: var(--surface-secondary);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
   transition: all var(--duration-fast) var(--ease-out);
   width: 100%;
   min-width: 0;
+  min-height: 80px;
+}
+
+@media (min-width: 768px) {
+  .bridge-metric {
+    padding: var(--space-6) var(--space-5);
+    min-height: 100px;
+  }
 }
 
 .bridge-metric:hover {
@@ -1234,19 +1242,25 @@ table.dataTable tbody tr:last-child td {
 }
 
 .bridge-metric-icon {
-  font-size: var(--text-lg);
+  font-size: var(--text-xl);
   flex-shrink: 0;
+}
+
+@media (min-width: 768px) {
+  .bridge-metric-icon {
+    font-size: var(--text-2xl);
+  }
 }
 
 .bridge-metric-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
 .bridge-metric-value {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
@@ -1255,11 +1269,23 @@ table.dataTable tbody tr:last-child td {
   text-overflow: ellipsis;
 }
 
+@media (min-width: 768px) {
+  .bridge-metric-value {
+    font-size: var(--text-lg);
+  }
+}
+
 .bridge-metric-label {
   font-size: var(--text-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
+}
+
+@media (min-width: 768px) {
+  .bridge-metric-label {
+    font-size: var(--text-sm);
+  }
 }
 
 /* Secondary Metrics Grid */
@@ -2814,7 +2840,6 @@ body {
 .bridge-health {
   padding: var(--space-4);
   border-radius: var(--radius-xl);
-  width: 100%;
 }
 
 @media (min-width: 768px) {
@@ -2826,6 +2851,12 @@ body {
 .bridge-health h3 {
   font-size: var(--text-sm);
   margin-bottom: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .bridge-health h3 {
+    margin-bottom: var(--space-5);
+  }
 }
 
 .bridge-health-grid {
@@ -2840,22 +2871,26 @@ body {
 
 @media (min-width: 768px) {
   .bridge-health-grid {
-    gap: var(--space-4);
+    gap: var(--space-5);
   }
 }
 
 .bridge-metric {
-  padding: var(--space-5) var(--space-4);
-  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5);
+  gap: var(--space-4);
   min-height: 80px;
 }
 
 .bridge-metric-icon {
-  font-size: var(--text-lg);
+  font-size: var(--text-xl);
 }
 
 .bridge-metric-value {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
+}
+
+.bridge-metric-label {
+  font-size: var(--text-xs);
 }
 
 @media (min-width: 768px) {
