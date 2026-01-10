@@ -726,41 +726,6 @@
       fc.innerHTML = html;
     }
 
-    // Render data freshness as grid
-    const df = el("data-freshness");
-    if (df) {
-      const lastTs = rows.length ? new Date(last(rows).timestamp) : null;
-      const now = new Date();
-      const age =
-        lastTs && !isNaN(lastTs.getTime())
-          ? ((now - lastTs) / 1000).toFixed(0)
-          : "—";
-      const hzTxt =
-        rpt.hz && Number.isFinite(rpt.hz) ? `${rpt.hz.toFixed(2)} Hz` : "N/A";
-      const spanTxt = rpt.span || "N/A";
-      const maxGap =
-        rpt.max_gap_s && Number.isFinite(rpt.max_gap_s)
-          ? `${rpt.max_gap_s.toFixed(1)}s`
-          : "N/A";
-
-      df.innerHTML = `
-        <div class="freshness-item">
-          <span class="freshness-label">Last Update</span>
-          <span class="freshness-value">${age}s ago</span>
-        </div>
-        <div class="freshness-item">
-          <span class="freshness-label">Time Span</span>
-          <span class="freshness-value">${spanTxt}</span>
-        </div>
-        <div class="freshness-item">
-          <span class="freshness-label">Max Gap</span>
-          <span class="freshness-value">${maxGap}</span>
-        </div>
-      `;
-    }
-
-
-
     const dataCount = el("data-count");
     if (dataCount) {
       dataCount.textContent = `(${rows.length.toLocaleString()} rows)`;
