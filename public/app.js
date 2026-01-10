@@ -175,7 +175,7 @@
     _raf: null,
     activePanel: 'overview', // Track active panel for performance
     lastGaugeValues: {}, // Track last gauge values for smart updates
-    peakRate: 0, // Track peak message rate (Hz)
+    expectedRate: 0, // Expected message rate from server (Hz) based on timestamp intervals
     // uPlot migration flags - enable incrementally
     useUPlot: {
       speed: true,      // Speed chart migrated to uPlot
@@ -782,12 +782,28 @@
     })() : "0";
     setTxt("bridge-msg-rate", `${msgRate} Hz`);
 
-    // Track peak rate
-    const msgRateNum = parseFloat(msgRate);
-    if (!isNaN(msgRateNum) && msgRateNum > state.peakRate) {
-      state.peakRate = msgRateNum;
-    }
-    setTxt("bridge-peak-rate", state.peakRate > 0 ? `${state.peakRate.toFixed(1)} Hz` : "—");
+    // Calculate expected message rate based on timestamp intervals in data
+    // This shows the rate at which the server should be sending data
+    const expectedRate = state.telemetry.length > 10 ? (() => {
+      const recent = state.telemetry.slice(-100);
+      if (recent.length < 5) return 0;
+      const intervals = [];
+      for (let i = 1; i < recent.length; i++) {
+        const t1 = new Date(recent[i - 1].timestamp).getTime();
+        const t2 = new Date(recent[i].timestamp).getTime();
+        const diff = t2 - t1;
+        if (diff > 0 && diff < 10000) { // Ignore gaps > 10s
+          intervals.push(diff);
+        }
+      }
+      if (intervals.length < 3) return 0;
+      // Use median interval for robustness
+      intervals.sort((a, b) => a - b);
+      const medianInterval = intervals[Math.floor(intervals.length / 2)];
+      return medianInterval > 0 ? 1000 / medianInterval : 0;
+    })() : 0;
+    if (expectedRate > 0) state.expectedRate = expectedRate;
+    setTxt("bridge-expected-rate", state.expectedRate > 0 ? `${state.expectedRate.toFixed(1)} Hz` : "—");
 
     // Messages since connect
     setTxt("bridge-messages-count", state.msgCount.toLocaleString());
