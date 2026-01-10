@@ -3529,10 +3529,7 @@
         if (state.isConnected) {
           sessionInfo.textContent = "Disconnecting from real-time...";
           await disconnectRealtime();
-          // Update UI to reflect disconnected state
-          if (btnConnect) {
-            btnConnect.textContent = "⚡ Connect Real-Time";
-          }
+          // UI status is automatically updated by disconnectRealtime() via setStatus()
         }
 
         // For historical sessions, only use Supabase DB as the source
