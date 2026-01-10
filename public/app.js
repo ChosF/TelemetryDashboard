@@ -433,41 +433,43 @@
       }
     }
 
-    // Alert for critical outliers (electrical sensors)
-    if (criticalOutliers.length >= 3) {
-      const fields = [...affectedFields].slice(0, 3).join(", ");
-      notes.push({
-        kind: "err",
-        text: `Critical: Sensor anomalies detected (${fields}). Bridge flagged ${criticalOutliers.length} critical outliers.`,
-      });
-      // Proactive notification with 90s cooldown
-      const now = Date.now();
-      if (now - state.notificationCooldowns.sensorAnomaly > 90000) {
-        state.notificationCooldowns.sensorAnomaly = now;
-        if (window.AuthUI && window.AuthUI.showNotification) {
-          window.AuthUI.showNotification(
-            `Sensor alert: ${fields} showing anomalous readings. ${criticalOutliers.length} critical events detected.`,
-            'error',
-            10000
-          );
+    // Alert for critical outliers (electrical sensors) - only in real-time mode
+    if (isRealtime) {
+      if (criticalOutliers.length >= 3) {
+        const fields = [...affectedFields].slice(0, 3).join(", ");
+        notes.push({
+          kind: "err",
+          text: `Critical: Sensor anomalies detected (${fields}). Bridge flagged ${criticalOutliers.length} critical outliers.`,
+        });
+        // Proactive notification with 90s cooldown
+        const now = Date.now();
+        if (now - state.notificationCooldowns.sensorAnomaly > 90000) {
+          state.notificationCooldowns.sensorAnomaly = now;
+          if (window.AuthUI && window.AuthUI.showNotification) {
+            window.AuthUI.showNotification(
+              `Sensor alert: ${fields} showing anomalous readings. ${criticalOutliers.length} critical events detected.`,
+              'error',
+              10000
+            );
+          }
         }
-      }
-    } else if (warningOutliers.length >= 5 || (criticalOutliers.length >= 1 && warningOutliers.length >= 2)) {
-      const fields = [...affectedFields].slice(0, 3).join(", ");
-      notes.push({
-        kind: "warn",
-        text: `Sensor check: ${fields} may need attention. Bridge detected ${warningOutliers.length + criticalOutliers.length} outliers.`,
-      });
-      // Proactive notification with 90s cooldown
-      const now = Date.now();
-      if (now - state.notificationCooldowns.sensorAnomaly > 90000) {
-        state.notificationCooldowns.sensorAnomaly = now;
-        if (window.AuthUI && window.AuthUI.showNotification) {
-          window.AuthUI.showNotification(
-            `Sensor alert: ${fields} showing unusual readings.`,
-            'warning',
-            8000
-          );
+      } else if (warningOutliers.length >= 5 || (criticalOutliers.length >= 1 && warningOutliers.length >= 2)) {
+        const fields = [...affectedFields].slice(0, 3).join(", ");
+        notes.push({
+          kind: "warn",
+          text: `Sensor check: ${fields} may need attention. Bridge detected ${warningOutliers.length + criticalOutliers.length} outliers.`,
+        });
+        // Proactive notification with 90s cooldown
+        const now = Date.now();
+        if (now - state.notificationCooldowns.sensorAnomaly > 90000) {
+          state.notificationCooldowns.sensorAnomaly = now;
+          if (window.AuthUI && window.AuthUI.showNotification) {
+            window.AuthUI.showNotification(
+              `Sensor alert: ${fields} showing unusual readings.`,
+              'warning',
+              8000
+            );
+          }
         }
       }
     }
@@ -597,7 +599,7 @@
 
   // Update data quality UI
   function updateDataQualityUI(rows) {
-    const notes = analyzeDataQuality(rows, state.mode === "realtime");
+    const notes = analyzeDataQuality(rows, state.isConnected);
     const rpt = computeDataQualityReport(rows);
 
     // complete / missing / dup / anomalies
@@ -2938,8 +2940,8 @@
       }
 
       // IMPORTANT: Always analyze data quality for notifications regardless of active panel
-      // This ensures data stall and sensor anomaly notifications appear on any tab
-      analyzeDataQuality(rows, state.mode === "realtime");
+      // This ensures data stall and sensor anomaly notifications appear on any tab (only for real-time)
+      analyzeDataQuality(rows, state.isConnected);
 
       if (panels.data.classList.contains("active")) {
         updateDataQualityUI(rows);
