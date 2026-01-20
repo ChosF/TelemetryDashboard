@@ -4,41 +4,41 @@ This directory contains the Convex serverless backend for the EcoVolt Telemetry 
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph ConvexDir["📦 convex/"]
+        schema["schema.ts<br/><i>Database tables</i>"]
+        telemetry["telemetry.ts<br/><i>Telemetry CRUD</i>"]
+        sessions["sessions.ts<br/><i>Session management</i>"]
+        users["users.ts<br/><i>User profiles</i>"]
+        auth["auth.ts<br/><i>Authentication</i>"]
+        http["http.ts<br/><i>HTTP endpoints</i>"]
+    end
+
+    subgraph Tables["📊 Tables"]
+        T1[(telemetry)]
+        T2[(authUsers)]
+        T3[(authSessions)]
+        T4[(user_profiles)]
+    end
+
+    schema --> Tables
+    telemetry --> T1
+    auth --> T2
+    auth --> T3
+    users --> T4
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        📦 Convex Backend Structure                          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   convex/                                                                   │
-│   ├── schema.ts ─────────── Database table definitions                     │
-│   │                         • telemetry (sensor data)                       │
-│   │                         • authUsers (credentials)                       │
-│   │                         • authSessions (login sessions)                 │
-│   │                         • user_profiles (roles/permissions)             │
-│   │                                                                         │
-│   ├── telemetry.ts ──────── Telemetry CRUD operations                      │
-│   │                         • getSessionRecords (query)                     │
-│   │                         • insertTelemetryBatch (mutation)               │
-│   │                         • deleteSession (mutation)                      │
-│   │                                                                         │
-│   ├── sessions.ts ───────── Session management                             │
-│   │                         • listSessions (query)                          │
-│   │                                                                         │
-│   ├── users.ts ──────────── User profile management                        │
-│   │                         • getCurrentProfile, getAllUsers                │
-│   │                         • updateUserRole, rejectUser                    │
-│   │                                                                         │
-│   ├── auth.ts ───────────── Authentication system                          │
-│   │                         • signIn/signUp (action)                        │
-│   │                         • signOut (action)                              │
-│   │                         • verifySession (query)                         │
-│   │                                                                         │
-│   └── http.ts ───────────── HTTP endpoints                                 │
-│                             • GET /ably/token                               │
-│                             • GET /health                                   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+
+### Module Responsibilities
+
+| File | Purpose | Key Functions |
+|------|---------|---------------|
+| `schema.ts` | Database tables | telemetry, authUsers, authSessions, user_profiles |
+| `telemetry.ts` | Telemetry CRUD | getSessionRecords, insertTelemetryBatch, deleteSession |
+| `sessions.ts` | Session listing | listSessions |
+| `users.ts` | User management | getCurrentProfile, getAllUsers, updateUserRole |
+| `auth.ts` | Authentication | signIn, signOut, verifySession |
+| `http.ts` | HTTP endpoints | /ably/token, /health |
 
 ## Files Overview
 
@@ -130,38 +130,24 @@ Set in Convex Dashboard → Settings → Environment Variables:
 
 ## Data Flow
 
+```mermaid
+flowchart TB
+    subgraph Write["✍️ Write Path"]
+        PB[Python Bridge] -->|insertTelemetryBatch| Mut[Mutation]
+        Mut -->|Insert| DB[(Telemetry Table)]
+    end
+
+    subgraph Reactive["⚡ Reactive System"]
+        DB -->|Auto-notify| Sub[Subscriptions]
+    end
+
+    subgraph Read["📖 Read Path"]
+        Sub -->|Live Updates| Query[getSessionRecords]
+        Query -->|Data| Dashboard[Dashboard Charts]
+    end
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          🔄 Convex Data Flow                                │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   WRITE PATH (Python Bridge → Convex)                                       │
-│   ════════════════════════════════════                                      │
-│                                                                             │
-│   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐               │
-│   │   Python    │      │  Mutation   │      │  Telemetry  │               │
-│   │   Bridge    │─────►│  insertTele │─────►│   Table     │               │
-│   │             │      │  metryBatch │      │             │               │
-│   └─────────────┘      └─────────────┘      └─────────────┘               │
-│                                                    │                        │
-│                                                    │ Auto-notify            │
-│                                                    ▼                        │
-│   READ PATH (Dashboard ← Convex)                                           │
-│   ══════════════════════════════                                           │
-│                                                                             │
-│   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐               │
-│   │  Dashboard  │◄─────│   Query     │◄─────│  Reactive   │               │
-│   │   Charts    │ Live │ getSession  │      │ Subscription│               │
-│   │             │ data │ Records     │      │             │               │
-│   └─────────────┘      └─────────────┘      └─────────────┘               │
-│                                                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │  Key Insight: Convex queries are REACTIVE - when data changes,      │  │
-│   │  subscribed clients automatically receive updates. No polling!      │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+
+> **Key Insight**: Convex queries are **REACTIVE** - when data changes, subscribed clients automatically receive updates. No polling needed!
 
 ## Resources
 
