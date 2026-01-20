@@ -971,23 +971,129 @@
    ======================================== */
 
 .approval-banner {
-  padding: var(--space-4) var(--space-6);
-  background: var(--warning-muted);
-  border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: var(--space-3) var(--space-6);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(245, 158, 11, 0.12) 100%);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: bannerSlideIn 0.4s var(--ease-out);
+}
+
+@keyframes bannerSlideIn {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.approval-banner.closing {
+  animation: bannerSlideOut 0.3s var(--ease-in) forwards;
+}
+
+@keyframes bannerSlideOut {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+
+.approval-banner-content {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
-}
-
-.approval-banner-text {
-  font-size: var(--text-sm);
-  color: var(--warning-text);
-  font-weight: var(--font-medium);
+  gap: var(--space-4);
+  max-width: 800px;
+  margin: 0 auto;
 }
 
 .approval-banner-icon {
-  font-size: var(--text-lg);
+  font-size: 1.5rem;
+  filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.3));
+  animation: gentlePulse 2s ease-in-out infinite;
+}
+
+@keyframes gentlePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.approval-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.approval-banner-text strong {
+  font-size: var(--text-base);
+  color: var(--warning-text);
+  font-weight: var(--font-semibold);
+  letter-spacing: -0.01em;
+}
+
+.approval-banner-text p {
+  font-size: var(--text-sm);
+  color: var(--warning-text);
+  opacity: 0.85;
+  margin: 0;
+}
+
+.approval-banner-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning-text);
+  font-size: 1.1rem;
+  font-weight: 300;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out);
+  flex-shrink: 0;
+  margin-left: var(--space-2);
+}
+
+.approval-banner-close:hover {
+  background: rgba(245, 158, 11, 0.3);
+  transform: scale(1.05);
+}
+
+.approval-banner-close:active {
+  transform: scale(0.95);
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .approval-banner {
+    padding: var(--space-3) var(--space-4);
+  }
+  
+  .approval-banner-content {
+    gap: var(--space-3);
+  }
+  
+  .approval-banner-text strong {
+    font-size: var(--text-sm);
+  }
+  
+  .approval-banner-text p {
+    font-size: var(--text-xs);
+  }
 }
 
 /* ========================================
