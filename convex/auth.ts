@@ -1,4 +1,5 @@
-import { mutation, query, action } from "./_generated/server";
+import { mutation, query, action, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 /**
@@ -29,45 +30,64 @@ function generateToken(): string {
   return Array.from(array).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-/**
- * Sign up with email and password
- */
-export const signUp = action({
-  args: {
-    email: v.string(),
-    password: v.string(),
-    name: v.optional(v.string()),
-  },
+// ============= Internal Functions (only callable from other Convex functions) =============
+
+export const _getUserByEmail = internalQuery({
+  args: { email: v.string() },
   handler: async (ctx, args) => {
-    // Check if email already exists
-    const existingUser = await ctx.runQuery("auth:getUserByEmail" as any, { email: args.email });
-    if (existingUser) {
-      return { error: "Email already registered" };
-    }
-
-    // Hash password
-    const passwordHash = await hashPassword(args.password);
-
-    // Create user
-    const userId = await ctx.runMutation("auth:createUser" as any, {
-      email: args.email,
-      passwordHash,
-      name: args.name,
-    });
-
-    // Generate session token
-    const token = generateToken();
-    await ctx.runMutation("auth:createSession" as any, {
-      userId,
-      token,
-    });
-
-    return { token, userId };
+    return await ctx.db
+      .query("authUsers")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
   },
 });
 
+export const _createUser = internalMutation({
+  args: {
+    email: v.string(),
+    passwordHash: v.string(),
+    name: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("authUsers", {
+      email: args.email,
+      passwordHash: args.passwordHash,
+      name: args.name,
+    });
+  },
+});
+
+export const _createSession = internalMutation({
+  args: {
+    userId: v.id("authUsers"),
+    token: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("authSessions", {
+      userId: args.userId,
+      token: args.token,
+    });
+  },
+});
+
+export const _deleteSession = internalMutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("authSessions")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
+
+    if (session) {
+      await ctx.db.delete(session._id);
+    }
+  },
+});
+
+// ============= Public Actions =============
+
 /**
- * Sign in with email and password
+ * Sign in with email and password (handles both signIn and signUp flows)
  */
 export const signIn = action({
   args: {
@@ -95,26 +115,26 @@ export const signIn = action({
 
     // Handle signup flow
     if (flow === "signUp") {
-      const existingUser = await ctx.runQuery("auth:getUserByEmail" as any, { email });
+      const existingUser = await ctx.runQuery(internal.auth._getUserByEmail, { email });
       if (existingUser) {
         return { error: "Email already registered" };
       }
 
       const passwordHash = await hashPassword(password);
-      const userId = await ctx.runMutation("auth:createUser" as any, {
+      const userId = await ctx.runMutation(internal.auth._createUser, {
         email,
         passwordHash,
         name,
       });
 
       const token = generateToken();
-      await ctx.runMutation("auth:createSession" as any, { userId, token });
+      await ctx.runMutation(internal.auth._createSession, { userId, token });
 
       return { token, userId };
     }
 
     // Handle signin flow
-    const user = await ctx.runQuery("auth:getUserByEmail" as any, { email });
+    const user = await ctx.runQuery(internal.auth._getUserByEmail, { email });
     if (!user) {
       return { error: "Invalid email or password" };
     }
@@ -126,7 +146,7 @@ export const signIn = action({
 
     // Generate new session token
     const token = generateToken();
-    await ctx.runMutation("auth:createSession" as any, {
+    await ctx.runMutation(internal.auth._createSession, {
       userId: user._id,
       token,
     });
@@ -144,14 +164,16 @@ export const signOut = action({
   },
   handler: async (ctx, args) => {
     if (args.token) {
-      await ctx.runMutation("auth:deleteSession" as any, { token: args.token });
+      await ctx.runMutation(internal.auth._deleteSession, { token: args.token });
     }
     return { success: true };
   },
 });
 
+// ============= Public Queries =============
+
 /**
- * Verify a session token
+ * Verify a session token (public, used by frontend)
  */
 export const verifySession = query({
   args: { token: v.string() },
@@ -173,56 +195,21 @@ export const verifySession = query({
   },
 });
 
-// Internal queries/mutations
-
+/**
+ * Get user by email (public, for checking if email exists)
+ */
 export const getUserByEmail = query({
   args: { email: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const user = await ctx.db
       .query("authUsers")
       .withIndex("by_email", (q) => q.eq("email", args.email))
       .first();
-  },
-});
-
-export const createUser = mutation({
-  args: {
-    email: v.string(),
-    passwordHash: v.string(),
-    name: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("authUsers", {
-      email: args.email,
-      passwordHash: args.passwordHash,
-      name: args.name,
-    });
-  },
-});
-
-export const createSession = mutation({
-  args: {
-    userId: v.id("authUsers"),
-    token: v.string(),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("authSessions", {
-      userId: args.userId,
-      token: args.token,
-    });
-  },
-});
-
-export const deleteSession = mutation({
-  args: { token: v.string() },
-  handler: async (ctx, args) => {
-    const session = await ctx.db
-      .query("authSessions")
-      .withIndex("by_token", (q) => q.eq("token", args.token))
-      .first();
-
-    if (session) {
-      await ctx.db.delete(session._id);
+    
+    // Don't expose password hash
+    if (user) {
+      return { _id: user._id, email: user.email, name: user.name };
     }
+    return null;
   },
 });
