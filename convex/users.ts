@@ -125,10 +125,12 @@ export const getPendingUsers = query({
 /**
  * Create or update user profile after authentication
  * Called when a user signs up or signs in
+ * Accepts userId directly from the signIn action result
  */
 export const upsertProfile = mutation({
     args: {
-        token: v.optional(v.string()),
+        userId: v.id("authUsers"),  // Direct userId from signIn
+        token: v.optional(v.string()), // Optional, for backwards compatibility
         email: v.string(),
         name: v.optional(v.string()),
         role: v.optional(v.union(
@@ -140,10 +142,8 @@ export const upsertProfile = mutation({
         requestedRole: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const userId = await getCurrentUserId(ctx, args.token);
-        if (!userId) {
-            throw new Error("Not authenticated");
-        }
+        // Use provided userId directly
+        const userId = args.userId;
 
         // Check if profile exists
         const existing = await ctx.db

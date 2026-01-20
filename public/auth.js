@@ -214,7 +214,7 @@
 
       // Create/update user profile after signup
       await convexClient.mutation('users:upsertProfile', {
-        token: result.token,
+        userId: result.userId,  // Pass userId directly from signIn result
         email,
         name,
         role: requestedRole === USER_ROLES.INTERNAL ? 'external' : requestedRole,
