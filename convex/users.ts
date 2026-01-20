@@ -166,7 +166,11 @@ export const upsertProfile = mutation({
             // Create new profile
             // Default role is 'external' with auto-approval for external users
             const role = args.role || "external";
-            const approvalStatus = role === "external" ? "approved" : "pending";
+            
+            // If user is requesting a higher role (internal), mark as pending
+            // Otherwise auto-approve
+            const needsApproval = args.requestedRole && args.requestedRole !== role;
+            const approvalStatus = needsApproval ? "pending" : "approved";
 
             const id = await ctx.db.insert("user_profiles", {
                 userId: userId,

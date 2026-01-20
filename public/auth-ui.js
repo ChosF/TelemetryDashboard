@@ -566,10 +566,11 @@
 
   // Create user card HTML
   function createUserCard(user, isPending) {
+    // Role labels - matching database values (external, internal, etc.)
     const roleLabels = {
       'guest': 'Guest',
-      'external_user': 'External User',
-      'internal_user': 'Internal User',
+      'external': 'External User',
+      'internal': 'Internal User',
       'admin': 'Admin'
     };
 
@@ -579,30 +580,36 @@
         '<span class="status-badge rejected">Rejected</span>' :
         '<span class="status-badge approved">Approved</span>';
 
+    // Use Convex field names: userId (not user_id), _creationTime (not created_at)
+    const userIdForActions = user.userId; // This is the authUsers ID reference
+    const creationDate = user._creationTime; // Convex automatic timestamp
+    const displayName = user.name || user.email.split('@')[0];
+
     if (isPending) {
       return `
         <div class="admin-user-card glass-panel">
           <div class="admin-user-info">
-            <div class="admin-user-avatar">${user.email.charAt(0).toUpperCase()}</div>
+            <div class="admin-user-avatar">${displayName.charAt(0).toUpperCase()}</div>
             <div class="admin-user-details">
+              <div class="admin-user-name">${displayName}</div>
               <div class="admin-user-email">${user.email}</div>
               <div class="admin-user-meta">
-                Requested: <strong>${roleLabels[user.requested_role]}</strong>
-                <span class="admin-user-date">• ${formatDate(user.created_at)}</span>
+                Requested: <strong>${roleLabels[user.requested_role] || user.requested_role}</strong>
+                <span class="admin-user-date">• ${formatDate(creationDate)}</span>
               </div>
             </div>
           </div>
           <div class="admin-user-actions">
             <button 
               class="admin-user-approve liquid-hover" 
-              data-user-id="${user.user_id}"
+              data-user-id="${userIdForActions}"
               data-role="${user.requested_role}"
             >
               ✓ Approve
             </button>
             <button 
               class="admin-user-reject liquid-hover" 
-              data-user-id="${user.user_id}"
+              data-user-id="${userIdForActions}"
             >
               × Reject
             </button>
@@ -613,20 +620,21 @@
       return `
         <div class="admin-user-card glass-panel">
           <div class="admin-user-info">
-            <div class="admin-user-avatar">${user.email.charAt(0).toUpperCase()}</div>
+            <div class="admin-user-avatar">${displayName.charAt(0).toUpperCase()}</div>
             <div class="admin-user-details">
+              <div class="admin-user-name">${displayName}</div>
               <div class="admin-user-email">${user.email}</div>
               <div class="admin-user-meta">
                 ${statusBadge}
-                <span class="admin-user-date">• ${formatDate(user.created_at)}</span>
+                <span class="admin-user-date">• ${formatDate(creationDate)}</span>
               </div>
             </div>
           </div>
           <div class="admin-user-role">
-            <select class="admin-user-role-select form-select" data-user-id="${user.user_id}">
+            <select class="admin-user-role-select form-select" data-user-id="${userIdForActions}">
               <option value="guest" ${user.role === 'guest' ? 'selected' : ''}>Guest</option>
-              <option value="external_user" ${user.role === 'external_user' ? 'selected' : ''}>External User</option>
-              <option value="internal_user" ${user.role === 'internal_user' ? 'selected' : ''}>Internal User</option>
+              <option value="external" ${user.role === 'external' ? 'selected' : ''}>External User</option>
+              <option value="internal" ${user.role === 'internal' ? 'selected' : ''}>Internal User</option>
               <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
             </select>
           </div>
@@ -835,8 +843,8 @@
   function getRoleLabel(role) {
     const labels = {
       'guest': 'Guest',
-      'external_user': 'External User',
-      'internal_user': 'Internal User',
+      'external': 'External User',
+      'internal': 'Internal User',
       'admin': 'Admin'
     };
     return labels[role] || 'Guest';
@@ -890,9 +898,9 @@
       const profile = e.detail?.profile;
       const currentRole = profile?.role;
 
-      // Detect role upgrade to internal_user (user was approved)
-      if (previousRole && currentRole === 'internal_user' &&
-        (previousRole === 'external_user' || previousRole === 'guest')) {
+      // Detect role upgrade to internal (user was approved)
+      if (previousRole && currentRole === 'internal' &&
+        (previousRole === 'external' || previousRole === 'guest')) {
         showNotification('Welcome to the team! Your Internal User access has been approved. 🎉', 'success', 8000);
         // Remove approval banner if present
         const banner = document.querySelector('.approval-banner');
