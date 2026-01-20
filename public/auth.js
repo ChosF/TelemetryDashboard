@@ -213,12 +213,17 @@
       }
 
       // Create/update user profile after signup
+      // Map form values to schema-compatible roles
+      // Form uses "internal_user" but schema expects "internal"
+      const isInternalRequest = requestedRole === 'internal_user' || requestedRole === USER_ROLES.INTERNAL;
+      const normalizedRole = isInternalRequest ? 'external' : (requestedRole === 'external' ? 'external' : 'guest');
+      
       await convexClient.mutation('users:upsertProfile', {
         userId: result.userId,  // Pass userId directly from signIn result
         email,
         name,
-        role: requestedRole === USER_ROLES.INTERNAL ? 'external' : requestedRole,
-        requestedRole: requestedRole === USER_ROLES.INTERNAL ? 'internal' : undefined,
+        role: normalizedRole,
+        requestedRole: isInternalRequest ? 'internal' : undefined,
       });
 
       currentUser = { email, name };
@@ -232,7 +237,7 @@
       return { 
         success: true, 
         data: result, 
-        needsApproval: requestedRole === USER_ROLES.INTERNAL 
+        needsApproval: isInternalRequest 
       };
     } catch (error) {
       console.error('❌ Sign up error:', error);
