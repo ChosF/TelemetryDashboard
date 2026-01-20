@@ -1995,7 +1995,58 @@ class TelemetryBridgeWithDB:
 # CLI
 # ------------------------------
 
+import argparse
+
+def parse_cli_args():
+    """Parse command line arguments for non-interactive mode."""
+    parser = argparse.ArgumentParser(description='Telemetry Bridge with Database')
+    parser.add_argument('--mock', action='store_true', help='Use mock data mode')
+    parser.add_argument('--real', action='store_true', help='Use real ESP32 data mode')
+    parser.add_argument('--scenario', choices=['normal', 'sensor', 'stalls', 'intermit', 'gps', 'chaos'], 
+                        default='normal', help='Mock scenario (default: normal)')
+    parser.add_argument('--session', type=str, default='', help='Session name')
+    parser.add_argument('--rate', type=float, default=2.0, help='Messages per second for mock mode')
+    return parser.parse_args()
+
 def get_user_preferences() -> tuple:
+    # Check for command line arguments first (non-interactive mode)
+    args = parse_cli_args()
+    
+    if args.mock or args.real:
+        # Non-interactive mode
+        mock_mode = args.mock
+        print("\n" + "=" * 70)
+        print("🚀 TELEMETRY BRIDGE (CLI MODE)")
+        print("=" * 70)
+        print(f"Mode: {'MOCK DATA' if mock_mode else 'REAL DATA (ESP32)'}")
+        
+        # Configure mock settings
+        mock_config = MockModeConfig()
+        if mock_mode:
+            scenario_map = {
+                'normal': MockScenario.NORMAL,
+                'sensor': MockScenario.SENSOR_FAILURES,
+                'stalls': MockScenario.DATA_STALLS,
+                'intermit': MockScenario.INTERMITTENT,
+                'gps': MockScenario.GPS_ISSUES,
+                'chaos': MockScenario.CHAOS,
+            }
+            mock_config = MockModeConfig.from_scenario(scenario_map[args.scenario])
+            mock_config.base_publish_rate = args.rate
+            print(f"Scenario: {args.scenario.upper()}")
+            print(f"Rate: {args.rate} msg/s")
+        
+        session_name = args.session
+        if not session_name:
+            scenario_tag = f"_{mock_config.scenario.value}" if mock_mode else ""
+            session_name = f"{'M' if mock_mode else ''}Session{scenario_tag}_{str(uuid.uuid4())[:8]}"
+        if mock_mode and not session_name.startswith("M "):
+            session_name = "M " + session_name
+        print(f"Session: {session_name}\n")
+        
+        return mock_mode, session_name, mock_config
+    
+    # Interactive mode (original behavior)
     print("\n" + "=" * 70)
     print("🚀 TELEMETRY BRIDGE WITH DATABASE")
     print("=" * 70)
