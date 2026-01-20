@@ -129,7 +129,7 @@ export const getPendingUsers = query({
  */
 export const upsertProfile = mutation({
     args: {
-        userId: v.id("authUsers"),  // Direct userId from signIn
+        userId: v.string(),  // Accept as string, will validate as ID
         token: v.optional(v.string()), // Optional, for backwards compatibility
         email: v.string(),
         name: v.optional(v.string()),
@@ -142,8 +142,11 @@ export const upsertProfile = mutation({
         requestedRole: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        // Use provided userId directly
-        const userId = args.userId;
+        // Use provided userId directly (normalize the ID)
+        const userId = ctx.db.normalizeId("authUsers", args.userId);
+        if (!userId) {
+            throw new Error("Invalid user ID");
+        }
 
         // Check if profile exists
         const existing = await ctx.db
