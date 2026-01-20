@@ -2202,28 +2202,66 @@
    * This runs in background - doesn't block real-time message display.
    */
   async function tryLoadHistoryFromAbly(channel) {
+    if (!channel) {
+      console.log('📡 No channel available for history check');
+      return;
+    }
+    
     try {
-      // Quick check: get last message from Ably history
-      const quickHistory = await channel.history({ limit: 1, direction: 'backwards' });
-      
-      if (quickHistory.items?.[0]?.data) {
-        let data = quickHistory.items[0].data;
-        if (typeof data === 'string') data = JSON.parse(data);
-        
-        const sessionId = data.session_id;
-        const lastMsgTime = quickHistory.items[0].timestamp || Date.now();
-        const ageMs = Date.now() - lastMsgTime;
-        
-        // Only load history if message is recent (within 60 seconds)
-        if (sessionId && ageMs < 60000) {
-          console.log(`📡 Found recent session ${sessionId.slice(0, 8)} (${Math.round(ageMs/1000)}s ago), loading history...`);
-          loadHistoryInBackground(sessionId, channel);
-        } else {
-          console.log('📡 No recent session activity, waiting for real-time data');
+      // Ensure channel is attached first
+      if (channel.state !== 'attached') {
+        try {
+          await channel.attach();
+        } catch (attachErr) {
+          console.log('📡 Channel not attached, skipping quick history check');
+          return;
         }
       }
+      
+      // Quick check: get last message from Ably history
+      let quickHistory;
+      try {
+        quickHistory = await channel.history({ limit: 1, direction: 'backwards' });
+      } catch (histErr) {
+        console.log('📡 Quick history check failed:', histErr.message || histErr);
+        return;
+      }
+      
+      // Defensive: check if quickHistory and items exist
+      if (!quickHistory || !quickHistory.items || quickHistory.items.length === 0) {
+        console.log('📡 No messages in Ably history, waiting for real-time data');
+        return;
+      }
+      
+      const firstItem = quickHistory.items[0];
+      if (!firstItem || !firstItem.data) {
+        console.log('📡 Empty history item, waiting for real-time data');
+        return;
+      }
+      
+      let data = firstItem.data;
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch (parseErr) {
+          console.log('📡 Could not parse history data');
+          return;
+        }
+      }
+      
+      const sessionId = data.session_id;
+      const lastMsgTime = firstItem.timestamp || Date.now();
+      const ageMs = Date.now() - lastMsgTime;
+      
+      // Only load history if message is recent (within 60 seconds)
+      if (sessionId && ageMs < 60000) {
+        console.log(`📡 Found recent session ${sessionId.slice(0, 8)} (${Math.round(ageMs/1000)}s ago), loading history...`);
+        loadHistoryInBackground(sessionId, channel);
+      } else {
+        console.log('📡 No recent session activity, waiting for real-time data');
+      }
     } catch (e) {
-      console.log('📡 Could not check Ably history:', e.message);
+      console.log('📡 Could not check Ably history:', e.message || e);
     }
   }
 
@@ -2233,12 +2271,18 @@
    * 1. Get latest Convex timestamp to know where DB data ends
    * 2. Fetch Ably history from that point (with overlap buffer)
    * 3. Merge everything with gap detection and interpolation
+   * 
+   * Includes retry logic: if Convex returns 0 records on first try,
+   * waits 2.5 seconds and retries (gives time for first batch to be written)
    */
-  async function loadHistoryInBackground(sessionId, channel) {
-    if (historyLoaded || historyLoadPromise) return;
+  async function loadHistoryInBackground(sessionId, channel, retryCount = 0) {
+    if (historyLoaded || (historyLoadPromise && retryCount === 0)) return;
     
     state.currentSessionId = sessionId;
     state.waitingForSession = false;
+    
+    const maxRetries = 2;  // Max retry attempts
+    const retryDelayMs = 2500;  // 2.5s delay between retries
     
     historyLoadPromise = (async () => {
       try {
@@ -2250,14 +2294,26 @@
         
         if (convexEnabled && window.ConvexBridge) {
           try {
-            // Parallel: Get session records AND latest timestamp
-            const [records, timestampInfo] = await Promise.all([
-              ConvexBridge.getSessionRecords(sessionId),
-              ConvexBridge.getLatestSessionTimestamp(sessionId)
-            ]);
+            // First, get session records (this is the critical data)
+            convexData = await ConvexBridge.getSessionRecords(sessionId) || [];
             
-            convexData = records || [];
-            convexLatestTs = timestampInfo?.timestamp;
+            // Try to get latest timestamp if the function exists (for gap coordination)
+            if (typeof ConvexBridge.getLatestSessionTimestamp === 'function') {
+              try {
+                const timestampInfo = await ConvexBridge.getLatestSessionTimestamp(sessionId);
+                convexLatestTs = timestampInfo?.timestamp;
+              } catch (e) {
+                // Function exists but failed - extract from data instead
+                if (convexData.length > 0) {
+                  convexLatestTs = convexData[convexData.length - 1].timestamp;
+                }
+              }
+            } else {
+              // Function doesn't exist - extract latest timestamp from data
+              if (convexData.length > 0) {
+                convexLatestTs = convexData[convexData.length - 1].timestamp;
+              }
+            }
             
             console.log(`📡 Convex: ${convexData.length} records, latest: ${convexLatestTs?.slice(0, 19) || 'none'}`);
           } catch (e) {
@@ -2266,20 +2322,25 @@
         }
         
         // Step 2: Calculate optimal Ably history window
-        // If we know Convex's latest timestamp, fetch from there (with 3s overlap buffer)
-        // Otherwise, fetch last 2 minutes to be safe
+        // If we have Convex data, fetch Ably from 3s before Convex cutoff (overlap buffer)
+        // If no Convex data, fetch more Ably history (full 2 minutes) to compensate
         let ablyStartTime;
-        if (convexLatestTs) {
-          // Start 3 seconds before Convex's latest timestamp (overlap buffer)
+        let ablyLimit = 1000;
+        
+        if (convexLatestTs && convexData.length > 0) {
+          // Have Convex data - just need to bridge the gap
           const convexLatestMs = new Date(convexLatestTs).getTime();
           ablyStartTime = new Date(convexLatestMs - 3000);  // 3s before Convex cutoff
+          console.log(`📡 Ably window: from ${ablyStartTime.toISOString().slice(11, 19)} (3s before Convex cutoff)`);
         } else {
-          // No Convex timestamp - fetch last 2 minutes
+          // No Convex data - fetch full 2 minutes of Ably history to compensate
           ablyStartTime = new Date(Date.now() - 120000);
+          ablyLimit = 2000;  // Get more messages when Convex is empty
+          console.log(`📡 Ably window: full 2 minutes (Convex empty, compensating with Ably)`);
         }
         
-        // Step 3: Fetch Ably history with untilAttach for seamless bridge
-        const ablyData = await fetchAblyHistoryFast(channel, sessionId, ablyStartTime);
+        // Step 3: Fetch Ably history
+        const ablyData = await fetchAblyHistoryFast(channel, sessionId, ablyStartTime, ablyLimit);
         
         const loadTime = performance.now() - startTime;
         
@@ -2297,18 +2358,60 @@
         console.log(`📡 History loaded in ${loadTime.toFixed(0)}ms (Convex: ${convexData.length}, Ably: ${ablyData.length}${gapInfo})`);
         
         // Step 4: Merge with gap-aware algorithm
-        mergeHistoricalData(convexData, ablyData);
-        historyLoaded = true;
+        const totalHistorical = convexData.length + ablyData.length;
         
-        if (convexData.length > 0 && window.AuthUI?.showNotification) {
-          window.AuthUI.showNotification(
-            `Loaded ${convexData.length + ablyData.length} historical points`,
-            'success',
-            2000
-          );
+        if (totalHistorical > 0) {
+          mergeHistoricalData(convexData, ablyData);
+          historyLoaded = true;
+          
+          if (window.AuthUI?.showNotification) {
+            window.AuthUI.showNotification(
+              `Loaded ${totalHistorical} historical points`,
+              'success',
+              2000
+            );
+          }
+        } else {
+          // No historical data available - could be:
+          // 1. Brand new session (no history yet)
+          // 2. Ably persistence isn't enabled
+          // 3. Convex hasn't batched data yet (within first 2 seconds)
+          
+          // If this is first attempt and we have no data, retry after delay
+          if (retryCount < maxRetries && state.telemetry.length < 50) {
+            console.log(`📡 No historical data found, retrying in ${retryDelayMs/1000}s (attempt ${retryCount + 1}/${maxRetries})`);
+            
+            // Schedule retry
+            setTimeout(() => {
+              historyLoadPromise = null;  // Allow retry
+              loadHistoryInBackground(sessionId, channel, retryCount + 1);
+            }, retryDelayMs);
+            
+            return;  // Don't mark as loaded yet
+          }
+          
+          // Max retries reached or we have enough data
+          console.log('📡 No historical data found - relying on rewind messages and real-time stream');
+          historyLoaded = true;
+          
+          if (state.telemetry.length > 0) {
+            console.log(`📡 Have ${state.telemetry.length} points from rewind/real-time`);
+          }
         }
       } catch (e) {
         console.warn('⚠️ Background history load failed:', e);
+        
+        // Retry on error if we haven't exceeded max retries
+        if (retryCount < maxRetries) {
+          console.log(`📡 Retrying history load in ${retryDelayMs/1000}s after error`);
+          setTimeout(() => {
+            historyLoadPromise = null;
+            loadHistoryInBackground(sessionId, channel, retryCount + 1);
+          }, retryDelayMs);
+          return;
+        }
+        
+        historyLoaded = true;  // Prevent infinite retry loop
       }
     })();
     
@@ -2340,36 +2443,58 @@
   }
 
   /**
-   * Fast Ably history fetch - uses untilAttach for seamless gap bridging
-   * This is critical for filling the gap between Convex batch writes and real-time
+   * Fast Ably history fetch - fetches historical messages from Ably
+   * Used to fill gaps between Convex batch writes and real-time stream
    * 
    * @param {Object} channel - Ably channel
    * @param {string} sessionId - Session ID to filter messages
    * @param {Date} startTime - Start time for history fetch
+   * @param {number} limit - Maximum messages to fetch (default 1000)
    * @returns {Promise<Array>} Array of telemetry messages
    */
-  async function fetchAblyHistoryFast(channel, sessionId, startTime) {
-    if (!channel) return [];
+  async function fetchAblyHistoryFast(channel, sessionId, startTime, limit = 1000) {
+    if (!channel) {
+      console.log('📡 Ably history: no channel provided');
+      return [];
+    }
     
     try {
       // Ensure channel is attached before fetching history
       if (channel.state !== 'attached') {
-        await channel.attach();
+        try {
+          await channel.attach();
+        } catch (attachErr) {
+          console.warn('📡 Ably channel attach failed:', attachErr.message);
+          return [];
+        }
       }
-      
-      // Use untilAttach to bridge gap between history and real-time subscription
-      // This ensures no messages are lost between history fetch and live stream
-      const historyResult = await channel.history({
-        start: startTime.getTime(),
-        untilAttach: true,       // Critical: bridges gap to subscription point
-        direction: 'forwards',   // Oldest first for proper merging
-        limit: 1000              // Increased limit to capture more history
-      });
       
       const messages = [];
       const seenTimestamps = new Set();  // Dedupe within Ably results
       
-      for (const msg of historyResult.items || []) {
+      // Fetch history in backwards direction (most recent first), then reverse
+      // This is more reliable than forwards with untilAttach
+      let historyResult;
+      try {
+        historyResult = await channel.history({
+          start: startTime.getTime(),
+          end: Date.now(),           // Up to current time
+          direction: 'backwards',    // Most recent first (more reliable)
+          limit: Math.min(limit, 1000)  // Ably max is 1000 per request
+        });
+      } catch (historyErr) {
+        console.warn('📡 Ably history call failed:', historyErr.message);
+        return [];
+      }
+      
+      // Defensive: check if historyResult and items exist
+      if (!historyResult || !historyResult.items) {
+        console.log('📡 Ably history: no results returned');
+        return [];
+      }
+      
+      // Process first page of results
+      for (const msg of historyResult.items) {
         if (msg.name === 'telemetry_update' && msg.data) {
           let data = msg.data;
           if (typeof data === 'string') {
@@ -2381,7 +2506,6 @@
             const ts = data.timestamp;
             if (!seenTimestamps.has(ts)) {
               seenTimestamps.add(ts);
-              // Add Ably message timestamp for debugging
               data._ablyTimestamp = msg.timestamp;
               messages.push(data);
             }
@@ -2389,18 +2513,52 @@
         }
       }
       
-      // Sort by timestamp to ensure correct order
+      // If we need more messages and there are more pages, fetch them
+      let pagesLoaded = 1;
+      const maxPages = Math.ceil(limit / 1000);
+      
+      while (messages.length < limit && historyResult.hasNext && pagesLoaded < maxPages) {
+        try {
+          historyResult = await historyResult.next();
+          pagesLoaded++;
+          
+          if (!historyResult || !historyResult.items) break;
+          
+          for (const msg of historyResult.items) {
+            if (msg.name === 'telemetry_update' && msg.data) {
+              let data = msg.data;
+              if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch { continue; }
+              }
+              
+              if (data.session_id === sessionId) {
+                const ts = data.timestamp;
+                if (!seenTimestamps.has(ts)) {
+                  seenTimestamps.add(ts);
+                  data._ablyTimestamp = msg.timestamp;
+                  messages.push(data);
+                }
+              }
+            }
+          }
+        } catch (pageErr) {
+          console.warn('📡 Ably history pagination failed:', pageErr.message);
+          break;
+        }
+      }
+      
+      // Sort by timestamp (oldest first) since we fetched backwards
       messages.sort((a, b) => {
         const ta = new Date(a.timestamp).getTime();
         const tb = new Date(b.timestamp).getTime();
         return ta - tb;
       });
       
-      console.log(`📡 Ably history: ${messages.length} messages from ${startTime.toISOString().slice(11, 19)} to now`);
+      console.log(`📡 Ably history: ${messages.length} messages from ${startTime.toISOString().slice(11, 19)} (${pagesLoaded} page(s))`);
       
       return messages;
     } catch (e) {
-      console.warn('Ably history fetch failed:', e);
+      console.warn('Ably history fetch failed:', e.message || e);
       return [];
     }
   }
