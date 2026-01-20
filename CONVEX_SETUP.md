@@ -1,6 +1,42 @@
 # Convex Setup Guide for TelemetryDashboard
 
-This guide explains how to set up Convex as the backend for the EcoVolt Telemetry Dashboard. Convex provides real-time database functionality, serverless functions, and authentication.
+This guide explains how to set up Convex as the backend for the EcoVolt Telemetry Dashboard. Convex provides real-time database functionality, serverless functions, and handles authentication.
+
+## Why Convex?
+
+```
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                         🎯 Why We Chose Convex                                 ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║   ┌─────────────────────────────────────────────────────────────────────┐    ║
+║   │  TRADITIONAL STACK              vs        CONVEX STACK              │    ║
+║   ├─────────────────────────────────────────────────────────────────────┤    ║
+║   │                                                                     │    ║
+║   │  ┌─────────────┐                         ┌─────────────┐           │    ║
+║   │  │  Express.js │                         │             │           │    ║
+║   │  │  Server     │                         │   CONVEX    │           │    ║
+║   │  └──────┬──────┘                         │             │           │    ║
+║   │         │                                │  ┌───────┐  │           │    ║
+║   │  ┌──────▼──────┐                         │  │ DB    │  │           │    ║
+║   │  │  PostgreSQL │         ════►           │  ├───────┤  │           │    ║
+║   │  │  Database   │                         │  │ Funcs │  │           │    ║
+║   │  └──────┬──────┘                         │  ├───────┤  │           │    ║
+║   │         │                                │  │ Auth  │  │           │    ║
+║   │  ┌──────▼──────┐                         │  ├───────┤  │           │    ║
+║   │  │  Auth       │                         │  │ HTTP  │  │           │    ║
+║   │  │  Provider   │                         │  └───────┘  │           │    ║
+║   │  └─────────────┘                         └─────────────┘           │    ║
+║   │                                                                     │    ║
+║   │  • Multiple services to manage           • Single unified platform │    ║
+║   │  • Manual scaling                        • Auto-scaling            │    ║
+║   │  • Complex deployments                   • One command deploy      │    ║
+║   │  • Polling for updates                   • Real-time subscriptions │    ║
+║   │                                                                     │    ║
+║   └─────────────────────────────────────────────────────────────────────┘    ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+```
 
 ## Table of Contents
 
@@ -9,7 +45,7 @@ This guide explains how to set up Convex as the backend for the EcoVolt Telemetr
 3. [Environment Variables](#environment-variables)
 4. [Schema Overview](#schema-overview)
 5. [Deploying to Convex](#deploying-to-convex)
-6. [Setting Up Authentication](#setting-up-authentication)
+6. [Authentication System](#authentication-system)
 7. [Connecting the Frontend](#connecting-the-frontend)
 8. [Connecting the Python Bridge](#connecting-the-python-bridge)
 9. [Vercel Deployment](#vercel-deployment)
@@ -22,7 +58,7 @@ This guide explains how to set up Convex as the backend for the EcoVolt Telemetr
 - Node.js 18+ installed
 - npm or yarn package manager
 - A Convex account (free tier available at [convex.dev](https://convex.dev))
-- An Ably account for real-time messaging (free tier available at [ably.com](https://ably.com))
+- An Ably account for real-time telemetry streaming (free tier at [ably.com](https://ably.com))
 
 ---
 
@@ -34,29 +70,7 @@ This guide explains how to set up Convex as the backend for the EcoVolt Telemetr
 2. Sign up with GitHub, Google, or email
 3. You'll be taken to your Convex dashboard
 
-### Step 2: Create a New Project
-
-1. Click **"New Project"** in the dashboard
-2. Name your project (e.g., `telemetry-dashboard`)
-3. Select a region closest to your users
-4. Click **"Create Project"**
-
-### Step 3: Get Your Deployment URL
-
-After creating the project, you'll see your deployment URL in the format:
-```
-https://your-project-name-123.convex.cloud
-```
-
-Copy this URL - you'll need it for configuration.
-
-### Step 4: Install Convex CLI (Optional but Recommended)
-
-```bash
-npm install -g convex
-```
-
-### Step 5: Link Your Local Project
+### Step 2: Initialize Convex in Your Project
 
 In your TelemetryDashboard directory:
 
@@ -66,9 +80,18 @@ npx convex dev
 
 This will:
 1. Prompt you to log in (if not already)
-2. Ask you to select or create a project
-3. Start the development server
-4. Deploy your schema and functions
+2. Ask you to create a new project or link to an existing one
+3. Deploy your schema and functions
+4. Start the development server with hot-reloading
+
+### Step 3: Get Your Deployment URL
+
+After the project is created, you'll see your deployment URL in the format:
+```
+https://your-project-name-123.convex.cloud
+```
+
+Copy this URL - you'll need it for frontend configuration.
 
 ---
 
@@ -78,23 +101,9 @@ This will:
 
 In the Convex dashboard, go to **Settings > Environment Variables** and add:
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `ABLY_API_KEY` | Your Ably API key for token generation | `DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ` |
-| `AUTH_GITHUB_ID` | GitHub OAuth App Client ID (for auth) | `Ov23liXXXXXXXXXX` |
-| `AUTH_GITHUB_SECRET` | GitHub OAuth App Client Secret | `your-github-secret` |
-
-### Local Development (.env.local)
-
-Create a `.env.local` file in your project root:
-
-```env
-# Convex
-CONVEX_DEPLOYMENT=your-project-name-123
-
-# For local testing with Ably (optional - can use API key directly in config)
-ABLY_API_KEY=your-ably-api-key
-```
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `ABLY_API_KEY` | Your Ably API key for token generation | Yes (for token auth) |
 
 ### Frontend Configuration (public/index.html)
 
@@ -102,24 +111,83 @@ The frontend configuration is set in `public/index.html`:
 
 ```html
 <script>
-  window.CONFIG = window.CONFIG || {
+  window.CONFIG = {
     ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
-    // For production, use ABLY_AUTH_URL for token-based auth
-    // ABLY_AUTH_URL: "/api/ably/token",
-    // For local development, you can use the API key directly
+    // Option 1: Direct API key (simpler, but exposes key in client)
     ABLY_API_KEY: "your-ably-api-key",
+    // Option 2: Use Convex HTTP endpoint for token auth (more secure)
+    // ABLY_AUTH_URL: "https://your-project.convex.site/ably/token",
     CONVEX_URL: "https://your-project-name-123.convex.cloud",
   };
 </script>
 ```
 
-> **Security Note**: In production, remove `ABLY_API_KEY` and use `ABLY_AUTH_URL` instead to avoid exposing your API key in client-side code.
+> **Security Note**: In production, prefer using `ABLY_AUTH_URL` instead of exposing `ABLY_API_KEY` in client-side code. Set the API key in Convex environment variables instead.
 
 ---
 
 ## Schema Overview
 
 The Convex schema is defined in `convex/schema.ts`. Here's what each table stores:
+
+```
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                            📊 Database Schema                                  ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║   ┌─────────────────────────────────────────────────────────────────────┐    ║
+║   │                         TELEMETRY TABLE                              │    ║
+║   │   ════════════════════════════════════════════════════════════════  │    ║
+║   │                                                                      │    ║
+║   │   ┌──────────────┬──────────────┬──────────────┬──────────────┐    │    ║
+║   │   │  session_id  │  timestamp   │   speed_ms   │   power_w    │    │    ║
+║   │   │  (string)    │  (ISO 8601)  │   (number)   │   (number)   │    │    ║
+║   │   ├──────────────┼──────────────┼──────────────┼──────────────┤    │    ║
+║   │   │  voltage_v   │  current_a   │   energy_j   │  distance_m  │    │    ║
+║   │   ├──────────────┼──────────────┼──────────────┼──────────────┤    │    ║
+║   │   │  latitude    │  longitude   │  altitude_m  │   gyro_xyz   │    │    ║
+║   │   ├──────────────┼──────────────┼──────────────┼──────────────┤    │    ║
+║   │   │  accel_xyz   │  throttle    │    brake     │   outliers   │    │    ║
+║   │   └──────────────┴──────────────┴──────────────┴──────────────┘    │    ║
+║   │                                                                      │    ║
+║   │   Indexes: by_session, by_session_timestamp                         │    ║
+║   └─────────────────────────────────────────────────────────────────────┘    ║
+║                                                                               ║
+║   ┌─────────────────────────────────────────────────────────────────────┐    ║
+║   │                         AUTH TABLES                                  │    ║
+║   │   ════════════════════════════════════════════════════════════════  │    ║
+║   │                                                                      │    ║
+║   │   ┌─────────────────────┐       ┌─────────────────────┐            │    ║
+║   │   │     authUsers       │       │    authSessions     │            │    ║
+║   │   ├─────────────────────┤       ├─────────────────────┤            │    ║
+║   │   │ _id (auto)          │◄──────│ userId (ref)        │            │    ║
+║   │   │ email (indexed)     │       │ token (indexed)     │            │    ║
+║   │   │ passwordHash        │       │ _creationTime       │            │    ║
+║   │   │ name (optional)     │       └─────────────────────┘            │    ║
+║   │   └─────────────────────┘                                           │    ║
+║   └─────────────────────────────────────────────────────────────────────┘    ║
+║                                                                               ║
+║   ┌─────────────────────────────────────────────────────────────────────┐    ║
+║   │                       USER PROFILES TABLE                            │    ║
+║   │   ════════════════════════════════════════════════════════════════  │    ║
+║   │                                                                      │    ║
+║   │   ┌──────────────┬──────────────┬──────────────┬──────────────┐    │    ║
+║   │   │   userId     │    email     │     role     │   approval   │    │    ║
+║   │   │   (ref)      │   (string)   │              │    status    │    │    ║
+║   │   └──────────────┴──────────────┼──────────────┼──────────────┘    │    ║
+║   │                                 │              │                    │    ║
+║   │                        ┌────────┴────────┐ ┌───┴───────┐           │    ║
+║   │                        │ guest           │ │ pending   │           │    ║
+║   │                        │ external        │ │ approved  │           │    ║
+║   │                        │ internal        │ │ rejected  │           │    ║
+║   │                        │ admin           │ └───────────┘           │    ║
+║   │                        └─────────────────┘                          │    ║
+║   │                                                                      │    ║
+║   │   Indexes: by_userId, by_email, by_approval_status                  │    ║
+║   └─────────────────────────────────────────────────────────────────────┘    ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+```
 
 ### Telemetry Table
 
@@ -151,20 +219,40 @@ telemetry: defineTable({
   throttle_pct: v.optional(v.number()),
   brake_pct: v.optional(v.number()),
   data_source: v.optional(v.string()),
-  outliers: v.optional(v.any()),    // Outlier detection data
+  outliers: v.optional(v.any()),    // Outlier detection data from Python
 })
   .index("by_session", ["session_id"])
   .index("by_session_timestamp", ["session_id", "timestamp"])
 ```
 
+### Auth Tables
+
+Custom authentication tables for email/password auth:
+
+```typescript
+authUsers: defineTable({
+  email: v.string(),
+  passwordHash: v.string(),
+  name: v.optional(v.string()),
+}).index("by_email", ["email"])
+
+authSessions: defineTable({
+  userId: v.id("authUsers"),
+  token: v.string(),
+})
+  .index("by_token", ["token"])
+  .index("by_userId", ["userId"])
+```
+
 ### User Profiles Table
 
-Manages user roles and approval status:
+Extends auth with app-specific data and role management:
 
 ```typescript
 user_profiles: defineTable({
-  user_id: v.string(),              // Auth provider user ID
+  userId: v.id("authUsers"),        // Reference to authUsers table
   email: v.string(),
+  name: v.optional(v.string()),
   role: v.union(
     v.literal("guest"),
     v.literal("external"),
@@ -178,7 +266,7 @@ user_profiles: defineTable({
     v.literal("rejected")
   ),
 })
-  .index("by_user_id", ["user_id"])
+  .index("by_userId", ["userId"])
   .index("by_email", ["email"])
   .index("by_approval_status", ["approval_status"])
 ```
@@ -186,6 +274,46 @@ user_profiles: defineTable({
 ---
 
 ## Deploying to Convex
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        🚀 Development Workflow                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   LOCAL DEVELOPMENT                                                         │
+│   ═════════════════                                                         │
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   │  Terminal 1: Convex Dev Server                                      │  │
+│   │  $ npx convex dev                                                   │  │
+│   │                                                                      │  │
+│   │  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐         │  │
+│   │  │ Edit    │───►│ Auto    │───►│ Deploy  │───►│ Live    │         │  │
+│   │  │ convex/ │    │ detect  │    │ to dev  │    │ reload  │         │  │
+│   │  └─────────┘    └─────────┘    └─────────┘    └─────────┘         │  │
+│   └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   │  Terminal 2: Python Bridge (optional)                               │  │
+│   │  $ python backend/maindata.py                                       │  │
+│   └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   │  Terminal 3: Static Server                                          │  │
+│   │  $ npx serve public                                                 │  │
+│   └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+│   PRODUCTION DEPLOYMENT                                                     │
+│   ═════════════════════                                                     │
+│                                                                             │
+│   ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐               │
+│   │  npx    │───►│ Schema  │───►│Functions│───►│  Live   │               │
+│   │ convex  │    │ applied │    │ deployed│    │  on     │               │
+│   │ deploy  │    │         │    │         │    │ cloud   │               │
+│   └─────────┘    └─────────┘    └─────────┘    └─────────┘               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### Development Mode
 
@@ -222,66 +350,47 @@ In the Convex dashboard:
 
 ---
 
-## Setting Up Authentication
+## Authentication System
 
-The dashboard uses Convex Auth (beta) for authentication. Currently configured for GitHub OAuth.
+The dashboard uses a custom email/password authentication system built in Convex.
 
-### Step 1: Create a GitHub OAuth App
+### How It Works
 
-1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
-2. Click **"New OAuth App"**
-3. Fill in:
-   - **Application name**: `EcoVolt Telemetry Dashboard`
-   - **Homepage URL**: `https://your-domain.com` (or `http://localhost:8080` for dev)
-   - **Authorization callback URL**: `https://your-convex-url.convex.site/api/auth/callback/github`
-4. Click **"Register application"**
-5. Copy the **Client ID**
-6. Generate a new **Client Secret** and copy it
+1. **Sign Up**: User provides email, password, and optional name
+2. **Password Hashing**: SHA-256 hash with salt stored in `authUsers`
+3. **Session Token**: Random 32-byte hex token stored in `authSessions`
+4. **Token Storage**: Client stores token in localStorage
+5. **Session Expiry**: Tokens expire after 24 hours
 
-### Step 2: Add to Convex Environment Variables
+### Authentication Flow
 
-In Convex dashboard > Settings > Environment Variables:
-
-```
-AUTH_GITHUB_ID=your-client-id
-AUTH_GITHUB_SECRET=your-client-secret
-```
-
-### Step 3: Configure Auth Tables
-
-The auth tables are automatically included in the schema via:
-
-```typescript
-import { authTables } from "@convex-dev/auth/server";
-
-export default defineSchema({
-  ...authTables,
-  // ... your other tables
+```javascript
+// Sign up
+const result = await ConvexAuth.signIn('password', {
+  email: 'user@example.com',
+  password: 'securepassword',
+  flow: 'signUp',
+  name: 'User Name'
 });
-```
 
-### Adding More Providers
-
-To add more OAuth providers (Google, Discord, etc.), modify `convex/auth.ts`:
-
-```typescript
-import { convexAuth } from "@convex-dev/auth/server";
-import GitHub from "@auth/core/providers/github";
-import Google from "@auth/core/providers/google";
-
-export const { auth, signIn, signOut, isAuthenticated, store } = convexAuth({
-  providers: [
-    GitHub({
-      clientId: process.env.AUTH_GITHUB_ID!,
-      clientSecret: process.env.AUTH_GITHUB_SECRET!,
-    }),
-    Google({
-      clientId: process.env.AUTH_GOOGLE_ID!,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET!,
-    }),
-  ],
+// Sign in
+const result = await ConvexAuth.signIn('password', {
+  email: 'user@example.com',
+  password: 'securepassword'
 });
+
+// Sign out
+await ConvexAuth.signOut();
 ```
+
+### Creating the First Admin User
+
+1. Sign up through the dashboard UI
+2. Go to Convex Dashboard → Data → `user_profiles`
+3. Find your user's row
+4. Change `role` to `"admin"`
+5. Change `approval_status` to `"approved"`
+6. Refresh the dashboard
 
 ---
 
@@ -294,7 +403,7 @@ The frontend connects to Convex via the `ConvexBridge` module in `public/lib/con
 The bridge is initialized in `app.js`:
 
 ```javascript
-const CONVEX_URL = cfg.CONVEX_URL || window.CONFIG?.CONVEX_URL || "";
+const CONVEX_URL = window.CONFIG?.CONVEX_URL || "";
 
 let convexEnabled = false;
 if (CONVEX_URL && window.ConvexBridge) {
@@ -306,7 +415,7 @@ if (CONVEX_URL && window.ConvexBridge) {
 
 ```javascript
 // List all sessions
-const sessions = await ConvexBridge.listSessions();
+const { sessions } = await ConvexBridge.listSessions();
 
 // Get all records for a session
 const records = await ConvexBridge.getSessionRecords(sessionId);
@@ -314,9 +423,12 @@ const records = await ConvexBridge.getSessionRecords(sessionId);
 // Get recent records (with limit)
 const recent = await ConvexBridge.getRecentRecords(sessionId, sinceTimestamp, limit);
 
-// Subscribe to real-time updates
+// Get latest timestamp (for gap detection)
+const { timestamp, recordCount } = await ConvexBridge.getLatestSessionTimestamp(sessionId);
+
+// Subscribe to real-time updates (reactive)
 const unsubscribe = ConvexBridge.subscribeToSession(sessionId, (records) => {
-  console.log('New data:', records);
+  console.log('Data updated:', records.length, 'records');
 });
 
 // Clean up subscription
@@ -337,12 +449,9 @@ pip install convex ably numpy
 
 ### Configuration in maindata.py
 
-The bridge uses these constants:
-
 ```python
 # Convex configuration
 CONVEX_URL = "https://your-project-name-123.convex.cloud"
-CONVEX_DEPLOY_KEY = "your-deploy-key"  # Optional, for authenticated writes
 
 # Ably configuration
 DASHBOARD_ABLY_API_KEY = "your-ably-api-key"
@@ -351,10 +460,10 @@ DASHBOARD_CHANNEL_NAME = "telemetry-dashboard-channel"
 
 ### Data Flow
 
-1. **Mock/Real Data** → Generated or received from ESP32
-2. **Outlier Detection** → NumPy-based anomaly detection
-3. **Ably Publish** → Real-time to dashboard
-4. **Convex Insert** → Persistent storage
+1. **Data Source** → ESP32 serial or mock data generator
+2. **Processing** → NumPy-based outlier detection
+3. **Ably Publish** → Real-time streaming to dashboard
+4. **Convex Insert** → Persistent storage via `telemetry:insertTelemetryBatch`
 5. **Local Journal** → NDJSON backup file
 
 ---
@@ -366,31 +475,33 @@ DASHBOARD_CHANNEL_NAME = "telemetry-dashboard-channel"
 ```json
 {
   "version": 2,
-  "builds": [
-    { "src": "public/**", "use": "@vercel/static" }
-  ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/convex/http.ts" },
-    { "src": "/(.*)", "dest": "/public/$1" }
+  "buildCommand": "echo 'Static build complete'",
+  "outputDirectory": "public",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" }
+      ]
+    }
   ]
 }
 ```
 
-### Vercel Environment Variables
+### Deploy Steps
 
-In Vercel dashboard > Project Settings > Environment Variables:
+1. **Deploy Convex first:**
+```bash
+npx convex deploy
+```
 
-| Variable | Value |
-|----------|-------|
-| `CONVEX_DEPLOYMENT` | `your-project-name-123` |
+2. **Update frontend config** with production Convex URL
 
-### Deploy Command
-
+3. **Deploy to Vercel:**
 ```bash
 vercel --prod
 ```
-
-Or connect your GitHub repo for automatic deployments.
 
 ---
 
@@ -400,7 +511,7 @@ Or connect your GitHub repo for automatic deployments.
 
 **Cause**: The Convex URL is missing or incorrect.
 
-**Solution**: 
+**Solution**:
 1. Check `window.CONFIG.CONVEX_URL` in browser console
 2. Verify the URL matches your Convex deployment
 3. Ensure the Convex browser bundle is loaded before `convex-bridge.js`
@@ -416,12 +527,12 @@ Or connect your GitHub repo for automatic deployments.
 
 ### Authentication Not Working
 
-**Cause**: OAuth configuration issue.
+**Cause**: Session token expired or invalid.
 
 **Solution**:
-1. Verify GitHub OAuth app callback URL matches Convex URL
-2. Check environment variables are set in Convex dashboard
-3. Ensure `@convex-dev/auth` is properly installed
+1. Clear localStorage and sign in again
+2. Check Convex logs for auth errors
+3. Verify the auth functions are deployed
 
 ### Data Not Persisting
 
@@ -431,31 +542,33 @@ Or connect your GitHub repo for automatic deployments.
 1. Check `CONVEX_URL` in `maindata.py`
 2. Verify Convex deployment is running
 3. Check Python console for connection errors
+4. Ensure `convex` Python package is installed
 
 ### Real-time Updates Not Working
 
 **Cause**: Ably connection issue.
 
 **Solution**:
-1. Verify `ABLY_API_KEY` or `ABLY_AUTH_URL` is configured
+1. Verify `ABLY_API_KEY` is configured correctly
 2. Check browser console for Ably connection errors
-3. Ensure the channel name matches between Python bridge and frontend
+3. Ensure channel name matches between Python bridge and frontend
 
 ---
 
 ## Quick Start Checklist
 
 - [ ] Create Convex account and project
+- [ ] Run `npx convex dev` to deploy schema
 - [ ] Copy deployment URL to `public/index.html`
 - [ ] Set `ABLY_API_KEY` in Convex environment variables
-- [ ] Run `npx convex dev` for local development
+- [ ] Configure Python bridge with Convex URL
 - [ ] Run `python backend/maindata.py` to start data bridge
-- [ ] Open `http://localhost:8080` and click Connect
+- [ ] Open dashboard and click Connect
 - [ ] Verify data is flowing (messages count increasing)
 
 ---
 
-## Support
+## Resources
 
 - **Convex Documentation**: [docs.convex.dev](https://docs.convex.dev)
 - **Convex Discord**: [discord.gg/convex](https://discord.gg/convex)

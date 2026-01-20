@@ -1,28 +1,84 @@
-# Quick Start: Deploy to Vercel
+# Quick Start: Deploy in 5 Minutes
 
 This is a quick reference guide. For detailed instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md).
 
-## 🚀 Deploy in 5 Minutes
+```
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                          ⚡ 5-Minute Deployment                                ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║    STEP 1          STEP 2          STEP 3          STEP 4          STEP 5    ║
+║   ┌──────┐        ┌──────┐        ┌──────┐        ┌──────┐        ┌──────┐  ║
+║   │Convex│───────►│ Env  │───────►│Config│───────►│Vercel│───────►│ Live │  ║
+║   │Deploy│        │ Vars │        │ URLs │        │Deploy│        │      │  ║
+║   └──────┘        └──────┘        └──────┘        └──────┘        └──────┘  ║
+║      ↓               ↓               ↓               ↓               ↓       ║
+║    1 min          30 sec          30 sec           1 min           Done!     ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+```
 
-### Step 1: Prepare Your Environment Variables
+## Prerequisites
 
 Have these ready:
-- **ABLY_API_KEY**: From [Ably Dashboard](https://ably.com/dashboard)
-- **SUPABASE_URL**: From [Supabase Dashboard](https://supabase.com/dashboard) → Settings → API
-- **SUPABASE_SERVICE_ROLE**: From Supabase Dashboard → Settings → API (keep secret!)
+- **Convex Account**: Sign up at [convex.dev](https://convex.dev) (free)
+- **Ably API Key**: From [Ably Dashboard](https://ably.com/dashboard)
+- **Vercel Account**: Sign up at [vercel.com](https://vercel.com) (free)
 
-### Step 2: Deploy to Vercel
+---
 
-**Option A: Using Vercel Dashboard (Easiest)**
+## Step 1: Deploy Convex Backend
+
+```bash
+# Install dependencies
+npm install
+
+# Deploy to Convex (will prompt to log in)
+npx convex deploy
+```
+
+Copy your deployment URL: `https://your-project.convex.cloud`
+
+---
+
+## Step 2: Set Environment Variables
+
+In Convex Dashboard → Settings → Environment Variables:
+
+| Variable | Value |
+|----------|-------|
+| `ABLY_API_KEY` | Your Ably API key |
+
+---
+
+## Step 3: Configure Frontend
+
+Edit `public/index.html` and update the CONFIG:
+
+```html
+<script>
+  window.CONFIG = {
+    ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
+    ABLY_AUTH_URL: "https://your-project.convex.site/ably/token",
+    CONVEX_URL: "https://your-project.convex.cloud",
+  };
+</script>
+```
+
+---
+
+## Step 4: Deploy to Vercel
+
+**Option A: Vercel Dashboard (Easiest)**
 
 1. Go to [vercel.com](https://vercel.com)
 2. Click "Add New..." → "Project"
 3. Import your GitHub repository
-4. Add environment variables (Step 1 above)
+4. Set output directory to `public`
 5. Click "Deploy"
-6. Done! 🎉
+6. Done!
 
-**Option B: Using Vercel CLI**
+**Option B: Vercel CLI**
 
 ```bash
 # Install Vercel CLI
@@ -31,54 +87,73 @@ npm install -g vercel
 # Login
 vercel login
 
-# Deploy
-vercel
-
-# Set environment variables
-vercel env add ABLY_API_KEY
-vercel env add SUPABASE_URL
-vercel env add SUPABASE_SERVICE_ROLE
-
 # Deploy to production
 vercel --prod
 ```
 
-### Step 3: Verify Deployment
+---
+
+## Step 5: Verify Deployment
 
 Visit your deployment URL:
 - Homepage: `https://your-project.vercel.app`
-- Health check: `https://your-project.vercel.app/api/health`
+- Health check: `https://your-project.convex.site/health`
 
 Should show: `{"ok":true,"time":"..."}`
 
-## ✅ Deployment Checklist
+---
 
-- [ ] Repository pushed to GitHub
-- [ ] Vercel account created
-- [ ] Environment variables ready
-- [ ] Project deployed
-- [ ] Health endpoint responding
-- [ ] Dashboard loads correctly
-- [ ] Can connect to Ably (real-time)
-- [ ] Can load historical sessions (if data exists)
+## Step 6: Create First Admin User
 
-## 🆘 Common Issues
-
-**Build Fails**: Check Node.js version is 18.x or higher
-
-**Environment Variables**: Make sure they're spelled exactly right (case-sensitive)
-
-**Connection Issues**: Verify API keys are correct and accounts are active
-
-**Static Files 404**: Clear browser cache and hard refresh
-
-## 📚 More Information
-
-- Full deployment guide: [DEPLOYMENT.md](./DEPLOYMENT.md)
-- Setup & development: [README.md](./README.md)
-- Vercel docs: https://vercel.com/docs
-- Need help? Check the troubleshooting section in DEPLOYMENT.md
+1. Sign up through the dashboard UI
+2. Go to Convex Dashboard → Data → `user_profiles`
+3. Find your row, change `role` to `"admin"`
+4. Change `approval_status` to `"approved"`
+5. Refresh the dashboard
 
 ---
 
-**Ready to deploy?** Start with Step 1 above! 🚀
+## Deployment Checklist
+
+- [ ] Convex deployed (`npx convex deploy`)
+- [ ] `ABLY_API_KEY` set in Convex environment variables
+- [ ] Frontend config updated with Convex URLs
+- [ ] Vercel deployed
+- [ ] Health endpoint responding
+- [ ] Dashboard loads correctly
+- [ ] First admin user created
+
+---
+
+## Start Python Bridge (For Live Data)
+
+```bash
+# Configure maindata.py with your URLs
+# Then run:
+python backend/maindata.py
+```
+
+---
+
+## Common Issues
+
+**Convex not connecting**: Check `CONVEX_URL` in `public/index.html`
+
+**Ably not connecting**: Verify `ABLY_API_KEY` is set in Convex environment variables
+
+**No sessions showing**: Run the Python bridge to generate data
+
+**Auth not working**: Clear localStorage and try again
+
+---
+
+## More Information
+
+- Full deployment guide: [DEPLOYMENT.md](./DEPLOYMENT.md)
+- Convex setup details: [CONVEX_SETUP.md](./CONVEX_SETUP.md)
+- Troubleshooting: [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)
+- Security guide: [SECURITY.md](./SECURITY.md)
+
+---
+
+**Ready to deploy?** Start with Step 1 above!

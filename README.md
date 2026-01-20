@@ -1,63 +1,215 @@
-# 🏎️ Shell Eco-marathon Telemetry Dashboard
+# Shell Eco-marathon Telemetry Dashboard
 
-A real-time telemetry dashboard for monitoring vehicle performance during Shell Eco-marathon competitions. Built with Express.js, Ably for real-time data streaming, Supabase for data persistence and authentication.
+A real-time telemetry dashboard for monitoring vehicle performance during Shell Eco-marathon competitions. Built with Convex for real-time database and serverless functions, Ably for telemetry streaming, and a modern vanilla JavaScript frontend.
 
-## 🚀 Quick Links
+## Quick Links
 
 - **[Quick Start Guide](./QUICKSTART.md)** - Deploy to Vercel in 5 minutes
 - **[Deployment Guide](./DEPLOYMENT.md)** - Comprehensive deployment instructions
-- **[Supabase Setup](./SUPABASE_SETUP.md)** - Authentication setup guide
-- **[Local Development](#getting-started)** - Run locally for development
+- **[Convex Setup](./CONVEX_SETUP.md)** - Convex backend setup guide
+- **[Security Guide](./SECURITY.md)** - Security best practices
+- **[Troubleshooting](./TROUBLESHOOTING.md)** - Common issues and solutions
 
 ## Features
 
-- 📊 Real-time telemetry monitoring
-- 📈 Historical session playback
-- 🗺️ GPS tracking with map visualization
-- ⚡ Power and efficiency metrics
-- 🧭 IMU sensor data visualization
-- 📋 Data quality analysis
-- 💾 CSV export functionality
-- 🔐 **Authentication & Role-Based Access Control**
-- 👥 **User Management Dashboard (Admin)**
-
+- Real-time telemetry monitoring with live gauges and charts
+- Historical session playback
+- GPS tracking with map visualization
+- Power and efficiency metrics
+- IMU sensor data visualization
+- Data quality analysis with outlier detection
+- CSV export functionality
+- Authentication & Role-Based Access Control
+- User Management Dashboard (Admin)
 
 ## User Roles & Permissions
 
 The dashboard supports four user roles with different access levels:
 
-### 🎭 Guest (Default)
-- ✅ View real-time telemetry data
-- ❌ Cannot download CSV files
-- ❌ Cannot view historical sessions
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          👥 User Role Hierarchy                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│                                 ┌─────────┐                                 │
+│                                 │  ADMIN  │                                 │
+│                                 │   👑    │                                 │
+│                                 └────┬────┘                                 │
+│                                      │                                      │
+│                      ┌───────────────┼───────────────┐                     │
+│                      │               │               │                      │
+│                      ▼               ▼               ▼                      │
+│               ┌───────────┐   ┌───────────┐   ┌───────────┐               │
+│               │ INTERNAL  │   │ EXTERNAL  │   │   GUEST   │               │
+│               │    🔒     │   │    🔓     │   │    🎭     │               │
+│               └───────────┘   └───────────┘   └───────────┘               │
+│                                                                             │
+│   ╔═══════════════════════════════════════════════════════════════════════╗ │
+│   ║  Feature Access Matrix                                                ║ │
+│   ╠═══════════════════╦═════════╦══════════╦══════════╦═══════════════════╣ │
+│   ║                   ║  Guest  ║ External ║ Internal ║      Admin        ║ │
+│   ╠═══════════════════╬═════════╬══════════╬══════════╬═══════════════════╣ │
+│   ║ Live telemetry    ║    ✓    ║     ✓    ║     ✓    ║         ✓         ║ │
+│   ║ CSV export        ║    ✗    ║   ≤400   ║    ∞     ║         ∞         ║ │
+│   ║ History access    ║    ✗    ║   Last   ║    All   ║        All        ║ │
+│   ║ User management   ║    ✗    ║     ✗    ║     ✗    ║         ✓         ║ │
+│   ║ Auto-approved     ║    ✓    ║     ✓    ║     ✗    ║         —         ║ │
+│   ╚═══════════════════╩═════════╩══════════╩══════════╩═══════════════════╝ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-### 🔓 External User
-- ✅ View real-time telemetry data
-- ✅ Download CSV (up to 400 data points)
-- ✅ View last historical session
-- ✅ Auto-approved on signup
+### Guest (Default)
+- View real-time telemetry data
+- Cannot download CSV files
+- Cannot view historical sessions
 
-### 🔒 Internal User
-- ✅ View real-time telemetry data
-- ✅ Download unlimited CSV data
-- ✅ View all historical sessions
-- ❌ Cannot access admin dashboard
-- ⚠️ Requires admin approval
+### External User
+- View real-time telemetry data
+- Download CSV (up to 400 data points)
+- View last historical session
+- Auto-approved on signup
 
-### 👑 Admin
-- ✅ Full access to all features
-- ✅ User management dashboard
-- ✅ Approve/reject user requests
-- ✅ Change user roles
+### Internal User
+- View real-time telemetry data
+- Download unlimited CSV data
+- View all historical sessions
+- Cannot access admin dashboard
+- Requires admin approval
+
+### Admin
+- Full access to all features
+- User management dashboard
+- Approve/reject user requests
+- Change user roles
 
 ## Tech Stack
 
-- **Backend**: Express.js (Node.js)
-- **Real-time**: Ably
-- **Database**: Supabase (PostgreSQL)
-- **Authentication**: Supabase Auth
-- **Frontend**: Vanilla JavaScript with ECharts, Leaflet, DataTables
-- **Deployment**: Vercel
+- **Backend**: Convex (serverless functions + real-time database)
+- **Real-time Streaming**: Ably (for telemetry from ESP32/Python bridge)
+- **Database**: Convex Database (NoSQL, automatically indexed)
+- **Authentication**: Custom email/password auth in Convex
+- **Frontend**: Vanilla JavaScript with uPlot, ECharts, Leaflet, DataTables
+- **Deployment**: Vercel (static frontend) + Convex Cloud (backend)
+
+## Architecture
+
+### System Overview
+
+```
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                     🏎️ EcoVolt Telemetry System Architecture                   ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║    ┌──────────────┐         ┌─────────────────┐         ┌──────────────┐     ║
+║    │   🔌 ESP32   │  Serial │  🐍 Python      │         │ ☁️  Cloud    │     ║
+║    │   Sensors    │────────►│   Bridge        │         │   Services   │     ║
+║    │              │         │  (maindata.py)  │         │              │     ║
+║    │ • Speed      │         │                 │         │              │     ║
+║    │ • GPS        │         │ • Data parsing  │         │              │     ║
+║    │ • IMU        │         │ • Outlier det.  │         │              │     ║
+║    │ • Power      │         │ • Dual publish  │         │              │     ║
+║    └──────────────┘         └────────┬────────┘         └──────────────┘     ║
+║                                      │                                        ║
+║                        ┌─────────────┴─────────────┐                         ║
+║                        │                           │                          ║
+║                        ▼                           ▼                          ║
+║           ┌────────────────────┐     ┌────────────────────┐                  ║
+║           │   📡 Ably          │     │   🗄️ Convex        │                  ║
+║           │   (Real-time)      │     │   (Persistence)    │                  ║
+║           │                    │     │                    │                  ║
+║           │ • Pub/Sub channels │     │ • Database         │                  ║
+║           │ • Low latency      │     │ • Auth             │                  ║
+║           │ • Live streaming   │     │ • Serverless fns   │                  ║
+║           └─────────┬──────────┘     └─────────┬──────────┘                  ║
+║                     │                          │                              ║
+║                     │     ┌────────────────────┤                              ║
+║                     │     │                    │                              ║
+║                     ▼     ▼                    ▼                              ║
+║           ┌─────────────────────────────────────────────┐                    ║
+║           │              🖥️ Dashboard (Browser)         │                    ║
+║           │                                             │                    ║
+║           │  ┌─────────┐ ┌─────────┐ ┌─────────┐       │                    ║
+║           │  │ Charts  │ │ Gauges  │ │   Map   │       │                    ║
+║           │  └─────────┘ └─────────┘ └─────────┘       │                    ║
+║           │                                             │                    ║
+║           │  Ably ──► Live telemetry updates           │                    ║
+║           │  Convex ──► Historical data + Auth         │                    ║
+║           └─────────────────────────────────────────────┘                    ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+```
+
+### Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           📊 Real-Time Data Flow                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   SENSOR DATA          PROCESSING              DELIVERY           DISPLAY   │
+│                                                                             │
+│   ┌─────────┐         ┌─────────┐            ┌─────────┐       ┌─────────┐ │
+│   │ ESP32   │ ──────► │ Python  │ ──Ably──► │ Browser │ ────► │ Gauges  │ │
+│   │ Serial  │  JSON   │ Bridge  │  Pub/Sub  │ Client  │       │ Charts  │ │
+│   └─────────┘         └────┬────┘            └─────────┘       └─────────┘ │
+│                            │                                                │
+│                            │ Batch Insert                                   │
+│                            ▼                                                │
+│                       ┌─────────┐                                           │
+│                       │ Convex  │ ◄──── Persistent Storage                  │
+│                       │   DB    │       (Queries, History)                  │
+│                       └─────────┘                                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         📁 Historical Data Flow                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌──────────┐        ┌──────────┐        ┌──────────┐       ┌──────────┐  │
+│   │ Dashboard│ ─────► │  Convex  │ ─────► │ Sessions │ ────► │ Playback │  │
+│   │ Request  │ Query  │  Cloud   │ Return │   List   │       │  Charts  │  │
+│   └──────────┘        └──────────┘        └──────────┘       └──────────┘  │
+│                                                                             │
+│                       ┌─────────────────────────────────┐                   │
+│                       │  Reactive Queries (Auto-update) │                   │
+│                       │  ────────────────────────────── │                   │
+│                       │  • getSessionRecords            │                   │
+│                       │  • listSessions                 │                   │
+│                       │  • getCurrentProfile            │                   │
+│                       └─────────────────────────────────┘                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Technology Stack
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            🛠️ Technology Stack                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  FRONTEND                    BACKEND                     DATA BRIDGE        │
+│  ─────────────────          ─────────────────           ─────────────────  │
+│                                                                             │
+│  ┌─────────────┐            ┌─────────────┐            ┌─────────────┐     │
+│  │   Vercel    │            │   Convex    │            │   Python    │     │
+│  │   (Host)    │            │   Cloud     │            │   Bridge    │     │
+│  └─────────────┘            └─────────────┘            └─────────────┘     │
+│        │                          │                          │              │
+│        ▼                          ▼                          ▼              │
+│  ┌─────────────┐            ┌─────────────┐            ┌─────────────┐     │
+│  │ • HTML/CSS  │            │ • Database  │            │ • Serial I/O│     │
+│  │ • Vanilla JS│            │ • Functions │            │ • NumPy     │     │
+│  │ • uPlot     │            │ • Auth      │            │ • Outliers  │     │
+│  │ • ECharts   │            │ • HTTP APIs │            │ • Ably SDK  │     │
+│  │ • Leaflet   │            │ • Real-time │            │ • Convex SDK│     │
+│  │ • DataTables│            │   Subscript │            │             │     │
+│  └─────────────┘            └─────────────┘            └─────────────┘     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ## Getting Started
 
@@ -65,8 +217,8 @@ The dashboard supports four user roles with different access levels:
 
 - Node.js 18.x or higher
 - npm or yarn
-- Ably account (for real-time messaging)
-- Supabase project (for data storage)
+- Convex account (free tier at [convex.dev](https://convex.dev))
+- Ably account (free tier at [ably.com](https://ably.com))
 
 ### Installation
 
@@ -81,182 +233,174 @@ cd TelemetryDashboard
 npm install
 ```
 
-3. Set up environment variables:
-
-Create a `.env` file in the root directory (use `.env.example.txt` as a template):
-
-```env
-PORT=5173
-STATIC_DIR=public
-
-# Ably API key (server side)
-ABLY_API_KEY=your_ably_api_key
-
-# Ably channel name (optional)
-ABLY_CHANNEL_NAME=telemetry-dashboard-channel
-
-# Supabase project URL
-SUPABASE_URL=your_supabase_url
-
-# Supabase anon/public key (safe to expose to frontend)
-SUPABASE_ANON_KEY=your_supabase_anon_key
-
-# Supabase service role key (server-side only - KEEP SECRET!)
-SUPABASE_SERVICE_ROLE=your_supabase_service_role_key
-
-# Optional: limit rows when scanning for sessions
-SESSIONS_SCAN_LIMIT=10000
-```
-
-**Note:** The `.env` file should never be committed to version control. It's included in `.gitignore`.
-
-### Authentication Setup
-
-To enable authentication and user management features, you need to set up Supabase Auth:
-
-1. **Create user profiles table**: Run the SQL schema from `SUPABASE_SETUP.md`
-2. **Create first admin user**: Sign up through the UI, then manually set role to 'admin' in Supabase
-3. **Configure environment variables**: Ensure `SUPABASE_URL` and `SUPABASE_ANON_KEY` are set
-
-For detailed instructions, see **[SUPABASE_SETUP.md](./SUPABASE_SETUP.md)**
-
-4. Run the development server:
+3. Set up Convex:
 ```bash
-npm run dev
+npx convex dev
 ```
 
-The application will be available at `http://localhost:5173`
+This will:
+- Prompt you to log in to Convex (if needed)
+- Create or link to a Convex project
+- Deploy your schema and functions
+- Start the development watcher
 
-## Deployment to Vercel
+4. Configure your Convex URL in `public/index.html`:
+```html
+<script>
+  window.CONFIG = {
+    ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
+    ABLY_API_KEY: "your-ably-api-key",
+    CONVEX_URL: "https://your-project.convex.cloud",
+  };
+</script>
+```
 
-This application is fully configured for deployment on Vercel.
+5. Set environment variables in Convex dashboard:
+   - Go to [dashboard.convex.dev](https://dashboard.convex.dev)
+   - Select your project → Settings → Environment Variables
+   - Add `ABLY_API_KEY` for token-based authentication
 
-### Deploy with Vercel CLI
-
-1. Install Vercel CLI:
+6. Serve the frontend locally:
 ```bash
-npm install -g vercel
+# Use any static file server, e.g.:
+npx serve public
+# or
+python -m http.server 8080 -d public
 ```
 
-2. Deploy:
-```bash
-vercel
-```
-
-3. Follow the prompts to configure your project.
-
-### Deploy with Vercel Dashboard
-
-1. Push your code to GitHub
-2. Go to [vercel.com](https://vercel.com)
-3. Click "New Project"
-4. Import your GitHub repository
-5. Configure environment variables in the Vercel dashboard:
-   - `ABLY_API_KEY`
-   - `ABLY_CHANNEL_NAME` (optional)
-   - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE`
-   - `SESSIONS_SCAN_LIMIT` (optional)
-6. Click "Deploy"
-
-### Environment Variables
-
-Make sure to set the following environment variables in your Vercel project settings:
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `ABLY_API_KEY` | Your Ably API key for real-time messaging | Yes |
-| `ABLY_CHANNEL_NAME` | Channel name for Ably (optional) | No (default: telemetry-dashboard-channel) |
-| `SUPABASE_URL` | Your Supabase project URL | Yes |
-| `SUPABASE_ANON_KEY` | Your Supabase anon/public key | Yes |
-| `SUPABASE_SERVICE_ROLE` | Your Supabase service role key | Yes |
-| `SESSIONS_SCAN_LIMIT` | Maximum rows to scan when loading sessions | No (default: 10000) |
+The application will be available at `http://localhost:8080`
 
 ## Project Structure
 
 ```
 TelemetryDashboard/
-├── public/              # Static frontend files
-│   ├── index.html      # Main HTML file
-│   ├── app.js          # Frontend JavaScript (fetches config from /api/config)
-│   ├── styles.css      # Styling
-│   └── config.js       # Deprecated - config now loaded from API
-├── index.js            # Express server and API routes
-├── vercel.json         # Vercel configuration
-├── package.json        # Node.js dependencies
-├── .env                # Environment variables (not in git, use placeholders)
-├── .env.example.txt    # Environment variables template
-└── README.md           # This file
+├── public/                 # Static frontend files
+│   ├── index.html         # Main HTML file with Convex config
+│   ├── app.js             # Frontend application logic
+│   ├── auth.js            # Authentication module
+│   ├── auth-ui.js         # Authentication UI components
+│   ├── styles.css         # Main styling
+│   ├── auth-styles.css    # Auth-specific styling
+│   └── lib/
+│       ├── convex-bridge.js  # Convex client wrapper
+│       ├── charts.js         # uPlot chart configurations
+│       ├── gauges.js         # Gauge components
+│       └── worker-bridge.js  # Web worker for data processing
+├── convex/                 # Convex backend
+│   ├── schema.ts          # Database schema
+│   ├── telemetry.ts       # Telemetry queries and mutations
+│   ├── sessions.ts        # Session management
+│   ├── users.ts           # User profile management
+│   ├── auth.ts            # Authentication functions
+│   └── http.ts            # HTTP endpoints (Ably token)
+├── backend/
+│   └── maindata.py        # Python bridge for ESP32/mock data
+├── vercel.json            # Vercel deployment configuration
+├── package.json           # Node.js dependencies
+└── README.md              # This file
 ```
 
-## API Endpoints
+## Convex Functions
 
-- `GET /api/health` - Health check endpoint
-- `GET /api/config` - Get frontend configuration (secure, from environment variables)
-- `GET /api/ably/token` - Get Ably authentication token
-- `GET /api/sessions` - List available telemetry sessions
-- `GET /api/sessions/:session_id/records` - Get records for a specific session
+### Queries (Real-time, Reactive)
+- `sessions:listSessions` - List all telemetry sessions
+- `telemetry:getSessionRecords` - Get all records for a session
+- `telemetry:getRecentRecords` - Get recent records with limit
+- `telemetry:getLatestRecord` - Get the most recent record
+- `users:getCurrentProfile` - Get current user's profile
+- `users:getAllUsers` - Get all users (admin only)
+
+### Mutations
+- `telemetry:insertTelemetryBatch` - Insert multiple telemetry records
+- `telemetry:deleteSession` - Delete all records for a session
+- `users:upsertProfile` - Create or update user profile
+- `users:updateUserRole` - Change user role (admin only)
+- `auth:signIn` - Sign in or sign up with email/password
+- `auth:signOut` - Sign out and invalidate session
+
+### HTTP Endpoints
+- `GET /ably/token` - Get Ably authentication token
+- `GET /health` - Health check endpoint
+
+## Deployment
+
+### Deploy to Vercel + Convex
+
+1. **Deploy Convex backend:**
+```bash
+npx convex deploy
+```
+
+2. **Deploy frontend to Vercel:**
+```bash
+vercel --prod
+```
+
+3. **Configure environment variables:**
+   - In Convex dashboard: Add `ABLY_API_KEY`
+   - Update `public/index.html` with production Convex URL
+
+For detailed instructions, see **[DEPLOYMENT.md](./DEPLOYMENT.md)**
+
+## Python Bridge
+
+The Python bridge (`backend/maindata.py`) connects to ESP32 sensors or generates mock data and publishes to both Ably (for real-time) and Convex (for persistence).
+
+### Setup
+```bash
+pip install convex ably numpy
+```
+
+### Configuration
+Edit the constants in `maindata.py`:
+```python
+CONVEX_URL = "https://your-project.convex.cloud"
+DASHBOARD_ABLY_API_KEY = "your-ably-api-key"
+DASHBOARD_CHANNEL_NAME = "telemetry-dashboard-channel"
+```
+
+### Running
+```bash
+python backend/maindata.py
+```
 
 ## Local Development
 
-Run the development server:
+1. Start Convex development server:
 ```bash
-npm run dev
+npx convex dev
 ```
 
-The server will start on port 5173 (or the port specified in your `.env` file).
-
-## Configuration
-
-### Secure Configuration Architecture
-
-The application uses a secure configuration system:
-
-1. **Environment Variables**: All secrets are stored in environment variables (`.env` for local, Vercel dashboard for production)
-2. **API Endpoint**: The `/api/config` endpoint serves safe-to-expose configuration from environment variables
-3. **Dynamic Loading**: Frontend fetches configuration from `/api/config` on startup
-4. **No Hardcoded Secrets**: No sensitive data is committed to the repository
-
-### Frontend Configuration
-
-Configuration is automatically fetched from `/api/config` endpoint. For local development with custom config:
-
-```javascript
-// Define this in index.html BEFORE app.js loads (optional override)
-window.CONFIG = {
-  ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
-  ABLY_AUTH_URL: "/api/ably/token",
-  SUPABASE_URL: "your_supabase_url",
-  SUPABASE_ANON_KEY: "your_supabase_anon_key"
-};
+2. Start Python bridge (optional, for mock data):
+```bash
+python backend/maindata.py
 ```
 
-**Note:** This is only needed for custom overrides. In normal operation, configuration is loaded automatically from `/api/config`.
+3. Serve the frontend:
+```bash
+npx serve public
+```
 
-### Backend Configuration
-
-Backend configuration is handled through environment variables in the `.env` file. See `.env.example.txt` for a template.
+4. Open `http://localhost:3000` in your browser
 
 ## Troubleshooting
 
-### Port Already in Use
-
-If port 5173 is already in use, change the `PORT` variable in your `.env` file:
-```env
-PORT=3000
-```
+### Convex Connection Issues
+- Verify `CONVEX_URL` in `public/index.html` is correct
+- Ensure `npx convex dev` is running for development
+- Check browser console for connection errors
 
 ### Ably Connection Issues
+- Verify `ABLY_API_KEY` is set correctly
+- Check Ably dashboard for account status
+- Ensure channel name matches between Python bridge and frontend
 
-Make sure your `ABLY_API_KEY` is correctly set in the `.env` file and that you have an active Ably account.
+### Data Not Appearing
+- Check Python bridge console for errors
+- Verify Convex deployment is running
+- Check Convex dashboard → Data tab to see if records exist
 
-### Supabase Connection Issues
-
-Verify that:
-1. Your `SUPABASE_URL` is correct
-2. Your `SUPABASE_SERVICE_ROLE` key is valid
-3. Your Supabase project has a `telemetry` table with the appropriate schema
+For more solutions, see **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)**
 
 ## License
 
@@ -264,4 +408,4 @@ This project is private and not licensed for public use.
 
 ## Support
 
-For questions or issues, please contact me at a01661298@tec.mx.
+For questions or issues, please contact a01661298@tec.mx.
