@@ -1154,8 +1154,6 @@
       return;
     }
 
-    console.log(`renderQualityScoreChart: rendering ${dataPoints.length} points, ${outlierPoints.length} outliers`);
-
     // Build series array
     const series = [
       // Main quality score line
