@@ -19,7 +19,7 @@ Convex provides several built-in security features:
 
 ```mermaid
 flowchart TB
-    subgraph ServerTrust["🔒 Server-Side Trust Boundary"]
+    subgraph ServerTrust["Server-Side Trust Boundary"]
         subgraph Convex["Convex Cloud"]
             EnvVars["Environment Variables<br/>ABLY_API_KEY (secret)"]
             PwdHash["Password Hashes<br/>SHA-256 + salt"]
