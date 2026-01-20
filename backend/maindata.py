@@ -60,7 +60,7 @@ CONVEX_DEPLOY_KEY = os.environ.get(
 
 # Timings
 MOCK_DATA_INTERVAL = 0.2  # seconds
-DB_BATCH_INTERVAL = 9.0  # seconds
+DB_BATCH_INTERVAL = 2.0  # seconds - reduced from 9s for better real-time sync (max gap ~2s)
 MAX_BATCH_SIZE = 200  # records per insert
 RETRY_BASE_BACKOFF = 3.0  # seconds
 RETRY_BACKOFF_MAX = 60.0  # seconds

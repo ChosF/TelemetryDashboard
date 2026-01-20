@@ -84,6 +84,66 @@ export const getLatestRecord = query({
 });
 
 /**
+ * Get the latest timestamp for a session - used for gap detection during real-time sync
+ * Returns the timestamp of the most recent record and total count
+ * This is critical for seamless merging of historical + real-time data
+ */
+export const getLatestSessionTimestamp = query({
+    args: { sessionId: v.string() },
+    handler: async (ctx, args) => {
+        const record = await ctx.db
+            .query("telemetry")
+            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+            .order("desc")
+            .first();
+        
+        if (!record) {
+            return { timestamp: null, recordCount: 0 };
+        }
+        
+        // Also get count for context
+        const allRecords = await ctx.db
+            .query("telemetry")
+            .withIndex("by_session", (q) => q.eq("session_id", args.sessionId))
+            .collect();
+        
+        return {
+            timestamp: record.timestamp,
+            recordCount: allRecords.length,
+            latestMessageId: record.message_id,
+        };
+    },
+});
+
+/**
+ * Get records after a specific timestamp for incremental loading
+ * This enables efficient gap-filling during real-time session join
+ */
+export const getRecordsAfterTimestamp = query({
+    args: {
+        sessionId: v.string(),
+        afterTimestamp: v.string(),
+        limit: v.optional(v.number()),
+    },
+    handler: async (ctx, args) => {
+        const limit = args.limit ?? 500;
+        const afterTime = new Date(args.afterTimestamp).getTime();
+        
+        // Get records ordered by timestamp ascending (oldest first)
+        const records = await ctx.db
+            .query("telemetry")
+            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+            .order("asc")
+            .collect();
+        
+        // Filter to only records after the specified timestamp
+        const filtered = records.filter(r => new Date(r.timestamp).getTime() > afterTime);
+        
+        return filtered.slice(0, limit);
+    },
+});
+
+/**
  * Batch insert mutation for telemetry data
  * Used by the Python bridge to insert multiple records at once
  */

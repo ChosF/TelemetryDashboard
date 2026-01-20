@@ -148,6 +148,48 @@ const ConvexBridge = (function () {
     }
 
     /**
+     * Get the latest timestamp for a session - used for gap detection
+     * @param {string} sessionId - Session UUID
+     * @returns {Promise<{timestamp: string|null, recordCount: number, latestMessageId: number|null}>}
+     */
+    async function getLatestSessionTimestamp(sessionId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+
+        try {
+            const result = await client.query('telemetry:getLatestSessionTimestamp', {
+                sessionId: sessionId
+            });
+            return result;
+        } catch (error) {
+            console.error('[ConvexBridge] getLatestSessionTimestamp failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get records after a specific timestamp for gap-filling
+     * @param {string} sessionId - Session UUID
+     * @param {string} afterTimestamp - ISO timestamp to filter from
+     * @param {number} limit - Max records to return
+     * @returns {Promise<Array>} Array of telemetry records
+     */
+    async function getRecordsAfterTimestamp(sessionId, afterTimestamp, limit = 500) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+
+        try {
+            const records = await client.query('telemetry:getRecordsAfterTimestamp', {
+                sessionId: sessionId,
+                afterTimestamp: afterTimestamp,
+                limit: limit
+            });
+            return records;
+        } catch (error) {
+            console.error('[ConvexBridge] getRecordsAfterTimestamp failed:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Subscribe to real-time updates for a session
      * Convex reactive queries automatically update when data changes
      * 
@@ -315,6 +357,8 @@ const ConvexBridge = (function () {
         getSessionRecords,
         getRecentRecords,
         getLatestRecord,
+        getLatestSessionTimestamp,
+        getRecordsAfterTimestamp,
         subscribeToSession,
         subscribeToRecentRecords,
         subscribeToSessions,

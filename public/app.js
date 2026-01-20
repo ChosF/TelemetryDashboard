@@ -211,7 +211,11 @@
     // Real-time session detection
     waitingForSession: false,  // True when connected to Ably but no active session detected
     // Convex subscription cleanup function
-    convexUnsubscribe: null
+    convexUnsubscribe: null,
+    // Gap-aware sync tracking
+    channelAttachTime: null,      // Timestamp when we attached to Ably channel
+    convexLatestTimestamp: null,  // Latest timestamp from Convex (for gap detection)
+    lastMergeStats: null          // Statistics from last merge operation
   };
 
   // FAB Menu Toggle
@@ -226,19 +230,39 @@
     }
   });
 
-  // Merge & dedupe
+  // Merge & dedupe for incremental real-time messages
+  // Uses timestamp + message_id as unique key to prevent duplicates
   function mergeTelemetry(existing, incoming) {
-    const keyOf = (r) =>
-      `${new Date(r.timestamp).getTime()}::${r.message_id || ""}`;
+    // Create unique key combining timestamp (ms precision) and message_id
+    const keyOf = (r) => {
+      const ts = new Date(r.timestamp).getTime();
+      const msgId = r.message_id ?? '';
+      return `${ts}::${msgId}`;
+    };
+    
+    // Build map from existing, then add/update with incoming
     const seen = new Map(existing.map((r) => [keyOf(r), r]));
-    for (const r of incoming) seen.set(keyOf(r), r);
+    for (const r of incoming) {
+      const key = keyOf(r);
+      // Prefer real data over interpolated
+      if (!seen.has(key) || (seen.get(key)._interpolated && !r._interpolated)) {
+        seen.set(key, r);
+      }
+    }
+    
+    // Sort by timestamp
     let out = Array.from(seen.values());
-    out.sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-    if (out.length > state.maxPoints)
+    out.sort((a, b) => {
+      const ta = new Date(a.timestamp).getTime();
+      const tb = new Date(b.timestamp).getTime();
+      return ta - tb;
+    });
+    
+    // Trim to maxPoints (keep most recent)
+    if (out.length > state.maxPoints) {
       out = out.slice(out.length - state.maxPoints);
+    }
+    
     return out;
   }
 
@@ -2145,12 +2169,22 @@
       realtime.connection.once("connected", resolve);
     });
 
-    const ch = realtime.channels.get(ABLY_CHANNEL_NAME);
+    // Use rewind to automatically get recent messages on attach (5 seconds window)
+    // This bridges the gap between Convex batch writes and real-time stream
+    const channelOptions = {
+      params: {
+        rewind: '5s'  // Get last 5 seconds of messages on attach
+      }
+    };
+    const ch = realtime.channels.get(ABLY_CHANNEL_NAME, channelOptions);
     state.ablyChannel = ch;
+    
+    // Track the exact time we attach for gap calculation
+    state.channelAttachTime = Date.now();
 
     // Subscribe IMMEDIATELY - messages will display instantly
     await ch.subscribe("telemetry_update", onTelemetryMessage);
-    console.log("📡 Subscribed — real-time messages will display immediately");
+    console.log("📡 Subscribed with 5s rewind — real-time messages display immediately");
     
     setStatus("✅ Connected — Waiting");
     state.sessionStartTime = Date.now();
@@ -2195,7 +2229,10 @@
 
   /**
    * Load historical data in background without blocking real-time display.
-   * Merges with existing telemetry when complete.
+   * Uses timestamp coordination to minimize gaps:
+   * 1. Get latest Convex timestamp to know where DB data ends
+   * 2. Fetch Ably history from that point (with overlap buffer)
+   * 3. Merge everything with gap detection and interpolation
    */
   async function loadHistoryInBackground(sessionId, channel) {
     if (historyLoaded || historyLoadPromise) return;
@@ -2207,24 +2244,65 @@
       try {
         const startTime = performance.now();
         
-        // Parallel fetch: Convex DB + Ably history (last 2 minutes)
-        const ablyStartTime = new Date(Date.now() - 120000);
+        // Step 1: Get Convex data and its latest timestamp for gap coordination
+        let convexData = [];
+        let convexLatestTs = null;
         
-        const [convexData, ablyData] = await Promise.all([
-          fetchConvexHistoryFast(sessionId),
-          fetchAblyHistoryFast(channel, sessionId, ablyStartTime)
-        ]);
+        if (convexEnabled && window.ConvexBridge) {
+          try {
+            // Parallel: Get session records AND latest timestamp
+            const [records, timestampInfo] = await Promise.all([
+              ConvexBridge.getSessionRecords(sessionId),
+              ConvexBridge.getLatestSessionTimestamp(sessionId)
+            ]);
+            
+            convexData = records || [];
+            convexLatestTs = timestampInfo?.timestamp;
+            
+            console.log(`📡 Convex: ${convexData.length} records, latest: ${convexLatestTs?.slice(0, 19) || 'none'}`);
+          } catch (e) {
+            console.warn('Convex fetch failed:', e);
+          }
+        }
+        
+        // Step 2: Calculate optimal Ably history window
+        // If we know Convex's latest timestamp, fetch from there (with 3s overlap buffer)
+        // Otherwise, fetch last 2 minutes to be safe
+        let ablyStartTime;
+        if (convexLatestTs) {
+          // Start 3 seconds before Convex's latest timestamp (overlap buffer)
+          const convexLatestMs = new Date(convexLatestTs).getTime();
+          ablyStartTime = new Date(convexLatestMs - 3000);  // 3s before Convex cutoff
+        } else {
+          // No Convex timestamp - fetch last 2 minutes
+          ablyStartTime = new Date(Date.now() - 120000);
+        }
+        
+        // Step 3: Fetch Ably history with untilAttach for seamless bridge
+        const ablyData = await fetchAblyHistoryFast(channel, sessionId, ablyStartTime);
         
         const loadTime = performance.now() - startTime;
-        console.log(`📡 History loaded in ${loadTime.toFixed(0)}ms (Convex: ${convexData.length}, Ably: ${ablyData.length})`);
         
-        // Merge historical data with current telemetry
+        // Calculate gap statistics for logging
+        let gapInfo = '';
+        if (convexLatestTs && state.telemetry.length > 0) {
+          const convexLatestMs = new Date(convexLatestTs).getTime();
+          const firstRealtimeTs = new Date(state.telemetry[0].timestamp).getTime();
+          const gapMs = firstRealtimeTs - convexLatestMs;
+          if (gapMs > 0) {
+            gapInfo = `, potential gap: ${(gapMs/1000).toFixed(2)}s`;
+          }
+        }
+        
+        console.log(`📡 History loaded in ${loadTime.toFixed(0)}ms (Convex: ${convexData.length}, Ably: ${ablyData.length}${gapInfo})`);
+        
+        // Step 4: Merge with gap-aware algorithm
         mergeHistoricalData(convexData, ablyData);
         historyLoaded = true;
         
         if (convexData.length > 0 && window.AuthUI?.showNotification) {
           window.AuthUI.showNotification(
-            `Loaded ${convexData.length} historical points`,
+            `Loaded ${convexData.length + ablyData.length} historical points`,
             'success',
             2000
           );
@@ -2239,12 +2317,21 @@
 
   /**
    * Fast Convex history fetch - optimized for speed
+   * Falls back gracefully if Convex is not available
    */
   async function fetchConvexHistoryFast(sessionId) {
-    if (!convexEnabled || !window.ConvexBridge) return [];
+    if (!convexEnabled || !window.ConvexBridge) {
+      console.log('📡 Convex not available, using Ably-only history');
+      return [];
+    }
     
     try {
+      const startFetch = performance.now();
       const records = await ConvexBridge.getSessionRecords(sessionId);
+      const fetchTime = performance.now() - startFetch;
+      
+      console.log(`📡 Convex fetch: ${records?.length || 0} records in ${fetchTime.toFixed(0)}ms`);
+      
       return records || [];
     } catch (e) {
       console.warn('Convex fetch failed:', e);
@@ -2253,37 +2340,63 @@
   }
 
   /**
-   * Fast Ably history fetch - uses untilAttach for seamless connection
+   * Fast Ably history fetch - uses untilAttach for seamless gap bridging
+   * This is critical for filling the gap between Convex batch writes and real-time
+   * 
+   * @param {Object} channel - Ably channel
+   * @param {string} sessionId - Session ID to filter messages
+   * @param {Date} startTime - Start time for history fetch
+   * @returns {Promise<Array>} Array of telemetry messages
    */
   async function fetchAblyHistoryFast(channel, sessionId, startTime) {
     if (!channel) return [];
     
     try {
-      // Ensure channel is attached
+      // Ensure channel is attached before fetching history
       if (channel.state !== 'attached') {
         await channel.attach();
       }
       
-      // Use untilAttach to bridge gap between history and real-time
+      // Use untilAttach to bridge gap between history and real-time subscription
+      // This ensures no messages are lost between history fetch and live stream
       const historyResult = await channel.history({
         start: startTime.getTime(),
-        untilAttach: true,
-        direction: 'forwards',
-        limit: 500
+        untilAttach: true,       // Critical: bridges gap to subscription point
+        direction: 'forwards',   // Oldest first for proper merging
+        limit: 1000              // Increased limit to capture more history
       });
       
       const messages = [];
+      const seenTimestamps = new Set();  // Dedupe within Ably results
+      
       for (const msg of historyResult.items || []) {
         if (msg.name === 'telemetry_update' && msg.data) {
           let data = msg.data;
           if (typeof data === 'string') {
             try { data = JSON.parse(data); } catch { continue; }
           }
+          
+          // Filter by session and dedupe
           if (data.session_id === sessionId) {
-            messages.push(data);
+            const ts = data.timestamp;
+            if (!seenTimestamps.has(ts)) {
+              seenTimestamps.add(ts);
+              // Add Ably message timestamp for debugging
+              data._ablyTimestamp = msg.timestamp;
+              messages.push(data);
+            }
           }
         }
       }
+      
+      // Sort by timestamp to ensure correct order
+      messages.sort((a, b) => {
+        const ta = new Date(a.timestamp).getTime();
+        const tb = new Date(b.timestamp).getTime();
+        return ta - tb;
+      });
+      
+      console.log(`📡 Ably history: ${messages.length} messages from ${startTime.toISOString().slice(11, 19)} to now`);
       
       return messages;
     } catch (e) {
@@ -2293,19 +2406,32 @@
   }
 
   /**
-   * Merge historical data with current telemetry (prepend older data)
+   * Gap-aware merge of historical data with current telemetry
+   * Implements interpolation for gaps under 0.8 seconds to ensure smooth visualization
+   * 
+   * Strategy:
+   * 1. Combine all data sources (Convex, Ably history, real-time)
+   * 2. Sort by timestamp
+   * 3. Detect gaps > 0.25s (data interval is 0.2s)
+   * 4. For gaps <= 0.8s: interpolate missing points
+   * 5. For gaps > 0.8s: log warning but don't interpolate (would be inaccurate)
    */
   function mergeHistoricalData(convexData, ablyData) {
+    const MAX_ACCEPTABLE_GAP_MS = 800;  // 0.8 seconds - max acceptable gap
+    const EXPECTED_INTERVAL_MS = 200;   // 0.2 seconds - expected data interval
+    const GAP_THRESHOLD_MS = 250;       // 0.25 seconds - threshold for gap detection
+    
     // Combine all sources
     const allHistorical = [...convexData, ...ablyData];
     
     if (allHistorical.length === 0) return;
     
-    // Create timestamp set of existing data for deduplication
-    const existingTimestamps = new Set(state.telemetry.map(t => t.timestamp));
+    // Create key-based deduplication (timestamp + message_id)
+    const keyOf = (r) => `${new Date(r.timestamp).getTime()}::${r.message_id || ''}`;
+    const existingKeys = new Set(state.telemetry.map(keyOf));
     
     // Filter to only new historical data
-    const newHistorical = allHistorical.filter(d => !existingTimestamps.has(d.timestamp));
+    const newHistorical = allHistorical.filter(d => !existingKeys.has(keyOf(d)));
     
     if (newHistorical.length === 0) return;
     
@@ -2313,28 +2439,147 @@
     const processed = withDerived(newHistorical);
     const merged = [...processed, ...state.telemetry];
     
-    // Sort by timestamp
+    // Sort by timestamp (numeric for accuracy)
     merged.sort((a, b) => {
       const ta = new Date(a.timestamp).getTime();
       const tb = new Date(b.timestamp).getTime();
       return ta - tb;
     });
     
-    // Deduplicate (keep first occurrence)
-    const seen = new Set();
-    const deduped = merged.filter(d => {
-      if (seen.has(d.timestamp)) return false;
-      seen.add(d.timestamp);
+    // Deduplicate (keep first occurrence, use key-based dedup)
+    const seenKeys = new Set();
+    let deduped = merged.filter(d => {
+      const key = keyOf(d);
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
       return true;
     });
     
+    // Gap detection and interpolation
+    const interpolated = [];
+    let totalGapsDetected = 0;
+    let totalPointsInterpolated = 0;
+    let maxGapMs = 0;
+    
+    for (let i = 0; i < deduped.length; i++) {
+      interpolated.push(deduped[i]);
+      
+      if (i < deduped.length - 1) {
+        const t1 = new Date(deduped[i].timestamp).getTime();
+        const t2 = new Date(deduped[i + 1].timestamp).getTime();
+        const gapMs = t2 - t1;
+        
+        maxGapMs = Math.max(maxGapMs, gapMs);
+        
+        // Detect gap (more than expected interval + tolerance)
+        if (gapMs > GAP_THRESHOLD_MS) {
+          totalGapsDetected++;
+          
+          // Interpolate if gap is small enough to be accurate
+          if (gapMs <= MAX_ACCEPTABLE_GAP_MS) {
+            const pointsToAdd = Math.floor(gapMs / EXPECTED_INTERVAL_MS) - 1;
+            
+            if (pointsToAdd > 0 && pointsToAdd <= 4) {  // Max 4 interpolated points
+              const d1 = deduped[i];
+              const d2 = deduped[i + 1];
+              
+              for (let j = 1; j <= pointsToAdd; j++) {
+                const ratio = j / (pointsToAdd + 1);
+                const interpTs = new Date(t1 + gapMs * ratio).toISOString();
+                
+                // Linear interpolation for all numeric fields
+                const interpPoint = interpolateDataPoint(d1, d2, ratio, interpTs);
+                interpPoint._interpolated = true;  // Mark as interpolated
+                interpolated.push(interpPoint);
+                totalPointsInterpolated++;
+              }
+            }
+          } else {
+            // Gap too large - log but don't interpolate
+            console.warn(`⚠️ Large gap detected: ${(gapMs/1000).toFixed(2)}s between points`);
+          }
+        }
+      }
+    }
+    
+    // Re-sort after adding interpolated points
+    if (totalPointsInterpolated > 0) {
+      interpolated.sort((a, b) => {
+        const ta = new Date(a.timestamp).getTime();
+        const tb = new Date(b.timestamp).getTime();
+        return ta - tb;
+      });
+    }
+    
     // Trim to maxPoints
-    state.telemetry = deduped.slice(-state.maxPoints);
+    state.telemetry = interpolated.slice(-state.maxPoints);
     state.msgCount = state.telemetry.length;
     if (statMsg) statMsg.textContent = String(state.msgCount);
     
-    console.log(`📡 Merged ${newHistorical.length} historical points (total: ${state.telemetry.length})`);
+    // Log merge statistics
+    const stats = {
+      newPoints: newHistorical.length,
+      gapsDetected: totalGapsDetected,
+      pointsInterpolated: totalPointsInterpolated,
+      maxGapMs: maxGapMs,
+      totalPoints: state.telemetry.length
+    };
+    
+    console.log(`📡 Gap-aware merge: ${stats.newPoints} new, ${stats.pointsInterpolated} interpolated, max gap: ${(stats.maxGapMs/1000).toFixed(2)}s (total: ${stats.totalPoints})`);
+    
+    // Show notification if significant interpolation occurred
+    if (totalPointsInterpolated > 5 && window.AuthUI?.showNotification) {
+      window.AuthUI.showNotification(
+        `Filled ${totalPointsInterpolated} data points (max gap: ${(maxGapMs/1000).toFixed(2)}s)`,
+        maxGapMs > MAX_ACCEPTABLE_GAP_MS ? 'warning' : 'success',
+        3000
+      );
+    }
+    
     scheduleRender();
+  }
+  
+  /**
+   * Linear interpolation between two data points
+   * @param {Object} d1 - First data point
+   * @param {Object} d2 - Second data point
+   * @param {number} ratio - Interpolation ratio (0 to 1)
+   * @param {string} timestamp - ISO timestamp for interpolated point
+   * @returns {Object} Interpolated data point
+   */
+  function interpolateDataPoint(d1, d2, ratio, timestamp) {
+    const lerp = (a, b, t) => {
+      const va = toNum(a, null);
+      const vb = toNum(b, null);
+      if (va === null || vb === null) return va ?? vb ?? 0;
+      return va + (vb - va) * t;
+    };
+    
+    // Fields to interpolate
+    const numericFields = [
+      'speed_ms', 'voltage_v', 'current_a', 'power_w', 'energy_j', 'distance_m',
+      'latitude', 'longitude', 'altitude', 'altitude_m',
+      'gyro_x', 'gyro_y', 'gyro_z',
+      'accel_x', 'accel_y', 'accel_z', 'total_acceleration',
+      'throttle_pct', 'brake_pct', 'throttle', 'brake',
+      'g_long', 'g_lat', 'g_total', 'roll_deg', 'pitch_deg'
+    ];
+    
+    const result = {
+      timestamp: timestamp,
+      session_id: d1.session_id || d2.session_id,
+      session_name: d1.session_name || d2.session_name,
+      data_source: 'INTERPOLATED',
+      message_id: null,  // No message ID for interpolated points
+    };
+    
+    for (const field of numericFields) {
+      if (field in d1 || field in d2) {
+        result[field] = lerp(d1[field], d2[field], ratio);
+      }
+    }
+    
+    return result;
   }
 
   // Legacy compatibility - these are now no-ops or simplified
