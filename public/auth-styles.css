@@ -972,21 +972,21 @@
 
 .approval-banner {
   position: fixed;
-  top: 0;
+  bottom: 0;
   left: 0;
   right: 0;
   z-index: 1000;
   padding: var(--space-3) var(--space-6);
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(245, 158, 11, 0.12) 100%);
-  border-bottom: 1px solid rgba(245, 158, 11, 0.25);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.25) 0%, rgba(245, 158, 11, 0.22) 100%);
+  border-top: 1px solid rgba(245, 158, 11, 0.35);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   animation: bannerSlideIn 0.4s var(--ease-out);
 }
 
 @keyframes bannerSlideIn {
   from {
-    transform: translateY(-100%);
+    transform: translateY(100%);
     opacity: 0;
   }
   to {
@@ -1005,7 +1005,7 @@
     opacity: 1;
   }
   to {
-    transform: translateY(-100%);
+    transform: translateY(100%);
     opacity: 0;
   }
 }
