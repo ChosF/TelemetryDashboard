@@ -2097,25 +2097,25 @@
   }
 
   // Ably realtime
-  // Buffer for real-time messages during initial load
-  let realtimeBuffer = [];
-  let isBufferingRealtime = false;
+  // OPTIMIZED: No buffering - messages display immediately, history loads in background
+  let historyLoadPromise = null;
+  let historyLoaded = false;
 
   async function connectRealtime() {
     if (state.isConnected) return;
 
-    // IMMEDIATELY clear all data and render blank charts
-    // This ensures historical session data is cleared when switching to real-time
+    // Clear state for fresh connection
     state.telemetry = [];
     state.currentSessionId = null;
     state.msgCount = 0;
+    state.waitingForSession = true;
+    historyLoaded = false;
+    historyLoadPromise = null;
     if (statMsg) statMsg.textContent = "0";
-
-    // Render blank charts immediately
     scheduleRender();
 
     try {
-      setStatus("⏳ Loading Ably...");
+      setStatus("⏳ Connecting...");
       await ensureAblyLoaded();
     } catch (e) {
       setStatus("❌ Ably library missing");
@@ -2132,7 +2132,6 @@
     realtime.connection.on((change) => {
       if (change.current === "connected") {
         state.isConnected = true;
-        // Don't set status here - let triangulation set it
       } else if (change.current === "disconnected") {
         state.isConnected = false;
         setStatus("❌ Disconnected");
@@ -2149,169 +2148,210 @@
     const ch = realtime.channels.get(ABLY_CHANNEL_NAME);
     state.ablyChannel = ch;
 
-    // Start buffering real-time messages BEFORE subscribing
-    // This captures all messages during history loading to prevent gaps
-    realtimeBuffer = [];
-    isBufferingRealtime = true;
-
-    // FIRST: Subscribe to real-time messages (they'll be buffered)
-    // We need to subscribe BEFORE loading history to capture any messages
-    // that arrive between the end of historical data and now
+    // Subscribe IMMEDIATELY - messages will display instantly
     await ch.subscribe("telemetry_update", onTelemetryMessage);
-    console.log("📡 Subscribed to Ably channel, buffering messages...");
-
-    // THEN: Load historical data from Convex
-    await loadSessionHistoryFromConvex(ch);
-
-    // NOW: Merge buffered messages with historical data
-    // Stop buffering and process any messages that arrived during history loading
-    isBufferingRealtime = false;
+    console.log("📡 Subscribed — real-time messages will display immediately");
+    
+    setStatus("✅ Connected — Waiting");
+    state.sessionStartTime = Date.now();
+    state.lastMsgTs = null;
+    state.reconnectCount = 0;
     initialTriangulationDone = true;
+    
+    // Try to get session from Ably history (very fast, ~50ms)
+    // This helps us load historical data faster if there's recent activity
+    tryLoadHistoryFromAbly(ch);
+  }
 
-    if (realtimeBuffer.length > 0) {
-      console.log(`📡 Merging ${realtimeBuffer.length} buffered messages with historical data`);
+  /**
+   * Try to quickly determine session ID from Ably history and load historical data.
+   * This runs in background - doesn't block real-time message display.
+   */
+  async function tryLoadHistoryFromAbly(channel) {
+    try {
+      // Quick check: get last message from Ably history
+      const quickHistory = await channel.history({ limit: 1, direction: 'backwards' });
       
-      // Get existing timestamps for deduplication
-      const existingTimestamps = new Set(state.telemetry.map(t => t.timestamp));
-      
-      // Only add messages that aren't already in historical data
-      let newCount = 0;
-      for (const data of realtimeBuffer) {
-        if (!existingTimestamps.has(data.timestamp)) {
-          const processed = withDerived([data])[0];
-          state.telemetry.push(processed);
-          newCount++;
+      if (quickHistory.items?.[0]?.data) {
+        let data = quickHistory.items[0].data;
+        if (typeof data === 'string') data = JSON.parse(data);
+        
+        const sessionId = data.session_id;
+        const lastMsgTime = quickHistory.items[0].timestamp || Date.now();
+        const ageMs = Date.now() - lastMsgTime;
+        
+        // Only load history if message is recent (within 60 seconds)
+        if (sessionId && ageMs < 60000) {
+          console.log(`📡 Found recent session ${sessionId.slice(0, 8)} (${Math.round(ageMs/1000)}s ago), loading history...`);
+          loadHistoryInBackground(sessionId, channel);
+        } else {
+          console.log('📡 No recent session activity, waiting for real-time data');
         }
       }
-      
-      // Sort by timestamp to maintain order
-      state.telemetry.sort((a, b) => {
-        const ta = new Date(a.timestamp).getTime();
-        const tb = new Date(b.timestamp).getTime();
-        return ta - tb;
-      });
-      
-      // Trim if over maxPoints
-      if (state.telemetry.length > state.maxPoints) {
-        state.telemetry = state.telemetry.slice(-state.maxPoints);
-      }
-      
-      state.msgCount = state.telemetry.length;
-      if (statMsg) statMsg.textContent = String(state.msgCount);
-      
-      if (newCount > 0) {
-        console.log(`📡 Added ${newCount} new messages (${realtimeBuffer.length - newCount} duplicates filtered)`);
-      }
-      
-      realtimeBuffer = [];
-      scheduleRender();
+    } catch (e) {
+      console.log('📡 Could not check Ably history:', e.message);
     }
   }
 
   /**
-   * Load session history from Convex before real-time messages start flowing.
-   * This ensures the dashboard shows historical data when connecting to an active session.
+   * Load historical data in background without blocking real-time display.
+   * Merges with existing telemetry when complete.
    */
-  /**
-   * Wait for active session - only load historical data if real-time messages arrive.
-   * This prevents loading old session data when pressing connect.
-   */
-  async function waitForActiveSession() {
-    return new Promise((resolve) => {
-      const WAIT_TIMEOUT_MS = 3000; // Wait up to 3 seconds for data
-      
-      setStatus("✅ Connected — Waiting for data...");
-      console.log('📡 Waiting for real-time data to determine active session...');
-      
-      // Check if we received any buffered messages during this time
-      const checkInterval = setInterval(() => {
-        if (realtimeBuffer.length > 0) {
-          clearInterval(checkInterval);
-          clearTimeout(timeout);
-          const sessionId = realtimeBuffer[0].session_id;
-          console.log(`📡 Real-time data detected! Session: ${sessionId?.slice(0, 8)}`);
-          resolve(sessionId);
+  async function loadHistoryInBackground(sessionId, channel) {
+    if (historyLoaded || historyLoadPromise) return;
+    
+    state.currentSessionId = sessionId;
+    state.waitingForSession = false;
+    
+    historyLoadPromise = (async () => {
+      try {
+        const startTime = performance.now();
+        
+        // Parallel fetch: Convex DB + Ably history (last 2 minutes)
+        const ablyStartTime = new Date(Date.now() - 120000);
+        
+        const [convexData, ablyData] = await Promise.all([
+          fetchConvexHistoryFast(sessionId),
+          fetchAblyHistoryFast(channel, sessionId, ablyStartTime)
+        ]);
+        
+        const loadTime = performance.now() - startTime;
+        console.log(`📡 History loaded in ${loadTime.toFixed(0)}ms (Convex: ${convexData.length}, Ably: ${ablyData.length})`);
+        
+        // Merge historical data with current telemetry
+        mergeHistoricalData(convexData, ablyData);
+        historyLoaded = true;
+        
+        if (convexData.length > 0 && window.AuthUI?.showNotification) {
+          window.AuthUI.showNotification(
+            `Loaded ${convexData.length} historical points`,
+            'success',
+            2000
+          );
         }
-      }, 100);
-      
-      // Timeout if no data arrives
-      const timeout = setTimeout(() => {
-        clearInterval(checkInterval);
-        console.log('📡 No real-time data received, waiting for data stream...');
-        state.waitingForSession = true;
-        resolve(null);
-      }, WAIT_TIMEOUT_MS);
-    });
+      } catch (e) {
+        console.warn('⚠️ Background history load failed:', e);
+      }
+    })();
+    
+    return historyLoadPromise;
   }
 
   /**
-   * Load historical data for a session from Convex.
-   * Only called when we have confirmed an active session.
+   * Fast Convex history fetch - optimized for speed
    */
-  async function loadSessionHistory(sessionId) {
-    if (!sessionId || !convexEnabled || !window.ConvexBridge) {
-      return [];
-    }
+  async function fetchConvexHistoryFast(sessionId) {
+    if (!convexEnabled || !window.ConvexBridge) return [];
     
     try {
-      console.log(`📡 Loading historical data for session ${sessionId.slice(0, 8)}...`);
-      setStatus("⏳ Loading session history...");
-      const historicalData = await ConvexBridge.getSessionRecords(sessionId);
-      console.log(`✅ Loaded ${historicalData.length} historical records from Convex`);
-      return historicalData;
+      const records = await ConvexBridge.getSessionRecords(sessionId);
+      return records || [];
     } catch (e) {
-      console.warn('⚠️ Failed to load historical data:', e);
+      console.warn('Convex fetch failed:', e);
       return [];
     }
+  }
+
+  /**
+   * Fast Ably history fetch - uses untilAttach for seamless connection
+   */
+  async function fetchAblyHistoryFast(channel, sessionId, startTime) {
+    if (!channel) return [];
+    
+    try {
+      // Ensure channel is attached
+      if (channel.state !== 'attached') {
+        await channel.attach();
+      }
+      
+      // Use untilAttach to bridge gap between history and real-time
+      const historyResult = await channel.history({
+        start: startTime.getTime(),
+        untilAttach: true,
+        direction: 'forwards',
+        limit: 500
+      });
+      
+      const messages = [];
+      for (const msg of historyResult.items || []) {
+        if (msg.name === 'telemetry_update' && msg.data) {
+          let data = msg.data;
+          if (typeof data === 'string') {
+            try { data = JSON.parse(data); } catch { continue; }
+          }
+          if (data.session_id === sessionId) {
+            messages.push(data);
+          }
+        }
+      }
+      
+      return messages;
+    } catch (e) {
+      console.warn('Ably history fetch failed:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Merge historical data with current telemetry (prepend older data)
+   */
+  function mergeHistoricalData(convexData, ablyData) {
+    // Combine all sources
+    const allHistorical = [...convexData, ...ablyData];
+    
+    if (allHistorical.length === 0) return;
+    
+    // Create timestamp set of existing data for deduplication
+    const existingTimestamps = new Set(state.telemetry.map(t => t.timestamp));
+    
+    // Filter to only new historical data
+    const newHistorical = allHistorical.filter(d => !existingTimestamps.has(d.timestamp));
+    
+    if (newHistorical.length === 0) return;
+    
+    // Process and merge
+    const processed = withDerived(newHistorical);
+    const merged = [...processed, ...state.telemetry];
+    
+    // Sort by timestamp
+    merged.sort((a, b) => {
+      const ta = new Date(a.timestamp).getTime();
+      const tb = new Date(b.timestamp).getTime();
+      return ta - tb;
+    });
+    
+    // Deduplicate (keep first occurrence)
+    const seen = new Set();
+    const deduped = merged.filter(d => {
+      if (seen.has(d.timestamp)) return false;
+      seen.add(d.timestamp);
+      return true;
+    });
+    
+    // Trim to maxPoints
+    state.telemetry = deduped.slice(-state.maxPoints);
+    state.msgCount = state.telemetry.length;
+    if (statMsg) statMsg.textContent = String(state.msgCount);
+    
+    console.log(`📡 Merged ${newHistorical.length} historical points (total: ${state.telemetry.length})`);
+    scheduleRender();
+  }
+
+  // Legacy compatibility - these are now no-ops or simplified
+  let realtimeBuffer = []; // Kept for compatibility but unused
+  let isBufferingRealtime = false; // Always false now
+
+  async function waitForActiveSession() {
+    // No longer needed - we display immediately
+    return state.currentSessionId;
+  }
+
+  async function loadSessionHistory(sessionId) {
+    return fetchConvexHistoryFast(sessionId);
   }
 
   async function loadSessionHistoryFromConvex(ablyChannel) {
-    try {
-      // Wait for real-time data to arrive - this determines if there's an active session
-      const activeSessionId = await waitForActiveSession();
-
-      if (!activeSessionId) {
-        // No active session - just waiting for data to begin
-        setStatus("✅ Connected — Waiting");
-        if (window.AuthUI?.showNotification) {
-          window.AuthUI.showNotification(
-            'Connected to real-time — waiting for data stream to begin.',
-            'info',
-            6000
-          );
-        }
-        return;
-      }
-
-      // Active session detected - load historical data
-      state.waitingForSession = false;
-      state.currentSessionId = activeSessionId;
-      
-      const historicalData = await loadSessionHistory(activeSessionId);
-
-      if (historicalData.length > 0) {
-        // Sort by timestamp
-        historicalData.sort((a, b) => {
-          const ta = new Date(a.timestamp).getTime();
-          const tb = new Date(b.timestamp).getTime();
-          return ta - tb;
-        });
-
-        // Process and set as initial telemetry
-        const processed = withDerived(historicalData);
-        state.telemetry = processed;
-        state.msgCount = processed.length;
-        if (statMsg) statMsg.textContent = String(state.msgCount);
-        scheduleRender();
-
-        setStatus("✅ Connected");
-        if (window.AuthUI?.showNotification) {
-          window.AuthUI.showNotification(
-            `Connected — loaded ${historicalData.length} historical points.`,
-            'success',
-            4000
-          );
-        }
+    // Legacy - now handled by tryLoadHistoryFromAbly
       } else {
         setStatus("✅ Connected");
         if (window.AuthUI?.showNotification) {
@@ -2921,79 +2961,32 @@
       const data =
         typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data;
 
-      // Buffer messages during initial triangulation
-      if (isBufferingRealtime) {
-        realtimeBuffer.push(data);
-        state.lastMsgTs = new Date();
-        statLast.textContent = "0s ago";
-        return;
-      }
-
-      // Handle transition from "waiting for session" to receiving data
       const incomingSessionId = data.session_id;
-      
-      if (state.waitingForSession) {
-        state.waitingForSession = false;
-        setStatus("⏳ Loading session...");
-        console.log(`📊 Session started — receiving data for ${incomingSessionId?.slice(0, 8)}`);
-        
-        // Load historical data for this session (async, don't block)
-        if (incomingSessionId && convexEnabled && window.ConvexBridge) {
-          state.currentSessionId = incomingSessionId;
-          loadSessionHistory(incomingSessionId).then(historicalData => {
-            if (historicalData.length > 0) {
-              // Sort historical data
-              historicalData.sort((a, b) => {
-                const ta = new Date(a.timestamp).getTime();
-                const tb = new Date(b.timestamp).getTime();
-                return ta - tb;
-              });
-              
-              // Merge with any data already received
-              const processed = withDerived(historicalData);
-              const existingTimestamps = new Set(state.telemetry.map(t => t.timestamp));
-              
-              // Prepend historical data (older than current)
-              const newHistorical = processed.filter(h => !existingTimestamps.has(h.timestamp));
-              state.telemetry = [...newHistorical, ...state.telemetry];
-              
-              // Sort combined data
-              state.telemetry.sort((a, b) => {
-                const ta = new Date(a.timestamp).getTime();
-                const tb = new Date(b.timestamp).getTime();
-                return ta - tb;
-              });
-              
-              // Trim if over max
-              if (state.telemetry.length > state.maxPoints) {
-                state.telemetry = state.telemetry.slice(-state.maxPoints);
-              }
-              
-              state.msgCount = state.telemetry.length;
-              if (statMsg) statMsg.textContent = String(state.msgCount);
-              
-              console.log(`✅ Merged ${newHistorical.length} historical + ${state.telemetry.length - newHistorical.length} recent records`);
-              scheduleRender();
-            }
-            setStatus("✅ Connected");
-          }).catch(e => {
-            console.warn('⚠️ Failed to load history on first message:', e);
-            setStatus("✅ Connected");
-          });
-        }
 
-        if (window.AuthUI?.showNotification) {
-          window.AuthUI.showNotification(
-            'Realtime session started — receiving data.',
-            'success',
-            3000
-          );
+      // FIRST MESSAGE: Transition from waiting to receiving
+      if (state.waitingForSession && incomingSessionId) {
+        state.waitingForSession = false;
+        setStatus("✅ Connected");
+        console.log(`📊 First message received — session ${incomingSessionId?.slice(0, 8)}`);
+        
+        // Trigger background history load if not already loading
+        if (!historyLoaded && !historyLoadPromise && state.ablyChannel) {
+          loadHistoryInBackground(incomingSessionId, state.ablyChannel);
         }
       }
 
-      // Track current session ID
-      if (incomingSessionId && state.currentSessionId !== incomingSessionId) {
-        console.log(`📊 Session ID changed: ${incomingSessionId.slice(0, 8)}`);
+      // Check for session change
+      if (incomingSessionId && state.currentSessionId && incomingSessionId !== state.currentSessionId) {
+        console.log(`📊 Session changed: ${state.currentSessionId?.slice(0, 8)} → ${incomingSessionId?.slice(0, 8)}`);
+        state.currentSessionId = incomingSessionId;
+        // Reset for new session
+        state.telemetry = [];
+        historyLoaded = false;
+        historyLoadPromise = null;
+        if (state.ablyChannel) {
+          loadHistoryInBackground(incomingSessionId, state.ablyChannel);
+        }
+      } else if (!state.currentSessionId && incomingSessionId) {
         state.currentSessionId = incomingSessionId;
       }
 
