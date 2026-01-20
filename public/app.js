@@ -42,6 +42,20 @@
   const ABLY_API_KEY = cfg.ABLY_API_KEY || null;
   const SUPABASE_URL = cfg.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
+  const CONVEX_URL = cfg.CONVEX_URL || window.CONFIG?.CONVEX_URL || "";
+
+  // Initialize Convex client if available
+  let convexEnabled = false;
+  if (CONVEX_URL && window.ConvexBridge) {
+    try {
+      convexEnabled = await ConvexBridge.init(CONVEX_URL);
+      if (convexEnabled) {
+        console.log("✅ Convex client initialized");
+      }
+    } catch (e) {
+      console.error("❌ Failed to initialize Convex:", e);
+    }
+  }
 
   // Shortcuts & Utilities
   const el = (id) => document.getElementById(id);
@@ -197,7 +211,9 @@
       noSession: 0       // Timestamp of last "no session" notification
     },
     // Real-time session detection
-    waitingForSession: false  // True when connected to Ably but no active session detected
+    waitingForSession: false,  // True when connected to Ably but no active session detected
+    // Convex subscription cleanup function
+    convexUnsubscribe: null
   };
 
   // FAB Menu Toggle
@@ -1021,7 +1037,7 @@
           `;
         }
         timelineItems.innerHTML = html;
-        
+
         // Check if fields grid has 2 rows and adjust timeline height accordingly
         // Use setTimeout to ensure DOM is updated before checking layout
         setTimeout(() => {
@@ -1031,14 +1047,14 @@
             const gridStyle = window.getComputedStyle(fieldGrid);
             const gridTemplateColumns = gridStyle.gridTemplateColumns;
             const columns = gridTemplateColumns.split(' ').length;
-            
+
             // Get all field items
             const fieldItems = fieldGrid.querySelectorAll('.outlier-field-item');
             const totalItems = fieldItems.length;
-            
+
             // Calculate number of rows (ceiling division)
             const rows = Math.ceil(totalItems / columns);
-            
+
             // If 2 or more rows, show only 1 timeline item; otherwise show 2
             if (rows >= 2) {
               timelineItems.classList.add('single-item');
@@ -2012,22 +2028,50 @@
     a.click();
   }
 
-  // Sessions
+  // Sessions - use Convex when available, fallback to Express API
   async function fetchSessions() {
+    // Try Convex first
+    if (convexEnabled && window.ConvexBridge) {
+      try {
+        const result = await ConvexBridge.listSessions();
+        return result; // Returns { sessions: [...], scanned_rows: N }
+      } catch (e) {
+        console.warn("Convex fetchSessions failed, falling back to Express:", e);
+      }
+    }
+    // Fallback to Express API
     const r = await fetch("/api/sessions");
     if (!r.ok) throw new Error("Failed to fetch sessions");
     return r.json();
   }
+
   async function fetchSessionPage(sessionId, offset, limit) {
+    // Convex doesn't use offset/limit pagination in the same way
+    // For paginated access, we use the full session fetch with Convex
     const r = await fetch(
-      `/api/sessions/${encodeURIComponent(
-        sessionId
-      )}/records?offset=${offset}&limit=${limit}`
+      `/api/sessions/${encodeURIComponent(sessionId)}/records?offset=${offset}&limit=${limit}`
     );
     if (!r.ok) throw new Error("Failed to fetch records");
     return r.json();
   }
+
   async function loadFullSession(sessionId) {
+    // Try Convex first - it loads all records at once (reactive query)
+    if (convexEnabled && window.ConvexBridge) {
+      try {
+        console.log(`📡 Loading session ${sessionId.slice(0, 8)}... via Convex`);
+        const records = await ConvexBridge.getSessionRecords(sessionId);
+        if (records && records.length > 0) {
+          const processed = withDerived(records);
+          console.log(`✅ Loaded ${processed.length} records from Convex`);
+          return processed;
+        }
+      } catch (e) {
+        console.warn("Convex loadFullSession failed, falling back to Express:", e);
+      }
+    }
+
+    // Fallback to Express API with pagination
     const pageSize = 1000;
     let offset = 0;
     let merged = [];
@@ -2068,12 +2112,12 @@
     state.currentSessionId = null;
     state.msgCount = 0;
     if (statMsg) statMsg.textContent = "0";
-    
+
     // Reset DataTriangulator state
     if (window.DataTriangulator) {
       DataTriangulator.reset();
     }
-    
+
     // Render blank charts immediately
     scheduleRender();
 
@@ -2194,10 +2238,10 @@
 
       // Process any buffered messages that arrived during setup
       if (realtimeBuffer.length > 0) {
-        const bufferedForSession = sessionId 
+        const bufferedForSession = sessionId
           ? realtimeBuffer.filter(d => d.session_id === sessionId)
           : realtimeBuffer;
-        
+
         if (bufferedForSession.length > 0) {
           const processed = withDerived(bufferedForSession);
           state.telemetry = processed;
@@ -2345,9 +2389,20 @@
   }
 
   /**
-   * Fetch session data from Supabase (paginated)
+   * Fetch session data from database (Convex or Express API fallback)
    */
   async function fetchSupabaseSessionData(sessionId) {
+    // Try Convex first
+    if (convexEnabled && window.ConvexBridge) {
+      try {
+        const records = await ConvexBridge.getSessionRecords(sessionId);
+        return records || [];
+      } catch (e) {
+        console.warn("Convex fetch failed, falling back to Express:", e);
+      }
+    }
+
+    // Fallback to Express API
     const allRows = [];
     const pageSize = 1000;
     let offset = 0;
@@ -2529,6 +2584,7 @@
   }
   async function disconnectRealtime() {
     try {
+      // Clean up Ably connections
       if (state.ablyChannel) {
         await state.ablyChannel.unsubscribe();
         state.ablyChannel = null;
@@ -2536,6 +2592,12 @@
       if (state.ablyRealtime) {
         await state.ablyRealtime.close();
         state.ablyRealtime = null;
+      }
+
+      // Clean up Convex subscription
+      if (state.convexUnsubscribe) {
+        state.convexUnsubscribe();
+        state.convexUnsubscribe = null;
       }
     } catch { }
     state.isConnected = false;
