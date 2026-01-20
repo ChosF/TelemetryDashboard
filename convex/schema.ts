@@ -1,7 +1,11 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 
 export default defineSchema({
+  // Convex Auth tables (users, sessions, accounts, etc.)
+  ...authTables,
+
   // Telemetry data table - stores all vehicle sensor data
   telemetry: defineTable({
     session_id: v.string(),
@@ -35,10 +39,11 @@ export default defineSchema({
     .index("by_session", ["session_id"])
     .index("by_session_timestamp", ["session_id", "timestamp"]),
 
-  // User profiles table - manages user roles and approval status
+  // User profiles table - extends auth users with app-specific data
   user_profiles: defineTable({
-    user_id: v.string(), // Auth provider user ID
+    userId: v.id("users"), // Reference to Convex Auth users table
     email: v.string(),
+    name: v.optional(v.string()),
     role: v.union(
       v.literal("guest"),
       v.literal("external"),
@@ -52,7 +57,7 @@ export default defineSchema({
       v.literal("rejected")
     ),
   })
-    .index("by_user_id", ["user_id"])
+    .index("by_userId", ["userId"])
     .index("by_email", ["email"])
     .index("by_approval_status", ["approval_status"]),
 });

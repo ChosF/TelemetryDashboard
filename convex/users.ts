@@ -1,15 +1,33 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 /**
- * Get user profile by user_id
+ * Get current authenticated user's profile
+ */
+export const getCurrentProfile = query({
+    args: {},
+    handler: async (ctx) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) return null;
+
+        const profile = await ctx.db
+            .query("user_profiles")
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
+            .first();
+        return profile;
+    },
+});
+
+/**
+ * Get user profile by userId
  */
 export const getProfile = query({
-    args: { userId: v.string() },
+    args: { userId: v.id("users") },
     handler: async (ctx, args) => {
         const profile = await ctx.db
             .query("user_profiles")
-            .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+            .withIndex("by_userId", (q) => q.eq("userId", args.userId))
             .first();
         return profile;
     },
@@ -35,6 +53,19 @@ export const getProfileByEmail = query({
 export const getAllUsers = query({
     args: {},
     handler: async (ctx) => {
+        // Check if current user is admin
+        const userId = await getAuthUserId(ctx);
+        if (!userId) return [];
+
+        const currentProfile = await ctx.db
+            .query("user_profiles")
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
+            .first();
+
+        if (currentProfile?.role !== "admin") {
+            return [];
+        }
+
         const profiles = await ctx.db.query("user_profiles").collect();
         return profiles;
     },
@@ -46,6 +77,19 @@ export const getAllUsers = query({
 export const getPendingUsers = query({
     args: {},
     handler: async (ctx) => {
+        // Check if current user is admin
+        const userId = await getAuthUserId(ctx);
+        if (!userId) return [];
+
+        const currentProfile = await ctx.db
+            .query("user_profiles")
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
+            .first();
+
+        if (currentProfile?.role !== "admin") {
+            return [];
+        }
+
         const profiles = await ctx.db
             .query("user_profiles")
             .withIndex("by_approval_status", (q) => q.eq("approval_status", "pending"))
@@ -55,13 +99,13 @@ export const getPendingUsers = query({
 });
 
 /**
- * Create or update user profile
+ * Create or update user profile after authentication
  * Called when a user signs up or signs in
  */
 export const upsertProfile = mutation({
     args: {
-        userId: v.string(),
         email: v.string(),
+        name: v.optional(v.string()),
         role: v.optional(v.union(
             v.literal("guest"),
             v.literal("external"),
@@ -71,16 +115,22 @@ export const upsertProfile = mutation({
         requestedRole: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Not authenticated");
+        }
+
         // Check if profile exists
         const existing = await ctx.db
             .query("user_profiles")
-            .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
             .first();
 
         if (existing) {
             // Update existing profile
             await ctx.db.patch(existing._id, {
                 email: args.email,
+                ...(args.name && { name: args.name }),
                 ...(args.requestedRole && { requested_role: args.requestedRole }),
             });
             return { updated: true, id: existing._id };
@@ -91,8 +141,9 @@ export const upsertProfile = mutation({
             const approvalStatus = role === "external" ? "approved" : "pending";
 
             const id = await ctx.db.insert("user_profiles", {
-                user_id: args.userId,
+                userId: userId,
                 email: args.email,
+                name: args.name,
                 role: role,
                 requested_role: args.requestedRole,
                 approval_status: approvalStatus,
@@ -107,7 +158,7 @@ export const upsertProfile = mutation({
  */
 export const updateUserRole = mutation({
     args: {
-        userId: v.string(),
+        targetUserId: v.id("users"),
         role: v.union(
             v.literal("guest"),
             v.literal("external"),
@@ -116,9 +167,24 @@ export const updateUserRole = mutation({
         ),
     },
     handler: async (ctx, args) => {
+        // Check if current user is admin
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Not authenticated");
+        }
+
+        const currentProfile = await ctx.db
+            .query("user_profiles")
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
+            .first();
+
+        if (currentProfile?.role !== "admin") {
+            throw new Error("Unauthorized - admin access required");
+        }
+
         const profile = await ctx.db
             .query("user_profiles")
-            .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+            .withIndex("by_userId", (q) => q.eq("userId", args.targetUserId))
             .first();
 
         if (!profile) {
@@ -139,11 +205,26 @@ export const updateUserRole = mutation({
  * Reject user request (admin only)
  */
 export const rejectUser = mutation({
-    args: { userId: v.string() },
+    args: { targetUserId: v.id("users") },
     handler: async (ctx, args) => {
+        // Check if current user is admin
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Not authenticated");
+        }
+
+        const currentProfile = await ctx.db
+            .query("user_profiles")
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
+            .first();
+
+        if (currentProfile?.role !== "admin") {
+            throw new Error("Unauthorized - admin access required");
+        }
+
         const profile = await ctx.db
             .query("user_profiles")
-            .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+            .withIndex("by_userId", (q) => q.eq("userId", args.targetUserId))
             .first();
 
         if (!profile) {
@@ -164,17 +245,21 @@ export const rejectUser = mutation({
  */
 export const requestRoleUpgrade = mutation({
     args: {
-        userId: v.string(),
         requestedRole: v.string(),
     },
     handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Not authenticated");
+        }
+
         const profile = await ctx.db
             .query("user_profiles")
-            .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
             .first();
 
         if (!profile) {
-            throw new Error("User not found");
+            throw new Error("User profile not found");
         }
 
         await ctx.db.patch(profile._id, {

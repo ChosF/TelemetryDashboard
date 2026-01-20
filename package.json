@@ -1,25 +1,21 @@
 {
-  "name": "ecotele-web-server",
-  "version": "0.8.0",
+  "name": "ecovolt-telemetry-dashboard",
+  "version": "1.0.0",
   "private": true,
-  "main": "index.js",
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "node index.js",
-    "start": "node index.js",
+    "dev": "npx convex dev",
     "build": "echo 'Build complete - static files in public/'",
+    "deploy": "npx convex deploy",
     "vercel-build": "echo 'Vercel build complete'"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.4",
-    "ably": "^1.2.48",
-    "compression": "^1.7.4",
+    "@convex-dev/auth": "^0.0.80",
+    "@auth/core": "^0.37.4",
     "convex": "^1.31.5",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "morgan": "^1.10.0"
-  }
+    "ably": "^1.2.48"
+  },
+  "devDependencies": {}
 }

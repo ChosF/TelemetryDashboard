@@ -83,9 +83,19 @@ PUBLISH_DRAIN_INTERVAL = 0.002  # 2ms between drain attempts
 SPOOL_DIR = "./spool"
 EXPORT_DIR = "./export"
 
-# Logging
+# Logging - handle Windows encoding issues
+import sys
+import codecs
+
+# Force UTF-8 output on Windows
+if sys.platform == 'win32':
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, errors='replace')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, errors='replace')
+
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO, 
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger("TelemetryBridge")
 

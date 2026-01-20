@@ -2,6 +2,11 @@
  * ConvexBridge - Frontend Convex client wrapper
  * Provides a simple API for the telemetry dashboard to interact with Convex
  * 
+ * Features:
+ * - Real-time reactive queries (automatic updates on data change)
+ * - Session management
+ * - Telemetry data access
+ * 
  * Usage:
  *   await ConvexBridge.init(convexUrl);
  *   const sessions = await ConvexBridge.listSessions();
@@ -14,7 +19,7 @@ const ConvexBridge = (function () {
 
     let client = null;
     let isInitialized = false;
-    let activeSubscription = null;
+    let activeSubscriptions = new Map();
 
     /**
      * Initialize the Convex client
@@ -39,6 +44,14 @@ const ConvexBridge = (function () {
             console.error('[ConvexBridge] ❌ Initialization failed:', error);
             return false;
         }
+    }
+
+    /**
+     * Get the internal client (for auth module)
+     * @returns {Object} Convex client instance
+     */
+    function _getClient() {
+        return client;
     }
 
     /**
@@ -145,16 +158,19 @@ const ConvexBridge = (function () {
     function subscribeToSession(sessionId, onUpdate) {
         if (!client) throw new Error('ConvexBridge not initialized');
 
-        // Cancel any existing subscription
-        if (activeSubscription) {
-            activeSubscription();
-            activeSubscription = null;
+        // Generate a unique key for this subscription
+        const subKey = `session:${sessionId}`;
+
+        // Cancel any existing subscription for this session
+        if (activeSubscriptions.has(subKey)) {
+            activeSubscriptions.get(subKey)();
+            activeSubscriptions.delete(subKey);
         }
 
         console.log('[ConvexBridge] 📡 Subscribing to session:', sessionId.slice(0, 8) + '...');
 
         // Create reactive subscription
-        activeSubscription = client.onUpdate(
+        const unsubscribe = client.onUpdate(
             'telemetry:getSessionRecords',
             { sessionId: sessionId },
             (records) => {
@@ -163,10 +179,12 @@ const ConvexBridge = (function () {
             }
         );
 
+        activeSubscriptions.set(subKey, unsubscribe);
+
         return () => {
-            if (activeSubscription) {
-                activeSubscription();
-                activeSubscription = null;
+            if (activeSubscriptions.has(subKey)) {
+                activeSubscriptions.get(subKey)();
+                activeSubscriptions.delete(subKey);
                 console.log('[ConvexBridge] 🔌 Unsubscribed from session');
             }
         };
@@ -182,16 +200,18 @@ const ConvexBridge = (function () {
     function subscribeToRecentRecords(sessionId, onUpdate, limit = 1000) {
         if (!client) throw new Error('ConvexBridge not initialized');
 
+        const subKey = `recent:${sessionId}`;
+
         // Cancel any existing subscription
-        if (activeSubscription) {
-            activeSubscription();
-            activeSubscription = null;
+        if (activeSubscriptions.has(subKey)) {
+            activeSubscriptions.get(subKey)();
+            activeSubscriptions.delete(subKey);
         }
 
         console.log('[ConvexBridge] 📡 Subscribing to recent records:', sessionId.slice(0, 8) + '...');
 
         // Create reactive subscription
-        activeSubscription = client.onUpdate(
+        const unsubscribe = client.onUpdate(
             'telemetry:getRecentRecords',
             { sessionId: sessionId, limit: limit },
             (records) => {
@@ -200,10 +220,48 @@ const ConvexBridge = (function () {
             }
         );
 
+        activeSubscriptions.set(subKey, unsubscribe);
+
         return () => {
-            if (activeSubscription) {
-                activeSubscription();
-                activeSubscription = null;
+            if (activeSubscriptions.has(subKey)) {
+                activeSubscriptions.get(subKey)();
+                activeSubscriptions.delete(subKey);
+            }
+        };
+    }
+
+    /**
+     * Subscribe to the sessions list (for detecting new sessions)
+     * @param {function} onUpdate - Callback with sessions list
+     * @returns {function} Unsubscribe function
+     */
+    function subscribeToSessions(onUpdate) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+
+        const subKey = 'sessions:list';
+
+        if (activeSubscriptions.has(subKey)) {
+            activeSubscriptions.get(subKey)();
+            activeSubscriptions.delete(subKey);
+        }
+
+        console.log('[ConvexBridge] 📡 Subscribing to sessions list');
+
+        const unsubscribe = client.onUpdate(
+            'sessions:listSessions',
+            {},
+            (result) => {
+                console.log('[ConvexBridge] 📨 Sessions update:', result.sessions.length);
+                onUpdate(result);
+            }
+        );
+
+        activeSubscriptions.set(subKey, unsubscribe);
+
+        return () => {
+            if (activeSubscriptions.has(subKey)) {
+                activeSubscriptions.get(subKey)();
+                activeSubscriptions.delete(subKey);
             }
         };
     }
@@ -211,12 +269,16 @@ const ConvexBridge = (function () {
     /**
      * Unsubscribe from all active subscriptions
      */
-    function unsubscribe() {
-        if (activeSubscription) {
-            activeSubscription();
-            activeSubscription = null;
-            console.log('[ConvexBridge] 🔌 Unsubscribed');
+    function unsubscribeAll() {
+        for (const [key, unsub] of activeSubscriptions) {
+            try {
+                unsub();
+            } catch (e) {
+                // Ignore unsubscribe errors
+            }
         }
+        activeSubscriptions.clear();
+        console.log('[ConvexBridge] 🔌 Unsubscribed from all');
     }
 
     /**
@@ -231,7 +293,7 @@ const ConvexBridge = (function () {
      * Close the Convex client connection
      */
     function close() {
-        unsubscribe();
+        unsubscribeAll();
         if (client) {
             try {
                 client.close();
@@ -247,6 +309,7 @@ const ConvexBridge = (function () {
     // Public API
     return {
         init,
+        _getClient, // Internal use by auth module
         getConfig,
         listSessions,
         getSessionRecords,
@@ -254,7 +317,8 @@ const ConvexBridge = (function () {
         getLatestRecord,
         subscribeToSession,
         subscribeToRecentRecords,
-        unsubscribe,
+        subscribeToSessions,
+        unsubscribeAll,
         isConnected,
         close
     };
