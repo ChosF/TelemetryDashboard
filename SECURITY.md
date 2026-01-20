@@ -164,17 +164,6 @@ await ConvexBridge.getCurrentProfile(token);
 
 ### Role-Based Access Control
 
-```mermaid
-flowchart LR
-    subgraph Roles["User Roles (Increasing Privileges →)"]
-        Guest["🎭 Guest<br/>Default role"]
-        External["🔓 External<br/>Auto-approved"]
-        Internal["🔒 Internal<br/>Requires approval"]
-        Admin["👑 Admin<br/>Full access"]
-    end
-
-    Guest --> External --> Internal --> Admin
-```
 
 | Feature | Guest | External | Internal | Admin |
 |---------|:-----:|:--------:|:--------:|:-----:|
