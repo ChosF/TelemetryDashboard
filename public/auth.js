@@ -11,6 +11,7 @@
   let currentUser = null;
   let currentProfile = null;
   let authUnsubscribe = null;
+  let authStateUnsubscribe = null;
 
   // User roles and their permissions
   const USER_ROLES = {
@@ -74,12 +75,20 @@
       // Use the existing ConvexBridge client if available, or create a new one
       if (window.ConvexBridge && window.ConvexBridge.isConnected()) {
         console.log('✅ Using existing ConvexBridge client for auth');
-        convexClient = window.ConvexBridge._getClient();
+        convexClient = window.ConvexBridge._getClient?.() || null;
+        
+        // If ConvexBridge doesn't expose the client, create our own
+        if (!convexClient) {
+          convexClient = new convex.ConvexClient(convexUrl);
+        }
       } else {
         convexClient = new convex.ConvexClient(convexUrl);
       }
 
-      // Subscribe to auth state changes
+      // Check for stored session
+      await checkStoredSession();
+
+      // Subscribe to profile changes
       subscribeToAuthState();
 
       console.log('✅ Auth initialized with Convex');
@@ -87,6 +96,22 @@
     } catch (error) {
       console.error('❌ Failed to initialize auth:', error);
       return false;
+    }
+  }
+
+  /**
+   * Check for stored session token
+   */
+  async function checkStoredSession() {
+    try {
+      const storedToken = localStorage.getItem('convex_auth_token');
+      if (storedToken) {
+        convexClient.setAuth(storedToken);
+        await loadUserProfile();
+      }
+    } catch (error) {
+      console.log('No stored session found');
+      localStorage.removeItem('convex_auth_token');
     }
   }
 
@@ -101,11 +126,11 @@
       authUnsubscribe();
     }
 
-    // Subscribe to current user profile
+    // Subscribe to current user profile updates
     authUnsubscribe = convexClient.onUpdate(
       'users:getCurrentProfile',
       {},
-      async (profile) => {
+      (profile) => {
         currentProfile = profile;
         
         // Dispatch auth state change event
@@ -125,10 +150,13 @@
     try {
       const profile = await convexClient.query('users:getCurrentProfile', {});
       currentProfile = profile;
+      if (profile) {
+        currentUser = { email: profile.email, name: profile.name };
+      }
       console.log('✅ Profile loaded:', profile);
       return profile;
     } catch (error) {
-      console.error('❌ Failed to load profile:', error);
+      console.log('No profile found (user may not be authenticated)');
       return null;
     }
   }
@@ -144,7 +172,7 @@
     try {
       console.log('📝 Signing up user...', { email, requestedRole, name });
 
-      // Call Convex Auth signIn action for password signup
+      // Call Convex Auth signIn action with signUp flow
       const result = await convexClient.action('auth:signIn', {
         provider: 'password',
         params: {
@@ -155,8 +183,14 @@
         }
       });
 
-      if (result.error) {
+      if (result?.error) {
         throw new Error(result.error);
+      }
+
+      // Store the auth token
+      if (result?.token) {
+        localStorage.setItem('convex_auth_token', result.token);
+        convexClient.setAuth(result.token);
       }
 
       // Create/update user profile after signup
@@ -167,7 +201,7 @@
         requestedRole: requestedRole === USER_ROLES.INTERNAL ? 'internal' : undefined,
       });
 
-      currentUser = { email };
+      currentUser = { email, name };
       await loadUserProfile();
 
       // Dispatch auth state change
@@ -205,19 +239,22 @@
         }
       });
 
-      if (result.error) {
+      if (result?.error) {
         throw new Error(result.error);
+      }
+
+      // Store the auth token
+      if (result?.token) {
+        if (rememberMe) {
+          localStorage.setItem('convex_auth_token', result.token);
+        } else {
+          sessionStorage.setItem('convex_auth_token', result.token);
+        }
+        convexClient.setAuth(result.token);
       }
 
       currentUser = { email };
       await loadUserProfile();
-
-      // Store remember me preference
-      if (rememberMe) {
-        localStorage.setItem('auth_remember_me', 'true');
-      } else {
-        localStorage.removeItem('auth_remember_me');
-      }
 
       // Dispatch auth state change
       window.dispatchEvent(new CustomEvent('auth-state-changed', {
@@ -244,18 +281,21 @@
 
     try {
       await convexClient.action('auth:signOut', {});
-      
-      currentUser = null;
-      currentProfile = null;
-      localStorage.removeItem('auth_remember_me');
-
-      // Dispatch auth state change
-      window.dispatchEvent(new CustomEvent('auth-state-changed', {
-        detail: { user: null, profile: null }
-      }));
     } catch (error) {
-      console.error('❌ Sign out error:', error);
+      console.log('Sign out action error (may be expected):', error.message);
     }
+    
+    // Clear local state
+    currentUser = null;
+    currentProfile = null;
+    localStorage.removeItem('convex_auth_token');
+    sessionStorage.removeItem('convex_auth_token');
+    convexClient.clearAuth();
+
+    // Dispatch auth state change
+    window.dispatchEvent(new CustomEvent('auth-state-changed', {
+      detail: { user: null, profile: null }
+    }));
   }
 
   /**

@@ -2212,64 +2212,66 @@
    * Load session history from Convex before real-time messages start flowing.
    * This ensures the dashboard shows historical data when connecting to an active session.
    */
+  /**
+   * Wait for active session - only load historical data if real-time messages arrive.
+   * This prevents loading old session data when pressing connect.
+   */
+  async function waitForActiveSession() {
+    return new Promise((resolve) => {
+      const WAIT_TIMEOUT_MS = 3000; // Wait up to 3 seconds for data
+      
+      setStatus("✅ Connected — Waiting for data...");
+      console.log('📡 Waiting for real-time data to determine active session...');
+      
+      // Check if we received any buffered messages during this time
+      const checkInterval = setInterval(() => {
+        if (realtimeBuffer.length > 0) {
+          clearInterval(checkInterval);
+          clearTimeout(timeout);
+          const sessionId = realtimeBuffer[0].session_id;
+          console.log(`📡 Real-time data detected! Session: ${sessionId?.slice(0, 8)}`);
+          resolve(sessionId);
+        }
+      }, 100);
+      
+      // Timeout if no data arrives
+      const timeout = setTimeout(() => {
+        clearInterval(checkInterval);
+        console.log('📡 No real-time data received, waiting for data stream...');
+        state.waitingForSession = true;
+        resolve(null);
+      }, WAIT_TIMEOUT_MS);
+    });
+  }
+
+  /**
+   * Load historical data for a session from Convex.
+   * Only called when we have confirmed an active session.
+   */
+  async function loadSessionHistory(sessionId) {
+    if (!sessionId || !convexEnabled || !window.ConvexBridge) {
+      return [];
+    }
+    
+    try {
+      console.log(`📡 Loading historical data for session ${sessionId.slice(0, 8)}...`);
+      setStatus("⏳ Loading session history...");
+      const historicalData = await ConvexBridge.getSessionRecords(sessionId);
+      console.log(`✅ Loaded ${historicalData.length} historical records from Convex`);
+      return historicalData;
+    } catch (e) {
+      console.warn('⚠️ Failed to load historical data:', e);
+      return [];
+    }
+  }
+
   async function loadSessionHistoryFromConvex(ablyChannel) {
     try {
-      setStatus("⏳ Checking for active session...");
+      // Wait for real-time data to arrive - this determines if there's an active session
+      const activeSessionId = await waitForActiveSession();
 
-      // First, try to get the most recent session from Convex
-      // This is more reliable than Ably history which may have limited retention
-      let sessionId = null;
-      let historicalData = [];
-
-      if (convexEnabled && window.ConvexBridge) {
-        try {
-          // Get list of sessions and find the most recent active one
-          const sessionsResult = await ConvexBridge.listSessions();
-          if (sessionsResult && sessionsResult.sessions && sessionsResult.sessions.length > 0) {
-            // Sessions are sorted by recency, get the first (most recent)
-            const recentSession = sessionsResult.sessions[0];
-            
-            // Check if session is active (last message within last 5 minutes)
-            const lastTs = new Date(recentSession.end_time).getTime();
-            const now = Date.now();
-            const ACTIVE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-            
-            console.log(`📡 Session check: end_time=${recentSession.end_time}, age=${Math.round((now - lastTs)/1000)}s`);
-            
-            if ((now - lastTs) < ACTIVE_THRESHOLD_MS) {
-              sessionId = recentSession.session_id;
-              console.log(`📡 Found recent session from Convex: ${sessionId?.slice(0, 8)} (${recentSession.record_count} records)`);
-            } else {
-              console.log(`📡 Session too old (${Math.round((now - lastTs)/1000)}s > ${ACTIVE_THRESHOLD_MS/1000}s threshold)`);
-            }
-          }
-        } catch (e) {
-          console.warn('⚠️ Could not fetch sessions from Convex:', e.message || e);
-        }
-      }
-
-      // Fallback: check Ably history if no Convex session found
-      if (!sessionId && ablyChannel) {
-        try {
-          if (ablyChannel.state !== 'attached') {
-            await ablyChannel.attach();
-          }
-          const historyPage = await ablyChannel.history({ limit: 1, direction: 'backwards' });
-          if (historyPage && historyPage.items && historyPage.items.length > 0) {
-            let data = historyPage.items[0].data;
-            if (typeof data === 'string') data = JSON.parse(data);
-            sessionId = data.session_id;
-            console.log(`📡 Found session from Ably history: ${sessionId?.slice(0, 8)}`);
-          }
-        } catch (e) {
-          console.warn('⚠️ Could not fetch Ably history:', e.message || e);
-        }
-      }
-
-      if (!sessionId) {
-        // No session found - waiting for data
-        console.log('📡 No active session found, waiting for data...');
-        state.waitingForSession = true;
+      if (!activeSessionId) {
+        // No active session - just waiting for data to begin
         setStatus("✅ Connected — Waiting");
         if (window.AuthUI?.showNotification) {
           window.AuthUI.showNotification(
@@ -2281,20 +2283,11 @@
         return;
       }
 
-      // Session found - load historical data from Convex
+      // Active session detected - load historical data
       state.waitingForSession = false;
-      state.currentSessionId = sessionId;
-      setStatus("⏳ Loading session history...");
-
-      if (convexEnabled && window.ConvexBridge) {
-        try {
-          console.log(`📡 Loading historical data for session ${sessionId.slice(0, 8)}...`);
-          historicalData = await ConvexBridge.getSessionRecords(sessionId);
-          console.log(`✅ Loaded ${historicalData.length} historical records from Convex`);
-        } catch (e) {
-          console.warn('⚠️ Failed to load historical data:', e);
-        }
-      }
+      state.currentSessionId = activeSessionId;
+      
+      const historicalData = await loadSessionHistory(activeSessionId);
 
       if (historicalData.length > 0) {
         // Sort by timestamp
@@ -2937,10 +2930,57 @@
       }
 
       // Handle transition from "waiting for session" to receiving data
+      const incomingSessionId = data.session_id;
+      
       if (state.waitingForSession) {
         state.waitingForSession = false;
-        setStatus("✅ Connected");
-        console.log('📊 Session started — receiving data');
+        setStatus("⏳ Loading session...");
+        console.log(`📊 Session started — receiving data for ${incomingSessionId?.slice(0, 8)}`);
+        
+        // Load historical data for this session (async, don't block)
+        if (incomingSessionId && convexEnabled && window.ConvexBridge) {
+          state.currentSessionId = incomingSessionId;
+          loadSessionHistory(incomingSessionId).then(historicalData => {
+            if (historicalData.length > 0) {
+              // Sort historical data
+              historicalData.sort((a, b) => {
+                const ta = new Date(a.timestamp).getTime();
+                const tb = new Date(b.timestamp).getTime();
+                return ta - tb;
+              });
+              
+              // Merge with any data already received
+              const processed = withDerived(historicalData);
+              const existingTimestamps = new Set(state.telemetry.map(t => t.timestamp));
+              
+              // Prepend historical data (older than current)
+              const newHistorical = processed.filter(h => !existingTimestamps.has(h.timestamp));
+              state.telemetry = [...newHistorical, ...state.telemetry];
+              
+              // Sort combined data
+              state.telemetry.sort((a, b) => {
+                const ta = new Date(a.timestamp).getTime();
+                const tb = new Date(b.timestamp).getTime();
+                return ta - tb;
+              });
+              
+              // Trim if over max
+              if (state.telemetry.length > state.maxPoints) {
+                state.telemetry = state.telemetry.slice(-state.maxPoints);
+              }
+              
+              state.msgCount = state.telemetry.length;
+              if (statMsg) statMsg.textContent = String(state.msgCount);
+              
+              console.log(`✅ Merged ${newHistorical.length} historical + ${state.telemetry.length - newHistorical.length} recent records`);
+              scheduleRender();
+            }
+            setStatus("✅ Connected");
+          }).catch(e => {
+            console.warn('⚠️ Failed to load history on first message:', e);
+            setStatus("✅ Connected");
+          });
+        }
 
         if (window.AuthUI?.showNotification) {
           window.AuthUI.showNotification(
@@ -2951,10 +2991,9 @@
         }
       }
 
-      // Track current session ID (but don't re-triangulate - that only happens once on connect)
-      const incomingSessionId = data.session_id;
+      // Track current session ID
       if (incomingSessionId && state.currentSessionId !== incomingSessionId) {
-        console.log(`📊 Session ID in data: ${incomingSessionId.slice(0, 8)} (tracking only)`);
+        console.log(`📊 Session ID changed: ${incomingSessionId.slice(0, 8)}`);
         state.currentSessionId = incomingSessionId;
       }
 

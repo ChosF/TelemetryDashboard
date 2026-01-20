@@ -883,7 +883,7 @@
   // Initialize auth UI
   function initAuthUI() {
     // Always initialize UI, even if AuthModule is not available
-    // This allows login buttons to be shown, and errors will appear if Supabase is not configured
+    // This allows login buttons to be shown, and errors will appear if Convex is not configured
 
     // Update header on auth state change and detect role upgrades
     window.addEventListener('auth-state-changed', (e) => {

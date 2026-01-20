@@ -1,14 +1,38 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+
+/**
+ * Helper to get current user from session token
+ * In a real app, you'd pass the token from the client and verify it
+ */
+async function getCurrentUserId(ctx: any, token?: string) {
+    if (!token) return null;
+    
+    const session = await ctx.db
+        .query("authSessions")
+        .withIndex("by_token", (q: any) => q.eq("token", token))
+        .first();
+    
+    if (!session) return null;
+    
+    // Check if session is expired (24 hours)
+    const expiry = 24 * 60 * 60 * 1000;
+    if (Date.now() - session._creationTime > expiry) {
+        return null;
+    }
+    
+    return session.userId;
+}
 
 /**
  * Get current authenticated user's profile
  */
 export const getCurrentProfile = query({
-    args: {},
-    handler: async (ctx) => {
-        const userId = await getAuthUserId(ctx);
+    args: { token: v.optional(v.string()) },
+    handler: async (ctx, args) => {
+        if (!args.token) return null;
+        
+        const userId = await getCurrentUserId(ctx, args.token);
         if (!userId) return null;
 
         const profile = await ctx.db
@@ -23,7 +47,7 @@ export const getCurrentProfile = query({
  * Get user profile by userId
  */
 export const getProfile = query({
-    args: { userId: v.id("users") },
+    args: { userId: v.id("authUsers") },
     handler: async (ctx, args) => {
         const profile = await ctx.db
             .query("user_profiles")
@@ -51,10 +75,10 @@ export const getProfileByEmail = query({
  * Get all users (admin only)
  */
 export const getAllUsers = query({
-    args: {},
-    handler: async (ctx) => {
+    args: { token: v.optional(v.string()) },
+    handler: async (ctx, args) => {
         // Check if current user is admin
-        const userId = await getAuthUserId(ctx);
+        const userId = await getCurrentUserId(ctx, args.token);
         if (!userId) return [];
 
         const currentProfile = await ctx.db
@@ -75,10 +99,10 @@ export const getAllUsers = query({
  * Get pending users (admin only)
  */
 export const getPendingUsers = query({
-    args: {},
-    handler: async (ctx) => {
+    args: { token: v.optional(v.string()) },
+    handler: async (ctx, args) => {
         // Check if current user is admin
-        const userId = await getAuthUserId(ctx);
+        const userId = await getCurrentUserId(ctx, args.token);
         if (!userId) return [];
 
         const currentProfile = await ctx.db
@@ -104,6 +128,7 @@ export const getPendingUsers = query({
  */
 export const upsertProfile = mutation({
     args: {
+        token: v.optional(v.string()),
         email: v.string(),
         name: v.optional(v.string()),
         role: v.optional(v.union(
@@ -115,7 +140,7 @@ export const upsertProfile = mutation({
         requestedRole: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
+        const userId = await getCurrentUserId(ctx, args.token);
         if (!userId) {
             throw new Error("Not authenticated");
         }
@@ -158,7 +183,8 @@ export const upsertProfile = mutation({
  */
 export const updateUserRole = mutation({
     args: {
-        targetUserId: v.id("users"),
+        token: v.optional(v.string()),
+        targetUserId: v.id("authUsers"),
         role: v.union(
             v.literal("guest"),
             v.literal("external"),
@@ -168,7 +194,7 @@ export const updateUserRole = mutation({
     },
     handler: async (ctx, args) => {
         // Check if current user is admin
-        const userId = await getAuthUserId(ctx);
+        const userId = await getCurrentUserId(ctx, args.token);
         if (!userId) {
             throw new Error("Not authenticated");
         }
@@ -205,10 +231,13 @@ export const updateUserRole = mutation({
  * Reject user request (admin only)
  */
 export const rejectUser = mutation({
-    args: { targetUserId: v.id("users") },
+    args: { 
+        token: v.optional(v.string()),
+        targetUserId: v.id("authUsers") 
+    },
     handler: async (ctx, args) => {
         // Check if current user is admin
-        const userId = await getAuthUserId(ctx);
+        const userId = await getCurrentUserId(ctx, args.token);
         if (!userId) {
             throw new Error("Not authenticated");
         }
@@ -245,10 +274,11 @@ export const rejectUser = mutation({
  */
 export const requestRoleUpgrade = mutation({
     args: {
+        token: v.optional(v.string()),
         requestedRole: v.string(),
     },
     handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
+        const userId = await getCurrentUserId(ctx, args.token);
         if (!userId) {
             throw new Error("Not authenticated");
         }

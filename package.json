@@ -12,8 +12,6 @@
     "vercel-build": "echo 'Vercel build complete'"
   },
   "dependencies": {
-    "@convex-dev/auth": "^0.0.80",
-    "@auth/core": "^0.37.4",
     "convex": "^1.31.5",
     "ably": "^1.2.48"
   },

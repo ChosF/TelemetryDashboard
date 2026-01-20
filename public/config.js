@@ -1,15 +1,11 @@
-// Configuration is now loaded dynamically from /api/config endpoint
-// This ensures that secrets are only stored in Vercel environment variables
-// and never committed to the repository.
+// Configuration is now loaded dynamically or set in index.html
 //
-// The /api/config endpoint returns:
-// - SUPABASE_URL
-// - SUPABASE_ANON_KEY (safe to expose)
-// - ABLY_CHANNEL_NAME
-// - ABLY_AUTH_URL
+// The window.CONFIG object should contain:
+// - CONVEX_URL: Your Convex deployment URL
+// - ABLY_CHANNEL_NAME: The Ably channel for telemetry
+// - ABLY_API_KEY or ABLY_AUTH_URL: Ably authentication
 //
 // This file is kept for backwards compatibility but is no longer used.
-// If you need to override config for local development, set window.CONFIG
-// before app.js loads in index.html.
+// Set window.CONFIG in index.html before app.js loads.
 
 window.CONFIG = window.CONFIG || {};
