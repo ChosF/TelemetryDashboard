@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="view-transition" content="same-origin" />
   <title>EcoVolt Telemetry</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
 
   <!-- App styles -->
   <link rel="stylesheet" href="styles.css" />
@@ -34,13 +35,13 @@
     
     window.CONFIG = window.CONFIG || {
       ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
-      // For local development, use the API key directly
-      // In production, use Convex HTTP endpoint for Ably token auth
-      ...(isLocal ? {
-        ABLY_API_KEY: "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ"
-      } : {
-        ABLY_AUTH_URL: "https://impartial-walrus-693.convex.site/ably/token"
-      }),
+      // Use Ably API key directly for now (both local and production)
+      // This avoids the need for the Convex HTTP token endpoint
+      // Note: For better security in production, set up ABLY_API_KEY in Convex 
+      // environment variables and use ABLY_AUTH_URL instead
+      ABLY_API_KEY: "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ",
+      // Alternative: Use Convex HTTP endpoint for token auth (more secure)
+      // ABLY_AUTH_URL: "https://impartial-walrus-693.convex.site/ably/token",
       // Set your Convex deployment URL - this is the main data backend
       CONVEX_URL: "https://impartial-walrus-693.convex.cloud",
     };

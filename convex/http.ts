@@ -3,9 +3,31 @@ import { httpAction } from "./_generated/server";
 
 const http = httpRouter();
 
+// CORS headers for cross-origin requests
+const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Max-Age": "86400",
+};
+
 /**
- * Ably token endpoint for ESP32 authentication
- * This allows the ESP32 and Python bridge to get Ably tokens
+ * CORS preflight handler for /ably/token
+ */
+http.route({
+    path: "/ably/token",
+    method: "OPTIONS",
+    handler: httpAction(async () => {
+        return new Response(null, {
+            status: 204,
+            headers: corsHeaders,
+        });
+    }),
+});
+
+/**
+ * Ably token endpoint for dashboard authentication
+ * This allows the dashboard to get Ably tokens securely
  * 
  * Note: You'll need to set ABLY_API_KEY in Convex environment variables
  */
@@ -16,11 +38,18 @@ http.route({
         const ablyApiKey = process.env.ABLY_API_KEY;
 
         if (!ablyApiKey) {
+            console.error("ABLY_API_KEY not configured in Convex environment variables");
             return new Response(
-                JSON.stringify({ error: "Ably API key not configured" }),
+                JSON.stringify({ 
+                    error: "Ably API key not configured",
+                    help: "Set ABLY_API_KEY in Convex dashboard under Settings > Environment Variables"
+                }),
                 {
                     status: 500,
-                    headers: { "Content-Type": "application/json" }
+                    headers: { 
+                        "Content-Type": "application/json",
+                        ...corsHeaders
+                    }
                 }
             );
         }
@@ -28,8 +57,17 @@ http.route({
         try {
             // Create a token request using Ably REST API
             const [keyName, keySecret] = ablyApiKey.split(":");
+            
+            if (!keyName || !keySecret) {
+                throw new Error("Invalid ABLY_API_KEY format. Expected 'keyName:keySecret'");
+            }
+
             const timestamp = Date.now();
             const ttl = 3600000; // 1 hour
+
+            // Get clientId from query params if provided
+            const url = new URL(request.url);
+            const clientId = url.searchParams.get("clientId") || "";
 
             // For simple token requests, we can return basic token params
             // The client will use these to request a token from Ably
@@ -38,6 +76,7 @@ http.route({
                 timestamp: timestamp,
                 ttl: ttl,
                 capability: JSON.stringify({ "*": ["*"] }),
+                clientId: clientId,
             };
 
             // Sign the token request
@@ -46,7 +85,7 @@ http.route({
                 keyName,
                 ttl,
                 JSON.stringify({ "*": ["*"] }),
-                "", // clientId
+                clientId,
                 timestamp,
                 "", // nonce
             ].join("\n");
@@ -67,20 +106,40 @@ http.route({
                     status: 200,
                     headers: {
                         "Content-Type": "application/json",
-                        "Access-Control-Allow-Origin": "*",
+                        ...corsHeaders
                     }
                 }
             );
         } catch (error) {
             console.error("Ably token error:", error);
             return new Response(
-                JSON.stringify({ error: "Failed to create Ably token" }),
+                JSON.stringify({ 
+                    error: "Failed to create Ably token",
+                    details: error instanceof Error ? error.message : "Unknown error"
+                }),
                 {
                     status: 500,
-                    headers: { "Content-Type": "application/json" }
+                    headers: { 
+                        "Content-Type": "application/json",
+                        ...corsHeaders
+                    }
                 }
             );
         }
+    }),
+});
+
+/**
+ * CORS preflight handler for /health
+ */
+http.route({
+    path: "/health",
+    method: "OPTIONS",
+    handler: httpAction(async () => {
+        return new Response(null, {
+            status: 204,
+            headers: corsHeaders,
+        });
     }),
 });
 
@@ -95,7 +154,10 @@ http.route({
             JSON.stringify({ ok: true, time: new Date().toISOString() }),
             {
                 status: 200,
-                headers: { "Content-Type": "application/json" }
+                headers: { 
+                    "Content-Type": "application/json",
+                    ...corsHeaders
+                }
             }
         );
     }),
