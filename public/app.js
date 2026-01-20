@@ -2149,34 +2149,60 @@
     const ch = realtime.channels.get(ABLY_CHANNEL_NAME);
     state.ablyChannel = ch;
 
-    // Start buffering real-time messages
+    // Start buffering real-time messages BEFORE subscribing
+    // This captures all messages during history loading to prevent gaps
     realtimeBuffer = [];
     isBufferingRealtime = true;
 
-    // FIRST: Check for active session and load historical data BEFORE subscribing
-    // This ensures we get historical data before real-time messages start flowing
+    // FIRST: Subscribe to real-time messages (they'll be buffered)
+    // We need to subscribe BEFORE loading history to capture any messages
+    // that arrive between the end of historical data and now
+    await ch.subscribe("telemetry_update", onTelemetryMessage);
+    console.log("📡 Subscribed to Ably channel, buffering messages...");
+
+    // THEN: Load historical data from Convex
     await loadSessionHistoryFromConvex(ch);
 
-    // THEN: Subscribe to real-time messages
-    await ch.subscribe("telemetry_update", onTelemetryMessage);
-    
-    // Stop buffering now that historical data is loaded
+    // NOW: Merge buffered messages with historical data
+    // Stop buffering and process any messages that arrived during history loading
     isBufferingRealtime = false;
     initialTriangulationDone = true;
 
-    // Process any messages that arrived during history loading
     if (realtimeBuffer.length > 0) {
-      console.log(`📡 Processing ${realtimeBuffer.length} buffered messages`);
+      console.log(`📡 Merging ${realtimeBuffer.length} buffered messages with historical data`);
+      
+      // Get existing timestamps for deduplication
+      const existingTimestamps = new Set(state.telemetry.map(t => t.timestamp));
+      
+      // Only add messages that aren't already in historical data
+      let newCount = 0;
       for (const data of realtimeBuffer) {
-        const processed = withDerived([data])[0];
-        state.telemetry.push(processed);
+        if (!existingTimestamps.has(data.timestamp)) {
+          const processed = withDerived([data])[0];
+          state.telemetry.push(processed);
+          newCount++;
+        }
       }
+      
+      // Sort by timestamp to maintain order
+      state.telemetry.sort((a, b) => {
+        const ta = new Date(a.timestamp).getTime();
+        const tb = new Date(b.timestamp).getTime();
+        return ta - tb;
+      });
+      
       // Trim if over maxPoints
       if (state.telemetry.length > state.maxPoints) {
         state.telemetry = state.telemetry.slice(-state.maxPoints);
       }
+      
       state.msgCount = state.telemetry.length;
       if (statMsg) statMsg.textContent = String(state.msgCount);
+      
+      if (newCount > 0) {
+        console.log(`📡 Added ${newCount} new messages (${realtimeBuffer.length - newCount} duplicates filtered)`);
+      }
+      
       realtimeBuffer = [];
       scheduleRender();
     }

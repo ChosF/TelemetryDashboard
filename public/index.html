@@ -29,11 +29,18 @@
 
   <!-- Configuration - Set your Convex URL here -->
   <script>
+    // Detect if running locally or in production
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
     window.CONFIG = window.CONFIG || {
       ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
       // For local development, use the API key directly
-      // In production, use ABLY_AUTH_URL: "/api/ably/token" instead
-      ABLY_API_KEY: "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ",
+      // In production, use Convex HTTP endpoint for Ably token auth
+      ...(isLocal ? {
+        ABLY_API_KEY: "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ"
+      } : {
+        ABLY_AUTH_URL: "https://impartial-walrus-693.convex.site/ably/token"
+      }),
       // Set your Convex deployment URL - this is the main data backend
       CONVEX_URL: "https://impartial-walrus-693.convex.cloud",
     };
