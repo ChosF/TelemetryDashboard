@@ -104,14 +104,16 @@
    */
   async function checkStoredSession() {
     try {
-      const storedToken = localStorage.getItem('convex_auth_token');
+      const storedToken = localStorage.getItem('convex_auth_token') || sessionStorage.getItem('convex_auth_token');
       if (storedToken) {
-        convexClient.setAuth(storedToken);
+        // setAuth expects a function that returns the token
+        convexClient.setAuth(() => Promise.resolve(storedToken));
         await loadUserProfile();
       }
     } catch (error) {
       console.log('No stored session found');
       localStorage.removeItem('convex_auth_token');
+      sessionStorage.removeItem('convex_auth_token');
     }
   }
 
@@ -126,10 +128,13 @@
       authUnsubscribe();
     }
 
+    const token = getAuthToken();
+    if (!token) return;
+
     // Subscribe to current user profile updates
     authUnsubscribe = convexClient.onUpdate(
       'users:getCurrentProfile',
-      {},
+      { token },
       (profile) => {
         currentProfile = profile;
         
@@ -142,13 +147,26 @@
   }
 
   /**
+   * Get current auth token
+   */
+  function getAuthToken() {
+    return localStorage.getItem('convex_auth_token') || sessionStorage.getItem('convex_auth_token');
+  }
+
+  /**
    * Load user profile after authentication
    */
   async function loadUserProfile() {
     if (!convexClient) return null;
 
+    const token = getAuthToken();
+    if (!token) {
+      console.log('No auth token found');
+      return null;
+    }
+
     try {
-      const profile = await convexClient.query('users:getCurrentProfile', {});
+      const profile = await convexClient.query('users:getCurrentProfile', { token });
       currentProfile = profile;
       if (profile) {
         currentUser = { email: profile.email, name: profile.name };
@@ -190,11 +208,13 @@
       // Store the auth token
       if (result?.token) {
         localStorage.setItem('convex_auth_token', result.token);
-        convexClient.setAuth(result.token);
+        // setAuth expects a function that returns the token
+        convexClient.setAuth(() => Promise.resolve(result.token));
       }
 
       // Create/update user profile after signup
       await convexClient.mutation('users:upsertProfile', {
+        token: result.token,
         email,
         name,
         role: requestedRole === USER_ROLES.INTERNAL ? 'external' : requestedRole,
@@ -250,7 +270,8 @@
         } else {
           sessionStorage.setItem('convex_auth_token', result.token);
         }
-        convexClient.setAuth(result.token);
+        // setAuth expects a function that returns the token
+        convexClient.setAuth(() => Promise.resolve(result.token));
       }
 
       currentUser = { email };
@@ -290,7 +311,12 @@
     currentProfile = null;
     localStorage.removeItem('convex_auth_token');
     sessionStorage.removeItem('convex_auth_token');
-    convexClient.clearAuth();
+    // Clear auth by setting to null-returning function
+    try {
+      convexClient.setAuth(() => Promise.resolve(null));
+    } catch (e) {
+      // Ignore if clearAuth fails
+    }
 
     // Dispatch auth state change
     window.dispatchEvent(new CustomEvent('auth-state-changed', {
@@ -363,8 +389,9 @@
       throw new Error('Not authenticated');
     }
 
+    const token = getAuthToken();
     try {
-      const users = await convexClient.query('users:getPendingUsers', {});
+      const users = await convexClient.query('users:getPendingUsers', { token });
       return users || [];
     } catch (error) {
       console.error('Error fetching pending users:', error);
@@ -384,8 +411,9 @@
       throw new Error('Not authenticated');
     }
 
+    const token = getAuthToken();
     try {
-      const users = await convexClient.query('users:getAllUsers', {});
+      const users = await convexClient.query('users:getAllUsers', { token });
       return users || [];
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -405,8 +433,10 @@
       throw new Error('Not authenticated');
     }
 
+    const token = getAuthToken();
     try {
       const result = await convexClient.mutation('users:updateUserRole', {
+        token,
         targetUserId,
         role: newRole
       });
@@ -429,8 +459,10 @@
       throw new Error('Not authenticated');
     }
 
+    const token = getAuthToken();
     try {
       const result = await convexClient.mutation('users:rejectUser', {
+        token,
         targetUserId
       });
       return result;
