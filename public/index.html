@@ -32,6 +32,7 @@
     window.CONFIG = window.CONFIG || {
       ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
       ABLY_AUTH_URL: "/api/ably/token",
+      CONVEX_URL: "https://impartial-walrus-693.convex.cloud",
       // ABLY_API_KEY: "your-ably-key" // only if you choose to embed it
     };
   </script>
@@ -522,8 +523,11 @@
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Supabase client (pinned to v2.45.6 for stability) -->
+  <!-- Supabase client (kept for auth transition) -->
   <script src="https://unpkg.com/@supabase/supabase-js@2.45.6/dist/umd/supabase.js"></script>
+
+  <!-- Convex browser client for real-time data -->
+  <script src="https://unpkg.com/convex@1.17.0/dist/browser.bundle.js"></script>
 
   <!-- Auth modules -->
   <script src="auth.js"></script>
@@ -536,6 +540,7 @@
   <script src="lib/mock-data.js"></script>
   <script src="lib/worker-bridge.js"></script>
   <script src="lib/data-triangulator.js"></script>
+  <script src="lib/convex-bridge.js"></script>
 
   <!-- App logic -->
   <script src="app.js"></script>
