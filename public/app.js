@@ -40,8 +40,20 @@
     cfg.ABLY_CHANNEL_NAME || "telemetry-dashboard-channel";
   const ABLY_AUTH_URL = cfg.ABLY_AUTH_URL || "/api/ably/token";
   const ABLY_API_KEY = cfg.ABLY_API_KEY || null;
-  const SUPABASE_URL = cfg.SUPABASE_URL || "";
-  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
+  const CONVEX_URL = cfg.CONVEX_URL || window.CONFIG?.CONVEX_URL || "";
+
+  // Initialize Convex client if available
+  let convexEnabled = false;
+  if (CONVEX_URL && window.ConvexBridge) {
+    try {
+      convexEnabled = await ConvexBridge.init(CONVEX_URL);
+      if (convexEnabled) {
+        console.log("✅ Convex client initialized");
+      }
+    } catch (e) {
+      console.error("❌ Failed to initialize Convex:", e);
+    }
+  }
 
   // Shortcuts & Utilities
   const el = (id) => document.getElementById(id);
@@ -197,7 +209,13 @@
       noSession: 0       // Timestamp of last "no session" notification
     },
     // Real-time session detection
-    waitingForSession: false  // True when connected to Ably but no active session detected
+    waitingForSession: false,  // True when connected to Ably but no active session detected
+    // Convex subscription cleanup function
+    convexUnsubscribe: null,
+    // Gap-aware sync tracking
+    channelAttachTime: null,      // Timestamp when we attached to Ably channel
+    convexLatestTimestamp: null,  // Latest timestamp from Convex (for gap detection)
+    lastMergeStats: null          // Statistics from last merge operation
   };
 
   // FAB Menu Toggle
@@ -212,19 +230,39 @@
     }
   });
 
-  // Merge & dedupe
+  // Merge & dedupe for incremental real-time messages
+  // Uses timestamp + message_id as unique key to prevent duplicates
   function mergeTelemetry(existing, incoming) {
-    const keyOf = (r) =>
-      `${new Date(r.timestamp).getTime()}::${r.message_id || ""}`;
+    // Create unique key combining timestamp (ms precision) and message_id
+    const keyOf = (r) => {
+      const ts = new Date(r.timestamp).getTime();
+      const msgId = r.message_id ?? '';
+      return `${ts}::${msgId}`;
+    };
+    
+    // Build map from existing, then add/update with incoming
     const seen = new Map(existing.map((r) => [keyOf(r), r]));
-    for (const r of incoming) seen.set(keyOf(r), r);
+    for (const r of incoming) {
+      const key = keyOf(r);
+      // Prefer real data over interpolated
+      if (!seen.has(key) || (seen.get(key)._interpolated && !r._interpolated)) {
+        seen.set(key, r);
+      }
+    }
+    
+    // Sort by timestamp
     let out = Array.from(seen.values());
-    out.sort(
-      (a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-    if (out.length > state.maxPoints)
+    out.sort((a, b) => {
+      const ta = new Date(a.timestamp).getTime();
+      const tb = new Date(b.timestamp).getTime();
+      return ta - tb;
+    });
+    
+    // Trim to maxPoints (keep most recent)
+    if (out.length > state.maxPoints) {
       out = out.slice(out.length - state.maxPoints);
+    }
+    
     return out;
   }
 
@@ -276,7 +314,7 @@
       }
     }
 
-    // Parse outliers if stored as JSON string (from Supabase)
+    // Parse outliers if stored as JSON string (from database)
     if (row.outliers && typeof row.outliers === 'string') {
       try {
         row.outliers = JSON.parse(row.outliers);
@@ -1021,7 +1059,7 @@
           `;
         }
         timelineItems.innerHTML = html;
-        
+
         // Check if fields grid has 2 rows and adjust timeline height accordingly
         // Use setTimeout to ensure DOM is updated before checking layout
         setTimeout(() => {
@@ -1031,14 +1069,14 @@
             const gridStyle = window.getComputedStyle(fieldGrid);
             const gridTemplateColumns = gridStyle.gridTemplateColumns;
             const columns = gridTemplateColumns.split(' ').length;
-            
+
             // Get all field items
             const fieldItems = fieldGrid.querySelectorAll('.outlier-field-item');
             const totalItems = fieldItems.length;
-            
+
             // Calculate number of rows (ceiling division)
             const rows = Math.ceil(totalItems / columns);
-            
+
             // If 2 or more rows, show only 1 timeline item; otherwise show 2
             if (rows >= 2) {
               timelineItems.classList.add('single-item');
@@ -1115,8 +1153,6 @@
       console.log("renderQualityScoreChart: no valid data points");
       return;
     }
-
-    console.log(`renderQualityScoreChart: rendering ${dataPoints.length} points, ${outlierPoints.length} outliers`);
 
     // Build series array
     const series = [
@@ -2012,22 +2048,50 @@
     a.click();
   }
 
-  // Sessions
+  // Sessions - use Convex when available, fallback to Express API
   async function fetchSessions() {
+    // Try Convex first
+    if (convexEnabled && window.ConvexBridge) {
+      try {
+        const result = await ConvexBridge.listSessions();
+        return result; // Returns { sessions: [...], scanned_rows: N }
+      } catch (e) {
+        console.warn("Convex fetchSessions failed, falling back to Express:", e);
+      }
+    }
+    // Fallback to Express API
     const r = await fetch("/api/sessions");
     if (!r.ok) throw new Error("Failed to fetch sessions");
     return r.json();
   }
+
   async function fetchSessionPage(sessionId, offset, limit) {
+    // Convex doesn't use offset/limit pagination in the same way
+    // For paginated access, we use the full session fetch with Convex
     const r = await fetch(
-      `/api/sessions/${encodeURIComponent(
-        sessionId
-      )}/records?offset=${offset}&limit=${limit}`
+      `/api/sessions/${encodeURIComponent(sessionId)}/records?offset=${offset}&limit=${limit}`
     );
     if (!r.ok) throw new Error("Failed to fetch records");
     return r.json();
   }
+
   async function loadFullSession(sessionId) {
+    // Try Convex first - it loads all records at once (reactive query)
+    if (convexEnabled && window.ConvexBridge) {
+      try {
+        console.log(`📡 Loading session ${sessionId.slice(0, 8)}... via Convex`);
+        const records = await ConvexBridge.getSessionRecords(sessionId);
+        if (records && records.length > 0) {
+          const processed = withDerived(records);
+          console.log(`✅ Loaded ${processed.length} records from Convex`);
+          return processed;
+        }
+      } catch (e) {
+        console.warn("Convex loadFullSession failed, falling back to Express:", e);
+      }
+    }
+
+    // Fallback to Express API with pagination
     const pageSize = 1000;
     let offset = 0;
     let merged = [];
@@ -2055,30 +2119,25 @@
   }
 
   // Ably realtime
-  // Buffer for real-time messages during initial load
-  let realtimeBuffer = [];
-  let isBufferingRealtime = false;
+  // OPTIMIZED: No buffering - messages display immediately, history loads in background
+  let historyLoadPromise = null;
+  let historyLoaded = false;
 
   async function connectRealtime() {
     if (state.isConnected) return;
 
-    // IMMEDIATELY clear all data and render blank charts
-    // This ensures historical session data is cleared when switching to real-time
+    // Clear state for fresh connection
     state.telemetry = [];
     state.currentSessionId = null;
     state.msgCount = 0;
+    state.waitingForSession = true;
+    historyLoaded = false;
+    historyLoadPromise = null;
     if (statMsg) statMsg.textContent = "0";
-    
-    // Reset DataTriangulator state
-    if (window.DataTriangulator) {
-      DataTriangulator.reset();
-    }
-    
-    // Render blank charts immediately
     scheduleRender();
 
     try {
-      setStatus("⏳ Loading Ably...");
+      setStatus("⏳ Connecting...");
       await ensureAblyLoaded();
     } catch (e) {
       setStatus("❌ Ably library missing");
@@ -2095,7 +2154,6 @@
     realtime.connection.on((change) => {
       if (change.current === "connected") {
         state.isConnected = true;
-        // Don't set status here - let triangulation set it
       } else if (change.current === "disconnected") {
         state.isConnected = false;
         setStatus("❌ Disconnected");
@@ -2109,110 +2167,594 @@
       realtime.connection.once("connected", resolve);
     });
 
-    const ch = realtime.channels.get(ABLY_CHANNEL_NAME);
+    // Use rewind to automatically get recent messages on attach (5 seconds window)
+    // This bridges the gap between Convex batch writes and real-time stream
+    const channelOptions = {
+      params: {
+        rewind: '5s'  // Get last 5 seconds of messages on attach
+      }
+    };
+    const ch = realtime.channels.get(ABLY_CHANNEL_NAME, channelOptions);
     state.ablyChannel = ch;
+    
+    // Track the exact time we attach for gap calculation
+    state.channelAttachTime = Date.now();
 
-    // Start buffering real-time messages
-    realtimeBuffer = [];
-    isBufferingRealtime = true;
-
-    // Subscribe to real-time - messages will be buffered during initial load
+    // Subscribe IMMEDIATELY - messages will display instantly
     await ch.subscribe("telemetry_update", onTelemetryMessage);
-
-    // Check for active session - but DON'T load historical data
-    // Real-time mode should start fresh and only show incoming data points
-    await checkForActiveSession(ch);
+    console.log("📡 Subscribed with 5s rewind — real-time messages display immediately");
+    
+    setStatus("✅ Connected — Waiting");
+    state.sessionStartTime = Date.now();
+    state.lastMsgTs = null;
+    state.reconnectCount = 0;
+    initialTriangulationDone = true;
+    
+    // Try to get session from Ably history (very fast, ~50ms)
+    // This helps us load historical data faster if there's recent activity
+    tryLoadHistoryFromAbly(ch);
   }
 
   /**
-   * Check if there's an active real-time session, but don't load historical data.
-   * Real-time mode starts with a blank slate and only shows incoming data.
+   * Try to quickly determine session ID from Ably history and load historical data.
+   * This runs in background - doesn't block real-time message display.
    */
-  async function checkForActiveSession(ablyChannel) {
+  async function tryLoadHistoryFromAbly(channel) {
+    if (!channel) {
+      console.log('📡 No channel available for history check');
+      return;
+    }
+    
     try {
-      setStatus("⏳ Checking for active session...");
-
-      // Check Ably history for recent session activity
-      let sessionId = null;
-      let lastMessageTimestamp = null;
-
-      if (ablyChannel) {
+      // Ensure channel is attached first
+      if (channel.state !== 'attached') {
         try {
-          const quickHistory = await ablyChannel.history({ limit: 1, direction: 'backwards' });
-          if (quickHistory.items?.[0]?.data) {
-            let data = quickHistory.items[0].data;
-            if (typeof data === 'string') data = JSON.parse(data);
-            sessionId = data.session_id;
-            lastMessageTimestamp = quickHistory.items[0].timestamp ||
-              (data.timestamp ? new Date(data.timestamp).getTime() : null);
-          }
-        } catch { /* ignore */ }
-      }
-
-      // Check if session is truly active (message within last 30 seconds)
-      const ACTIVE_SESSION_THRESHOLD_MS = 30000; // 30 seconds
-      const now = Date.now();
-      const isSessionActive = lastMessageTimestamp &&
-        (now - lastMessageTimestamp) < ACTIVE_SESSION_THRESHOLD_MS;
-
-      isBufferingRealtime = false;
-      initialTriangulationDone = true;
-
-      if (!sessionId || !isSessionActive) {
-        // No active session - waiting for data
-        state.waitingForSession = true;
-        setStatus("✅ Connected — Waiting");
-
-        const notifCooldown = 10000;
-        if (now - state.notificationCooldowns.noSession > notifCooldown) {
-          state.notificationCooldowns.noSession = now;
-          if (window.AuthUI?.showNotification) {
-            window.AuthUI.showNotification(
-              'Connected to real-time — waiting for data stream to begin.',
-              'info',
-              6000
-            );
-          }
+          await channel.attach();
+        } catch (attachErr) {
+          console.log('📡 Channel not attached, skipping quick history check');
+          return;
         }
+      }
+      
+      // Quick check: get last message from Ably history
+      let quickHistory;
+      try {
+        quickHistory = await channel.history({ limit: 1, direction: 'backwards' });
+      } catch (histErr) {
+        console.log('📡 Quick history check failed:', histErr.message || histErr);
+        return;
+      }
+      
+      // Defensive: check if quickHistory and items exist
+      if (!quickHistory || !quickHistory.items || quickHistory.items.length === 0) {
+        console.log('📡 No messages in Ably history, waiting for real-time data');
+        return;
+      }
+      
+      const firstItem = quickHistory.items[0];
+      if (!firstItem || !firstItem.data) {
+        console.log('📡 Empty history item, waiting for real-time data');
+        return;
+      }
+      
+      let data = firstItem.data;
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch (parseErr) {
+          console.log('📡 Could not parse history data');
+          return;
+        }
+      }
+      
+      const sessionId = data.session_id;
+      const lastMsgTime = firstItem.timestamp || Date.now();
+      const ageMs = Date.now() - lastMsgTime;
+      
+      // Only load history if message is recent (within 60 seconds)
+      if (sessionId && ageMs < 60000) {
+        console.log(`📡 Found recent session ${sessionId.slice(0, 8)} (${Math.round(ageMs/1000)}s ago), loading history...`);
+        loadHistoryInBackground(sessionId, channel);
       } else {
-        // Active session found - set session ID but don't load historical data
-        state.waitingForSession = false;
-        state.currentSessionId = sessionId;
-        if (window.DataTriangulator) {
-          DataTriangulator.setCurrentSessionId(sessionId);
-        }
-        setStatus("✅ Connected");
-
-        if (window.AuthUI?.showNotification) {
-          window.AuthUI.showNotification(
-            'Connected to real-time session — receiving live data.',
-            'success',
-            4000
-          );
-        }
-      }
-
-      // Process any buffered messages that arrived during setup
-      if (realtimeBuffer.length > 0) {
-        const bufferedForSession = sessionId 
-          ? realtimeBuffer.filter(d => d.session_id === sessionId)
-          : realtimeBuffer;
-        
-        if (bufferedForSession.length > 0) {
-          const processed = withDerived(bufferedForSession);
-          state.telemetry = processed;
-          state.msgCount = processed.length;
-          if (statMsg) statMsg.textContent = String(state.msgCount);
-          scheduleRender();
-        }
-        realtimeBuffer = [];
+        console.log('📡 No recent session activity, waiting for real-time data');
       }
     } catch (e) {
-      console.error('Session check error:', e);
-      isBufferingRealtime = false;
-      initialTriangulationDone = true;
-      setStatus("✅ Connected");
+      console.log('📡 Could not check Ably history:', e.message || e);
     }
+  }
+
+  /**
+   * Load historical data in background without blocking real-time display.
+   * Uses timestamp coordination to minimize gaps:
+   * 1. Get latest Convex timestamp to know where DB data ends
+   * 2. Fetch Ably history from that point (with overlap buffer)
+   * 3. Merge everything with gap detection and interpolation
+   * 
+   * Includes retry logic: if Convex returns 0 records on first try,
+   * waits 2.5 seconds and retries (gives time for first batch to be written)
+   */
+  async function loadHistoryInBackground(sessionId, channel, retryCount = 0) {
+    if (historyLoaded || (historyLoadPromise && retryCount === 0)) return;
+    
+    state.currentSessionId = sessionId;
+    state.waitingForSession = false;
+    
+    const maxRetries = 2;  // Max retry attempts
+    const retryDelayMs = 2500;  // 2.5s delay between retries
+    
+    historyLoadPromise = (async () => {
+      try {
+        const startTime = performance.now();
+        
+        // Step 1: Get Convex data and its latest timestamp for gap coordination
+        let convexData = [];
+        let convexLatestTs = null;
+        
+        if (convexEnabled && window.ConvexBridge) {
+          try {
+            // First, get session records (this is the critical data)
+            convexData = await ConvexBridge.getSessionRecords(sessionId) || [];
+            
+            // Try to get latest timestamp if the function exists (for gap coordination)
+            if (typeof ConvexBridge.getLatestSessionTimestamp === 'function') {
+              try {
+                const timestampInfo = await ConvexBridge.getLatestSessionTimestamp(sessionId);
+                convexLatestTs = timestampInfo?.timestamp;
+              } catch (e) {
+                // Function exists but failed - extract from data instead
+                if (convexData.length > 0) {
+                  convexLatestTs = convexData[convexData.length - 1].timestamp;
+                }
+              }
+            } else {
+              // Function doesn't exist - extract latest timestamp from data
+              if (convexData.length > 0) {
+                convexLatestTs = convexData[convexData.length - 1].timestamp;
+              }
+            }
+            
+            console.log(`📡 Convex: ${convexData.length} records, latest: ${convexLatestTs?.slice(0, 19) || 'none'}`);
+          } catch (e) {
+            console.warn('Convex fetch failed:', e);
+          }
+        }
+        
+        // Step 2: Calculate optimal Ably history window
+        // If we have Convex data, fetch Ably from 3s before Convex cutoff (overlap buffer)
+        // If no Convex data, fetch more Ably history (full 2 minutes) to compensate
+        let ablyStartTime;
+        let ablyLimit = 1000;
+        
+        if (convexLatestTs && convexData.length > 0) {
+          // Have Convex data - just need to bridge the gap
+          const convexLatestMs = new Date(convexLatestTs).getTime();
+          ablyStartTime = new Date(convexLatestMs - 3000);  // 3s before Convex cutoff
+          console.log(`📡 Ably window: from ${ablyStartTime.toISOString().slice(11, 19)} (3s before Convex cutoff)`);
+        } else {
+          // No Convex data - fetch full 2 minutes of Ably history to compensate
+          ablyStartTime = new Date(Date.now() - 120000);
+          ablyLimit = 2000;  // Get more messages when Convex is empty
+          console.log(`📡 Ably window: full 2 minutes (Convex empty, compensating with Ably)`);
+        }
+        
+        // Step 3: Fetch Ably history
+        const ablyData = await fetchAblyHistoryFast(channel, sessionId, ablyStartTime, ablyLimit);
+        
+        const loadTime = performance.now() - startTime;
+        
+        // Calculate gap statistics for logging
+        let gapInfo = '';
+        if (convexLatestTs && state.telemetry.length > 0) {
+          const convexLatestMs = new Date(convexLatestTs).getTime();
+          const firstRealtimeTs = new Date(state.telemetry[0].timestamp).getTime();
+          const gapMs = firstRealtimeTs - convexLatestMs;
+          if (gapMs > 0) {
+            gapInfo = `, potential gap: ${(gapMs/1000).toFixed(2)}s`;
+          }
+        }
+        
+        console.log(`📡 History loaded in ${loadTime.toFixed(0)}ms (Convex: ${convexData.length}, Ably: ${ablyData.length}${gapInfo})`);
+        
+        // Step 4: Merge with gap-aware algorithm
+        const totalHistorical = convexData.length + ablyData.length;
+        
+        if (totalHistorical > 0) {
+          mergeHistoricalData(convexData, ablyData);
+          historyLoaded = true;
+          
+          if (window.AuthUI?.showNotification) {
+            window.AuthUI.showNotification(
+              `Loaded ${totalHistorical} historical points`,
+              'success',
+              2000
+            );
+          }
+        } else {
+          // No historical data available - could be:
+          // 1. Brand new session (no history yet)
+          // 2. Ably persistence isn't enabled
+          // 3. Convex hasn't batched data yet (within first 2 seconds)
+          
+          // If this is first attempt and we have no data, retry after delay
+          if (retryCount < maxRetries && state.telemetry.length < 50) {
+            console.log(`📡 No historical data found, retrying in ${retryDelayMs/1000}s (attempt ${retryCount + 1}/${maxRetries})`);
+            
+            // Schedule retry
+            setTimeout(() => {
+              historyLoadPromise = null;  // Allow retry
+              loadHistoryInBackground(sessionId, channel, retryCount + 1);
+            }, retryDelayMs);
+            
+            return;  // Don't mark as loaded yet
+          }
+          
+          // Max retries reached or we have enough data
+          console.log('📡 No historical data found - relying on rewind messages and real-time stream');
+          historyLoaded = true;
+          
+          if (state.telemetry.length > 0) {
+            console.log(`📡 Have ${state.telemetry.length} points from rewind/real-time`);
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ Background history load failed:', e);
+        
+        // Retry on error if we haven't exceeded max retries
+        if (retryCount < maxRetries) {
+          console.log(`📡 Retrying history load in ${retryDelayMs/1000}s after error`);
+          setTimeout(() => {
+            historyLoadPromise = null;
+            loadHistoryInBackground(sessionId, channel, retryCount + 1);
+          }, retryDelayMs);
+          return;
+        }
+        
+        historyLoaded = true;  // Prevent infinite retry loop
+      }
+    })();
+    
+    return historyLoadPromise;
+  }
+
+  /**
+   * Fast Convex history fetch - optimized for speed
+   * Falls back gracefully if Convex is not available
+   */
+  async function fetchConvexHistoryFast(sessionId) {
+    if (!convexEnabled || !window.ConvexBridge) {
+      console.log('📡 Convex not available, using Ably-only history');
+      return [];
+    }
+    
+    try {
+      const startFetch = performance.now();
+      const records = await ConvexBridge.getSessionRecords(sessionId);
+      const fetchTime = performance.now() - startFetch;
+      
+      console.log(`📡 Convex fetch: ${records?.length || 0} records in ${fetchTime.toFixed(0)}ms`);
+      
+      return records || [];
+    } catch (e) {
+      console.warn('Convex fetch failed:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Fast Ably history fetch - fetches historical messages from Ably
+   * Used to fill gaps between Convex batch writes and real-time stream
+   * 
+   * @param {Object} channel - Ably channel
+   * @param {string} sessionId - Session ID to filter messages
+   * @param {Date} startTime - Start time for history fetch
+   * @param {number} limit - Maximum messages to fetch (default 1000)
+   * @returns {Promise<Array>} Array of telemetry messages
+   */
+  async function fetchAblyHistoryFast(channel, sessionId, startTime, limit = 1000) {
+    if (!channel) {
+      console.log('📡 Ably history: no channel provided');
+      return [];
+    }
+    
+    try {
+      // Ensure channel is attached before fetching history
+      if (channel.state !== 'attached') {
+        try {
+          await channel.attach();
+        } catch (attachErr) {
+          console.warn('📡 Ably channel attach failed:', attachErr.message);
+          return [];
+        }
+      }
+      
+      const messages = [];
+      const seenTimestamps = new Set();  // Dedupe within Ably results
+      
+      // Fetch history in backwards direction (most recent first), then reverse
+      // This is more reliable than forwards with untilAttach
+      let historyResult;
+      try {
+        historyResult = await channel.history({
+          start: startTime.getTime(),
+          end: Date.now(),           // Up to current time
+          direction: 'backwards',    // Most recent first (more reliable)
+          limit: Math.min(limit, 1000)  // Ably max is 1000 per request
+        });
+      } catch (historyErr) {
+        console.warn('📡 Ably history call failed:', historyErr.message);
+        return [];
+      }
+      
+      // Defensive: check if historyResult and items exist
+      if (!historyResult || !historyResult.items) {
+        console.log('📡 Ably history: no results returned');
+        return [];
+      }
+      
+      // Process first page of results
+      for (const msg of historyResult.items) {
+        if (msg.name === 'telemetry_update' && msg.data) {
+          let data = msg.data;
+          if (typeof data === 'string') {
+            try { data = JSON.parse(data); } catch { continue; }
+          }
+          
+          // Filter by session and dedupe
+          if (data.session_id === sessionId) {
+            const ts = data.timestamp;
+            if (!seenTimestamps.has(ts)) {
+              seenTimestamps.add(ts);
+              data._ablyTimestamp = msg.timestamp;
+              messages.push(data);
+            }
+          }
+        }
+      }
+      
+      // If we need more messages and there are more pages, fetch them
+      let pagesLoaded = 1;
+      const maxPages = Math.ceil(limit / 1000);
+      
+      while (messages.length < limit && historyResult.hasNext && pagesLoaded < maxPages) {
+        try {
+          historyResult = await historyResult.next();
+          pagesLoaded++;
+          
+          if (!historyResult || !historyResult.items) break;
+          
+          for (const msg of historyResult.items) {
+            if (msg.name === 'telemetry_update' && msg.data) {
+              let data = msg.data;
+              if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch { continue; }
+              }
+              
+              if (data.session_id === sessionId) {
+                const ts = data.timestamp;
+                if (!seenTimestamps.has(ts)) {
+                  seenTimestamps.add(ts);
+                  data._ablyTimestamp = msg.timestamp;
+                  messages.push(data);
+                }
+              }
+            }
+          }
+        } catch (pageErr) {
+          console.warn('📡 Ably history pagination failed:', pageErr.message);
+          break;
+        }
+      }
+      
+      // Sort by timestamp (oldest first) since we fetched backwards
+      messages.sort((a, b) => {
+        const ta = new Date(a.timestamp).getTime();
+        const tb = new Date(b.timestamp).getTime();
+        return ta - tb;
+      });
+      
+      console.log(`📡 Ably history: ${messages.length} messages from ${startTime.toISOString().slice(11, 19)} (${pagesLoaded} page(s))`);
+      
+      return messages;
+    } catch (e) {
+      console.warn('Ably history fetch failed:', e.message || e);
+      return [];
+    }
+  }
+
+  /**
+   * Gap-aware merge of historical data with current telemetry
+   * Implements interpolation for gaps under 0.8 seconds to ensure smooth visualization
+   * 
+   * Strategy:
+   * 1. Combine all data sources (Convex, Ably history, real-time)
+   * 2. Sort by timestamp
+   * 3. Detect gaps > 0.25s (data interval is 0.2s)
+   * 4. For gaps <= 0.8s: interpolate missing points
+   * 5. For gaps > 0.8s: log warning but don't interpolate (would be inaccurate)
+   */
+  function mergeHistoricalData(convexData, ablyData) {
+    const MAX_ACCEPTABLE_GAP_MS = 800;  // 0.8 seconds - max acceptable gap
+    const EXPECTED_INTERVAL_MS = 200;   // 0.2 seconds - expected data interval
+    const GAP_THRESHOLD_MS = 250;       // 0.25 seconds - threshold for gap detection
+    
+    // Combine all sources
+    const allHistorical = [...convexData, ...ablyData];
+    
+    if (allHistorical.length === 0) return;
+    
+    // Create key-based deduplication (timestamp + message_id)
+    const keyOf = (r) => `${new Date(r.timestamp).getTime()}::${r.message_id || ''}`;
+    const existingKeys = new Set(state.telemetry.map(keyOf));
+    
+    // Filter to only new historical data
+    const newHistorical = allHistorical.filter(d => !existingKeys.has(keyOf(d)));
+    
+    if (newHistorical.length === 0) return;
+    
+    // Process and merge
+    const processed = withDerived(newHistorical);
+    const merged = [...processed, ...state.telemetry];
+    
+    // Sort by timestamp (numeric for accuracy)
+    merged.sort((a, b) => {
+      const ta = new Date(a.timestamp).getTime();
+      const tb = new Date(b.timestamp).getTime();
+      return ta - tb;
+    });
+    
+    // Deduplicate (keep first occurrence, use key-based dedup)
+    const seenKeys = new Set();
+    let deduped = merged.filter(d => {
+      const key = keyOf(d);
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    });
+    
+    // Gap detection and interpolation
+    const interpolated = [];
+    let totalGapsDetected = 0;
+    let totalPointsInterpolated = 0;
+    let maxGapMs = 0;
+    
+    for (let i = 0; i < deduped.length; i++) {
+      interpolated.push(deduped[i]);
+      
+      if (i < deduped.length - 1) {
+        const t1 = new Date(deduped[i].timestamp).getTime();
+        const t2 = new Date(deduped[i + 1].timestamp).getTime();
+        const gapMs = t2 - t1;
+        
+        maxGapMs = Math.max(maxGapMs, gapMs);
+        
+        // Detect gap (more than expected interval + tolerance)
+        if (gapMs > GAP_THRESHOLD_MS) {
+          totalGapsDetected++;
+          
+          // Interpolate if gap is small enough to be accurate
+          if (gapMs <= MAX_ACCEPTABLE_GAP_MS) {
+            const pointsToAdd = Math.floor(gapMs / EXPECTED_INTERVAL_MS) - 1;
+            
+            if (pointsToAdd > 0 && pointsToAdd <= 4) {  // Max 4 interpolated points
+              const d1 = deduped[i];
+              const d2 = deduped[i + 1];
+              
+              for (let j = 1; j <= pointsToAdd; j++) {
+                const ratio = j / (pointsToAdd + 1);
+                const interpTs = new Date(t1 + gapMs * ratio).toISOString();
+                
+                // Linear interpolation for all numeric fields
+                const interpPoint = interpolateDataPoint(d1, d2, ratio, interpTs);
+                interpPoint._interpolated = true;  // Mark as interpolated
+                interpolated.push(interpPoint);
+                totalPointsInterpolated++;
+              }
+            }
+          } else {
+            // Gap too large - log but don't interpolate
+            console.warn(`⚠️ Large gap detected: ${(gapMs/1000).toFixed(2)}s between points`);
+          }
+        }
+      }
+    }
+    
+    // Re-sort after adding interpolated points
+    if (totalPointsInterpolated > 0) {
+      interpolated.sort((a, b) => {
+        const ta = new Date(a.timestamp).getTime();
+        const tb = new Date(b.timestamp).getTime();
+        return ta - tb;
+      });
+    }
+    
+    // Trim to maxPoints
+    state.telemetry = interpolated.slice(-state.maxPoints);
+    state.msgCount = state.telemetry.length;
+    if (statMsg) statMsg.textContent = String(state.msgCount);
+    
+    // Log merge statistics
+    const stats = {
+      newPoints: newHistorical.length,
+      gapsDetected: totalGapsDetected,
+      pointsInterpolated: totalPointsInterpolated,
+      maxGapMs: maxGapMs,
+      totalPoints: state.telemetry.length
+    };
+    
+    console.log(`📡 Gap-aware merge: ${stats.newPoints} new, ${stats.pointsInterpolated} interpolated, max gap: ${(stats.maxGapMs/1000).toFixed(2)}s (total: ${stats.totalPoints})`);
+    
+    // Show notification if significant interpolation occurred
+    if (totalPointsInterpolated > 5 && window.AuthUI?.showNotification) {
+      window.AuthUI.showNotification(
+        `Filled ${totalPointsInterpolated} data points (max gap: ${(maxGapMs/1000).toFixed(2)}s)`,
+        maxGapMs > MAX_ACCEPTABLE_GAP_MS ? 'warning' : 'success',
+        3000
+      );
+    }
+    
+    scheduleRender();
+  }
+  
+  /**
+   * Linear interpolation between two data points
+   * @param {Object} d1 - First data point
+   * @param {Object} d2 - Second data point
+   * @param {number} ratio - Interpolation ratio (0 to 1)
+   * @param {string} timestamp - ISO timestamp for interpolated point
+   * @returns {Object} Interpolated data point
+   */
+  function interpolateDataPoint(d1, d2, ratio, timestamp) {
+    const lerp = (a, b, t) => {
+      const va = toNum(a, null);
+      const vb = toNum(b, null);
+      if (va === null || vb === null) return va ?? vb ?? 0;
+      return va + (vb - va) * t;
+    };
+    
+    // Fields to interpolate
+    const numericFields = [
+      'speed_ms', 'voltage_v', 'current_a', 'power_w', 'energy_j', 'distance_m',
+      'latitude', 'longitude', 'altitude', 'altitude_m',
+      'gyro_x', 'gyro_y', 'gyro_z',
+      'accel_x', 'accel_y', 'accel_z', 'total_acceleration',
+      'throttle_pct', 'brake_pct', 'throttle', 'brake',
+      'g_long', 'g_lat', 'g_total', 'roll_deg', 'pitch_deg'
+    ];
+    
+    const result = {
+      timestamp: timestamp,
+      session_id: d1.session_id || d2.session_id,
+      session_name: d1.session_name || d2.session_name,
+      data_source: 'INTERPOLATED',
+      message_id: null,  // No message ID for interpolated points
+    };
+    
+    for (const field of numericFields) {
+      if (field in d1 || field in d2) {
+        result[field] = lerp(d1[field], d2[field], ratio);
+      }
+    }
+    
+    return result;
+  }
+
+  // Legacy compatibility - these are now no-ops or simplified
+  let realtimeBuffer = []; // Kept for compatibility but unused
+  let isBufferingRealtime = false; // Always false now
+
+  async function waitForActiveSession() {
+    // No longer needed - we display immediately
+    return state.currentSessionId;
+  }
+
+  async function loadSessionHistory(sessionId) {
+    return fetchConvexHistoryFast(sessionId);
+  }
+
+  async function loadSessionHistoryFromConvex(ablyChannel) {
+    // Legacy - now handled by tryLoadHistoryFromAbly
+    // This function is kept for compatibility but does nothing
+    return;
   }
 
   /**
@@ -2222,7 +2764,7 @@
 
   /**
    * Perform initial data triangulation when connecting to real-time
-   * Loads historical data from Supabase + Ably, merges with buffered real-time
+   * Loads historical data from Convex + Ably, merges with buffered real-time
    * 
    * IMPROVED: Now checks if there's an active session (recent messages within 30s)
    * before loading historical data. Shows "waiting for session" if no active session.
@@ -2288,21 +2830,18 @@
       state.waitingForSession = false;
       setStatus("⏳ Loading session...");
       state.currentSessionId = sessionId;
-      if (window.DataTriangulator) {
-        DataTriangulator.setCurrentSessionId(sessionId);
-      }
 
-      // Fetch Supabase + Ably in parallel
+      // Fetch historical data from Convex + Ably in parallel
       const ablyStartTime = new Date(Date.now() - 120000);
 
-      const [supabaseData, ablyHistoryData] = await Promise.all([
-        fetchSupabaseSessionData(sessionId),
+      const [convexData, ablyHistoryData] = await Promise.all([
+        fetchConvexSessionData(sessionId),
         fetchAblyHistoryTimeBased(ablyChannel, sessionId, ablyStartTime)
       ]);
 
       // Merge all sources
       const bufferedForSession = realtimeBuffer.filter(d => d.session_id === sessionId);
-      const allData = mergeTriangulatedData(supabaseData, ablyHistoryData, bufferedForSession);
+      const allData = mergeTriangulatedData(convexData, ablyHistoryData, bufferedForSession);
 
       // Apply derived calculations
       const processed = withDerived(allData);
@@ -2345,9 +2884,20 @@
   }
 
   /**
-   * Fetch session data from Supabase (paginated)
+   * Fetch session data from database (Convex or Express API fallback)
    */
-  async function fetchSupabaseSessionData(sessionId) {
+  async function fetchConvexSessionData(sessionId) {
+    // Try Convex first
+    if (convexEnabled && window.ConvexBridge) {
+      try {
+        const records = await ConvexBridge.getSessionRecords(sessionId);
+        return records || [];
+      } catch (e) {
+        console.warn("Convex fetch failed, falling back to Express:", e);
+      }
+    }
+
+    // Fallback to Express API
     const allRows = [];
     const pageSize = 1000;
     let offset = 0;
@@ -2476,7 +3026,7 @@
   /**
    * Fast merge using Map for O(1) deduplication
    */
-  function mergeTriangulatedData(supabaseData, ablyHistoryData, bufferedRealtime) {
+  function mergeTriangulatedData(convexData, ablyHistoryData, bufferedRealtime) {
     const dataMap = new Map();
 
     // Add buffer first (will be overwritten by historical data if duplicate)
@@ -2490,12 +3040,12 @@
       }
     }
 
-    // Add Supabase data (normalize to parse outlier JSON)
-    if (supabaseData) {
-      for (let i = 0; i < supabaseData.length; i++) {
-        const r = supabaseData[i];
+    // Add Convex data (normalize to parse outlier JSON)
+    if (convexData) {
+      for (let i = 0; i < convexData.length; i++) {
+        const r = convexData[i];
         if (r?.timestamp) {
-          normalizeFieldNames(r); // Parse outliers JSON from Supabase
+          normalizeFieldNames(r); // Parse outliers JSON from database
           const ts = new Date(r.timestamp).getTime();
           const key = `${ts}:${r.message_id || i}`;
           if (!dataMap.has(key)) dataMap.set(key, r);
@@ -2529,6 +3079,7 @@
   }
   async function disconnectRealtime() {
     try {
+      // Clean up Ably connections
       if (state.ablyChannel) {
         await state.ablyChannel.unsubscribe();
         state.ablyChannel = null;
@@ -2536,6 +3087,12 @@
       if (state.ablyRealtime) {
         await state.ablyRealtime.close();
         state.ablyRealtime = null;
+      }
+
+      // Clean up Convex subscription
+      if (state.convexUnsubscribe) {
+        state.convexUnsubscribe();
+        state.convexUnsubscribe = null;
       }
     } catch { }
     state.isConnected = false;
@@ -2545,11 +3102,6 @@
     initialTriangulationDone = false;
     isBufferingRealtime = false;
     realtimeBuffer = [];
-
-    // Reset DataTriangulator state
-    if (window.DataTriangulator) {
-      DataTriangulator.reset();
-    }
 
     setStatus("❌ Disconnected");
   }
@@ -2600,15 +3152,11 @@
         // Session change detection happens in onTelemetryMessage BEFORE worker routing
         // so we just need to handle the data merge here
 
-        // Use DataTriangulator for proper deduplication if available
-        if (window.DataTriangulator) {
-          state.telemetry = DataTriangulator.mergeRealtime(state.telemetry, latest);
-        } else {
-          state.telemetry.push(latest);
-          // Trim if over maxPoints
-          if (state.telemetry.length > state.maxPoints) {
-            state.telemetry = state.telemetry.slice(-state.maxPoints);
-          }
+        // Merge realtime data
+        state.telemetry.push(latest);
+        // Trim if over maxPoints
+        if (state.telemetry.length > state.maxPoints) {
+          state.telemetry = state.telemetry.slice(-state.maxPoints);
         }
       }
 
@@ -2645,34 +3193,7 @@
     console.log('✅ Data Worker ready');
   }
 
-  // Initialize DataTriangulator
-  function initDataTriangulator() {
-    if (!window.DataTriangulator) {
-      console.warn('DataTriangulator not available');
-      return;
-    }
-
-    DataTriangulator.init({
-      maxPoints: state.maxPoints,
-      debug: true,  // Enable logging for debugging
-      ablyHistoryLimit: 1000,
-      supabasePageSize: 1000
-    });
-
-    // Set up callbacks
-    DataTriangulator.onDataReady((result) => {
-      console.log(`📊 DataTriangulator ready: ${result.stats.total} total points`);
-      console.log(`   Supabase: ${result.stats.fromSupabase}, Ably: ${result.stats.fromAblyHistory}, Existing: ${result.stats.fromExisting}`);
-    });
-
-    DataTriangulator.onError((err) => {
-      if (!err.isExpected) {
-        console.error('DataTriangulator error:', err);
-      }
-    });
-
-    console.log('✅ DataTriangulator initialized');
-  }
+  // Note: DataTriangulator removed - Convex reactivity handles real-time data sync
 
   // Expose fallback functions for worker-bridge
   window._workerFallback = {
@@ -2688,39 +3209,33 @@
       const data =
         typeof msg.data === "string" ? JSON.parse(msg.data) : msg.data;
 
-      // Buffer messages during initial triangulation
-      if (isBufferingRealtime) {
-        realtimeBuffer.push(data);
-        state.lastMsgTs = new Date();
-        statLast.textContent = "0s ago";
-        return;
-      }
+      const incomingSessionId = data.session_id;
 
-      // Handle transition from "waiting for session" to receiving data
-      if (state.waitingForSession) {
+      // FIRST MESSAGE: Transition from waiting to receiving
+      if (state.waitingForSession && incomingSessionId) {
         state.waitingForSession = false;
         setStatus("✅ Connected");
-        console.log('📊 Session started — receiving data');
-
-        if (window.AuthUI?.showNotification) {
-          window.AuthUI.showNotification(
-            'Realtime session started — receiving data.',
-            'success',
-            3000
-          );
+        console.log(`📊 First message received — session ${incomingSessionId?.slice(0, 8)}`);
+        
+        // Trigger background history load if not already loading
+        if (!historyLoaded && !historyLoadPromise && state.ablyChannel) {
+          loadHistoryInBackground(incomingSessionId, state.ablyChannel);
         }
       }
 
-      // Track current session ID (but don't re-triangulate - that only happens once on connect)
-      const incomingSessionId = data.session_id;
-      if (incomingSessionId && state.currentSessionId !== incomingSessionId) {
-        console.log(`📊 Session ID in data: ${incomingSessionId.slice(0, 8)} (tracking only, no re-triangulation)`);
+      // Check for session change
+      if (incomingSessionId && state.currentSessionId && incomingSessionId !== state.currentSessionId) {
+        console.log(`📊 Session changed: ${state.currentSessionId?.slice(0, 8)} → ${incomingSessionId?.slice(0, 8)}`);
         state.currentSessionId = incomingSessionId;
-
-        // Update DataTriangulator's session tracking (for reference only)
-        if (window.DataTriangulator) {
-          DataTriangulator.setCurrentSessionId(incomingSessionId);
+        // Reset for new session
+        state.telemetry = [];
+        historyLoaded = false;
+        historyLoadPromise = null;
+        if (state.ablyChannel) {
+          loadHistoryInBackground(incomingSessionId, state.ablyChannel);
         }
+      } else if (!state.currentSessionId && incomingSessionId) {
+        state.currentSessionId = incomingSessionId;
       }
 
       // HYBRID ROUTING: Worker for heavy processing, main thread for UI
@@ -2740,12 +3255,8 @@
       const norm = normalizeData(data);
       const rows = withDerived([norm]);
 
-      // Use DataTriangulator for merging if available (handles deduplication properly)
-      if (window.DataTriangulator) {
-        state.telemetry = DataTriangulator.mergeRealtime(state.telemetry, rows[0]);
-      } else {
-        state.telemetry = mergeTelemetry(state.telemetry, rows);
-      }
+      // Merge with existing telemetry data
+      state.telemetry = mergeTelemetry(state.telemetry, rows);
 
       state.msgCount += 1;
       state.lastMsgTs = new Date();
@@ -3532,10 +4043,10 @@
           // UI status is automatically updated by disconnectRealtime() via setStatus()
         }
 
-        // For historical sessions, only use Supabase DB as the source
+        // For historical sessions, only use Convex DB as the source
         // Triangulation is not appropriate here because:
         // 1. Ably history has limited retention (2 minutes by default)
-        // 2. Historical data is already fully persisted in Supabase
+        // 2. Historical data is already fully persisted in Convex
         sessionInfo.textContent = "Loading from database...";
         let data = await loadFullSession(sid);
 
@@ -3800,7 +4311,7 @@
         console.warn('   Check the console above for specific configuration issues.');
         console.warn('   Common issues:');
         console.warn('   1. .env file missing or incorrectly configured');
-        console.warn('   2. Supabase CDN library not loading');
+        console.warn('   2. Convex CDN library not loading');
         console.warn('   3. Server not restarted after .env changes');
         console.warn('   See TROUBLESHOOTING.md for detailed help.');
       }
@@ -3815,7 +4326,6 @@
     initEvents();
     initCustomCharts();
     initDataWorker(); // Initialize Web Worker for data processing
-    initDataTriangulator(); // Initialize data triangulation for historical + real-time sync
 
     // Mock data integration for testing (no Ably required)
     if (window.MockDataGenerator) {
@@ -3958,19 +4468,15 @@
           return { avg, max, under50ms };
         },
 
-        // Data triangulation utilities
-        triangulate: async (sessionId) => {
-          if (!window.DataTriangulator) {
-            console.error('DataTriangulator not available');
-            return null;
-          }
+        // Manual session reload via Convex
+        reloadSession: async (sessionId) => {
           const sid = sessionId || state.currentSessionId;
           if (!sid) {
             console.error('No session ID. Pass a session ID or connect to real-time first.');
             return null;
           }
-          console.log(`📊 Manually triggering triangulation for session ${sid.slice(0, 8)}...`);
-          const data = await DataTriangulator.triangulate(sid, state.ablyChannel, state.telemetry, { force: true });
+          console.log(`📊 Reloading session ${sid.slice(0, 8)}...`);
+          const data = await loadFullSession(sid);
           if (data && data.length > 0) {
             state.telemetry = withDerived(data);
             state.msgCount = state.telemetry.length;
@@ -3978,18 +4484,6 @@
             scheduleRender();
           }
           return data;
-        },
-
-        getTriangulatorStatus: () => {
-          if (!window.DataTriangulator) {
-            return { available: false };
-          }
-          return {
-            available: true,
-            currentSessionId: DataTriangulator.getCurrentSessionId(),
-            lastTimestamp: DataTriangulator.getLastKnownTimestamp(),
-            isTriangulating: DataTriangulator.isTriangulating()
-          };
         }
       };
       console.log('✅ Mock data ready. Use telemetryTest.startMock() or telemetryTest.loadBatch(5000) in console.');

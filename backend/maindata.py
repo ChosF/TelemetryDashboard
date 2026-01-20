@@ -25,9 +25,9 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from supabase import create_client, Client
+    import requests
 except ImportError:
-    print("Error: Supabase library not installed. Run: pip install supabase")
+    print("Error: requests library not installed. Run: pip install requests")
     sys.exit(1)
 
 import numpy as np
@@ -48,18 +48,19 @@ DASHBOARD_ABLY_API_KEY = (
 )
 DASHBOARD_CHANNEL_NAME = "telemetry-dashboard-channel"
 
-# Supabase
-SUPABASE_URL = "https://dsfmdziehhgmrconjcns.supabase.co"
-SUPABASE_API_KEY = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRzZm1keml"
-    "laGhnbXJjb25qY25zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE5MDEyOTIsImV4cCI6MjA2NzQ3NzI5Mn0"
-    ".P41bpLkP0tKpTktLx6hFOnnyrAB9N_yihQP1v6zTRwc"
+# Convex configuration
+CONVEX_URL = os.environ.get(
+    "CONVEX_URL",
+    "https://impartial-walrus-693.convex.cloud"
 )
-SUPABASE_TABLE_NAME = "telemetry"
+CONVEX_DEPLOY_KEY = os.environ.get(
+    "CONVEX_DEPLOY_KEY",
+    "prod:impartial-walrus-693|eyJ2MiI6ImI2MWY4ZjEyMmZiMDQ3NWFiOTljNjAwN2Q0YmE0MmMxIn0="
+)
 
 # Timings
 MOCK_DATA_INTERVAL = 0.2  # seconds
-DB_BATCH_INTERVAL = 9.0  # seconds
+DB_BATCH_INTERVAL = 2.0  # seconds - reduced from 9s for better real-time sync (max gap ~2s)
 MAX_BATCH_SIZE = 200  # records per insert
 RETRY_BASE_BACKOFF = 3.0  # seconds
 RETRY_BACKOFF_MAX = 60.0  # seconds
@@ -82,9 +83,19 @@ PUBLISH_DRAIN_INTERVAL = 0.002  # 2ms between drain attempts
 SPOOL_DIR = "./spool"
 EXPORT_DIR = "./export"
 
-# Logging
+# Logging - handle Windows encoding issues
+import sys
+import codecs
+
+# Force UTF-8 output on Windows
+if sys.platform == 'win32':
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, errors='replace')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, errors='replace')
+
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO, 
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger("TelemetryBridge")
 
@@ -1065,14 +1076,80 @@ class LocalJournal:
 
 
 # ------------------------------
+# Convex HTTP Client
+# ------------------------------
+
+class ConvexHTTPClient:
+    """
+    HTTP client for calling Convex mutations via the HTTP API.
+    Uses the deploy key for authentication (server-side only).
+    """
+
+    def __init__(self, url: str, deploy_key: str):
+        self.url = url.rstrip("/")
+        self.deploy_key = deploy_key
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Convex {deploy_key}"
+        }
+        self._session = None
+
+    def _get_session(self):
+        if self._session is None:
+            self._session = requests.Session()
+            self._session.headers.update(self.headers)
+        return self._session
+
+    def mutation(self, function_path: str, args: dict, timeout: float = 30.0) -> dict:
+        """
+        Call a Convex mutation via HTTP API.
+        
+        Args:
+            function_path: Path to the function, e.g., "telemetry:insertTelemetryBatch"
+            args: Arguments to pass to the function
+            timeout: Request timeout in seconds
+            
+        Returns:
+            The mutation result
+            
+        Raises:
+            requests.HTTPError: If the request fails
+        """
+        payload = {
+            "path": function_path,
+            "args": args,
+            "format": "json"
+        }
+        
+        session = self._get_session()
+        response = session.post(
+            f"{self.url}/api/mutation",
+            json=payload,
+            timeout=timeout
+        )
+        response.raise_for_status()
+        
+        result = response.json()
+        if "value" in result:
+            return result["value"]
+        return result
+
+    def close(self):
+        """Close the HTTP session"""
+        if self._session:
+            self._session.close()
+            self._session = None
+
+
+# ------------------------------
 # Bridge
 # ------------------------------
 
 class TelemetryBridgeWithDB:
     """
     - Subscribes to ESP32 (real) or generates mock data
-    - Republishes to dashboard
-    - Stores to Supabase in batches with retry/backoff
+    - Republishes to dashboard via Ably
+    - Stores to Convex in batches with retry/backoff
     - Local-first journaling (NDJSON) to avoid data loss
     - On shutdown, exports CSV if any DB failure or pending retries
     - Enhanced reliability: connection monitoring, auto-reconnect, watchdog
@@ -1090,7 +1167,7 @@ class TelemetryBridgeWithDB:
         
         self.esp32_client: Optional[AblyRealtime] = None
         self.dashboard_client: Optional[AblyRealtime] = None
-        self.supabase_client: Optional[Client] = None
+        self.convex_client: Optional[ConvexHTTPClient] = None
         self.esp32_channel = None
         self.dashboard_channel = None
 
@@ -1188,13 +1265,14 @@ class TelemetryBridgeWithDB:
 
     # ------------- Connections with reliability -------------
 
-    async def connect_supabase(self) -> bool:
+    async def connect_convex(self) -> bool:
         try:
-            self.supabase_client = create_client(SUPABASE_URL, SUPABASE_API_KEY)
-            logger.info("✅ Connected to Supabase")
+            self.convex_client = ConvexHTTPClient(CONVEX_URL, CONVEX_DEPLOY_KEY)
+            # Test connection by making a simple request
+            logger.info(f"✅ Connected to Convex at {CONVEX_URL}")
             return True
         except Exception as e:
-            self._count_error(f"Supabase connect failed: {e}")
+            self._count_error(f"Convex connect failed: {e}")
             return False
 
     async def connect_esp32_subscriber(self) -> bool:
@@ -1666,7 +1744,7 @@ class TelemetryBridgeWithDB:
     async def _write_batches_to_database(
         self, batches: List[List[Dict[str, Any]]]
     ) -> bool:
-        if not self.supabase_client:
+        if not self.convex_client:
             self.db_retry_queue.extend(batches)
             self.db_write_failures += len(batches)
             return False
@@ -1674,9 +1752,10 @@ class TelemetryBridgeWithDB:
         all_ok = True
         for batch in batches:
             try:
-                rows = []
+                # Prepare records for Convex mutation
+                records = []
                 for r in batch:
-                    rows.append(
+                    records.append(
                         {
                             "session_id": r["session_id"],
                             "session_name": r.get("session_name", self.session_name),
@@ -1704,19 +1783,18 @@ class TelemetryBridgeWithDB:
                             "throttle": r.get("throttle"),
                             "brake": r.get("brake"),
                             "data_source": r.get("data_source"),
-                            "outliers": json.dumps(r.get("outliers")) if r.get("outliers") else None,
+                            "outliers": r.get("outliers"),  # Convex handles objects directly
                         }
                     )
 
-                resp = (
-                    self.supabase_client.table(SUPABASE_TABLE_NAME)
-                    .insert(rows)
-                    .execute()
+                # Call Convex mutation via HTTP API
+                result = self.convex_client.mutation(
+                    "telemetry:insertTelemetryBatch",
+                    {"records": records}
                 )
-                if not resp.data:
-                    raise RuntimeError("Supabase insert returned no data")
-
-                self.stats["messages_stored_db"] += len(resp.data)
+                
+                inserted_count = result.get("inserted", len(records))
+                self.stats["messages_stored_db"] += inserted_count
                 self.stats["last_db_write_time"] = datetime.now(timezone.utc)
 
             except Exception as e:
@@ -1772,7 +1850,7 @@ class TelemetryBridgeWithDB:
 
     async def run(self):
         try:
-            ok_db = await self.connect_supabase()
+            ok_db = await self.connect_convex()
             ok_src = await self.connect_esp32_subscriber()
             ok_out = await self.connect_dashboard_publisher()
             if not ok_out or (not ok_src and not self.mock_mode):
@@ -1891,6 +1969,13 @@ class TelemetryBridgeWithDB:
                 except Exception:
                     pass
 
+            # Close Convex client
+            if self.convex_client:
+                try:
+                    self.convex_client.close()
+                except Exception:
+                    pass
+
             # Close journal
             self.journal.close()
 
@@ -1910,7 +1995,58 @@ class TelemetryBridgeWithDB:
 # CLI
 # ------------------------------
 
+import argparse
+
+def parse_cli_args():
+    """Parse command line arguments for non-interactive mode."""
+    parser = argparse.ArgumentParser(description='Telemetry Bridge with Database')
+    parser.add_argument('--mock', action='store_true', help='Use mock data mode')
+    parser.add_argument('--real', action='store_true', help='Use real ESP32 data mode')
+    parser.add_argument('--scenario', choices=['normal', 'sensor', 'stalls', 'intermit', 'gps', 'chaos'], 
+                        default='normal', help='Mock scenario (default: normal)')
+    parser.add_argument('--session', type=str, default='', help='Session name')
+    parser.add_argument('--rate', type=float, default=2.0, help='Messages per second for mock mode')
+    return parser.parse_args()
+
 def get_user_preferences() -> tuple:
+    # Check for command line arguments first (non-interactive mode)
+    args = parse_cli_args()
+    
+    if args.mock or args.real:
+        # Non-interactive mode
+        mock_mode = args.mock
+        print("\n" + "=" * 70)
+        print("🚀 TELEMETRY BRIDGE (CLI MODE)")
+        print("=" * 70)
+        print(f"Mode: {'MOCK DATA' if mock_mode else 'REAL DATA (ESP32)'}")
+        
+        # Configure mock settings
+        mock_config = MockModeConfig()
+        if mock_mode:
+            scenario_map = {
+                'normal': MockScenario.NORMAL,
+                'sensor': MockScenario.SENSOR_FAILURES,
+                'stalls': MockScenario.DATA_STALLS,
+                'intermit': MockScenario.INTERMITTENT,
+                'gps': MockScenario.GPS_ISSUES,
+                'chaos': MockScenario.CHAOS,
+            }
+            mock_config = MockModeConfig.from_scenario(scenario_map[args.scenario])
+            mock_config.base_publish_rate = args.rate
+            print(f"Scenario: {args.scenario.upper()}")
+            print(f"Rate: {args.rate} msg/s")
+        
+        session_name = args.session
+        if not session_name:
+            scenario_tag = f"_{mock_config.scenario.value}" if mock_mode else ""
+            session_name = f"{'M' if mock_mode else ''}Session{scenario_tag}_{str(uuid.uuid4())[:8]}"
+        if mock_mode and not session_name.startswith("M "):
+            session_name = "M " + session_name
+        print(f"Session: {session_name}\n")
+        
+        return mock_mode, session_name, mock_config
+    
+    # Interactive mode (original behavior)
     print("\n" + "=" * 70)
     print("🚀 TELEMETRY BRIDGE WITH DATABASE")
     print("=" * 70)

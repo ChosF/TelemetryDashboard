@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="view-transition" content="same-origin" />
   <title>EcoVolt Telemetry</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
 
   <!-- App styles -->
   <link rel="stylesheet" href="styles.css" />
@@ -27,12 +28,22 @@
   <!-- uPlot (high-performance charts) -->
   <link rel="stylesheet" href="lib/uplot.min.css" />
 
-  <!-- Optional config (define window.CONFIG before app.js if needed) -->
+  <!-- Configuration - Set your Convex URL here -->
   <script>
+    // Detect if running locally or in production
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
     window.CONFIG = window.CONFIG || {
       ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
-      ABLY_AUTH_URL: "/api/ably/token",
-      // ABLY_API_KEY: "your-ably-key" // only if you choose to embed it
+      // Use Ably API key directly for now (both local and production)
+      // This avoids the need for the Convex HTTP token endpoint
+      // Note: For better security in production, set up ABLY_API_KEY in Convex 
+      // environment variables and use ABLY_AUTH_URL instead
+      ABLY_API_KEY: "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ",
+      // Alternative: Use Convex HTTP endpoint for token auth (more secure)
+      // ABLY_AUTH_URL: "https://impartial-walrus-693.convex.site/ably/token",
+      // Set your Convex deployment URL - this is the main data backend
+      CONVEX_URL: "https://impartial-walrus-693.convex.cloud",
     };
   </script>
 </head>
@@ -522,8 +533,11 @@
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Supabase client (pinned to v2.45.6 for stability) -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2.45.6/dist/umd/supabase.js"></script>
+  <!-- Ably realtime for telemetry streaming -->
+  <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+
+  <!-- Convex browser client for real-time data & auth -->
+  <script src="https://unpkg.com/convex@1.17.0/dist/browser.bundle.js"></script>
 
   <!-- Auth modules -->
   <script src="auth.js"></script>
@@ -535,7 +549,7 @@
   <script src="lib/charts.js"></script>
   <script src="lib/mock-data.js"></script>
   <script src="lib/worker-bridge.js"></script>
-  <script src="lib/data-triangulator.js"></script>
+  <script src="lib/convex-bridge.js"></script>
 
   <!-- App logic -->
   <script src="app.js"></script>
