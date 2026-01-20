@@ -131,11 +131,6 @@ flowchart LR
         A1 -->|WebSocket| D1[Dashboard]
     end
 
-    subgraph Persistence["💾 Persistence Path"]
-        direction LR
-        P2[Python Bridge] -->|Batch Insert| C1[Convex DB]
-        C1 -->|Reactive Query| D2[Dashboard]
-    end
 
     subgraph Historical["📁 Historical Path"]
         direction LR
@@ -145,39 +140,6 @@ flowchart LR
     end
 ```
 
-### Technology Stack
-
-```mermaid
-flowchart TB
-    subgraph Frontend["🎨 Frontend - Vercel"]
-        HTML[HTML/CSS]
-        JS[Vanilla JavaScript]
-        uPlot[uPlot Charts]
-        ECharts[ECharts]
-        Leaflet[Leaflet Maps]
-        DataTables[DataTables]
-    end
-
-    subgraph Backend["⚙️ Backend - Convex Cloud"]
-        Database[(NoSQL Database)]
-        ServerlessFn[Serverless Functions]
-        AuthSystem[Authentication]
-        HTTPApi[HTTP APIs]
-        Realtime[Real-time Subscriptions]
-    end
-
-    subgraph DataBridge["🔗 Data Bridge - Python"]
-        Serial[Serial I/O]
-        NumPy[NumPy Processing]
-        OutlierDet[Outlier Detection]
-        AblySDK[Ably SDK]
-        ConvexSDK[Convex SDK]
-    end
-
-    Frontend <-->|HTTPS| Backend
-    DataBridge -->|Mutations| Backend
-    DataBridge -->|Pub/Sub| Frontend
-```
 
 ## Getting Started
 
