@@ -2,182 +2,396 @@
 
 ## Overview
 
-This application implements a secure configuration architecture that ensures sensitive credentials are never hardcoded in the repository and are only accessible through Vercel environment variables.
+This application uses Convex as the backend, which provides built-in security features. This guide outlines the security architecture and best practices.
 
-## Configuration Architecture
+## Architecture Security
 
-### Secure Configuration Flow
+### Convex Security Model
 
-1. **Environment Variables (Vercel/Local)**
-   - All sensitive credentials are stored as environment variables
-   - In Vercel: Set through Dashboard → Project → Settings → Environment Variables
-   - Locally: Set in `.env` file (not committed to repository)
+Convex provides several built-in security features:
+- **Automatic HTTPS**: All connections are encrypted
+- **Authentication**: Built-in session management with secure tokens
+- **Authorization**: Role-based access control in mutation/query handlers
+- **Input Validation**: Type-safe arguments via Convex validators
+- **No SQL Injection**: NoSQL database with type-safe queries
 
-2. **Backend API Endpoint (`/api/config`)**
-   - Serves only safe-to-expose configuration from environment variables
-   - Returns: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `ABLY_CHANNEL_NAME`, `ABLY_AUTH_URL`
-   - Never exposes: `ABLY_API_KEY`, `SUPABASE_SERVICE_ROLE`
+### Data Flow Security
 
-3. **Frontend Dynamic Loading**
-   - Frontend fetches configuration from `/api/config` on startup
-   - No hardcoded secrets in static files
-   - Configuration is loaded asynchronously before app initialization
-
-## Environment Variables
-
-### Required Variables
-
-| Variable | Exposure Level | Description |
-|----------|----------------|-------------|
-| `ABLY_API_KEY` | **SECRET** (Server-only) | Ably API key for server-side token generation |
-| `SUPABASE_SERVICE_ROLE` | **SECRET** (Server-only) | Supabase service role key for server-side database operations |
-| `SUPABASE_URL` | Safe to expose | Supabase project URL |
-| `SUPABASE_ANON_KEY` | Safe to expose | Supabase anon/public key (protected by Row Level Security) |
-| `ABLY_CHANNEL_NAME` | Safe to expose | Ably channel name for pub/sub |
-
-### Optional Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SESSIONS_SCAN_LIMIT` | 10000 | Maximum rows to scan when loading sessions |
-| `PORT` | 5173 | Server port for local development |
-| `STATIC_DIR` | public | Directory for static files |
-
-## Security Best Practices
-
-### ✅ DO
-
-1. **Store all secrets in environment variables**
-   - Use Vercel Dashboard for production
-   - Use `.env` file for local development (excluded from git)
-
-2. **Use the `/api/config` endpoint for frontend configuration**
-   - Ensures secrets are never exposed to the client
-   - Centralizes configuration management
-
-3. **Keep service role keys server-side only**
-   - Never expose in frontend code
-   - Never log in console or error messages
-
-4. **Use Row Level Security (RLS) in Supabase**
-   - Even with anon key exposed, RLS protects your data
-   - Configure appropriate policies for your use case
-
-5. **Rotate credentials regularly**
-   - Update keys in Vercel environment variables
-   - Redeploy to apply changes
-
-### ❌ DON'T
-
-1. **Never commit real credentials to git**
-   - `.env` contains placeholders only
-   - Real credentials only in Vercel environment variables
-
-2. **Never hardcode secrets in source code**
-   - Use environment variables instead
-   - Use `/api/config` for frontend needs
-
-3. **Never expose service role keys to frontend**
-   - Service role bypasses Row Level Security
-   - Must remain server-side only
-
-4. **Never log sensitive data**
-   - Avoid logging full API keys or tokens
-   - Use masked values if logging is necessary
-
-## Vercel Deployment Security
-
-### Setting Environment Variables
-
-1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
-2. Select your project
-3. Navigate to Settings → Environment Variables
-4. Add each required variable:
-   - Variable name (exact match required)
-   - Value (paste your credential)
-   - Environment (select all: Production, Preview, Development)
-
-### Verifying Configuration
-
-After deployment, test the configuration:
-
-```bash
-# Test health endpoint
-curl https://your-app.vercel.app/api/health
-
-# Test config endpoint (safe to call)
-curl https://your-app.vercel.app/api/config
+```
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                          🔒 Security Architecture                              ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║   ┌─────────────────────────────────────────────────────────────────────┐    ║
+║   │                      TRUST BOUNDARY (Server-Side)                    │    ║
+║   │   ┌───────────────────────────────────────────────────────────┐     │    ║
+║   │   │                    ☁️ CONVEX CLOUD                        │     │    ║
+║   │   │                                                           │     │    ║
+║   │   │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │     │    ║
+║   │   │   │ Environment │    │  Password   │    │   Session   │  │     │    ║
+║   │   │   │ Variables   │    │   Hashes    │    │   Tokens    │  │     │    ║
+║   │   │   │ ─────────── │    │ ─────────── │    │ ─────────── │  │     │    ║
+║   │   │   │ ABLY_API_KEY│    │ SHA-256 +   │    │ 32-byte     │  │     │    ║
+║   │   │   │ (secret)    │    │ salt        │    │ random hex  │  │     │    ║
+║   │   │   └─────────────┘    └─────────────┘    └─────────────┘  │     │    ║
+║   │   │                                                           │     │    ║
+║   │   │   ┌───────────────────────────────────────────────────┐  │     │    ║
+║   │   │   │  Authorization Checks in Every Function           │  │     │    ║
+║   │   │   │  • Token validation                               │  │     │    ║
+║   │   │   │  • Role verification                              │  │     │    ║
+║   │   │   │  • Input sanitization via validators              │  │     │    ║
+║   │   │   └───────────────────────────────────────────────────┘  │     │    ║
+║   │   └───────────────────────────────────────────────────────────┘     │    ║
+║   └─────────────────────────────────────────────────────────────────────┘    ║
+║                                    ▲                                          ║
+║                                    │ HTTPS Only                               ║
+║                                    │ (TLS 1.3)                                ║
+║                                    ▼                                          ║
+║   ┌─────────────────────────────────────────────────────────────────────┐    ║
+║   │                      CLIENT BOUNDARY (Browser)                       │    ║
+║   │                                                                      │    ║
+║   │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐            │    ║
+║   │   │ Safe Config │    │ Session     │    │ No Access   │            │    ║
+║   │   │ ─────────── │    │ Token       │    │ ─────────── │            │    ║
+║   │   │ CONVEX_URL  │    │ ─────────── │    │ API Keys    │            │    ║
+║   │   │ CHANNEL_NAME│    │ localStorage│    │ Passwords   │            │    ║
+║   │   │ (public)    │    │ (per-user)  │    │ Other users │            │    ║
+║   │   └─────────────┘    └─────────────┘    └─────────────┘            │    ║
+║   │                                                                      │    ║
+║   └─────────────────────────────────────────────────────────────────────┘    ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
 ```
 
-Expected response from `/api/config`:
-```json
-{
-  "SUPABASE_URL": "https://your-project.supabase.co",
-  "SUPABASE_ANON_KEY": "your-anon-key",
-  "ABLY_CHANNEL_NAME": "telemetry-dashboard-channel",
-  "ABLY_AUTH_URL": "/api/ably/token"
+### Authentication Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        🔐 Authentication Flow                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   SIGN UP                                                                   │
+│   ═══════                                                                   │
+│                                                                             │
+│   ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐      │
+│   │  User    │      │  Convex  │      │  Create  │      │  Return  │      │
+│   │  Input   │─────►│  Action  │─────►│  Records │─────►│  Token   │      │
+│   │          │      │          │      │          │      │          │      │
+│   │ email    │      │ hash pwd │      │ authUsers│      │ 64-char  │      │
+│   │ password │      │ validate │      │ profile  │      │ hex      │      │
+│   │ name     │      │          │      │ session  │      │ string   │      │
+│   └──────────┘      └──────────┘      └──────────┘      └──────────┘      │
+│                                                                             │
+│   SIGN IN                                                                   │
+│   ═══════                                                                   │
+│                                                                             │
+│   ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐      │
+│   │  User    │      │  Verify  │      │  Create  │      │  Return  │      │
+│   │  Input   │─────►│  Password│─────►│  Session │─────►│  Token   │      │
+│   │          │      │          │      │          │      │          │      │
+│   │ email    │      │ hash &   │      │ random   │      │ store in │      │
+│   │ password │      │ compare  │      │ token    │      │ localStorage    │
+│   └──────────┘      └──────────┘      └──────────┘      └──────────┘      │
+│                                                                             │
+│   SESSION VALIDATION (Every Request)                                        │
+│   ═══════════════════════════════════                                       │
+│                                                                             │
+│   ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐      │
+│   │  Client  │      │  Lookup  │      │  Check   │      │  Execute │      │
+│   │  Request │─────►│  Session │─────►│  Expiry  │─────►│  or Deny │      │
+│   │          │      │          │      │          │      │          │      │
+│   │ + token  │      │ by_token │      │ < 24hrs  │      │ function │      │
+│   │          │      │ index    │      │ old?     │      │          │      │
+│   └──────────┘      └──────────┘      └──────────┘      └──────────┘      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Secrets Management
+
+### What Goes Where
+
+| Secret | Storage Location | Exposure |
+|--------|-----------------|----------|
+| `ABLY_API_KEY` | Convex Environment Variables | Server-side only |
+| Session Tokens | localStorage (client), Convex DB (server) | Per-user |
+| Password Hashes | Convex `authUsers` table | Server-side only |
+| Convex URL | Frontend config | Safe to expose |
+| Ably Channel Name | Frontend config | Safe to expose |
+
+### Environment Variables in Convex
+
+Set environment variables in Convex Dashboard:
+
+1. Go to [dashboard.convex.dev](https://dashboard.convex.dev)
+2. Select your project
+3. Navigate to Settings → Environment Variables
+4. Add variables (they're only accessible in server-side functions)
+
+### Frontend Configuration
+
+The frontend config in `public/index.html` contains only safe-to-expose values:
+
+```javascript
+window.CONFIG = {
+  ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",  // Safe
+  ABLY_AUTH_URL: "/ably/token",                      // Safe - URL only
+  CONVEX_URL: "https://your-project.convex.cloud",   // Safe
+};
+```
+
+**Never include in frontend config:**
+- `ABLY_API_KEY` (use `ABLY_AUTH_URL` instead)
+- Database credentials
+- Service account keys
+
+## Authentication Security
+
+### Password Storage
+
+Passwords are hashed using SHA-256 with a salt before storage:
+
+```typescript
+// In convex/auth.ts
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + "ecovolt-salt-v1");
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  // ... convert to hex string
 }
 ```
 
-**Note:** Service role key and Ably API key should NEVER appear in this response.
+**Note**: For production systems handling sensitive data, consider upgrading to bcrypt or Argon2.
 
-## Local Development Security
+### Session Management
 
-### Setup
+- Sessions are stored in Convex with secure random tokens
+- Tokens expire after 24 hours
+- Tokens are validated on every authenticated request
+- Sign out invalidates the session server-side
 
-1. Copy `.env.example.txt` to `.env`
-2. Fill in your credentials (real values)
-3. `.env` is automatically ignored by git (see `.gitignore`)
+### Token Security
 
-### Testing
+```javascript
+// Token format: 64-character hex string (32 random bytes)
+// Example: "a1b2c3d4e5f6..."
 
-```bash
-# Start local server
-npm run dev
+// Storage: localStorage (client-side)
+localStorage.setItem('convex_auth_token', token);
 
-# Test configuration endpoint
-curl http://localhost:5173/api/config
-
-# Verify no secrets in output
-# Should NOT contain: ABLY_API_KEY, SUPABASE_SERVICE_ROLE
+// Transmission: Passed as argument to Convex functions
+await ConvexBridge.getCurrentProfile(token);
 ```
 
-## Security Checklist
+## Authorization
 
-Before deploying to production:
+### Role-Based Access Control
 
-- [ ] All environment variables set in Vercel
-- [ ] `.env` file contains only placeholders (no real credentials)
-- [ ] `.env` is in `.gitignore`
-- [ ] No hardcoded secrets in source code
-- [ ] `/api/config` endpoint tested and returns expected values
-- [ ] `/api/config` does NOT expose secret keys
-- [ ] Supabase Row Level Security policies configured
-- [ ] Ably channel permissions configured appropriately
-- [ ] All dependencies up to date (run `npm audit`)
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       👥 Role-Based Access Control                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   PRIVILEGES INCREASE ───────────────────────────────────────────────────►  │
+│                                                                             │
+│   ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐             │
+│   │  GUEST  │     │EXTERNAL │     │INTERNAL │     │  ADMIN  │             │
+│   │         │     │         │     │         │     │         │             │
+│   │ Default │────►│  Auto-  │────►│ Requires│────►│  Full   │             │
+│   │  role   │     │ approved│     │ approval│     │ access  │             │
+│   └────┬────┘     └────┬────┘     └────┬────┘     └────┬────┘             │
+│        │               │               │               │                   │
+│        ▼               ▼               ▼               ▼                   │
+│   ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐             │
+│   │ ✓ Live  │     │ ✓ Live  │     │ ✓ Live  │     │ ✓ Live  │             │
+│   │   data  │     │   data  │     │   data  │     │   data  │             │
+│   │         │     │         │     │         │     │         │             │
+│   │ ✗ CSV   │     │ ✓ CSV   │     │ ✓ CSV   │     │ ✓ CSV   │             │
+│   │         │     │ (limit) │     │(unlimit)│     │(unlimit)│             │
+│   │         │     │         │     │         │     │         │             │
+│   │ ✗ Hist. │     │ ✓ Last  │     │ ✓ All   │     │ ✓ All   │             │
+│   │         │     │ session │     │sessions │     │sessions │             │
+│   │         │     │         │     │         │     │         │             │
+│   │ ✗ Admin │     │ ✗ Admin │     │ ✗ Admin │     │ ✓ Admin │             │
+│   │         │     │         │     │         │     │  panel  │             │
+│   └─────────┘     └─────────┘     └─────────┘     └─────────┘             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Four user roles with increasing privileges:
+
+| Role | Capabilities |
+|------|-------------|
+| `guest` | View real-time data only |
+| `external` | + Download limited CSV, view last session |
+| `internal` | + Unlimited CSV, all sessions |
+| `admin` | + User management, approve requests |
+
+### Server-Side Authorization
+
+Authorization is checked in Convex functions:
+
+```typescript
+// Example from convex/users.ts
+export const getAllUsers = query({
+  args: { token: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    // Verify token and get user ID
+    const userId = await getCurrentUserId(ctx, args.token);
+    if (!userId) return [];
+
+    // Check role
+    const profile = await ctx.db.query("user_profiles")
+      .withIndex("by_userId", q => q.eq("userId", userId))
+      .first();
+
+    if (profile?.role !== "admin") {
+      return [];  // Non-admins get empty result
+    }
+
+    // Admin gets all users
+    return await ctx.db.query("user_profiles").collect();
+  },
+});
+```
+
+## Best Practices
+
+### Do
+
+1. **Use ABLY_AUTH_URL for token authentication**
+   - More secure than exposing API key in frontend
+   - Tokens are short-lived and can be revoked
+
+2. **Validate all inputs server-side**
+   - Convex validators handle this automatically
+   - Never trust client-side validation alone
+
+3. **Check authorization in every mutation/query**
+   - Verify user has permission for the operation
+   - Don't rely on UI hiding features
+
+4. **Use HTTPS everywhere**
+   - Convex and Vercel provide this automatically
+   - Ensure Python bridge uses HTTPS URLs
+
+5. **Keep secrets in environment variables**
+   - Convex environment variables for backend
+   - Never commit secrets to git
+
+6. **Rotate credentials periodically**
+   - Update Ably API keys
+   - Force password resets if compromised
+
+### Don't
+
+1. **Never expose ABLY_API_KEY in frontend**
+   - Use token authentication via Convex HTTP endpoint
+
+2. **Never log sensitive data**
+   - Don't log passwords, tokens, or API keys
+   - Mask values if debugging is necessary
+
+3. **Never trust client-side data**
+   - Validate everything server-side
+   - Re-check permissions in Convex functions
+
+4. **Never store plain-text passwords**
+   - Always hash with salt
+
+5. **Never bypass authorization checks**
+   - Even for "read-only" queries
+
+## HTTP Endpoint Security
+
+The Convex HTTP endpoint (`convex/http.ts`) includes:
+
+### CORS Headers
+
+```typescript
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",  // Consider restricting in production
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Max-Age": "86400",
+};
+```
+
+**Production Recommendation**: Restrict `Access-Control-Allow-Origin` to your domain.
+
+### Ably Token Endpoint
+
+The `/ably/token` endpoint:
+1. Reads `ABLY_API_KEY` from Convex environment variables
+2. Generates a signed token request
+3. Returns token to client (never the API key)
+
+## Vercel Security Headers
+
+The `vercel.json` includes security headers:
+
+```json
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" }
+      ]
+    }
+  ]
+}
+```
 
 ## Incident Response
 
-If credentials are accidentally exposed:
+If credentials are compromised:
 
-1. **Immediately rotate the compromised credentials**
-   - Ably: Generate new API key in Ably Dashboard
-   - Supabase: Rotate service role key in Supabase Dashboard
+### 1. Immediately Rotate Credentials
 
-2. **Update Vercel environment variables**
-   - Replace old credentials with new ones
-   - Redeploy application
+**Ably API Key:**
+1. Go to Ably Dashboard → Your App → API Keys
+2. Create new key, update Convex environment variable
+3. Revoke old key
 
-3. **Review git history**
-   - Check if credentials were committed
-   - If yes, consider them permanently compromised
-   - Use `git filter-branch` or BFG Repo-Cleaner to remove from history
+**User Sessions:**
+1. In Convex Dashboard → Data → `authSessions`
+2. Delete all sessions to force re-login
 
-4. **Monitor for suspicious activity**
-   - Check Ably usage dashboard
-   - Check Supabase logs for unusual queries
-   - Review Vercel function logs
+### 2. Review Logs
+
+- Check Convex logs for unauthorized access
+- Review Ably stats for unusual activity
+- Check Vercel function logs
+
+### 3. Notify Users
+
+If user data may be compromised:
+- Force password resets
+- Notify affected users
+
+## Security Checklist
+
+Before going to production:
+
+- [ ] `ABLY_API_KEY` stored in Convex environment variables only
+- [ ] Frontend uses `ABLY_AUTH_URL`, not raw API key
+- [ ] No secrets in git repository
+- [ ] All Convex mutations check authorization
+- [ ] Password hashing implemented
+- [ ] Session expiry configured
+- [ ] CORS restricted to your domain (optional but recommended)
+- [ ] Security headers configured in Vercel
+- [ ] First admin user created through secure process
+- [ ] Audit logging enabled (Convex logs)
 
 ## Contact
 
-For security issues or questions, contact the repository maintainer.
+For security issues, contact the repository maintainer.
+
+---
+
+*Last updated: January 2026*

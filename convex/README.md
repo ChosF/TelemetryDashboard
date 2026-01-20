@@ -1,90 +1,170 @@
-# Welcome to your Convex functions directory!
+# Convex Backend - EcoVolt Telemetry Dashboard
 
-Write your Convex functions here.
-See https://docs.convex.dev/functions for more.
+This directory contains the Convex serverless backend for the EcoVolt Telemetry Dashboard.
 
-A query function that takes two arguments looks like:
+## Architecture
 
-```ts
-// convex/myFunctions.ts
-import { query } from "./_generated/server";
-import { v } from "convex/values";
-
-export const myQueryFunction = query({
-  // Validators for arguments.
-  args: {
-    first: v.number(),
-    second: v.string(),
-  },
-
-  // Function implementation.
-  handler: async (ctx, args) => {
-    // Read the database as many times as you need here.
-    // See https://docs.convex.dev/database/reading-data.
-    const documents = await ctx.db.query("tablename").collect();
-
-    // Arguments passed from the client are properties of the args object.
-    console.log(args.first, args.second);
-
-    // Write arbitrary JavaScript here: filter, aggregate, build derived data,
-    // remove non-public properties, or create new objects.
-    return documents;
-  },
-});
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        📦 Convex Backend Structure                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   convex/                                                                   │
+│   ├── schema.ts ─────────── Database table definitions                     │
+│   │                         • telemetry (sensor data)                       │
+│   │                         • authUsers (credentials)                       │
+│   │                         • authSessions (login sessions)                 │
+│   │                         • user_profiles (roles/permissions)             │
+│   │                                                                         │
+│   ├── telemetry.ts ──────── Telemetry CRUD operations                      │
+│   │                         • getSessionRecords (query)                     │
+│   │                         • insertTelemetryBatch (mutation)               │
+│   │                         • deleteSession (mutation)                      │
+│   │                                                                         │
+│   ├── sessions.ts ───────── Session management                             │
+│   │                         • listSessions (query)                          │
+│   │                                                                         │
+│   ├── users.ts ──────────── User profile management                        │
+│   │                         • getCurrentProfile, getAllUsers                │
+│   │                         • updateUserRole, rejectUser                    │
+│   │                                                                         │
+│   ├── auth.ts ───────────── Authentication system                          │
+│   │                         • signIn/signUp (action)                        │
+│   │                         • signOut (action)                              │
+│   │                         • verifySession (query)                         │
+│   │                                                                         │
+│   └── http.ts ───────────── HTTP endpoints                                 │
+│                             • GET /ably/token                               │
+│                             • GET /health                                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Using this query function in a React component looks like:
+## Files Overview
 
-```ts
-const data = useQuery(api.myFunctions.myQueryFunction, {
-  first: 10,
-  second: "hello",
-});
+| File | Purpose |
+|------|---------|
+| `schema.ts` | Database schema definitions |
+| `telemetry.ts` | Telemetry data queries and mutations |
+| `sessions.ts` | Session listing and management |
+| `users.ts` | User profile management |
+| `auth.ts` | Email/password authentication |
+| `http.ts` | HTTP endpoints (Ably token, health check) |
+| `config.ts` | Configuration queries |
+
+## Schema
+
+### Tables
+
+- **telemetry** - Vehicle sensor data (speed, power, GPS, IMU, etc.)
+- **authUsers** - User credentials (email, password hash)
+- **authSessions** - Active login sessions
+- **user_profiles** - User roles and permissions
+
+## Key Functions
+
+### Queries (Real-time, Reactive)
+
+```typescript
+// Get all records for a session
+telemetry:getSessionRecords({ sessionId: string })
+
+// Get recent records with limit
+telemetry:getRecentRecords({ sessionId: string, limit?: number, sinceTimestamp?: string })
+
+// List all sessions
+sessions:listSessions({})
+
+// Get user profile
+users:getCurrentProfile({ token: string })
 ```
 
-A mutation function looks like:
+### Mutations
 
-```ts
-// convex/myFunctions.ts
-import { mutation } from "./_generated/server";
-import { v } from "convex/values";
+```typescript
+// Insert telemetry data batch
+telemetry:insertTelemetryBatch({ records: [...] })
 
-export const myMutationFunction = mutation({
-  // Validators for arguments.
-  args: {
-    first: v.string(),
-    second: v.string(),
-  },
+// Delete a session
+telemetry:deleteSession({ sessionId: string })
 
-  // Function implementation.
-  handler: async (ctx, args) => {
-    // Insert or modify documents in the database here.
-    // Mutations can also read from the database like queries.
-    // See https://docs.convex.dev/database/writing-data.
-    const message = { body: args.first, author: args.second };
-    const id = await ctx.db.insert("messages", message);
-
-    // Optionally, return a value from your mutation.
-    return await ctx.db.get("messages", id);
-  },
-});
+// Update user role (admin only)
+users:updateUserRole({ token: string, targetUserId: Id, role: string })
 ```
 
-Using this mutation function in a React component looks like:
+### Actions
 
-```ts
-const mutation = useMutation(api.myFunctions.myMutationFunction);
-function handleButtonPress() {
-  // fire and forget, the most common way to use mutations
-  mutation({ first: "Hello!", second: "me" });
-  // OR
-  // use the result once the mutation has completed
-  mutation({ first: "Hello!", second: "me" }).then((result) =>
-    console.log(result),
-  );
-}
+```typescript
+// Sign in or sign up
+auth:signIn({ params: { email, password, flow?: "signUp" } })
+
+// Sign out
+auth:signOut({ token: string })
 ```
 
-Use the Convex CLI to push your functions to a deployment. See everything
-the Convex CLI can do by running `npx convex -h` in your project root
-directory. To learn more, launch the docs with `npx convex docs`.
+## HTTP Endpoints
+
+- `GET /ably/token` - Generate Ably authentication token
+- `GET /health` - Health check
+
+## Development
+
+```bash
+# Start development server (watches for changes)
+npx convex dev
+
+# Deploy to production
+npx convex deploy
+
+# View logs
+# Go to dashboard.convex.dev → Your Project → Logs
+```
+
+## Environment Variables
+
+Set in Convex Dashboard → Settings → Environment Variables:
+
+| Variable | Description |
+|----------|-------------|
+| `ABLY_API_KEY` | Ably API key for token generation |
+
+## Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          🔄 Convex Data Flow                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   WRITE PATH (Python Bridge → Convex)                                       │
+│   ════════════════════════════════════                                      │
+│                                                                             │
+│   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐               │
+│   │   Python    │      │  Mutation   │      │  Telemetry  │               │
+│   │   Bridge    │─────►│  insertTele │─────►│   Table     │               │
+│   │             │      │  metryBatch │      │             │               │
+│   └─────────────┘      └─────────────┘      └─────────────┘               │
+│                                                    │                        │
+│                                                    │ Auto-notify            │
+│                                                    ▼                        │
+│   READ PATH (Dashboard ← Convex)                                           │
+│   ══════════════════════════════                                           │
+│                                                                             │
+│   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐               │
+│   │  Dashboard  │◄─────│   Query     │◄─────│  Reactive   │               │
+│   │   Charts    │ Live │ getSession  │      │ Subscription│               │
+│   │             │ data │ Records     │      │             │               │
+│   └─────────────┘      └─────────────┘      └─────────────┘               │
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   │  Key Insight: Convex queries are REACTIVE - when data changes,      │  │
+│   │  subscribed clients automatically receive updates. No polling!      │  │
+│   └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Resources
+
+- [Convex Documentation](https://docs.convex.dev)
+- [Convex TypeScript API](https://docs.convex.dev/api)
+- [Convex Discord](https://discord.gg/convex)
