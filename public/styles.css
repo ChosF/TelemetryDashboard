@@ -3921,9 +3921,9 @@ body {
 
 .optimal-speed-display {
   padding: var(--space-4);
-  background: linear-gradient(135deg, var(--success-muted), var(--accent-muted));
+  background: rgba(34, 197, 94, 0.08);
   border-radius: var(--radius-lg);
-  border: 1px solid var(--success);
+  border: 1px solid rgba(34, 197, 94, 0.15);
 }
 
 .optimal-speed-display p {
@@ -4281,8 +4281,8 @@ body {
   justify-content: center;
   gap: var(--space-4);
   padding: var(--space-4) var(--space-5);
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.04));
-  border: 1px solid rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.18);
 }
 
 .overview-metric {
@@ -4317,7 +4317,7 @@ body {
 .metric-divider {
   width: 1px;
   height: 40px;
-  background: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.18);
 }
 
 .overview-motion-state {
