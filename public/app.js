@@ -3503,70 +3503,11 @@
       }
     }
 
-    // Fallback: need more data or use client-side calculation
+    // No server-provided optimal speed available
     if (rows.length < 50) {
-      display.innerHTML = '<p>Collecting more data to determine optimal speed range...</p>';
-      return;
-    }
-
-    // Fallback: Client-side bucket-based calculation
-    const speedRanges = [
-      { min: 0, max: 20, label: '0-20' },
-      { min: 20, max: 40, label: '20-40' },
-      { min: 40, max: 60, label: '40-60' },
-      { min: 60, max: 80, label: '60-80' },
-      { min: 80, max: 100, label: '80-100' }
-    ];
-
-    const rangeData = speedRanges.map(r => ({ ...r, distance: 0, energy: 0 }));
-
-    for (let i = 1; i < rows.length; i++) {
-      const t1 = new Date(rows[i - 1].timestamp).getTime();
-      const t2 = new Date(rows[i].timestamp).getTime();
-      const dt = (t2 - t1) / 1000;
-
-      if (dt > 0 && dt < 10) {
-        const speed = toNum(rows[i].speed_ms, 0) * 3.6;
-        const power = toNum(rows[i].power_w, 0);
-
-        const distanceSegment = (toNum(rows[i].speed_ms, 0) * dt) / 1000;
-        const energySegment = (power * dt) / 3600000;
-
-        for (const range of rangeData) {
-          if (speed >= range.min && speed < range.max) {
-            range.distance += distanceSegment;
-            range.energy += energySegment;
-            break;
-          }
-        }
-      }
-    }
-
-    // Find optimal range
-    let bestRange = null;
-    let bestEff = 0;
-
-    for (const range of rangeData) {
-      if (range.energy > 0.0001) {
-        const eff = range.distance / range.energy;
-        if (eff > bestEff && eff < 500) {
-          bestEff = eff;
-          bestRange = range;
-        }
-      }
-    }
-
-    if (bestRange && bestEff > 0) {
-      display.innerHTML = `
-        <p>Based on your data, the most efficient speed range is 
-        <strong>${bestRange.min}-${bestRange.max} km/h</strong> 
-        with an average efficiency of <strong>${bestEff.toFixed(1)} km/kWh</strong>.</p>
-        <p style="margin-top: 8px; font-size: 0.875rem; color: var(--text-muted);">
-          💡 Tip: Maintaining speed in this range will maximize your vehicle's range.
-        </p>
-      `;
+      display.innerHTML = '<p>Collecting data to determine optimal speed...</p>';
     } else {
-      display.innerHTML = '<p>Not enough data to determine optimal speed. Keep driving!</p>';
+      display.innerHTML = '<p>Optimal speed data not available for this session.</p>';
     }
   }
 
@@ -3834,28 +3775,7 @@
     // Use server-provided efficiency from latest row
     if (rows && rows.length > 0) {
       const lastRow = rows[rows.length - 1];
-      let efficiency = toNum(lastRow.current_efficiency_km_kwh, null);
-
-      // Fallback: calculate efficiency from historical data if not available
-      if ((efficiency === null || efficiency <= 0 || efficiency >= 500) && rows.length >= 10) {
-        // Calculate from distance and energy consumed
-        let totalDistance = 0;
-        let totalEnergy = 0;
-        for (let i = 1; i < rows.length; i++) {
-          const t1 = new Date(rows[i - 1].timestamp).getTime();
-          const t2 = new Date(rows[i].timestamp).getTime();
-          const dt = (t2 - t1) / 1000;
-          if (dt > 0 && dt < 10) {
-            const speed = toNum(rows[i].speed_ms, 0);
-            const power = toNum(rows[i].power_w, 0);
-            totalDistance += (speed * dt) / 1000; // km
-            totalEnergy += (power * dt) / 3600000; // kWh
-          }
-        }
-        if (totalEnergy > 0.0001) {
-          efficiency = totalDistance / totalEnergy;
-        }
-      }
+      const efficiency = toNum(lastRow.current_efficiency_km_kwh, null);
 
       if (efficiency !== null && efficiency > 0 && efficiency < 500) {
         setTxt('overview-efficiency', `${efficiency.toFixed(1)} km/kWh`);
@@ -3864,66 +3784,10 @@
       }
 
       // Update optimal speed from server-calculated value
-      let optimalSpeed = toNum(lastRow.optimal_speed_kmh, null);
+      const optimalSpeed = toNum(lastRow.optimal_speed_kmh, null);
       const optimalConfidence = toNum(lastRow.optimal_speed_confidence, 0);
-
-      // Fallback: calculate optimal speed from historical data if not available
-      if ((optimalSpeed === null || optimalConfidence < 0.3) && rows.length >= 50) {
-        // Client-side bucket-based calculation for optimal speed
-        const speedRanges = [
-          { min: 0, max: 20, label: '0-20', midpoint: 10 },
-          { min: 20, max: 40, label: '20-40', midpoint: 30 },
-          { min: 40, max: 60, label: '40-60', midpoint: 50 },
-          { min: 60, max: 80, label: '60-80', midpoint: 70 },
-          { min: 80, max: 100, label: '80-100', midpoint: 90 }
-        ];
-
-        const rangeData = speedRanges.map(r => ({ ...r, distance: 0, energy: 0 }));
-
-        for (let i = 1; i < rows.length; i++) {
-          const t1 = new Date(rows[i - 1].timestamp).getTime();
-          const t2 = new Date(rows[i].timestamp).getTime();
-          const dt = (t2 - t1) / 1000;
-
-          if (dt > 0 && dt < 10) {
-            const speedMs = toNum(rows[i].speed_ms, 0);
-            const speedKmh = speedMs * 3.6;
-            const power = toNum(rows[i].power_w, 0);
-
-            const distanceSegment = (speedMs * dt) / 1000;
-            const energySegment = (power * dt) / 3600000;
-
-            for (const range of rangeData) {
-              if (speedKmh >= range.min && speedKmh < range.max) {
-                range.distance += distanceSegment;
-                range.energy += energySegment;
-                break;
-              }
-            }
-          }
-        }
-
-        // Find optimal range
-        let bestRange = null;
-        let bestEff = 0;
-
-        for (const range of rangeData) {
-          if (range.energy > 0.0001) {
-            const eff = range.distance / range.energy;
-            if (eff > bestEff && eff < 500) {
-              bestEff = eff;
-              bestRange = range;
-            }
-          }
-        }
-
-        if (bestRange) {
-          optimalSpeed = bestRange.midpoint;
-        }
-      }
-
-      if (optimalSpeed !== null && optimalSpeed > 0) {
-        setTxt('overview-optimal-speed', `${optimalSpeed.toFixed(0)} km/h`);
+      if (optimalSpeed !== null && optimalConfidence >= 0.3) {
+        setTxt('overview-optimal-speed', `${optimalSpeed.toFixed(1)} km/h`);
       } else {
         setTxt('overview-optimal-speed', '— km/h');
       }
@@ -3937,36 +3801,6 @@
           badge.classList.add('active');
         }
       });
-
-      // Fallback: if no server motion state, use client-side calculation
-      if (!lastRow.motion_state && rows.length >= 5) {
-        const recentRows = rows.slice(-20);
-        const speeds = recentRows.map(r => toNum(r.speed_ms, 0));
-        if (speeds.length >= 2) {
-          const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
-          const firstSpeed = speeds[0];
-          const lastSpeed = speeds[speeds.length - 1];
-          const speedChange = lastSpeed - firstSpeed;
-
-          let state = 'stationary';
-          if (avgSpeed < 0.5) {
-            state = 'stationary';
-          } else if (speedChange > 0.5) {
-            state = 'accelerating';
-          } else if (speedChange < -0.5) {
-            state = 'braking';
-          } else {
-            state = 'cruising';
-          }
-
-          badges.forEach(badge => {
-            badge.classList.remove('active');
-            if (badge.classList.contains(state)) {
-              badge.classList.add('active');
-            }
-          });
-        }
-      }
     } else {
       setTxt('overview-efficiency', '— km/kWh');
       setTxt('overview-optimal-speed', '— km/h');

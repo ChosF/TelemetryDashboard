@@ -2402,6 +2402,39 @@ class TelemetryBridgeWithDB:
                             "brake": r.get("brake"),
                             "data_source": r.get("data_source"),
                             "outliers": r.get("outliers"),  # Convex handles objects directly
+                            # Calculated fields from TelemetryCalculator
+                            "current_efficiency_km_kwh": r.get("current_efficiency_km_kwh"),
+                            "cumulative_energy_kwh": r.get("cumulative_energy_kwh"),
+                            "route_distance_km": r.get("route_distance_km"),
+                            "avg_speed_kmh": r.get("avg_speed_kmh"),
+                            "max_speed_kmh": r.get("max_speed_kmh"),
+                            "avg_power": r.get("avg_power"),
+                            "avg_voltage": r.get("avg_voltage"),
+                            "avg_current": r.get("avg_current"),
+                            "max_power_w": r.get("max_power_w"),
+                            "max_current_a": r.get("max_current_a"),
+                            # Optimal speed fields
+                            "optimal_speed_kmh": r.get("optimal_speed_kmh"),
+                            "optimal_speed_ms": r.get("optimal_speed_ms"),
+                            "optimal_efficiency_km_kwh": r.get("optimal_efficiency_km_kwh"),
+                            "optimal_speed_confidence": r.get("optimal_speed_confidence"),
+                            "optimal_speed_data_points": r.get("optimal_speed_data_points"),
+                            "optimal_speed_range": r.get("optimal_speed_range"),
+                            # Motion and driver state
+                            "motion_state": r.get("motion_state"),
+                            "driver_mode": r.get("driver_mode"),
+                            "throttle_intensity": r.get("throttle_intensity"),
+                            "brake_intensity": r.get("brake_intensity"),
+                            # G-force and acceleration stats
+                            "current_g_force": r.get("current_g_force"),
+                            "max_g_force": r.get("max_g_force"),
+                            "accel_magnitude": r.get("accel_magnitude"),
+                            "avg_acceleration": r.get("avg_acceleration"),
+                            # GPS derived
+                            "elevation_gain_m": r.get("elevation_gain_m"),
+                            # Quality metrics
+                            "quality_score": r.get("quality_score"),
+                            "outlier_severity": r.get("outlier_severity"),
                         }
                     )
 
