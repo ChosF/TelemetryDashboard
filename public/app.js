@@ -3842,21 +3842,57 @@
         setTxt('overview-efficiency', '— km/kWh');
       }
 
-      // Display motion state if available
-      const motionStateEl = el('overview-motion-state');
-      if (motionStateEl && lastRow.motion_state) {
-        motionStateEl.textContent = lastRow.motion_state;
-        motionStateEl.className = `motion-badge motion-${lastRow.motion_state}`;
+      // Update optimal speed from server-calculated value
+      const optimalSpeed = toNum(lastRow.optimal_speed_kmh, null);
+      const optimalConfidence = toNum(lastRow.optimal_speed_confidence, 0);
+      if (optimalSpeed !== null && optimalConfidence >= 0.3) {
+        setTxt('overview-optimal-speed', `${optimalSpeed.toFixed(1)} km/h`);
+      } else {
+        setTxt('overview-optimal-speed', '— km/h');
       }
 
-      // Display driver mode if available
-      const driverModeEl = el('overview-driver-mode');
-      if (driverModeEl && lastRow.driver_mode) {
-        driverModeEl.textContent = lastRow.driver_mode;
-        driverModeEl.className = `driver-badge driver-${lastRow.driver_mode}`;
+      // Update motion state badges - use server-provided motion_state
+      const motionState = lastRow.motion_state || 'stationary';
+      const badges = document.querySelectorAll('#overview-motion-class .motion-badge');
+      badges.forEach(badge => {
+        badge.classList.remove('active');
+        if (badge.classList.contains(motionState)) {
+          badge.classList.add('active');
+        }
+      });
+
+      // Fallback: if no server motion state, use client-side calculation
+      if (!lastRow.motion_state && rows.length >= 5) {
+        const recentRows = rows.slice(-20);
+        const speeds = recentRows.map(r => toNum(r.speed_ms, 0));
+        if (speeds.length >= 2) {
+          const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+          const firstSpeed = speeds[0];
+          const lastSpeed = speeds[speeds.length - 1];
+          const speedChange = lastSpeed - firstSpeed;
+
+          let state = 'stationary';
+          if (avgSpeed < 0.5) {
+            state = 'stationary';
+          } else if (speedChange > 0.5) {
+            state = 'accelerating';
+          } else if (speedChange < -0.5) {
+            state = 'braking';
+          } else {
+            state = 'cruising';
+          }
+
+          badges.forEach(badge => {
+            badge.classList.remove('active');
+            if (badge.classList.contains(state)) {
+              badge.classList.add('active');
+            }
+          });
+        }
       }
     } else {
       setTxt('overview-efficiency', '— km/kWh');
+      setTxt('overview-optimal-speed', '— km/h');
     }
   }
 

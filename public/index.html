@@ -170,11 +170,38 @@
 
         <!-- Overview -->
         <section id="panel-overview" class="panel active">
-          <!-- Compact Efficiency Indicator -->
-          <div class="efficiency-badge glass-panel mb-4">
-            <span class="efficiency-icon">⚡</span>
-            <span class="efficiency-label">Current Efficiency</span>
-            <span class="efficiency-value" id="overview-efficiency">— km/kWh</span>
+          <!-- Overview Top Bar - Two Column Layout -->
+          <div class="overview-top-bar mb-4">
+            <!-- Left: Efficiency + Optimal Speed -->
+            <div class="overview-metrics-left glass-panel">
+              <div class="overview-metric">
+                <span class="metric-icon">⚡</span>
+                <div class="metric-info">
+                  <span class="metric-label">Current Efficiency</span>
+                  <span class="metric-value" id="overview-efficiency">— km/kWh</span>
+                </div>
+              </div>
+              <div class="metric-divider"></div>
+              <div class="overview-metric">
+                <span class="metric-icon">🎯</span>
+                <div class="metric-info">
+                  <span class="metric-label">Optimal Speed</span>
+                  <span class="metric-value" id="overview-optimal-speed">— km/h</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Motion State -->
+            <div class="overview-motion-state glass-panel">
+              <h4 class="motion-state-title">🏷️ Motion State</h4>
+              <div class="motion-classification" id="overview-motion-class">
+                <span class="motion-badge stationary">Stationary</span>
+                <span class="motion-badge accelerating">Accelerating</span>
+                <span class="motion-badge cruising">Cruising</span>
+                <span class="motion-badge braking">Braking</span>
+                <span class="motion-badge turning">Turning</span>
+              </div>
+            </div>
           </div>
 
           <!-- KPIs - Collapsible -->
