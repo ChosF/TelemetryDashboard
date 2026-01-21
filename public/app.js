@@ -4098,9 +4098,8 @@
       dtColumns.length !== colsNow.length ||
       dtColumns.some((c, i) => c.data !== colsNow[i]);
 
-    // Cap at 5000 rows for performance
-    const cap = 5000;
-    const dataRows = rows.length > cap ? rows.slice(-cap) : rows;
+    // No row cap - show all data
+    const dataRows = rows;
 
     // Build data objects with formatted values
     const dataObj = dataRows.map((r) => {
@@ -4136,12 +4135,12 @@
         scrollY: '400px',
         scrollCollapse: true,
         pageLength: 25,
-        lengthMenu: [10, 25, 50, 100, 250],
+        lengthMenu: [10, 25, 50, 100, 250, 500],
         order: [[0, "desc"]],
         language: {
           info: "_START_–_END_ of _TOTAL_",
           lengthMenu: "Show _MENU_",
-          search: ""
+          search: "Search:"
         },
         dom: "<'table-controls'<'table-search'f><'table-length'l>>" +
           "tr" +
