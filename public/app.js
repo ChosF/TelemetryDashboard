@@ -3511,11 +3511,11 @@
 
     // Fallback: Client-side bucket-based calculation
     const speedRanges = [
-      { min: 0, max: 10, label: '0-10' },
-      { min: 10, max: 20, label: '10-20' },
-      { min: 20, max: 30, label: '20-30' },
-      { min: 30, max: 40, label: '30-40' },
-      { min: 40, max: 100, label: '40+' }
+      { min: 0, max: 20, label: '0-20' },
+      { min: 20, max: 40, label: '20-40' },
+      { min: 40, max: 60, label: '40-60' },
+      { min: 60, max: 80, label: '60-80' },
+      { min: 80, max: 100, label: '80-100' }
     ];
 
     const rangeData = speedRanges.map(r => ({ ...r, distance: 0, energy: 0 }));
@@ -3834,7 +3834,28 @@
     // Use server-provided efficiency from latest row
     if (rows && rows.length > 0) {
       const lastRow = rows[rows.length - 1];
-      const efficiency = toNum(lastRow.current_efficiency_km_kwh, null);
+      let efficiency = toNum(lastRow.current_efficiency_km_kwh, null);
+
+      // Fallback: calculate efficiency from historical data if not available
+      if ((efficiency === null || efficiency <= 0 || efficiency >= 500) && rows.length >= 10) {
+        // Calculate from distance and energy consumed
+        let totalDistance = 0;
+        let totalEnergy = 0;
+        for (let i = 1; i < rows.length; i++) {
+          const t1 = new Date(rows[i - 1].timestamp).getTime();
+          const t2 = new Date(rows[i].timestamp).getTime();
+          const dt = (t2 - t1) / 1000;
+          if (dt > 0 && dt < 10) {
+            const speed = toNum(rows[i].speed_ms, 0);
+            const power = toNum(rows[i].power_w, 0);
+            totalDistance += (speed * dt) / 1000; // km
+            totalEnergy += (power * dt) / 3600000; // kWh
+          }
+        }
+        if (totalEnergy > 0.0001) {
+          efficiency = totalDistance / totalEnergy;
+        }
+      }
 
       if (efficiency !== null && efficiency > 0 && efficiency < 500) {
         setTxt('overview-efficiency', `${efficiency.toFixed(1)} km/kWh`);
@@ -3843,10 +3864,66 @@
       }
 
       // Update optimal speed from server-calculated value
-      const optimalSpeed = toNum(lastRow.optimal_speed_kmh, null);
+      let optimalSpeed = toNum(lastRow.optimal_speed_kmh, null);
       const optimalConfidence = toNum(lastRow.optimal_speed_confidence, 0);
-      if (optimalSpeed !== null && optimalConfidence >= 0.3) {
-        setTxt('overview-optimal-speed', `${optimalSpeed.toFixed(1)} km/h`);
+
+      // Fallback: calculate optimal speed from historical data if not available
+      if ((optimalSpeed === null || optimalConfidence < 0.3) && rows.length >= 50) {
+        // Client-side bucket-based calculation for optimal speed
+        const speedRanges = [
+          { min: 0, max: 20, label: '0-20', midpoint: 10 },
+          { min: 20, max: 40, label: '20-40', midpoint: 30 },
+          { min: 40, max: 60, label: '40-60', midpoint: 50 },
+          { min: 60, max: 80, label: '60-80', midpoint: 70 },
+          { min: 80, max: 100, label: '80-100', midpoint: 90 }
+        ];
+
+        const rangeData = speedRanges.map(r => ({ ...r, distance: 0, energy: 0 }));
+
+        for (let i = 1; i < rows.length; i++) {
+          const t1 = new Date(rows[i - 1].timestamp).getTime();
+          const t2 = new Date(rows[i].timestamp).getTime();
+          const dt = (t2 - t1) / 1000;
+
+          if (dt > 0 && dt < 10) {
+            const speedMs = toNum(rows[i].speed_ms, 0);
+            const speedKmh = speedMs * 3.6;
+            const power = toNum(rows[i].power_w, 0);
+
+            const distanceSegment = (speedMs * dt) / 1000;
+            const energySegment = (power * dt) / 3600000;
+
+            for (const range of rangeData) {
+              if (speedKmh >= range.min && speedKmh < range.max) {
+                range.distance += distanceSegment;
+                range.energy += energySegment;
+                break;
+              }
+            }
+          }
+        }
+
+        // Find optimal range
+        let bestRange = null;
+        let bestEff = 0;
+
+        for (const range of rangeData) {
+          if (range.energy > 0.0001) {
+            const eff = range.distance / range.energy;
+            if (eff > bestEff && eff < 500) {
+              bestEff = eff;
+              bestRange = range;
+            }
+          }
+        }
+
+        if (bestRange) {
+          optimalSpeed = bestRange.midpoint;
+        }
+      }
+
+      if (optimalSpeed !== null && optimalSpeed > 0) {
+        setTxt('overview-optimal-speed', `${optimalSpeed.toFixed(0)} km/h`);
       } else {
         setTxt('overview-optimal-speed', '— km/h');
       }
