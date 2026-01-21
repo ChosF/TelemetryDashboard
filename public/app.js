@@ -98,6 +98,285 @@
     };
   };
 
+  // ==========================================================================
+  // PERFORMANCE OPTIMIZATION CONSTANTS
+  // ==========================================================================
+
+  // Maximum data points to render in charts (prevents performance degradation)
+  const MAX_CHART_POINTS = 500;
+
+  // Maximum telemetry points to keep in memory
+  const MAX_TELEMETRY_POINTS = 3000;
+
+  // Minimum interval between chart updates (ms) - targets ~5 FPS for charts
+  const CHART_UPDATE_INTERVAL = 200;
+
+  // Track last chart update time for throttling
+  let lastChartUpdateTime = 0;
+
+  // Throttled chart update wrapper
+  function shouldUpdateCharts() {
+    const now = Date.now();
+    if (now - lastChartUpdateTime < CHART_UPDATE_INTERVAL) {
+      return false;
+    }
+    lastChartUpdateTime = now;
+    return true;
+  }
+
+  // Slice data for chart rendering (limits points for performance)
+  function limitChartData(rows, maxPoints = MAX_CHART_POINTS) {
+    if (!rows || rows.length <= maxPoints) return rows;
+    return rows.slice(-maxPoints);
+  }
+
+  // ==========================================================================
+  // MODULAR TAB INFRASTRUCTURE - Phase 1
+  // ==========================================================================
+
+  /**
+   * TimeRangeFilter - Manages time-based data filtering for all tabs
+   * Supports: 30s, 1m, 5m, all ranges
+   */
+  const TimeRangeFilter = {
+    ranges: {
+      '30s': 30 * 1000,
+      '1m': 60 * 1000,
+      '5m': 5 * 60 * 1000,
+      'all': Infinity
+    },
+    // Per-tab range state
+    tabRanges: {},
+
+    // Get current range for a tab (default: 'all')
+    getRange(tabId) {
+      return this.tabRanges[tabId] || 'all';
+    },
+
+    // Set range for a tab
+    setRange(tabId, range) {
+      if (this.ranges[range] !== undefined) {
+        this.tabRanges[tabId] = range;
+        return true;
+      }
+      return false;
+    },
+
+    // Filter rows by time range for a specific tab
+    filterData(rows, tabId) {
+      if (!rows || rows.length === 0) return rows;
+
+      const range = this.getRange(tabId);
+      if (range === 'all') return rows;
+
+      const rangeMs = this.ranges[range];
+      const now = Date.now();
+      const cutoff = now - rangeMs;
+
+      return rows.filter(row => {
+        const ts = new Date(row.timestamp).getTime();
+        return ts >= cutoff;
+      });
+    },
+
+    // Create and attach time range selector to a container
+    createSelector(containerId, tabId, onChangeCallback) {
+      const container = el(containerId);
+      if (!container) return null;
+
+      const template = el('time-range-selector-template');
+      if (!template) return null;
+
+      const selector = template.content.cloneNode(true).firstElementChild;
+      container.appendChild(selector);
+
+      // Set initial active state
+      const currentRange = this.getRange(tabId);
+      selector.querySelectorAll('.time-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.range === currentRange);
+
+        btn.addEventListener('click', () => {
+          // Update active state
+          selector.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+
+          // Update range and trigger callback
+          this.setRange(tabId, btn.dataset.range);
+          if (onChangeCallback) onChangeCallback(btn.dataset.range);
+        });
+      });
+
+      return selector;
+    }
+  };
+
+  /**
+   * FieldToggleManager - Manages field visibility for charts
+   */
+  const FieldToggleManager = {
+    // Per-chart field visibility state: { chartId: { field: boolean } }
+    toggles: {},
+
+    // Initialize toggles for a chart with default fields
+    init(chartId, fields) {
+      if (!this.toggles[chartId]) {
+        this.toggles[chartId] = {};
+        fields.forEach(field => {
+          this.toggles[chartId][field] = true; // All visible by default
+        });
+      }
+    },
+
+    // Set toggle state
+    setToggle(chartId, field, visible) {
+      if (!this.toggles[chartId]) this.toggles[chartId] = {};
+      this.toggles[chartId][field] = visible;
+    },
+
+    // Get visible fields for a chart
+    getVisibleFields(chartId) {
+      if (!this.toggles[chartId]) return [];
+      return Object.entries(this.toggles[chartId])
+        .filter(([_, visible]) => visible)
+        .map(([field]) => field);
+    },
+
+    // Check if a field is visible
+    isVisible(chartId, field) {
+      return this.toggles[chartId]?.[field] ?? true;
+    },
+
+    // Create field toggle group
+    createToggles(containerId, chartId, fields, colors, onChangeCallback) {
+      const container = el(containerId);
+      if (!container) return null;
+
+      this.init(chartId, fields);
+
+      const group = document.createElement('div');
+      group.className = 'field-toggle-group';
+
+      fields.forEach((field, index) => {
+        const toggle = document.createElement('label');
+        toggle.className = 'field-toggle active';
+        toggle.innerHTML = `
+          <span class="field-toggle-dot" style="background: ${colors[index] || 'var(--accent)'}"></span>
+          <span>${field}</span>
+          <input type="checkbox" checked data-field="${field}">
+        `;
+
+        toggle.addEventListener('click', (e) => {
+          e.preventDefault();
+          const isActive = toggle.classList.contains('active');
+          toggle.classList.toggle('active', !isActive);
+          this.setToggle(chartId, field, !isActive);
+          if (onChangeCallback) onChangeCallback(field, !isActive);
+        });
+
+        group.appendChild(toggle);
+      });
+
+      container.appendChild(group);
+      return group;
+    }
+  };
+
+  /**
+   * ZoomController - Manages chart zoom state and controls
+   */
+  const ZoomController = {
+    // Per-chart zoom state
+    zoomStates: {},
+
+    // Create zoom controls for a chart
+    createControls(containerId, chartId, onZoomCallback) {
+      const container = el(containerId);
+      if (!container) return null;
+
+      const template = el('zoom-controls-template');
+      if (!template) return null;
+
+      const controls = template.content.cloneNode(true).firstElementChild;
+      container.appendChild(controls);
+
+      controls.querySelectorAll('.zoom-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const action = btn.dataset.action;
+          if (onZoomCallback) onZoomCallback(action);
+        });
+      });
+
+      return controls;
+    }
+  };
+
+  /**
+   * TabModuleManager - Coordinates modular tab components
+   */
+  const TabModuleManager = {
+    // Registered tab modules
+    modules: {},
+
+    // Register a tab module
+    register(tabId, config) {
+      this.modules[tabId] = {
+        initialized: false,
+        config: config,
+        elements: {},
+        charts: []
+      };
+    },
+
+    // Initialize a tab's modular components
+    init(tabId) {
+      const module = this.modules[tabId];
+      if (!module || module.initialized) return;
+
+      const config = module.config;
+
+      // Initialize time range selector if specified
+      if (config.timeRangeContainer) {
+        TimeRangeFilter.createSelector(
+          config.timeRangeContainer,
+          tabId,
+          config.onTimeRangeChange
+        );
+      }
+
+      // Initialize field toggles if specified
+      if (config.fieldToggleContainer && config.fields) {
+        FieldToggleManager.createToggles(
+          config.fieldToggleContainer,
+          tabId,
+          config.fields,
+          config.fieldColors || [],
+          config.onFieldToggle
+        );
+      }
+
+      // Initialize zoom controls if specified
+      if (config.zoomControlsContainer) {
+        ZoomController.createControls(
+          config.zoomControlsContainer,
+          tabId,
+          config.onZoom
+        );
+      }
+
+      module.initialized = true;
+    },
+
+    // Check if a tab module is registered
+    has(tabId) {
+      return !!this.modules[tabId];
+    },
+
+    // Get filtered data for a tab
+    getFilteredData(tabId, rows) {
+      return TimeRangeFilter.filterData(rows, tabId);
+    }
+  };
+
   // UI - FAB Menu
   const fabMenu = el("fab-menu");
   const fabToggle = el("fab-toggle");
@@ -181,7 +460,7 @@
     currentSessionId: null,
     sessions: [],
     telemetry: [],
-    maxPoints: 50000,
+    maxPoints: MAX_TELEMETRY_POINTS, // Reduced from 50000 for performance
     customCharts: [],
     dyn: { axBias: 0, ayBias: 0, axEma: 0, ayEma: 0 },
     _raf: null,
@@ -239,7 +518,7 @@
       const msgId = r.message_id ?? '';
       return `${ts}::${msgId}`;
     };
-    
+
     // Build map from existing, then add/update with incoming
     const seen = new Map(existing.map((r) => [keyOf(r), r]));
     for (const r of incoming) {
@@ -249,7 +528,7 @@
         seen.set(key, r);
       }
     }
-    
+
     // Sort by timestamp
     let out = Array.from(seen.values());
     out.sort((a, b) => {
@@ -257,12 +536,12 @@
       const tb = new Date(b.timestamp).getTime();
       return ta - tb;
     });
-    
+
     // Trim to maxPoints (keep most recent)
     if (out.length > state.maxPoints) {
       out = out.slice(out.length - state.maxPoints);
     }
-    
+
     return out;
   }
 
@@ -1477,8 +1756,8 @@
     return {
       title: { text: title, left: "center", top: 6, textStyle: { fontSize: 14, fontWeight: 800 } },
       tooltip: { trigger: "axis" },
-      legend: { top: 28 },
-      grid: { left: "4%", right: "4%", top: 60, bottom: 50, containLabel: true },
+      legend: { top: 28, textStyle: { fontSize: 11 } },
+      grid: { left: "5%", right: "5%", top: 70, bottom: 85, containLabel: true },
       xAxis: { type: "time" },
       yAxis: { type: "value" },
       animation: false, // Disable animations for better performance in real-time mode
@@ -1488,7 +1767,7 @@
   function addDataZoom(opt, xIdxs, yIdxs) {
     const dz = [
       { type: "inside", xAxisIndex: xIdxs, filterMode: "none", zoomOnMouseWheel: true, moveOnMouseWheel: true, moveOnMouseMove: true },
-      { type: "slider", xAxisIndex: xIdxs, height: 14, bottom: 6 },
+      { type: "slider", xAxisIndex: xIdxs, height: 20, bottom: 20 },
     ];
     if (yIdxs) dz.push({ type: "inside", yAxisIndex: yIdxs });
     opt.dataZoom = dz;
@@ -1524,6 +1803,292 @@
     opt.yAxis = { name: "m/s" };
     addDataZoom(opt, [0]);
     chartSpeed.setOption(opt);
+  }
+
+  // ==========================================================================
+  // SPEED TAB MODULE - Phase 2
+  // ==========================================================================
+
+  // Speed tab ECharts instances
+  let chartSpeedAccel = null;
+  let chartSpeedHistogram = null;
+  let speedTabInitialized = false;
+
+  // Initialize Speed Tab module
+  function initSpeedTabModule() {
+    if (speedTabInitialized) return;
+
+    // Create time range selector
+    TimeRangeFilter.createSelector('speed-time-range', 'speed', (range) => {
+      // Re-render with new time range
+      if (state.rows.length > 0) {
+        renderSpeedTabFull(state.rows);
+      }
+    });
+
+    // Create zoom controls
+    ZoomController.createControls('speed-zoom-controls', 'speed', (action) => {
+      // Handle zoom for uPlot or ECharts
+      if (chartSpeed) {
+        if (action === 'reset') {
+          chartSpeed.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+        } else if (action === 'zoom-in') {
+          const opt = chartSpeed.getOption();
+          if (opt.dataZoom && opt.dataZoom[0]) {
+            const start = opt.dataZoom[0].start || 0;
+            const end = opt.dataZoom[0].end || 100;
+            const range = end - start;
+            const newRange = Math.max(10, range * 0.5);
+            const center = (start + end) / 2;
+            chartSpeed.dispatchAction({
+              type: 'dataZoom',
+              start: Math.max(0, center - newRange / 2),
+              end: Math.min(100, center + newRange / 2)
+            });
+          }
+        } else if (action === 'zoom-out') {
+          const opt = chartSpeed.getOption();
+          if (opt.dataZoom && opt.dataZoom[0]) {
+            const start = opt.dataZoom[0].start || 0;
+            const end = opt.dataZoom[0].end || 100;
+            const range = end - start;
+            const newRange = Math.min(100, range * 2);
+            const center = (start + end) / 2;
+            chartSpeed.dispatchAction({
+              type: 'dataZoom',
+              start: Math.max(0, center - newRange / 2),
+              end: Math.min(100, center + newRange / 2)
+            });
+          }
+        }
+      }
+    });
+
+    // Initialize secondary chart containers
+    const accelContainer = el('chart-speed-accel');
+    const histContainer = el('chart-speed-histogram');
+
+    if (accelContainer && typeof echarts !== 'undefined') {
+      chartSpeedAccel = echarts.init(accelContainer);
+    }
+    if (histContainer && typeof echarts !== 'undefined') {
+      chartSpeedHistogram = echarts.init(histContainer);
+    }
+
+    speedTabInitialized = true;
+  }
+
+  // Full Speed Tab render function
+  function renderSpeedTabFull(rows) {
+    // Initialize if needed
+    initSpeedTabModule();
+
+    // Apply time range filter
+    const filtered = TimeRangeFilter.filterData(rows, 'speed');
+
+    // Render primary chart
+    renderSpeedChart(filtered);
+
+    // Update stat cards
+    updateSpeedStats(filtered);
+
+    // Render secondary charts
+    renderAccelerationChart(filtered);
+    renderSpeedHistogram(filtered);
+
+    // Update speed range bars
+    updateSpeedRangeBars(filtered);
+  }
+
+  // Update speed stat cards
+  function updateSpeedStats(rows) {
+    if (!rows || rows.length === 0) {
+      el('speed-current')?.textContent && (el('speed-current').textContent = '0.0');
+      el('speed-avg')?.textContent && (el('speed-avg').textContent = '0.0');
+      el('speed-max')?.textContent && (el('speed-max').textContent = '0.0');
+      el('speed-min')?.textContent && (el('speed-min').textContent = '0.0');
+      return;
+    }
+
+    const speeds = rows.map(r => toNum(r.speed_ms, null)).filter(v => v !== null);
+    if (speeds.length === 0) return;
+
+    const current = speeds[speeds.length - 1] * 3.6; // m/s to km/h
+    const avg = (speeds.reduce((a, b) => a + b, 0) / speeds.length) * 3.6;
+    const max = Math.max(...speeds) * 3.6;
+    const min = Math.min(...speeds) * 3.6;
+
+    const setTxt = (id, v) => {
+      const e = el(id);
+      if (e) e.textContent = v;
+    };
+
+    setTxt('speed-current', current.toFixed(1));
+    setTxt('speed-avg', avg.toFixed(1));
+    setTxt('speed-max', max.toFixed(1));
+    setTxt('speed-min', min.toFixed(1));
+  }
+
+  // Calculate and render acceleration chart
+  function renderAccelerationChart(rows) {
+    if (!chartSpeedAccel || rows.length < 2) return;
+
+    const accelerations = [];
+    const timestamps = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const t1 = new Date(rows[i - 1].timestamp).getTime();
+      const t2 = new Date(rows[i].timestamp).getTime();
+      const dt = (t2 - t1) / 1000; // seconds
+
+      if (dt > 0 && dt < 10) { // Reasonable time gap
+        const v1 = toNum(rows[i - 1].speed_ms, 0);
+        const v2 = toNum(rows[i].speed_ms, 0);
+        const accel = (v2 - v1) / dt; // m/s²
+
+        if (Math.abs(accel) < 20) { // Filter outliers
+          accelerations.push(accel);
+          timestamps.push(new Date(rows[i].timestamp));
+        }
+      }
+    }
+
+    const opt = {
+      title: { show: false },
+      tooltip: { trigger: 'axis' },
+      grid: { left: '10%', right: '5%', top: '10%', bottom: '15%' },
+      xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+      yAxis: {
+        type: 'value',
+        name: 'm/s²',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      series: [{
+        type: 'line',
+        data: timestamps.map((t, i) => [t, accelerations[i]]),
+        showSymbol: false,
+        lineStyle: { width: 1.5, color: '#22c55e' },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(34, 197, 94, 0.3)' },
+              { offset: 1, color: 'rgba(34, 197, 94, 0)' }
+            ]
+          }
+        },
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { color: 'rgba(255,255,255,0.3)', type: 'dashed' },
+          data: [{ yAxis: 0 }]
+        }
+      }],
+      animation: false
+    };
+
+    chartSpeedAccel.setOption(opt, true);
+  }
+
+  // Render speed distribution histogram
+  function renderSpeedHistogram(rows) {
+    if (!chartSpeedHistogram || rows.length === 0) return;
+
+    const speeds = rows.map(r => toNum(r.speed_ms, null) * 3.6).filter(v => v !== null); // km/h
+    if (speeds.length === 0) return;
+
+    // Create histogram buckets (0-5, 5-10, 10-15, etc.)
+    const bucketSize = 5;
+    const maxSpeed = Math.ceil(Math.max(...speeds) / bucketSize) * bucketSize;
+    const buckets = [];
+    const bucketLabels = [];
+
+    for (let i = 0; i <= maxSpeed; i += bucketSize) {
+      buckets.push(0);
+      bucketLabels.push(`${i}-${i + bucketSize}`);
+    }
+
+    // Count speeds in each bucket
+    speeds.forEach(spd => {
+      const bucketIdx = Math.min(Math.floor(spd / bucketSize), buckets.length - 1);
+      if (bucketIdx >= 0) buckets[bucketIdx]++;
+    });
+
+    const opt = {
+      title: { show: false },
+      tooltip: {
+        trigger: 'axis',
+        formatter: params => `${params[0].name} km/h<br/>Count: ${params[0].value}`
+      },
+      grid: { left: '10%', right: '5%', top: '10%', bottom: '20%' },
+      xAxis: {
+        type: 'category',
+        data: bucketLabels,
+        axisLabel: { fontSize: 9, rotate: 45 }
+      },
+      yAxis: {
+        type: 'value',
+        name: 'Count',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      series: [{
+        type: 'bar',
+        data: buckets,
+        itemStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: '#3b82f6' },
+              { offset: 1, color: '#1d4ed8' }
+            ]
+          },
+          borderRadius: [4, 4, 0, 0]
+        },
+        barWidth: '60%'
+      }],
+      animation: false
+    };
+
+    chartSpeedHistogram.setOption(opt, true);
+  }
+
+  // Update time-in-speed-range bars
+  function updateSpeedRangeBars(rows) {
+    if (!rows || rows.length === 0) return;
+
+    const speeds = rows.map(r => toNum(r.speed_ms, null) * 3.6).filter(v => v !== null); // km/h
+    if (speeds.length === 0) return;
+
+    const total = speeds.length;
+    const ranges = {
+      '0-10': speeds.filter(s => s >= 0 && s < 10).length,
+      '10-20': speeds.filter(s => s >= 10 && s < 20).length,
+      '20-30': speeds.filter(s => s >= 20 && s < 30).length,
+      '30-40': speeds.filter(s => s >= 30 && s < 40).length,
+      '40-plus': speeds.filter(s => s >= 40).length
+    };
+
+    const setBar = (id, count) => {
+      const pct = (count / total) * 100;
+      const bar = el(id);
+      const pctEl = el(`${id}-pct`);
+      if (bar) bar.style.width = `${pct}%`;
+      if (pctEl) pctEl.textContent = `${pct.toFixed(1)}%`;
+    };
+
+    setBar('range-0-10', ranges['0-10']);
+    setBar('range-10-20', ranges['10-20']);
+    setBar('range-20-30', ranges['20-30']);
+    setBar('range-30-40', ranges['30-40']);
+    setBar('range-40-plus', ranges['40-plus']);
+  }
+
+  // Resize handler for Speed tab charts
+  function resizeSpeedTabCharts() {
+    if (chartSpeedAccel) chartSpeedAccel.resize();
+    if (chartSpeedHistogram) chartSpeedHistogram.resize();
   }
 
   function renderPowerChart(rows) {
@@ -1565,6 +2130,417 @@
     };
     addDataZoom(opt, [0, 1]);
     chartPower.setOption(opt);
+  }
+
+  // ==========================================================================
+  // POWER TAB MODULE - Phase 3
+  // ==========================================================================
+
+  // Power tab ECharts instances
+  let chartVoltageStability = null;
+  let chartCurrentPeaks = null;
+  let chartEnergyCumulative = null;
+  let powerTabInitialized = false;
+
+  // Initialize Power Tab module
+  function initPowerTabModule() {
+    if (powerTabInitialized) return;
+
+    // Create time range selector
+    TimeRangeFilter.createSelector('power-time-range', 'power', (range) => {
+      if (state.telemetry.length > 0) {
+        renderPowerTabFull(state.telemetry);
+      }
+    });
+
+    // Create field toggles for Voltage/Current
+    FieldToggleManager.createToggles(
+      'power-field-toggles',
+      'power',
+      ['Voltage', 'Current'],
+      ['#22c55e', '#ef4444'],
+      (field, visible) => {
+        if (state.telemetry.length > 0) {
+          renderPowerTabFull(state.telemetry);
+        }
+      }
+    );
+
+    // Create zoom controls
+    ZoomController.createControls('power-zoom-controls', 'power', (action) => {
+      if (chartPower) {
+        if (action === 'reset') {
+          chartPower.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+        } else if (action === 'zoom-in') {
+          const opt = chartPower.getOption();
+          if (opt.dataZoom && opt.dataZoom[0]) {
+            const start = opt.dataZoom[0].start || 0;
+            const end = opt.dataZoom[0].end || 100;
+            const range = end - start;
+            const newRange = Math.max(10, range * 0.5);
+            const center = (start + end) / 2;
+            chartPower.dispatchAction({
+              type: 'dataZoom',
+              start: Math.max(0, center - newRange / 2),
+              end: Math.min(100, center + newRange / 2)
+            });
+          }
+        } else if (action === 'zoom-out') {
+          const opt = chartPower.getOption();
+          if (opt.dataZoom && opt.dataZoom[0]) {
+            const start = opt.dataZoom[0].start || 0;
+            const end = opt.dataZoom[0].end || 100;
+            const range = end - start;
+            const newRange = Math.min(100, range * 2);
+            const center = (start + end) / 2;
+            chartPower.dispatchAction({
+              type: 'dataZoom',
+              start: Math.max(0, center - newRange / 2),
+              end: Math.min(100, center + newRange / 2)
+            });
+          }
+        }
+      }
+    });
+
+    // Initialize secondary chart containers
+    const voltStabContainer = el('chart-voltage-stability');
+    const currentPeaksContainer = el('chart-current-peaks');
+    const energyCumContainer = el('chart-energy-cumulative');
+
+    if (voltStabContainer && typeof echarts !== 'undefined') {
+      chartVoltageStability = echarts.init(voltStabContainer);
+    }
+    if (currentPeaksContainer && typeof echarts !== 'undefined') {
+      chartCurrentPeaks = echarts.init(currentPeaksContainer);
+    }
+    if (energyCumContainer && typeof echarts !== 'undefined') {
+      chartEnergyCumulative = echarts.init(energyCumContainer);
+    }
+
+    powerTabInitialized = true;
+  }
+
+  // Full Power Tab render function
+  function renderPowerTabFull(rows) {
+    initPowerTabModule();
+
+    const filtered = TimeRangeFilter.filterData(rows, 'power');
+
+    renderPowerChart(filtered);
+    updatePowerStats(filtered);
+    renderVoltageStabilityChart(filtered);
+    renderCurrentPeaksChart(filtered);
+    renderEnergyCumulativeChart(filtered);
+  }
+
+  // Update power stat cards (uses server-calculated values)
+  function updatePowerStats(rows) {
+    const setTxt = (id, v) => {
+      const e = el(id);
+      if (e) e.textContent = v;
+    };
+
+    if (!rows || rows.length === 0) {
+      setTxt('power-voltage', '0.00');
+      setTxt('power-current', '0.00');
+      setTxt('power-power', '0.00');
+      setTxt('power-energy', '0.00');
+      setTxt('power-avg-voltage', '0.00');
+      setTxt('power-avg-current', '0.00');
+      setTxt('power-avg-power', '0.00');
+      setTxt('power-peak-power', '0.00');
+      setTxt('cumulative-energy-value', '0.000');
+      return;
+    }
+
+    const lastRow = rows[rows.length - 1];
+
+    // Current values (raw)
+    const currentVoltage = toNum(lastRow.voltage_v, 0);
+    const currentCurrent = toNum(lastRow.current_a, 0);
+    const currentPower = toNum(lastRow.power_w, currentVoltage * currentCurrent);
+
+    // Server-provided values
+    const avgVoltage = toNum(lastRow.avg_voltage, 0);
+    const avgCurrent = toNum(lastRow.avg_current, 0);
+    const avgPower = toNum(lastRow.avg_power, 0);
+    const peakPower = toNum(lastRow.max_power_w, 0);
+    const cumulativeEnergy = toNum(lastRow.cumulative_energy_kwh, 0);
+    const totalEnergy = toNum(lastRow.energy_j, 0) / 3600000 || cumulativeEnergy; // J to kWh or use cumulative
+
+    setTxt('power-voltage', currentVoltage.toFixed(2));
+    setTxt('power-current', currentCurrent.toFixed(2));
+    setTxt('power-power', currentPower.toFixed(2));
+    setTxt('power-energy', totalEnergy.toFixed(4));
+    setTxt('power-avg-voltage', avgVoltage.toFixed(2));
+    setTxt('power-avg-current', avgCurrent.toFixed(2));
+    setTxt('power-avg-power', avgPower.toFixed(2));
+    setTxt('power-peak-power', peakPower.toFixed(2));
+    setTxt('cumulative-energy-value', cumulativeEnergy.toFixed(4));
+
+    // Render current spikes list
+    renderCurrentSpikesList(lastRow);
+  }
+
+  // Render current spikes list from server-provided peaks
+  function renderCurrentSpikesList(lastRow) {
+    const container = el('power-current-spikes');
+    const summaryEl = el('power-spikes-summary');
+    const peakCountEl = el('current-peak-count');
+
+    if (!container) return;
+
+    const peaks = lastRow.current_peaks || [];
+    const peakCount = toNum(lastRow.current_peak_count, 0);
+
+    // Update peak count display
+    if (peakCountEl) peakCountEl.textContent = `${peakCount} peaks detected`;
+    if (summaryEl) {
+      const count = summaryEl.querySelector('.spikes-count');
+      if (count) count.textContent = `${peakCount} spikes detected`;
+    }
+
+    // If no peaks, show empty state
+    if (peaks.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <span class="empty-state-icon">⚡</span>
+          <span class="empty-state-text">No current spikes detected</span>
+        </div>
+      `;
+      return;
+    }
+
+    // Render peaks list (most recent first)
+    const reversedPeaks = [...peaks].reverse();
+    container.innerHTML = reversedPeaks.map(peak => {
+      const time = new Date(peak.timestamp).toLocaleTimeString();
+      const severity = peak.severity || 'low';
+      const motionState = peak.motion_state || 'unknown';
+      const accelMag = toNum(peak.accel_magnitude, 0);
+      const gForce = (accelMag / 9.81).toFixed(2);
+
+      return `
+        <div class="current-spike-item severity-${severity}">
+          <span class="spike-time">${time}</span>
+          <span class="spike-value">${toNum(peak.current_a, 0).toFixed(2)} A</span>
+          <div class="spike-badges">
+            <span class="spike-badge motion">${motionState}</span>
+            <span class="spike-badge accel">${gForce}G</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Render voltage stability chart (rolling standard deviation)
+  function renderVoltageStabilityChart(rows) {
+    if (!chartVoltageStability || rows.length < 10) return;
+
+    const windowSize = 20;
+    const timestamps = [];
+    const stdDevs = [];
+
+    for (let i = windowSize; i < rows.length; i++) {
+      const windowData = rows.slice(i - windowSize, i).map(r => toNum(r.voltage_v, null)).filter(v => v !== null);
+      if (windowData.length > 0) {
+        const mean = windowData.reduce((a, b) => a + b, 0) / windowData.length;
+        const variance = windowData.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / windowData.length;
+        const stdDev = Math.sqrt(variance);
+        timestamps.push(new Date(rows[i].timestamp));
+        stdDevs.push(stdDev);
+      }
+    }
+
+    // Calculate overall stability score
+    const avgStdDev = stdDevs.length > 0 ? stdDevs.reduce((a, b) => a + b, 0) / stdDevs.length : 0;
+    const stabilityScore = Math.max(0, 100 - avgStdDev * 50).toFixed(1);
+
+    // Update stability indicator
+    const stabValue = el('voltage-stability-value');
+    const stabDot = document.querySelector('#voltage-stability-indicator .stability-dot');
+    if (stabValue) stabValue.textContent = `${stabilityScore}%`;
+    if (stabDot) {
+      stabDot.classList.remove('warning', 'critical');
+      if (avgStdDev > 0.5) stabDot.classList.add('critical');
+      else if (avgStdDev > 0.2) stabDot.classList.add('warning');
+    }
+
+    const opt = {
+      title: { show: false },
+      tooltip: { trigger: 'axis', formatter: params => `${params[0].value[1].toFixed(4)} V std dev` },
+      grid: { left: '12%', right: '5%', top: '10%', bottom: '15%' },
+      xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+      yAxis: {
+        type: 'value',
+        name: 'Std Dev (V)',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      visualMap: {
+        show: false,
+        pieces: [
+          { lte: 0.1, color: '#22c55e' },
+          { gt: 0.1, lte: 0.3, color: '#f59e0b' },
+          { gt: 0.3, color: '#ef4444' }
+        ]
+      },
+      series: [{
+        type: 'line',
+        data: timestamps.map((t, i) => [t, stdDevs[i]]),
+        showSymbol: false,
+        lineStyle: { width: 2 },
+        areaStyle: { opacity: 0.2 }
+      }],
+      animation: false
+    };
+
+    chartVoltageStability.setOption(opt, true);
+  }
+
+  // Render current peaks chart with peak detection
+  function renderCurrentPeaksChart(rows) {
+    if (!chartCurrentPeaks || rows.length < 5) return;
+
+    const currents = rows.map(r => toNum(r.current_a, null)).filter(v => v !== null);
+    if (currents.length === 0) return;
+
+    const mean = currents.reduce((a, b) => a + b, 0) / currents.length;
+    const stdDev = Math.sqrt(currents.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / currents.length);
+    const threshold = mean + 2 * stdDev;
+
+    const timestamps = [];
+    const values = [];
+    const peaks = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const curr = toNum(rows[i].current_a, null);
+      if (curr !== null) {
+        const ts = new Date(rows[i].timestamp);
+        timestamps.push(ts);
+        values.push(curr);
+        if (curr > threshold) {
+          peaks.push({ time: ts, value: curr });
+        }
+      }
+    }
+
+    // Update peak count
+    const peakCountEl = el('current-peak-count');
+    if (peakCountEl) {
+      peakCountEl.textContent = `${peaks.length} peaks detected`;
+      peakCountEl.classList.toggle('has-peaks', peaks.length > 0);
+    }
+
+    const opt = {
+      title: { show: false },
+      tooltip: { trigger: 'axis' },
+      grid: { left: '12%', right: '5%', top: '10%', bottom: '15%' },
+      xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+      yAxis: {
+        type: 'value',
+        name: 'Current (A)',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      series: [
+        {
+          type: 'line',
+          data: timestamps.map((t, i) => [t, values[i]]),
+          showSymbol: false,
+          lineStyle: { width: 1.5, color: '#ef4444' },
+          areaStyle: {
+            color: {
+              type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: 'rgba(239, 68, 68, 0.3)' },
+                { offset: 1, color: 'rgba(239, 68, 68, 0)' }
+              ]
+            }
+          }
+        },
+        {
+          type: 'scatter',
+          data: peaks.map(p => [p.time, p.value]),
+          symbolSize: 10,
+          itemStyle: { color: '#f59e0b' },
+          z: 10
+        }
+      ],
+      markLine: {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { color: '#f59e0b', type: 'dashed' },
+        data: [{ yAxis: threshold }]
+      },
+      animation: false
+    };
+
+    chartCurrentPeaks.setOption(opt, true);
+  }
+
+  // Render cumulative energy consumption chart
+  function renderEnergyCumulativeChart(rows) {
+    if (!chartEnergyCumulative || rows.length < 2) return;
+
+    const timestamps = [];
+    const cumulativeEnergy = [];
+    let totalEnergy = 0;
+
+    for (let i = 1; i < rows.length; i++) {
+      const t1 = new Date(rows[i - 1].timestamp).getTime();
+      const t2 = new Date(rows[i].timestamp).getTime();
+      const dt = (t2 - t1) / 1000 / 3600; // hours
+
+      if (dt > 0 && dt < 1) {
+        const power = toNum(rows[i].power_w, toNum(rows[i].voltage_v, 0) * toNum(rows[i].current_a, 0));
+        totalEnergy += (power * dt) / 1000; // kWh
+        timestamps.push(new Date(rows[i].timestamp));
+        cumulativeEnergy.push(totalEnergy);
+      }
+    }
+
+    const opt = {
+      title: { show: false },
+      tooltip: {
+        trigger: 'axis',
+        formatter: params => `${new Date(params[0].value[0]).toLocaleTimeString()}<br/>Energy: ${params[0].value[1].toFixed(4)} kWh`
+      },
+      grid: { left: '10%', right: '5%', top: '10%', bottom: '15%' },
+      xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+      yAxis: {
+        type: 'value',
+        name: 'kWh',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      series: [{
+        type: 'line',
+        data: timestamps.map((t, i) => [t, cumulativeEnergy[i]]),
+        showSymbol: false,
+        lineStyle: { width: 2, color: '#8b5cf6' },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(139, 92, 246, 0.4)' },
+              { offset: 1, color: 'rgba(139, 92, 246, 0.05)' }
+            ]
+          }
+        }
+      }],
+      animation: false
+    };
+
+    chartEnergyCumulative.setOption(opt, true);
+  }
+
+  // Resize handler for Power tab charts
+  function resizePowerTabCharts() {
+    if (chartVoltageStability) chartVoltageStability.resize();
+    if (chartCurrentPeaks) chartCurrentPeaks.resize();
+    if (chartEnergyCumulative) chartEnergyCumulative.resize();
   }
 
   function renderIMUChart(rows) {
@@ -1683,6 +2659,460 @@
     chartIMUDetail.setOption(opt);
   }
 
+  // ==========================================================================
+  // IMU TABS MODULE - Phase 4
+  // ==========================================================================
+
+  // IMU tab ECharts instances
+  let chartIMUOrientation = null;
+  let chartIMUVibration = null;
+  let chartIMUAngularHistogram = null;
+  let imuTabInitialized = false;
+  let imuDetailTabInitialized = false;
+
+  // Initialize IMU Tab module
+  function initIMUTabModule() {
+    if (imuTabInitialized) return;
+
+    // Create time range selector
+    TimeRangeFilter.createSelector('imu-time-range', 'imu', (range) => {
+      if (state.telemetry.length > 0) {
+        renderIMUTabFull(state.telemetry);
+      }
+    });
+
+    // Create zoom controls
+    ZoomController.createControls('imu-zoom-controls', 'imu', (action) => {
+      if (chartIMU) {
+        if (action === 'reset') {
+          chartIMU.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+        } else if (action === 'zoom-in') {
+          const opt = chartIMU.getOption();
+          if (opt.dataZoom && opt.dataZoom[0]) {
+            const start = opt.dataZoom[0].start || 0;
+            const end = opt.dataZoom[0].end || 100;
+            const range = end - start;
+            const newRange = Math.max(10, range * 0.5);
+            const center = (start + end) / 2;
+            chartIMU.dispatchAction({
+              type: 'dataZoom',
+              start: Math.max(0, center - newRange / 2),
+              end: Math.min(100, center + newRange / 2)
+            });
+          }
+        } else if (action === 'zoom-out') {
+          const opt = chartIMU.getOption();
+          if (opt.dataZoom && opt.dataZoom[0]) {
+            const start = opt.dataZoom[0].start || 0;
+            const end = opt.dataZoom[0].end || 100;
+            const range = end - start;
+            const newRange = Math.min(100, range * 2);
+            const center = (start + end) / 2;
+            chartIMU.dispatchAction({
+              type: 'dataZoom',
+              start: Math.max(0, center - newRange / 2),
+              end: Math.min(100, center + newRange / 2)
+            });
+          }
+        }
+      }
+    });
+
+    // Initialize secondary chart containers
+    const orientContainer = el('chart-imu-orientation');
+    const vibrationContainer = el('chart-imu-vibration');
+
+    if (orientContainer && typeof echarts !== 'undefined') {
+      chartIMUOrientation = echarts.init(orientContainer);
+    }
+    if (vibrationContainer && typeof echarts !== 'undefined') {
+      chartIMUVibration = echarts.init(vibrationContainer);
+    }
+
+    imuTabInitialized = true;
+  }
+
+  // Initialize IMU Detail Tab module
+  function initIMUDetailTabModule() {
+    if (imuDetailTabInitialized) return;
+
+    TimeRangeFilter.createSelector('imu-detail-time-range', 'imu-detail', (range) => {
+      if (state.telemetry.length > 0) {
+        renderIMUDetailTabFull(state.telemetry);
+      }
+    });
+
+    const histContainer = el('chart-imu-angular-histogram');
+    if (histContainer && typeof echarts !== 'undefined') {
+      chartIMUAngularHistogram = echarts.init(histContainer);
+    }
+
+    imuDetailTabInitialized = true;
+  }
+
+  // Full IMU Tab render function
+  function renderIMUTabFull(rows) {
+    initIMUTabModule();
+
+    const filtered = TimeRangeFilter.filterData(rows, 'imu');
+
+    renderIMUChart(filtered);
+    updateIMUStats(filtered);
+    renderIMUOrientationChart(filtered);
+    renderIMUVibrationChart(filtered);
+    updateMotionClassification(filtered);
+  }
+
+  // Full IMU Detail Tab render function
+  function renderIMUDetailTabFull(rows) {
+    initIMUDetailTabModule();
+
+    const filtered = TimeRangeFilter.filterData(rows, 'imu-detail');
+
+    renderIMUDetailChart(filtered);
+    updateIMUDetailStats(filtered);
+    updateForcePeaks(filtered);
+    renderAngularHistogram(filtered);
+  }
+
+  // Update IMU stat cards
+  function updateIMUStats(rows) {
+    const setTxt = (id, v) => {
+      const e = el(id);
+      if (e) e.textContent = v;
+    };
+
+    if (!rows || rows.length === 0) {
+      setTxt('imu-stability', '—');
+      setTxt('imu-max-g', '0.0');
+      setTxt('imu-pitch', '0.0');
+      setTxt('imu-roll', '0.0');
+      return;
+    }
+
+    // Calculate stability from gyro variance
+    const gyroX = rows.map(r => toNum(r.gyro_x, null)).filter(v => v !== null);
+    const gyroY = rows.map(r => toNum(r.gyro_y, null)).filter(v => v !== null);
+    const gyroZ = rows.map(r => toNum(r.gyro_z, null)).filter(v => v !== null);
+
+    let stability = 100;
+    if (gyroX.length > 0) {
+      const meanX = gyroX.reduce((a, b) => a + b, 0) / gyroX.length;
+      const varianceX = gyroX.reduce((sum, v) => sum + Math.pow(v - meanX, 2), 0) / gyroX.length;
+      stability = Math.max(0, 100 - Math.sqrt(varianceX) * 5);
+    }
+
+    // Max G-force
+    const accelX = rows.map(r => toNum(r.accel_x, 0));
+    const accelY = rows.map(r => toNum(r.accel_y, 0));
+    const accelZ = rows.map(r => toNum(r.accel_z, 0));
+
+    let maxG = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const totalAccel = Math.sqrt(accelX[i] ** 2 + accelY[i] ** 2 + accelZ[i] ** 2);
+      const g = totalAccel / 9.81;
+      if (g > maxG) maxG = g;
+    }
+
+    // Current pitch and roll
+    const lastRow = rows[rows.length - 1];
+    const pitch = toNum(lastRow.pitch_deg, 0);
+    const roll = toNum(lastRow.roll_deg, 0);
+
+    setTxt('imu-stability', `${stability.toFixed(0)}%`);
+    setTxt('imu-max-g', maxG.toFixed(2));
+    setTxt('imu-pitch', pitch.toFixed(1));
+    setTxt('imu-roll', roll.toFixed(1));
+  }
+
+  // Update IMU Detail stat cards
+  function updateIMUDetailStats(rows) {
+    const setTxt = (id, v) => {
+      const e = el(id);
+      if (e) e.textContent = v;
+    };
+
+    if (!rows || rows.length === 0) return;
+
+    const lastRow = rows[rows.length - 1];
+
+    // Gyro values
+    const gx = toNum(lastRow.gyro_x, 0);
+    const gy = toNum(lastRow.gyro_y, 0);
+    const gz = toNum(lastRow.gyro_z, 0);
+    const angularTotal = Math.sqrt(gx ** 2 + gy ** 2 + gz ** 2);
+
+    // Accel values
+    const ax = toNum(lastRow.accel_x, 0);
+    const ay = toNum(lastRow.accel_y, 0);
+    const az = toNum(lastRow.accel_z, 0);
+    const totalG = Math.sqrt(ax ** 2 + ay ** 2 + az ** 2) / 9.81;
+
+    setTxt('imu-gyro-x', gx.toFixed(1));
+    setTxt('imu-gyro-y', gy.toFixed(1));
+    setTxt('imu-gyro-z', gz.toFixed(1));
+    setTxt('imu-angular-total', angularTotal.toFixed(1));
+    setTxt('imu-accel-x', ax.toFixed(2));
+    setTxt('imu-accel-y', ay.toFixed(2));
+    setTxt('imu-accel-z', az.toFixed(2));
+    setTxt('imu-total-g', totalG.toFixed(2));
+  }
+
+  // Render orientation chart (pitch & roll over time)
+  function renderIMUOrientationChart(rows) {
+    if (!chartIMUOrientation || rows.length === 0) return;
+
+    const timestamps = [];
+    const pitchData = [];
+    const rollData = [];
+
+    for (const r of rows) {
+      const ts = new Date(r.timestamp);
+      if (!isNaN(ts.getTime())) {
+        timestamps.push(ts);
+        pitchData.push(toNum(r.pitch_deg, null));
+        rollData.push(toNum(r.roll_deg, null));
+      }
+    }
+
+    const opt = {
+      title: { show: false },
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['Pitch', 'Roll'], top: 5, textStyle: { fontSize: 10 } },
+      grid: { left: '10%', right: '5%', top: '20%', bottom: '15%' },
+      xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+      yAxis: {
+        type: 'value',
+        name: 'Degrees',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      series: [
+        {
+          name: 'Pitch',
+          type: 'line',
+          data: timestamps.map((t, i) => [t, pitchData[i]]),
+          showSymbol: false,
+          lineStyle: { width: 2, color: '#ff6b6b' }
+        },
+        {
+          name: 'Roll',
+          type: 'line',
+          data: timestamps.map((t, i) => [t, rollData[i]]),
+          showSymbol: false,
+          lineStyle: { width: 2, color: '#4ecdc4' }
+        }
+      ],
+      animation: false
+    };
+
+    chartIMUOrientation.setOption(opt, true);
+  }
+
+  // Render vibration analysis chart (acceleration magnitude)
+  function renderIMUVibrationChart(rows) {
+    if (!chartIMUVibration || rows.length === 0) return;
+
+    const timestamps = [];
+    const vibration = [];
+
+    for (const r of rows) {
+      const ts = new Date(r.timestamp);
+      if (!isNaN(ts.getTime())) {
+        const ax = toNum(r.accel_x, 0);
+        const ay = toNum(r.accel_y, 0);
+        const az = toNum(r.accel_z, 0);
+        // Vibration = total acceleration minus gravity (approximate)
+        const total = Math.sqrt(ax ** 2 + ay ** 2 + az ** 2);
+        const vib = Math.abs(total - 9.81); // Deviation from 1G
+        timestamps.push(ts);
+        vibration.push(vib);
+      }
+    }
+
+    const opt = {
+      title: { show: false },
+      tooltip: { trigger: 'axis' },
+      grid: { left: '10%', right: '5%', top: '10%', bottom: '15%' },
+      xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+      yAxis: {
+        type: 'value',
+        name: 'm/s²',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      series: [{
+        type: 'line',
+        data: timestamps.map((t, i) => [t, vibration[i]]),
+        showSymbol: false,
+        lineStyle: { width: 1.5, color: '#f59e0b' },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(245, 158, 11, 0.3)' },
+              { offset: 1, color: 'rgba(245, 158, 11, 0)' }
+            ]
+          }
+        }
+      }],
+      animation: false
+    };
+
+    chartIMUVibration.setOption(opt, true);
+  }
+
+  // Update motion classification badges
+  function updateMotionClassification(rows) {
+    if (!rows || rows.length < 5) return;
+
+    // Analyze recent data for motion state
+    const recentRows = rows.slice(-20);
+    const speeds = recentRows.map(r => toNum(r.speed_ms, 0));
+
+    if (speeds.length < 2) return;
+
+    const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+    const firstSpeed = speeds[0];
+    const lastSpeed = speeds[speeds.length - 1];
+    const speedChange = lastSpeed - firstSpeed;
+
+    // Classify motion
+    let state = 'stationary';
+    if (avgSpeed < 0.5) {
+      state = 'stationary';
+    } else if (speedChange > 0.5) {
+      state = 'accelerating';
+    } else if (speedChange < -0.5) {
+      state = 'braking';
+    } else {
+      state = 'cruising';
+    }
+
+    // Update badges
+    const badges = document.querySelectorAll('#imu-motion-class .motion-badge');
+    badges.forEach(badge => {
+      badge.classList.remove('active');
+      if (badge.classList.contains(state)) {
+        badge.classList.add('active');
+      }
+    });
+  }
+
+  // Update force peaks list
+  function updateForcePeaks(rows) {
+    const container = el('imu-force-peaks');
+    if (!container || rows.length === 0) return;
+
+    // Calculate max G for each data point
+    const peaks = [];
+    const threshold = 1.2; // Threshold in G
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const ax = toNum(r.accel_x, 0);
+      const ay = toNum(r.accel_y, 0);
+      const az = toNum(r.accel_z, 0);
+      const totalG = Math.sqrt(ax ** 2 + ay ** 2 + az ** 2) / 9.81;
+
+      if (totalG > threshold) {
+        peaks.push({
+          time: new Date(r.timestamp),
+          value: totalG,
+          axis: Math.abs(ax) > Math.abs(ay) && Math.abs(ax) > Math.abs(az) ? 'X' :
+            Math.abs(ay) > Math.abs(az) ? 'Y' : 'Z'
+        });
+      }
+    }
+
+    // Keep only last 10 peaks
+    const recentPeaks = peaks.slice(-10).reverse();
+
+    if (recentPeaks.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <span class="empty-state-icon">📊</span>
+          <span class="empty-state-text">No significant peaks detected</span>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = recentPeaks.map(p => `
+      <div class="force-peak-item">
+        <span class="force-peak-time">${p.time.toLocaleTimeString()}</span>
+        <span class="force-peak-value">${p.value.toFixed(2)}G</span>
+        <span class="force-peak-axis">Axis ${p.axis}</span>
+      </div>
+    `).join('');
+  }
+
+  // Render angular velocity histogram
+  function renderAngularHistogram(rows) {
+    if (!chartIMUAngularHistogram || rows.length === 0) return;
+
+    // Calculate angular velocity magnitudes
+    const velocities = rows.map(r => {
+      const gx = toNum(r.gyro_x, 0);
+      const gy = toNum(r.gyro_y, 0);
+      const gz = toNum(r.gyro_z, 0);
+      return Math.sqrt(gx ** 2 + gy ** 2 + gz ** 2);
+    }).filter(v => !isNaN(v));
+
+    if (velocities.length === 0) return;
+
+    // Create histogram buckets
+    const bucketSize = 5;
+    const maxVel = Math.ceil(Math.max(...velocities) / bucketSize) * bucketSize;
+    const buckets = [];
+    const labels = [];
+
+    for (let i = 0; i <= maxVel; i += bucketSize) {
+      buckets.push(0);
+      labels.push(`${i}-${i + bucketSize}`);
+    }
+
+    velocities.forEach(v => {
+      const idx = Math.min(Math.floor(v / bucketSize), buckets.length - 1);
+      if (idx >= 0) buckets[idx]++;
+    });
+
+    const opt = {
+      title: { show: false },
+      tooltip: { trigger: 'axis' },
+      grid: { left: '10%', right: '5%', top: '10%', bottom: '20%' },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        axisLabel: { fontSize: 9, rotate: 45 }
+      },
+      yAxis: {
+        type: 'value',
+        name: 'Count',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      series: [{
+        type: 'bar',
+        data: buckets,
+        itemStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: '#8b5cf6' },
+              { offset: 1, color: '#6366f1' }
+            ]
+          },
+          borderRadius: [4, 4, 0, 0]
+        },
+        barWidth: '60%'
+      }],
+      animation: false
+    };
+
+    chartIMUAngularHistogram.setOption(opt, true);
+  }
+
   function renderEfficiency(rows) {
     // Use uPlot for high-performance rendering if enabled
     if (state.useUPlot.efficiency && window.ChartManager) {
@@ -1740,9 +3170,366 @@
     chartEfficiency.setOption(opt);
   }
 
+  // ==========================================================================
+  // EFFICIENCY TAB MODULE - Phase 5
+  // ==========================================================================
+
+  // Efficiency tab ECharts instances
+  let chartEffTrend = null;
+  let chartEffBySpeed = null;
+  let efficiencyTabInitialized = false;
+
+  // Initialize Efficiency Tab module
+  function initEfficiencyTabModule() {
+    if (efficiencyTabInitialized) return;
+
+    // Create time range selector
+    TimeRangeFilter.createSelector('efficiency-time-range', 'efficiency', (range) => {
+      if (state.telemetry.length > 0) {
+        renderEfficiencyTabFull(state.telemetry);
+      }
+    });
+
+    // Create zoom controls
+    ZoomController.createControls('efficiency-zoom-controls', 'efficiency', (action) => {
+      if (chartEfficiency) {
+        if (action === 'reset') {
+          chartEfficiency.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+        } else if (action === 'zoom-in') {
+          const opt = chartEfficiency.getOption();
+          if (opt.dataZoom && opt.dataZoom[0]) {
+            const start = opt.dataZoom[0].start || 0;
+            const end = opt.dataZoom[0].end || 100;
+            const range = end - start;
+            const newRange = Math.max(10, range * 0.5);
+            const center = (start + end) / 2;
+            chartEfficiency.dispatchAction({
+              type: 'dataZoom',
+              start: Math.max(0, center - newRange / 2),
+              end: Math.min(100, center + newRange / 2)
+            });
+          }
+        } else if (action === 'zoom-out') {
+          chartEfficiency.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+        }
+      }
+    });
+
+    // Initialize secondary chart containers
+    const trendContainer = el('chart-eff-trend');
+    const bySpeedContainer = el('chart-eff-by-speed');
+
+    if (trendContainer && typeof echarts !== 'undefined') {
+      chartEffTrend = echarts.init(trendContainer);
+    }
+    if (bySpeedContainer && typeof echarts !== 'undefined') {
+      chartEffBySpeed = echarts.init(bySpeedContainer);
+    }
+
+    efficiencyTabInitialized = true;
+  }
+
+  // Full Efficiency Tab render function
+  function renderEfficiencyTabFull(rows) {
+    initEfficiencyTabModule();
+
+    const filtered = TimeRangeFilter.filterData(rows, 'efficiency');
+
+    renderEfficiency(filtered);
+    updateEfficiencyStats(filtered);
+    renderEfficiencyTrendChart(filtered);
+    renderEfficiencyBySpeedChart(filtered);
+    updateOptimalSpeedRecommendation(filtered);
+  }
+
+  // Update efficiency stat cards
+  function updateEfficiencyStats(rows) {
+    const setTxt = (id, v) => {
+      const e = el(id);
+      if (e) e.textContent = v;
+    };
+
+    if (!rows || rows.length < 2) {
+      setTxt('eff-current', '—');
+      setTxt('eff-avg', '—');
+      setTxt('eff-optimal-speed', '—');
+      setTxt('eff-distance', '0.00');
+      return;
+    }
+
+    // Calculate efficiency: km/kWh = distance / energy
+    let totalDistance = 0; // km
+    let totalEnergy = 0; // kWh
+    const efficiencies = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const t1 = new Date(rows[i - 1].timestamp).getTime();
+      const t2 = new Date(rows[i].timestamp).getTime();
+      const dt = (t2 - t1) / 1000; // seconds
+
+      if (dt > 0 && dt < 10) {
+        const speed = toNum(rows[i].speed_ms, 0); // m/s
+        const power = toNum(rows[i].power_w, toNum(rows[i].voltage_v, 0) * toNum(rows[i].current_a, 0));
+
+        const distanceSegment = (speed * dt) / 1000; // km
+        const energySegment = (power * dt) / 3600000; // kWh
+
+        totalDistance += distanceSegment;
+        totalEnergy += energySegment;
+
+        if (energySegment > 0.00001) {
+          const segmentEff = distanceSegment / energySegment;
+          if (segmentEff > 0 && segmentEff < 1000) {
+            efficiencies.push(segmentEff);
+          }
+        }
+      }
+    }
+
+    // Current efficiency (last 10 samples)
+    const recentEff = efficiencies.slice(-10);
+    const currentEff = recentEff.length > 0
+      ? recentEff.reduce((a, b) => a + b, 0) / recentEff.length
+      : 0;
+
+    // Average efficiency
+    const avgEff = totalEnergy > 0.00001 ? totalDistance / totalEnergy : 0;
+
+    setTxt('eff-current', currentEff > 0 && currentEff < 1000 ? currentEff.toFixed(1) : '—');
+    setTxt('eff-avg', avgEff > 0 && avgEff < 1000 ? avgEff.toFixed(1) : '—');
+    setTxt('eff-distance', totalDistance.toFixed(3));
+  }
+
+  // Render efficiency trend chart (rolling efficiency over time)
+  function renderEfficiencyTrendChart(rows) {
+    if (!chartEffTrend || rows.length < 10) return;
+
+    const windowSize = 20;
+    const timestamps = [];
+    const effValues = [];
+
+    for (let i = windowSize; i < rows.length; i++) {
+      const window = rows.slice(i - windowSize, i);
+      let windowDist = 0;
+      let windowEnergy = 0;
+
+      for (let j = 1; j < window.length; j++) {
+        const t1 = new Date(window[j - 1].timestamp).getTime();
+        const t2 = new Date(window[j].timestamp).getTime();
+        const dt = (t2 - t1) / 1000;
+
+        if (dt > 0 && dt < 10) {
+          const speed = toNum(window[j].speed_ms, 0);
+          const power = toNum(window[j].power_w, 0);
+
+          windowDist += (speed * dt) / 1000;
+          windowEnergy += (power * dt) / 3600000;
+        }
+      }
+
+      if (windowEnergy > 0.00001) {
+        const eff = windowDist / windowEnergy;
+        if (eff > 0 && eff < 500) {
+          timestamps.push(new Date(rows[i].timestamp));
+          effValues.push(eff);
+        }
+      }
+    }
+
+    const opt = {
+      title: { show: false },
+      tooltip: {
+        trigger: 'axis',
+        formatter: params => `${params[0].value[1].toFixed(1)} km/kWh`
+      },
+      grid: { left: '10%', right: '5%', top: '10%', bottom: '15%' },
+      xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+      yAxis: {
+        type: 'value',
+        name: 'km/kWh',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      series: [{
+        type: 'line',
+        data: timestamps.map((t, i) => [t, effValues[i]]),
+        showSymbol: false,
+        lineStyle: { width: 2, color: '#22c55e' },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(34, 197, 94, 0.3)' },
+              { offset: 1, color: 'rgba(34, 197, 94, 0)' }
+            ]
+          }
+        }
+      }],
+      animation: false
+    };
+
+    chartEffTrend.setOption(opt, true);
+  }
+
+  // Render efficiency by speed range chart
+  function renderEfficiencyBySpeedChart(rows) {
+    if (!chartEffBySpeed || rows.length < 10) return;
+
+    // Group data by speed ranges
+    const speedRanges = [
+      { min: 0, max: 10, label: '0-10' },
+      { min: 10, max: 20, label: '10-20' },
+      { min: 20, max: 30, label: '20-30' },
+      { min: 30, max: 40, label: '30-40' },
+      { min: 40, max: 100, label: '40+' }
+    ];
+
+    const rangeData = speedRanges.map(r => ({ ...r, distance: 0, energy: 0 }));
+
+    for (let i = 1; i < rows.length; i++) {
+      const t1 = new Date(rows[i - 1].timestamp).getTime();
+      const t2 = new Date(rows[i].timestamp).getTime();
+      const dt = (t2 - t1) / 1000;
+
+      if (dt > 0 && dt < 10) {
+        const speed = toNum(rows[i].speed_ms, 0) * 3.6; // km/h
+        const power = toNum(rows[i].power_w, 0);
+
+        const distanceSegment = (toNum(rows[i].speed_ms, 0) * dt) / 1000;
+        const energySegment = (power * dt) / 3600000;
+
+        for (const range of rangeData) {
+          if (speed >= range.min && speed < range.max) {
+            range.distance += distanceSegment;
+            range.energy += energySegment;
+            break;
+          }
+        }
+      }
+    }
+
+    const efficiencies = rangeData.map(r =>
+      r.energy > 0.00001 ? Math.min(r.distance / r.energy, 200) : 0
+    );
+
+    const opt = {
+      title: { show: false },
+      tooltip: {
+        trigger: 'axis',
+        formatter: params => `${params[0].name} km/h: ${params[0].value.toFixed(1)} km/kWh`
+      },
+      grid: { left: '10%', right: '5%', top: '10%', bottom: '15%' },
+      xAxis: {
+        type: 'category',
+        data: speedRanges.map(r => r.label),
+        axisLabel: { fontSize: 10 }
+      },
+      yAxis: {
+        type: 'value',
+        name: 'km/kWh',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      series: [{
+        type: 'bar',
+        data: efficiencies,
+        itemStyle: {
+          color: (params) => {
+            const maxEff = Math.max(...efficiencies.filter(e => e > 0));
+            const ratio = params.value / maxEff;
+            return ratio > 0.8 ? '#22c55e' : ratio > 0.5 ? '#f59e0b' : '#ef4444';
+          },
+          borderRadius: [4, 4, 0, 0]
+        },
+        barWidth: '60%'
+      }],
+      animation: false
+    };
+
+    chartEffBySpeed.setOption(opt, true);
+  }
+
+  // Update optimal speed recommendation
+  function updateOptimalSpeedRecommendation(rows) {
+    const display = el('optimal-speed-display');
+    if (!display || rows.length < 50) {
+      if (display) {
+        display.innerHTML = '<p>Collecting more data to determine optimal speed range...</p>';
+      }
+      return;
+    }
+
+    // Calculate efficiency by speed range
+    const speedRanges = [
+      { min: 0, max: 10, label: '0-10' },
+      { min: 10, max: 20, label: '10-20' },
+      { min: 20, max: 30, label: '20-30' },
+      { min: 30, max: 40, label: '30-40' },
+      { min: 40, max: 100, label: '40+' }
+    ];
+
+    const rangeData = speedRanges.map(r => ({ ...r, distance: 0, energy: 0 }));
+
+    for (let i = 1; i < rows.length; i++) {
+      const t1 = new Date(rows[i - 1].timestamp).getTime();
+      const t2 = new Date(rows[i].timestamp).getTime();
+      const dt = (t2 - t1) / 1000;
+
+      if (dt > 0 && dt < 10) {
+        const speed = toNum(rows[i].speed_ms, 0) * 3.6;
+        const power = toNum(rows[i].power_w, 0);
+
+        const distanceSegment = (toNum(rows[i].speed_ms, 0) * dt) / 1000;
+        const energySegment = (power * dt) / 3600000;
+
+        for (const range of rangeData) {
+          if (speed >= range.min && speed < range.max) {
+            range.distance += distanceSegment;
+            range.energy += energySegment;
+            break;
+          }
+        }
+      }
+    }
+
+    // Find optimal range
+    let bestRange = null;
+    let bestEff = 0;
+
+    for (const range of rangeData) {
+      if (range.energy > 0.0001) {
+        const eff = range.distance / range.energy;
+        if (eff > bestEff && eff < 500) {
+          bestEff = eff;
+          bestRange = range;
+        }
+      }
+    }
+
+    if (bestRange && bestEff > 0) {
+      const optSpeedEl = el('eff-optimal-speed');
+      if (optSpeedEl) {
+        optSpeedEl.textContent = `${bestRange.min}-${bestRange.max}`;
+      }
+
+      display.innerHTML = `
+        <p>Based on your data, the most efficient speed range is 
+        <strong>${bestRange.min}-${bestRange.max} km/h</strong> 
+        with an average efficiency of <strong>${bestEff.toFixed(1)} km/kWh</strong>.</p>
+        <p style="margin-top: 8px; font-size: 0.875rem; color: var(--text-muted);">
+          💡 Tip: Maintaining speed in this range will maximize your vehicle's range.
+        </p>
+      `;
+    } else {
+      display.innerHTML = '<p>Not enough data to determine optimal speed. Keep driving!</p>';
+    }
+  }
+
   // Full G-Forces panel
   function optionGForcesFull(rows) {
-    const pts = rows.map((r) => [toNum(r.g_lat, 0), toNum(r.g_long, 0)]);
+    // Limit data points for performance
+    const limitedRows = limitChartData(rows, MAX_CHART_POINTS);
+    const pts = limitedRows.map((r) => [toNum(r.g_lat, 0), toNum(r.g_long, 0)]);
     const cur = last(rows) || {};
     const gLat = toNum(cur.g_lat, 0);
     const gLong = toNum(cur.g_long, 0);
@@ -1955,6 +3742,256 @@
       addDataZoom(opt, [0]);
       chartAltitude.setOption(opt);
     }
+  }
+
+  // ==========================================================================
+  // OVERVIEW TAB MODULE - Phase 7
+  // ==========================================================================
+
+  let overviewInitialized = false;
+  let sessionStartTime = null;
+
+  // Initialize overview tab (collapsible sections)
+  function initOverviewTab() {
+    if (overviewInitialized) return;
+
+    // Setup collapsible section toggles
+    const headers = document.querySelectorAll('.collapsible-header');
+    headers.forEach(header => {
+      header.addEventListener('click', () => {
+        const targetId = header.getAttribute('data-target');
+        const content = el(targetId);
+
+        if (content) {
+          header.classList.toggle('collapsed');
+          content.classList.toggle('collapsed');
+
+          const icon = header.querySelector('.collapse-icon');
+          if (icon) {
+            icon.textContent = header.classList.contains('collapsed') ? '+' : '−';
+          }
+        }
+      });
+    });
+
+    overviewInitialized = true;
+  }
+
+  // Update overview summary bar (uses server-calculated efficiency)
+  function updateOverviewSummary(rows) {
+    initOverviewTab();
+
+    const setTxt = (id, v) => {
+      const e = el(id);
+      if (e) e.textContent = v;
+    };
+
+    // Use server-provided efficiency from latest row
+    if (rows && rows.length > 0) {
+      const lastRow = rows[rows.length - 1];
+      const efficiency = toNum(lastRow.current_efficiency_km_kwh, null);
+
+      if (efficiency !== null && efficiency > 0 && efficiency < 500) {
+        setTxt('overview-efficiency', `${efficiency.toFixed(1)} km/kWh`);
+      } else {
+        setTxt('overview-efficiency', '— km/kWh');
+      }
+
+      // Display motion state if available
+      const motionStateEl = el('overview-motion-state');
+      if (motionStateEl && lastRow.motion_state) {
+        motionStateEl.textContent = lastRow.motion_state;
+        motionStateEl.className = `motion-badge motion-${lastRow.motion_state}`;
+      }
+
+      // Display driver mode if available
+      const driverModeEl = el('overview-driver-mode');
+      if (driverModeEl && lastRow.driver_mode) {
+        driverModeEl.textContent = lastRow.driver_mode;
+        driverModeEl.className = `driver-badge driver-${lastRow.driver_mode}`;
+      }
+    } else {
+      setTxt('overview-efficiency', '— km/kWh');
+    }
+  }
+
+  // ==========================================================================
+  // GPS TAB MODULE - Phase 6
+  // ==========================================================================
+
+  // GPS tab state
+  let chartGPSSpeed = null;
+  let gpsTabInitialized = false;
+
+  // Initialize GPS Tab module
+  function initGPSTabModule() {
+    if (gpsTabInitialized) return;
+
+    // Create time range selector
+    TimeRangeFilter.createSelector('gps-time-range', 'gps', (range) => {
+      if (state.telemetry.length > 0) {
+        renderGPSTabFull(state.telemetry);
+      }
+    });
+
+    // Initialize speed chart
+    const speedContainer = el('chart-gps-speed');
+    if (speedContainer && typeof echarts !== 'undefined') {
+      chartGPSSpeed = echarts.init(speedContainer);
+    }
+
+    // Setup map controls event listeners
+    const showTrailCheckbox = el('gps-show-trail');
+    const followMarkerCheckbox = el('gps-follow-marker');
+
+    if (showTrailCheckbox) {
+      showTrailCheckbox.addEventListener('change', () => {
+        if (state.telemetry.length > 0) {
+          renderGPSTabFull(state.telemetry);
+        }
+      });
+    }
+
+    if (followMarkerCheckbox) {
+      followMarkerCheckbox.addEventListener('change', () => {
+        // Follow marker state is read during map render
+      });
+    }
+
+    gpsTabInitialized = true;
+  }
+
+  // Full GPS Tab render function
+  function renderGPSTabFull(rows) {
+    initGPSTabModule();
+
+    const filtered = TimeRangeFilter.filterData(rows, 'gps');
+
+    renderMapAndAltitude(filtered);
+    updateGPSStats(filtered);
+    updateGPSCoordinates(filtered);
+    renderGPSSpeedChart(filtered);
+  }
+
+  // Update GPS stat cards (uses server-calculated distance and elevation)
+  function updateGPSStats(rows) {
+    const setTxt = (id, v) => {
+      const e = el(id);
+      if (e) e.textContent = v;
+    };
+
+    if (!rows || rows.length < 2) {
+      setTxt('gps-distance', '0.000');
+      setTxt('gps-elevation-gain', '0');
+      setTxt('gps-avg-speed', '0.0');
+      setTxt('gps-accuracy', '—');
+      return;
+    }
+
+    const lastRow = rows[rows.length - 1];
+
+    // Use server-provided distance and elevation metrics
+    const routeDistance = toNum(lastRow.route_distance_km, 0);
+    const elevationGain = toNum(lastRow.elevation_gain_m, 0);
+
+    // Average speed along route (still calculated client-side - simple average)
+    const speeds = rows.map(r => toNum(r.speed_ms, null) * 3.6).filter(v => v !== null);
+    const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+
+    // GPS accuracy (if available)
+    const accuracies = rows.map(r => toNum(r.gps_accuracy, null)).filter(v => v !== null);
+    const avgAccuracy = accuracies.length > 0
+      ? accuracies.reduce((a, b) => a + b, 0) / accuracies.length
+      : null;
+
+    setTxt('gps-distance', routeDistance.toFixed(3));
+    setTxt('gps-elevation-gain', Math.round(elevationGain));
+    setTxt('gps-avg-speed', avgSpeed.toFixed(1));
+    setTxt('gps-accuracy', avgAccuracy !== null ? avgAccuracy.toFixed(1) : '—');
+  }
+
+  // Update current GPS coordinates display
+  function updateGPSCoordinates(rows) {
+    if (!rows || rows.length === 0) return;
+
+    const lastRow = rows[rows.length - 1];
+    const lat = toNum(lastRow.lat, null);
+    const lon = toNum(lastRow.lon, null);
+
+    const latEl = el('gps-lat');
+    const lonEl = el('gps-lon');
+
+    if (latEl) latEl.textContent = lat !== null ? lat.toFixed(6) : '—';
+    if (lonEl) lonEl.textContent = lon !== null ? lon.toFixed(6) : '—';
+  }
+
+  // Render speed along route chart
+  function renderGPSSpeedChart(rows) {
+    if (!chartGPSSpeed || rows.length < 2) return;
+
+    // Calculate cumulative distance as X-axis
+    const distances = [0];
+    let cumDistance = 0;
+
+    for (let i = 1; i < rows.length; i++) {
+      const lat1 = toNum(rows[i - 1].lat, null);
+      const lon1 = toNum(rows[i - 1].lon, null);
+      const lat2 = toNum(rows[i].lat, null);
+      const lon2 = toNum(rows[i].lon, null);
+
+      if (lat1 !== null && lon1 !== null && lat2 !== null && lon2 !== null) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        cumDistance += R * c;
+      }
+      distances.push(cumDistance);
+    }
+
+    const speeds = rows.map(r => toNum(r.speed_ms, null) * 3.6);
+
+    const opt = {
+      title: { show: false },
+      tooltip: {
+        trigger: 'axis',
+        formatter: params => `${params[0].value[0].toFixed(3)} km: ${params[0].value[1]?.toFixed(1) || '—'} km/h`
+      },
+      grid: { left: '10%', right: '5%', top: '10%', bottom: '15%' },
+      xAxis: {
+        type: 'value',
+        name: 'Distance (km)',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      yAxis: {
+        type: 'value',
+        name: 'Speed (km/h)',
+        nameTextStyle: { fontSize: 10 },
+        axisLabel: { fontSize: 10 }
+      },
+      visualMap: {
+        show: false,
+        min: 0,
+        max: 50,
+        inRange: {
+          color: ['#22c55e', '#f59e0b', '#ef4444']
+        }
+      },
+      series: [{
+        type: 'line',
+        data: distances.map((d, i) => [d, speeds[i]]),
+        showSymbol: false,
+        lineStyle: { width: 2 },
+        areaStyle: { opacity: 0.2 }
+      }],
+      animation: false
+    };
+
+    chartGPSSpeed.setOption(opt, true);
   }
 
   // Table helpers
@@ -2176,20 +4213,20 @@
     };
     const ch = realtime.channels.get(ABLY_CHANNEL_NAME, channelOptions);
     state.ablyChannel = ch;
-    
+
     // Track the exact time we attach for gap calculation
     state.channelAttachTime = Date.now();
 
     // Subscribe IMMEDIATELY - messages will display instantly
     await ch.subscribe("telemetry_update", onTelemetryMessage);
     console.log("📡 Subscribed with 5s rewind — real-time messages display immediately");
-    
+
     setStatus("✅ Connected — Waiting");
     state.sessionStartTime = Date.now();
     state.lastMsgTs = null;
     state.reconnectCount = 0;
     initialTriangulationDone = true;
-    
+
     // Try to get session from Ably history (very fast, ~50ms)
     // This helps us load historical data faster if there's recent activity
     tryLoadHistoryFromAbly(ch);
@@ -2204,7 +4241,7 @@
       console.log('📡 No channel available for history check');
       return;
     }
-    
+
     try {
       // Ensure channel is attached first
       if (channel.state !== 'attached') {
@@ -2215,7 +4252,7 @@
           return;
         }
       }
-      
+
       // Quick check: get last message from Ably history
       let quickHistory;
       try {
@@ -2224,19 +4261,19 @@
         console.log('📡 Quick history check failed:', histErr.message || histErr);
         return;
       }
-      
+
       // Defensive: check if quickHistory and items exist
       if (!quickHistory || !quickHistory.items || quickHistory.items.length === 0) {
         console.log('📡 No messages in Ably history, waiting for real-time data');
         return;
       }
-      
+
       const firstItem = quickHistory.items[0];
       if (!firstItem || !firstItem.data) {
         console.log('📡 Empty history item, waiting for real-time data');
         return;
       }
-      
+
       let data = firstItem.data;
       if (typeof data === 'string') {
         try {
@@ -2246,14 +4283,14 @@
           return;
         }
       }
-      
+
       const sessionId = data.session_id;
       const lastMsgTime = firstItem.timestamp || Date.now();
       const ageMs = Date.now() - lastMsgTime;
-      
+
       // Only load history if message is recent (within 60 seconds)
       if (sessionId && ageMs < 60000) {
-        console.log(`📡 Found recent session ${sessionId.slice(0, 8)} (${Math.round(ageMs/1000)}s ago), loading history...`);
+        console.log(`📡 Found recent session ${sessionId.slice(0, 8)} (${Math.round(ageMs / 1000)}s ago), loading history...`);
         loadHistoryInBackground(sessionId, channel);
       } else {
         console.log('📡 No recent session activity, waiting for real-time data');
@@ -2275,26 +4312,26 @@
    */
   async function loadHistoryInBackground(sessionId, channel, retryCount = 0) {
     if (historyLoaded || (historyLoadPromise && retryCount === 0)) return;
-    
+
     state.currentSessionId = sessionId;
     state.waitingForSession = false;
-    
+
     const maxRetries = 2;  // Max retry attempts
     const retryDelayMs = 2500;  // 2.5s delay between retries
-    
+
     historyLoadPromise = (async () => {
       try {
         const startTime = performance.now();
-        
+
         // Step 1: Get Convex data and its latest timestamp for gap coordination
         let convexData = [];
         let convexLatestTs = null;
-        
+
         if (convexEnabled && window.ConvexBridge) {
           try {
             // First, get session records (this is the critical data)
             convexData = await ConvexBridge.getSessionRecords(sessionId) || [];
-            
+
             // Try to get latest timestamp if the function exists (for gap coordination)
             if (typeof ConvexBridge.getLatestSessionTimestamp === 'function') {
               try {
@@ -2312,19 +4349,19 @@
                 convexLatestTs = convexData[convexData.length - 1].timestamp;
               }
             }
-            
+
             console.log(`📡 Convex: ${convexData.length} records, latest: ${convexLatestTs?.slice(0, 19) || 'none'}`);
           } catch (e) {
             console.warn('Convex fetch failed:', e);
           }
         }
-        
+
         // Step 2: Calculate optimal Ably history window
         // If we have Convex data, fetch Ably from 3s before Convex cutoff (overlap buffer)
         // If no Convex data, fetch more Ably history (full 2 minutes) to compensate
         let ablyStartTime;
         let ablyLimit = 1000;
-        
+
         if (convexLatestTs && convexData.length > 0) {
           // Have Convex data - just need to bridge the gap
           const convexLatestMs = new Date(convexLatestTs).getTime();
@@ -2336,12 +4373,12 @@
           ablyLimit = 2000;  // Get more messages when Convex is empty
           console.log(`📡 Ably window: full 2 minutes (Convex empty, compensating with Ably)`);
         }
-        
+
         // Step 3: Fetch Ably history
         const ablyData = await fetchAblyHistoryFast(channel, sessionId, ablyStartTime, ablyLimit);
-        
+
         const loadTime = performance.now() - startTime;
-        
+
         // Calculate gap statistics for logging
         let gapInfo = '';
         if (convexLatestTs && state.telemetry.length > 0) {
@@ -2349,19 +4386,19 @@
           const firstRealtimeTs = new Date(state.telemetry[0].timestamp).getTime();
           const gapMs = firstRealtimeTs - convexLatestMs;
           if (gapMs > 0) {
-            gapInfo = `, potential gap: ${(gapMs/1000).toFixed(2)}s`;
+            gapInfo = `, potential gap: ${(gapMs / 1000).toFixed(2)}s`;
           }
         }
-        
+
         console.log(`📡 History loaded in ${loadTime.toFixed(0)}ms (Convex: ${convexData.length}, Ably: ${ablyData.length}${gapInfo})`);
-        
+
         // Step 4: Merge with gap-aware algorithm
         const totalHistorical = convexData.length + ablyData.length;
-        
+
         if (totalHistorical > 0) {
           mergeHistoricalData(convexData, ablyData);
           historyLoaded = true;
-          
+
           if (window.AuthUI?.showNotification) {
             window.AuthUI.showNotification(
               `Loaded ${totalHistorical} historical points`,
@@ -2374,45 +4411,45 @@
           // 1. Brand new session (no history yet)
           // 2. Ably persistence isn't enabled
           // 3. Convex hasn't batched data yet (within first 2 seconds)
-          
+
           // If this is first attempt and we have no data, retry after delay
           if (retryCount < maxRetries && state.telemetry.length < 50) {
-            console.log(`📡 No historical data found, retrying in ${retryDelayMs/1000}s (attempt ${retryCount + 1}/${maxRetries})`);
-            
+            console.log(`📡 No historical data found, retrying in ${retryDelayMs / 1000}s (attempt ${retryCount + 1}/${maxRetries})`);
+
             // Schedule retry
             setTimeout(() => {
               historyLoadPromise = null;  // Allow retry
               loadHistoryInBackground(sessionId, channel, retryCount + 1);
             }, retryDelayMs);
-            
+
             return;  // Don't mark as loaded yet
           }
-          
+
           // Max retries reached or we have enough data
           console.log('📡 No historical data found - relying on rewind messages and real-time stream');
           historyLoaded = true;
-          
+
           if (state.telemetry.length > 0) {
             console.log(`📡 Have ${state.telemetry.length} points from rewind/real-time`);
           }
         }
       } catch (e) {
         console.warn('⚠️ Background history load failed:', e);
-        
+
         // Retry on error if we haven't exceeded max retries
         if (retryCount < maxRetries) {
-          console.log(`📡 Retrying history load in ${retryDelayMs/1000}s after error`);
+          console.log(`📡 Retrying history load in ${retryDelayMs / 1000}s after error`);
           setTimeout(() => {
             historyLoadPromise = null;
             loadHistoryInBackground(sessionId, channel, retryCount + 1);
           }, retryDelayMs);
           return;
         }
-        
+
         historyLoaded = true;  // Prevent infinite retry loop
       }
     })();
-    
+
     return historyLoadPromise;
   }
 
@@ -2425,14 +4462,14 @@
       console.log('📡 Convex not available, using Ably-only history');
       return [];
     }
-    
+
     try {
       const startFetch = performance.now();
       const records = await ConvexBridge.getSessionRecords(sessionId);
       const fetchTime = performance.now() - startFetch;
-      
+
       console.log(`📡 Convex fetch: ${records?.length || 0} records in ${fetchTime.toFixed(0)}ms`);
-      
+
       return records || [];
     } catch (e) {
       console.warn('Convex fetch failed:', e);
@@ -2455,7 +4492,7 @@
       console.log('📡 Ably history: no channel provided');
       return [];
     }
-    
+
     try {
       // Ensure channel is attached before fetching history
       if (channel.state !== 'attached') {
@@ -2466,10 +4503,10 @@
           return [];
         }
       }
-      
+
       const messages = [];
       const seenTimestamps = new Set();  // Dedupe within Ably results
-      
+
       // Fetch history in backwards direction (most recent first), then reverse
       // This is more reliable than forwards with untilAttach
       let historyResult;
@@ -2484,13 +4521,13 @@
         console.warn('📡 Ably history call failed:', historyErr.message);
         return [];
       }
-      
+
       // Defensive: check if historyResult and items exist
       if (!historyResult || !historyResult.items) {
         console.log('📡 Ably history: no results returned');
         return [];
       }
-      
+
       // Process first page of results
       for (const msg of historyResult.items) {
         if (msg.name === 'telemetry_update' && msg.data) {
@@ -2498,7 +4535,7 @@
           if (typeof data === 'string') {
             try { data = JSON.parse(data); } catch { continue; }
           }
-          
+
           // Filter by session and dedupe
           if (data.session_id === sessionId) {
             const ts = data.timestamp;
@@ -2510,25 +4547,25 @@
           }
         }
       }
-      
+
       // If we need more messages and there are more pages, fetch them
       let pagesLoaded = 1;
       const maxPages = Math.ceil(limit / 1000);
-      
+
       while (messages.length < limit && historyResult.hasNext && pagesLoaded < maxPages) {
         try {
           historyResult = await historyResult.next();
           pagesLoaded++;
-          
+
           if (!historyResult || !historyResult.items) break;
-          
+
           for (const msg of historyResult.items) {
             if (msg.name === 'telemetry_update' && msg.data) {
               let data = msg.data;
               if (typeof data === 'string') {
                 try { data = JSON.parse(data); } catch { continue; }
               }
-              
+
               if (data.session_id === sessionId) {
                 const ts = data.timestamp;
                 if (!seenTimestamps.has(ts)) {
@@ -2544,16 +4581,16 @@
           break;
         }
       }
-      
+
       // Sort by timestamp (oldest first) since we fetched backwards
       messages.sort((a, b) => {
         const ta = new Date(a.timestamp).getTime();
         const tb = new Date(b.timestamp).getTime();
         return ta - tb;
       });
-      
+
       console.log(`📡 Ably history: ${messages.length} messages from ${startTime.toISOString().slice(11, 19)} (${pagesLoaded} page(s))`);
-      
+
       return messages;
     } catch (e) {
       console.warn('Ably history fetch failed:', e.message || e);
@@ -2576,32 +4613,32 @@
     const MAX_ACCEPTABLE_GAP_MS = 800;  // 0.8 seconds - max acceptable gap
     const EXPECTED_INTERVAL_MS = 200;   // 0.2 seconds - expected data interval
     const GAP_THRESHOLD_MS = 250;       // 0.25 seconds - threshold for gap detection
-    
+
     // Combine all sources
     const allHistorical = [...convexData, ...ablyData];
-    
+
     if (allHistorical.length === 0) return;
-    
+
     // Create key-based deduplication (timestamp + message_id)
     const keyOf = (r) => `${new Date(r.timestamp).getTime()}::${r.message_id || ''}`;
     const existingKeys = new Set(state.telemetry.map(keyOf));
-    
+
     // Filter to only new historical data
     const newHistorical = allHistorical.filter(d => !existingKeys.has(keyOf(d)));
-    
+
     if (newHistorical.length === 0) return;
-    
+
     // Process and merge
     const processed = withDerived(newHistorical);
     const merged = [...processed, ...state.telemetry];
-    
+
     // Sort by timestamp (numeric for accuracy)
     merged.sort((a, b) => {
       const ta = new Date(a.timestamp).getTime();
       const tb = new Date(b.timestamp).getTime();
       return ta - tb;
     });
-    
+
     // Deduplicate (keep first occurrence, use key-based dedup)
     const seenKeys = new Set();
     let deduped = merged.filter(d => {
@@ -2610,39 +4647,39 @@
       seenKeys.add(key);
       return true;
     });
-    
+
     // Gap detection and interpolation
     const interpolated = [];
     let totalGapsDetected = 0;
     let totalPointsInterpolated = 0;
     let maxGapMs = 0;
-    
+
     for (let i = 0; i < deduped.length; i++) {
       interpolated.push(deduped[i]);
-      
+
       if (i < deduped.length - 1) {
         const t1 = new Date(deduped[i].timestamp).getTime();
         const t2 = new Date(deduped[i + 1].timestamp).getTime();
         const gapMs = t2 - t1;
-        
+
         maxGapMs = Math.max(maxGapMs, gapMs);
-        
+
         // Detect gap (more than expected interval + tolerance)
         if (gapMs > GAP_THRESHOLD_MS) {
           totalGapsDetected++;
-          
+
           // Interpolate if gap is small enough to be accurate
           if (gapMs <= MAX_ACCEPTABLE_GAP_MS) {
             const pointsToAdd = Math.floor(gapMs / EXPECTED_INTERVAL_MS) - 1;
-            
+
             if (pointsToAdd > 0 && pointsToAdd <= 4) {  // Max 4 interpolated points
               const d1 = deduped[i];
               const d2 = deduped[i + 1];
-              
+
               for (let j = 1; j <= pointsToAdd; j++) {
                 const ratio = j / (pointsToAdd + 1);
                 const interpTs = new Date(t1 + gapMs * ratio).toISOString();
-                
+
                 // Linear interpolation for all numeric fields
                 const interpPoint = interpolateDataPoint(d1, d2, ratio, interpTs);
                 interpPoint._interpolated = true;  // Mark as interpolated
@@ -2652,12 +4689,12 @@
             }
           } else {
             // Gap too large - log but don't interpolate
-            console.warn(`⚠️ Large gap detected: ${(gapMs/1000).toFixed(2)}s between points`);
+            console.warn(`⚠️ Large gap detected: ${(gapMs / 1000).toFixed(2)}s between points`);
           }
         }
       }
     }
-    
+
     // Re-sort after adding interpolated points
     if (totalPointsInterpolated > 0) {
       interpolated.sort((a, b) => {
@@ -2666,12 +4703,12 @@
         return ta - tb;
       });
     }
-    
+
     // Trim to maxPoints
     state.telemetry = interpolated.slice(-state.maxPoints);
     state.msgCount = state.telemetry.length;
     if (statMsg) statMsg.textContent = String(state.msgCount);
-    
+
     // Log merge statistics
     const stats = {
       newPoints: newHistorical.length,
@@ -2680,21 +4717,21 @@
       maxGapMs: maxGapMs,
       totalPoints: state.telemetry.length
     };
-    
-    console.log(`📡 Gap-aware merge: ${stats.newPoints} new, ${stats.pointsInterpolated} interpolated, max gap: ${(stats.maxGapMs/1000).toFixed(2)}s (total: ${stats.totalPoints})`);
-    
+
+    console.log(`📡 Gap-aware merge: ${stats.newPoints} new, ${stats.pointsInterpolated} interpolated, max gap: ${(stats.maxGapMs / 1000).toFixed(2)}s (total: ${stats.totalPoints})`);
+
     // Show notification if significant interpolation occurred
     if (totalPointsInterpolated > 5 && window.AuthUI?.showNotification) {
       window.AuthUI.showNotification(
-        `Filled ${totalPointsInterpolated} data points (max gap: ${(maxGapMs/1000).toFixed(2)}s)`,
+        `Filled ${totalPointsInterpolated} data points (max gap: ${(maxGapMs / 1000).toFixed(2)}s)`,
         maxGapMs > MAX_ACCEPTABLE_GAP_MS ? 'warning' : 'success',
         3000
       );
     }
-    
+
     scheduleRender();
   }
-  
+
   /**
    * Linear interpolation between two data points
    * @param {Object} d1 - First data point
@@ -2710,7 +4747,7 @@
       if (va === null || vb === null) return va ?? vb ?? 0;
       return va + (vb - va) * t;
     };
-    
+
     // Fields to interpolate
     const numericFields = [
       'speed_ms', 'voltage_v', 'current_a', 'power_w', 'energy_j', 'distance_m',
@@ -2720,7 +4757,7 @@
       'throttle_pct', 'brake_pct', 'throttle', 'brake',
       'g_long', 'g_lat', 'g_total', 'roll_deg', 'pitch_deg'
     ];
-    
+
     const result = {
       timestamp: timestamp,
       session_id: d1.session_id || d2.session_id,
@@ -2728,13 +4765,13 @@
       data_source: 'INTERPOLATED',
       message_id: null,  // No message ID for interpolated points
     };
-    
+
     for (const field of numericFields) {
       if (field in d1 || field in d2) {
         result[field] = lerp(d1[field], d2[field], ratio);
       }
     }
-    
+
     return result;
   }
 
@@ -3216,7 +5253,7 @@
         state.waitingForSession = false;
         setStatus("✅ Connected");
         console.log(`📊 First message received — session ${incomingSessionId?.slice(0, 8)}`);
-        
+
         // Trigger background history load if not already loading
         if (!historyLoaded && !historyLoadPromise && state.ablyChannel) {
           loadHistoryInBackground(incomingSessionId, state.ablyChannel);
@@ -3378,17 +5415,17 @@
       renderPowerChart(rows);
       renderIMUChart(rows);
     } else if (activePanelName === 'speed') {
-      renderSpeedChart(rows);
+      renderSpeedTabFull(rows);
     } else if (activePanelName === 'power') {
-      renderPowerChart(rows);
+      renderPowerTabFull(rows);
     } else if (activePanelName === 'imu') {
-      renderIMUChart(rows);
+      renderIMUTabFull(rows);
     } else if (activePanelName === 'imu-detail') {
-      renderIMUDetailChart(rows);
+      renderIMUDetailTabFull(rows);
     } else if (activePanelName === 'efficiency') {
-      renderEfficiency(rows);
+      renderEfficiencyTabFull(rows);
     } else if (activePanelName === 'gps') {
-      renderMapAndAltitude(rows);
+      renderGPSTabFull(rows);
     }
   }
 
@@ -3436,18 +5473,19 @@
         chartGGMini.setOption(optionGForcesMini(rows));
         renderPedals(rows);
         renderMapAndAltitude(rows);
+        updateOverviewSummary(rows);
       } else if (activePanelName === 'speed') {
-        renderSpeedChart(rows);
+        renderSpeedTabFull(rows);
       } else if (activePanelName === 'power') {
-        renderPowerChart(rows);
+        renderPowerTabFull(rows);
       } else if (activePanelName === 'imu') {
-        renderIMUChart(rows);
+        renderIMUTabFull(rows);
       } else if (activePanelName === 'imu-detail') {
-        renderIMUDetailChart(rows);
+        renderIMUDetailTabFull(rows);
       } else if (activePanelName === 'efficiency') {
-        renderEfficiency(rows);
+        renderEfficiencyTabFull(rows);
       } else if (activePanelName === 'gps') {
-        renderMapAndAltitude(rows);
+        renderGPSTabFull(rows);
       }
 
       // IMPORTANT: Always analyze data quality for notifications regardless of active panel

@@ -471,6 +471,388 @@ class OutlierDetector:
 # ============================================================
 
 
+# ============================================================
+# MODULE: TELEMETRY CALCULATOR
+# Server-side calculations for dashboard performance optimization
+# Moves heavy computations from client-side JavaScript to bridge
+# ============================================================
+
+class TelemetryCalculator:
+    """
+    Computes derived metrics from raw telemetry data.
+    Provides: efficiency, motion state, driver inputs, optimal speed, GPS metrics,
+    current peaks with correlation, and all aggregated statistics.
+    """
+    
+    SPEED_BUCKETS = [(0, 5), (5, 10), (10, 15), (15, 20), (20, 25), (25, 30)]
+    MAX_PEAKS_STORED = 50  # Max peaks to keep in memory
+    CURRENT_PEAK_THRESHOLD_MULTIPLIER = 1.5  # Peak = value > mean * multiplier
+    
+    def __init__(self, window_size: int = 50, sample_interval: float = 0.2):
+        self.window_size = window_size
+        self.sample_interval = sample_interval
+        
+        # Rolling windows for efficiency calculation
+        self.distance_deltas = RollingWindow(window_size)
+        self.energy_deltas = RollingWindow(window_size)
+        
+        # Rolling windows for aggregated statistics
+        self.speed_window = RollingWindow(window_size)
+        self.voltage_window = RollingWindow(window_size)
+        self.current_window = RollingWindow(window_size)
+        self.power_window = RollingWindow(window_size)
+        self.accel_magnitude_window = RollingWindow(window_size)
+        
+        # Speed tracking for optimal speed calculation
+        self.speed_bucket_distance: Dict[tuple, float] = {b: 0.0 for b in self.SPEED_BUCKETS}
+        self.speed_bucket_energy: Dict[tuple, float] = {b: 0.0 for b in self.SPEED_BUCKETS}
+        
+        # GPS tracking for cumulative metrics
+        self.last_lat: Optional[float] = None
+        self.last_lon: Optional[float] = None
+        self.last_alt: Optional[float] = None
+        self.cumulative_distance_km: float = 0.0
+        self.elevation_gain_m: float = 0.0
+        
+        # Motion tracking
+        self.last_speed: float = 0.0
+        
+        # Session maximums
+        self.max_speed_ms: float = 0.0
+        self.max_power_w: float = 0.0
+        self.max_current_a: float = 0.0
+        self.max_g_force: float = 0.0
+        
+        # Cumulative energy
+        self.cumulative_energy_kwh: float = 0.0
+        
+        # Current peaks detection
+        self.current_peaks: List[Dict[str, Any]] = []
+        self.acceleration_peaks: List[Dict[str, Any]] = []
+        
+        # Stats
+        self.message_count = 0
+        self.session_start_time: Optional[str] = None
+    
+    def reset(self) -> None:
+        """Reset calculator state for new session"""
+        self.distance_deltas.reset()
+        self.energy_deltas.reset()
+        self.speed_window.reset()
+        self.voltage_window.reset()
+        self.current_window.reset()
+        self.power_window.reset()
+        self.accel_magnitude_window.reset()
+        self.speed_bucket_distance = {b: 0.0 for b in self.SPEED_BUCKETS}
+        self.speed_bucket_energy = {b: 0.0 for b in self.SPEED_BUCKETS}
+        self.last_lat = None
+        self.last_lon = None
+        self.last_alt = None
+        self.cumulative_distance_km = 0.0
+        self.elevation_gain_m = 0.0
+        self.last_speed = 0.0
+        self.max_speed_ms = 0.0
+        self.max_power_w = 0.0
+        self.max_current_a = 0.0
+        self.max_g_force = 0.0
+        self.cumulative_energy_kwh = 0.0
+        self.current_peaks = []
+        self.acceleration_peaks = []
+        self.message_count = 0
+        self.session_start_time = None
+    
+    def _haversine_km(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Calculate distance between two GPS coordinates in km"""
+        R = 6371.0  # Earth radius in km
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+    
+    def _classify_motion_state(self, speed: float, accel_mag: float, gyro_z: float) -> str:
+        """Classify current motion state"""
+        if speed < 0.5:
+            return "stationary"
+        
+        # Calculate acceleration from speed change
+        speed_delta = speed - self.last_speed
+        accel_rate = speed_delta / self.sample_interval if self.sample_interval > 0 else 0
+        
+        # Check for turning (gyro_z indicates rotation)
+        if abs(gyro_z) > 15.0:
+            return "turning"
+        
+        # Check for braking or accelerating
+        if accel_rate < -2.0:
+            return "braking"
+        elif accel_rate > 2.0:
+            return "accelerating"
+        else:
+            return "cruising"
+    
+    def _classify_driver_intensity(self, value: float, thresholds: tuple) -> str:
+        """Classify intensity level (idle, light, moderate, heavy)"""
+        if value < thresholds[0]:
+            return "idle"
+        elif value < thresholds[1]:
+            return "light"
+        elif value < thresholds[2]:
+            return "moderate"
+        else:
+            return "heavy"
+    
+    def _get_driver_mode(self, throttle_pct: float, brake_pct: float, speed: float) -> str:
+        """Determine combined driver mode"""
+        if brake_pct > 20:
+            return "braking"
+        elif throttle_pct < 10 and speed > 1:
+            return "coasting"
+        elif throttle_pct < 40:
+            return "eco"
+        elif throttle_pct < 70:
+            return "normal"
+        else:
+            return "aggressive"
+    
+    def _get_speed_bucket(self, speed: float) -> Optional[tuple]:
+        """Get the speed bucket for a given speed"""
+        for bucket in self.SPEED_BUCKETS:
+            if bucket[0] <= speed < bucket[1]:
+                return bucket
+        return None
+    
+    def _detect_current_peak(self, current: float, timestamp: str, motion_state: str, accel_mag: float) -> Optional[Dict]:
+        """Detect if current value is a peak and return peak info with correlation"""
+        mean_current = self.current_window.mean()
+        std_current = self.current_window.std()
+        
+        # Dynamic threshold: mean + 2*std or mean * multiplier, whichever is higher
+        threshold = max(
+            mean_current + 2 * std_current if std_current > 0 else mean_current * 1.5,
+            mean_current * self.CURRENT_PEAK_THRESHOLD_MULTIPLIER
+        )
+        
+        if current > threshold and mean_current > 0.5:  # Avoid false positives at low current
+            peak = {
+                "timestamp": timestamp,
+                "current_a": round(current, 2),
+                "threshold": round(threshold, 2),
+                "motion_state": motion_state,
+                "accel_magnitude": round(accel_mag, 3),
+                "severity": "high" if current > threshold * 1.5 else "medium" if current > threshold * 1.2 else "low"
+            }
+            return peak
+        return None
+    
+    def _detect_acceleration_peak(self, accel_mag: float, timestamp: str, motion_state: str, current: float) -> Optional[Dict]:
+        """Detect if acceleration magnitude is a peak"""
+        g_force = accel_mag / 9.81
+        mean_accel = self.accel_magnitude_window.mean()
+        std_accel = self.accel_magnitude_window.std()
+        
+        threshold = mean_accel + 2 * std_accel if std_accel > 0 else mean_accel * 1.5
+        
+        if accel_mag > threshold and accel_mag > 2.0:  # Min threshold for significance
+            peak = {
+                "timestamp": timestamp,
+                "g_force": round(g_force, 2),
+                "accel_magnitude": round(accel_mag, 3),
+                "motion_state": motion_state,
+                "current_a": round(current, 2),
+                "severity": "high" if g_force > 2.0 else "medium" if g_force > 1.0 else "low"
+            }
+            return peak
+        return None
+    
+    def calculate(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Calculate derived metrics from raw telemetry data.
+        Returns a dict of calculated fields to add to the message.
+        """
+        self.message_count += 1
+        result: Dict[str, Any] = {}
+        
+        timestamp = data.get("timestamp", datetime.now(timezone.utc).isoformat())
+        if self.session_start_time is None:
+            self.session_start_time = timestamp
+        
+        speed = data.get("speed_ms", 0.0)
+        voltage = data.get("voltage_v", 0.0)
+        current = data.get("current_a", 0.0)
+        power = data.get("power_w", 0.0)
+        
+        # Update rolling windows
+        self.speed_window.push(speed)
+        self.voltage_window.push(voltage)
+        self.current_window.push(current)
+        self.power_window.push(power)
+        
+        # --- Efficiency Calculation ---
+        dist_delta_km = (speed * self.sample_interval) / 1000.0
+        energy_delta_kwh = (power * self.sample_interval) / 3600000.0
+        
+        self.distance_deltas.push(dist_delta_km)
+        self.energy_deltas.push(energy_delta_kwh)
+        self.cumulative_energy_kwh += energy_delta_kwh
+        
+        # Current efficiency (rolling window)
+        total_dist = sum(self.distance_deltas.get_values())
+        total_energy = sum(self.energy_deltas.get_values())
+        
+        if total_energy > 0.00001:
+            efficiency = total_dist / total_energy
+            if 0 < efficiency < 500:
+                result["current_efficiency_km_kwh"] = round(efficiency, 2)
+            else:
+                result["current_efficiency_km_kwh"] = None
+        else:
+            result["current_efficiency_km_kwh"] = None
+        
+        # --- Session Maximums ---
+        self.max_speed_ms = max(self.max_speed_ms, speed)
+        self.max_power_w = max(self.max_power_w, power)
+        self.max_current_a = max(self.max_current_a, current)
+        
+        result["max_speed_kmh"] = round(self.max_speed_ms * 3.6, 1)
+        result["max_power_w"] = round(self.max_power_w, 1)
+        result["max_current_a"] = round(self.max_current_a, 2)
+        
+        # --- Rolling Averages ---
+        result["avg_speed_kmh"] = round(self.speed_window.mean() * 3.6, 1)
+        result["avg_voltage"] = round(self.voltage_window.mean(), 2)
+        result["avg_current"] = round(self.current_window.mean(), 2)
+        result["avg_power"] = round(self.power_window.mean(), 1)
+        
+        # --- Cumulative Energy ---
+        result["cumulative_energy_kwh"] = round(self.cumulative_energy_kwh, 6)
+        
+        # --- Speed Bucket Tracking for Optimal Speed ---
+        bucket = self._get_speed_bucket(speed)
+        if bucket and dist_delta_km > 0:
+            self.speed_bucket_distance[bucket] += dist_delta_km
+            self.speed_bucket_energy[bucket] += energy_delta_kwh
+        
+        # Calculate optimal speed range
+        best_efficiency = 0.0
+        optimal_bucket = None
+        for b in self.SPEED_BUCKETS:
+            if self.speed_bucket_energy[b] > 0.0001:
+                eff = self.speed_bucket_distance[b] / self.speed_bucket_energy[b]
+                if eff > best_efficiency and eff < 500:
+                    best_efficiency = eff
+                    optimal_bucket = b
+        
+        if optimal_bucket:
+            result["optimal_speed_range"] = {
+                "min": optimal_bucket[0],
+                "max": optimal_bucket[1],
+                "efficiency": round(best_efficiency, 2)
+            }
+        else:
+            result["optimal_speed_range"] = None
+        
+        # --- Motion State and Acceleration ---
+        accel_x = data.get("accel_x", 0.0)
+        accel_y = data.get("accel_y", 0.0)
+        accel_z = data.get("accel_z", 9.81)
+        gyro_z = data.get("gyro_z", 0.0)
+        
+        accel_mag = math.sqrt(accel_x**2 + accel_y**2 + (accel_z - 9.81)**2)
+        g_force = accel_mag / 9.81
+        self.accel_magnitude_window.push(accel_mag)
+        self.max_g_force = max(self.max_g_force, g_force)
+        
+        motion_state = self._classify_motion_state(speed, accel_mag, gyro_z)
+        result["motion_state"] = motion_state
+        result["accel_magnitude"] = round(accel_mag, 3)
+        result["current_g_force"] = round(g_force, 2)
+        result["max_g_force"] = round(self.max_g_force, 2)
+        result["avg_acceleration"] = round(self.accel_magnitude_window.mean(), 3)
+        
+        # --- Driver Input Analysis ---
+        throttle_pct = data.get("throttle_pct", 0.0)
+        brake_pct = data.get("brake_pct", 0.0)
+        
+        result["throttle_intensity"] = self._classify_driver_intensity(throttle_pct, (5, 30, 60))
+        result["brake_intensity"] = self._classify_driver_intensity(brake_pct, (5, 20, 50))
+        result["driver_mode"] = self._get_driver_mode(throttle_pct, brake_pct, speed)
+        
+        # --- Current Peak Detection ---
+        current_peak = self._detect_current_peak(current, timestamp, motion_state, accel_mag)
+        if current_peak:
+            self.current_peaks.append(current_peak)
+            if len(self.current_peaks) > self.MAX_PEAKS_STORED:
+                self.current_peaks = self.current_peaks[-self.MAX_PEAKS_STORED:]
+        
+        # --- Acceleration Peak Detection ---
+        accel_peak = self._detect_acceleration_peak(accel_mag, timestamp, motion_state, current)
+        if accel_peak:
+            self.acceleration_peaks.append(accel_peak)
+            if len(self.acceleration_peaks) > self.MAX_PEAKS_STORED:
+                self.acceleration_peaks = self.acceleration_peaks[-self.MAX_PEAKS_STORED:]
+        
+        # Include recent peaks in result (last 10)
+        result["current_peaks"] = self.current_peaks[-10:] if self.current_peaks else []
+        result["current_peak_count"] = len(self.current_peaks)
+        result["acceleration_peaks"] = self.acceleration_peaks[-10:] if self.acceleration_peaks else []
+        result["acceleration_peak_count"] = len(self.acceleration_peaks)
+        
+        # --- GPS Cumulative Metrics ---
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+        alt = data.get("altitude", 0.0)
+        
+        if lat is not None and lon is not None:
+            if self.last_lat is not None and self.last_lon is not None:
+                dist_km = self._haversine_km(self.last_lat, self.last_lon, lat, lon)
+                if dist_km < 1.0:
+                    self.cumulative_distance_km += dist_km
+                
+                if self.last_alt is not None and alt > self.last_alt:
+                    gain = alt - self.last_alt
+                    if gain < 50:
+                        self.elevation_gain_m += gain
+            
+            self.last_lat = lat
+            self.last_lon = lon
+            self.last_alt = alt
+        
+        result["route_distance_km"] = round(self.cumulative_distance_km, 3)
+        result["elevation_gain_m"] = round(self.elevation_gain_m, 1)
+        
+        # Update last speed for next iteration
+        self.last_speed = speed
+        
+        return result
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get calculator statistics"""
+        return {
+            "message_count": self.message_count,
+            "cumulative_distance_km": round(self.cumulative_distance_km, 3),
+            "elevation_gain_m": round(self.elevation_gain_m, 1),
+            "cumulative_energy_kwh": round(self.cumulative_energy_kwh, 6),
+            "max_speed_kmh": round(self.max_speed_ms * 3.6, 1),
+            "max_power_w": round(self.max_power_w, 1),
+            "max_g_force": round(self.max_g_force, 2),
+            "current_peak_count": len(self.current_peaks),
+            "acceleration_peak_count": len(self.acceleration_peaks),
+            "speed_bucket_stats": {
+                f"{b[0]}-{b[1]}": {
+                    "distance_km": round(self.speed_bucket_distance[b], 3),
+                    "energy_kwh": round(self.speed_bucket_energy[b], 6)
+                }
+                for b in self.SPEED_BUCKETS
+            }
+        }
+
+
+# ============================================================
+# END MODULE: TELEMETRY CALCULATOR
+# ============================================================
+
+
 # ------------------------------
 # Mock Mode Configuration
 # ------------------------------
@@ -1203,6 +1585,12 @@ class TelemetryBridgeWithDB:
         
         # Outlier detector (embedded module)
         self.outlier_detector = OutlierDetector()
+        
+        # Telemetry calculator for server-side metrics
+        self.telemetry_calculator = TelemetryCalculator(
+            window_size=50, 
+            sample_interval=MOCK_DATA_INTERVAL
+        )
 
         self.stats = {
             "messages_received": 0,
@@ -1527,6 +1915,13 @@ class TelemetryBridgeWithDB:
         except Exception as e:
             logger.warning(f"⚠️ Outlier detection failed: {e}")
             out["outliers"] = None
+
+        # Run telemetry calculator for derived metrics
+        try:
+            calculated = self.telemetry_calculator.calculate(out)
+            out.update(calculated)
+        except Exception as e:
+            logger.warning(f"⚠️ Telemetry calculation failed: {e}")
 
         return out
 
