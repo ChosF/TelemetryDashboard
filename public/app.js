@@ -3298,6 +3298,17 @@
     setTxt('eff-current', currentEff > 0 && currentEff < 1000 ? currentEff.toFixed(1) : '—');
     setTxt('eff-avg', avgEff > 0 && avgEff < 1000 ? avgEff.toFixed(1) : '—');
     setTxt('eff-distance', totalDistance.toFixed(3));
+
+    // Use server-provided optimal speed if available
+    const lastRow = rows[rows.length - 1];
+    const optimalSpeedKmh = toNum(lastRow.optimal_speed_kmh, null);
+    const optimalConfidence = toNum(lastRow.optimal_speed_confidence, 0);
+
+    if (optimalSpeedKmh !== null && optimalConfidence >= 0.3) {
+      setTxt('eff-optimal-speed', optimalSpeedKmh.toFixed(1));
+    } else {
+      setTxt('eff-optimal-speed', '—');
+    }
   }
 
   // Render efficiency trend chart (rolling efficiency over time)
@@ -3452,14 +3463,53 @@
   // Update optimal speed recommendation
   function updateOptimalSpeedRecommendation(rows) {
     const display = el('optimal-speed-display');
-    if (!display || rows.length < 50) {
-      if (display) {
-        display.innerHTML = '<p>Collecting more data to determine optimal speed range...</p>';
+    if (!display) return;
+
+    // Check for server-provided optimal speed (NumPy-optimized)
+    if (rows.length > 0) {
+      const lastRow = rows[rows.length - 1];
+      const optimalSpeedKmh = toNum(lastRow.optimal_speed_kmh, null);
+      const optimalEfficiency = toNum(lastRow.optimal_efficiency_km_kwh, null);
+      const confidence = toNum(lastRow.optimal_speed_confidence, 0);
+      const dataPoints = toNum(lastRow.optimal_speed_data_points, 0);
+
+      // Use server value if confidence is high enough
+      if (optimalSpeedKmh !== null && confidence >= 0.3) {
+        const confidenceLevel = confidence >= 0.7 ? 'High' : confidence >= 0.5 ? 'Medium' : 'Low';
+        const confidenceColor = confidence >= 0.7 ? '#22c55e' : confidence >= 0.5 ? '#f59e0b' : '#6b7280';
+
+        display.innerHTML = `
+          <div class="optimal-speed-result">
+            <p>Based on <strong>${dataPoints}</strong> data points and polynomial optimization, 
+            the optimal cruising speed for maximum efficiency is:</p>
+            <div class="optimal-speed-value" style="font-size: 2rem; font-weight: bold; color: var(--accent-primary); margin: 12px 0;">
+              ${optimalSpeedKmh.toFixed(1)} km/h
+            </div>
+            ${optimalEfficiency !== null ? `
+              <p style="font-size: 0.95rem;">Expected efficiency: <strong>${optimalEfficiency.toFixed(1)} km/kWh</strong></p>
+            ` : ''}
+            <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 0.8rem; color: var(--text-muted);">Confidence:</span>
+              <span style="padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; background: ${confidenceColor}20; color: ${confidenceColor};">
+                ${confidenceLevel} (${(confidence * 100).toFixed(0)}%)
+              </span>
+            </div>
+            <p style="margin-top: 12px; font-size: 0.875rem; color: var(--text-muted);">
+              💡 Tip: Maintaining this speed will maximize your vehicle's range.
+            </p>
+          </div>
+        `;
+        return;
       }
+    }
+
+    // Fallback: need more data or use client-side calculation
+    if (rows.length < 50) {
+      display.innerHTML = '<p>Collecting more data to determine optimal speed range...</p>';
       return;
     }
 
-    // Calculate efficiency by speed range
+    // Fallback: Client-side bucket-based calculation
     const speedRanges = [
       { min: 0, max: 10, label: '0-10' },
       { min: 10, max: 20, label: '10-20' },
@@ -3507,11 +3557,6 @@
     }
 
     if (bestRange && bestEff > 0) {
-      const optSpeedEl = el('eff-optimal-speed');
-      if (optSpeedEl) {
-        optSpeedEl.textContent = `${bestRange.min}-${bestRange.max}`;
-      }
-
       display.innerHTML = `
         <p>Based on your data, the most efficient speed range is 
         <strong>${bestRange.min}-${bestRange.max} km/h</strong> 

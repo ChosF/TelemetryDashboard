@@ -533,6 +533,9 @@ class TelemetryCalculator:
         # Stats
         self.message_count = 0
         self.session_start_time: Optional[str] = None
+        
+        # Optimal speed optimizer (will be instantiated lazily to avoid circular reference)
+        self._optimal_speed_optimizer: Optional['OptimalSpeedOptimizer'] = None
     
     def reset(self) -> None:
         """Reset calculator state for new session"""
@@ -560,6 +563,8 @@ class TelemetryCalculator:
         self.acceleration_peaks = []
         self.message_count = 0
         self.session_start_time = None
+        if self._optimal_speed_optimizer is not None:
+            self._optimal_speed_optimizer.reset()
     
     def _haversine_km(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate distance between two GPS coordinates in km"""
@@ -752,6 +757,22 @@ class TelemetryCalculator:
         else:
             result["optimal_speed_range"] = None
         
+        # --- NumPy-Optimized Optimal Speed Calculation ---
+        # Lazy initialization of optimizer (defined after this class)
+        if self._optimal_speed_optimizer is None:
+            self._optimal_speed_optimizer = OptimalSpeedOptimizer()
+        
+        # Feed data to optimizer
+        self._optimal_speed_optimizer.add_sample(speed, power)
+        
+        # Get optimized result
+        optimal_result = self._optimal_speed_optimizer.optimize()
+        result["optimal_speed_ms"] = optimal_result.get("optimal_speed_ms")
+        result["optimal_speed_kmh"] = optimal_result.get("optimal_speed_kmh")
+        result["optimal_efficiency_km_kwh"] = optimal_result.get("optimal_efficiency_km_kwh")
+        result["optimal_speed_confidence"] = optimal_result.get("optimal_speed_confidence", 0)
+        result["optimal_speed_data_points"] = optimal_result.get("optimal_speed_data_points", 0)
+        
         # --- Motion State and Acceleration ---
         accel_x = data.get("accel_x", 0.0)
         accel_y = data.get("accel_y", 0.0)
@@ -850,6 +871,208 @@ class TelemetryCalculator:
 
 # ============================================================
 # END MODULE: TELEMETRY CALCULATOR
+# ============================================================
+
+
+# ============================================================
+# MODULE: OPTIMAL SPEED OPTIMIZER
+# NumPy-based optimization to find the speed that maximizes efficiency
+# Uses polynomial regression on power vs speed data
+# ============================================================
+
+class OptimalSpeedOptimizer:
+    """
+    Finds optimal cruising speed for maximum efficiency (km/kWh).
+    
+    Strategy:
+    1. Collect (speed, power) data pairs
+    2. Fit a polynomial curve: power = f(speed)
+    3. Efficiency = speed / power, so we minimize power/speed
+    4. Use numpy to find the speed that minimizes energy per km
+    
+    The power-speed relationship for EVs typically follows:
+    P = a*v^3 + b*v^2 + c*v + d (aerodynamic + rolling resistance)
+    """
+    
+    MIN_DATA_POINTS = 30  # Minimum samples before optimization
+    OPTIMAL_DATA_POINTS = 100  # Points for high confidence
+    POLY_DEGREE = 3  # Cubic polynomial (captures aero drag)
+    SPEED_RESOLUTION = 0.5  # m/s resolution for optimization
+    
+    def __init__(self, buffer_size: int = 500):
+        self.buffer_size = buffer_size
+        self.speeds = np.zeros(buffer_size, dtype=np.float64)
+        self.powers = np.zeros(buffer_size, dtype=np.float64)
+        self.count = 0
+        self.index = 0
+        
+        # Cached optimal values
+        self.optimal_speed_ms: Optional[float] = None
+        self.optimal_speed_kmh: Optional[float] = None
+        self.optimal_efficiency: Optional[float] = None
+        self.confidence: float = 0.0
+        
+        # Update frequency (don't recalculate every sample)
+        self.update_interval = 10
+        self.samples_since_update = 0
+        
+        # Speed range for optimization (m/s)
+        self.min_speed = 2.0  # Ignore very low speeds
+        self.max_speed = 30.0  # Max realistic speed
+    
+    def reset(self) -> None:
+        """Reset optimizer state for new session"""
+        self.speeds = np.zeros(self.buffer_size, dtype=np.float64)
+        self.powers = np.zeros(self.buffer_size, dtype=np.float64)
+        self.count = 0
+        self.index = 0
+        self.optimal_speed_ms = None
+        self.optimal_speed_kmh = None
+        self.optimal_efficiency = None
+        self.confidence = 0.0
+        self.samples_since_update = 0
+    
+    def add_sample(self, speed_ms: float, power_w: float) -> None:
+        """Add a speed/power sample to the buffer"""
+        # Filter out invalid data
+        if speed_ms < self.min_speed or speed_ms > self.max_speed:
+            return
+        if power_w <= 0 or power_w > 10000:  # Sanity check power
+            return
+        
+        self.speeds[self.index] = speed_ms
+        self.powers[self.index] = power_w
+        self.index = (self.index + 1) % self.buffer_size
+        self.count = min(self.count + 1, self.buffer_size)
+        self.samples_since_update += 1
+    
+    def _get_data(self) -> tuple:
+        """Get valid speed/power data pairs"""
+        if self.count < self.MIN_DATA_POINTS:
+            return None, None
+        
+        n = min(self.count, self.buffer_size)
+        if self.count >= self.buffer_size:
+            # Buffer is full, use all data
+            speeds = self.speeds.copy()
+            powers = self.powers.copy()
+        else:
+            # Buffer not yet full
+            speeds = self.speeds[:n]
+            powers = self.powers[:n]
+        
+        return speeds, powers
+    
+    def optimize(self) -> Dict[str, Any]:
+        """
+        Calculate optimal speed using polynomial regression.
+        
+        Returns dict with optimal speed, efficiency, and confidence.
+        """
+        # Check if we should recalculate
+        if self.samples_since_update < self.update_interval and self.optimal_speed_ms is not None:
+            return self._get_result()
+        
+        self.samples_since_update = 0
+        speeds, powers = self._get_data()
+        
+        if speeds is None:
+            return self._get_result()
+        
+        try:
+            # Fit polynomial: power = f(speed)
+            # Using degree 3 to capture aerodynamic drag (v^3) and rolling resistance
+            coeffs = np.polyfit(speeds, powers, self.POLY_DEGREE)
+            poly = np.poly1d(coeffs)
+            
+            # Generate candidate speeds
+            speed_range = np.arange(
+                max(self.min_speed, speeds.min()),
+                min(self.max_speed, speeds.max()),
+                self.SPEED_RESOLUTION
+            )
+            
+            if len(speed_range) < 5:
+                return self._get_result()
+            
+            # Calculate power for each speed
+            predicted_powers = poly(speed_range)
+            
+            # Efficiency = distance / energy = speed / power (km/kWh scaling)
+            # We want to maximize speed/power, or minimize power/speed
+            # power/speed = energy per distance
+            with np.errstate(divide='ignore', invalid='ignore'):
+                energy_per_km = predicted_powers / speed_range  # W / (m/s) = J/m
+            
+            # Find minimum energy per km (maximum efficiency)
+            valid_mask = (energy_per_km > 0) & np.isfinite(energy_per_km)
+            if not valid_mask.any():
+                return self._get_result()
+            
+            valid_energy = energy_per_km[valid_mask]
+            valid_speeds = speed_range[valid_mask]
+            
+            min_idx = np.argmin(valid_energy)
+            optimal_speed = valid_speeds[min_idx]
+            optimal_power = poly(optimal_speed)
+            
+            # Calculate efficiency in km/kWh
+            # efficiency = (speed_ms * 3600) / (power_w) = km/h / W * 1000 = km/kWh
+            # Actually: efficiency = distance_km / energy_kWh
+            # = (speed_ms * 1 sec / 1000) / (power_w * 1 sec / 3600000)
+            # = speed_ms * 3600 / power_w km/kWh
+            efficiency_km_kwh = (optimal_speed * 3600) / optimal_power if optimal_power > 0 else 0
+            
+            # Calculate confidence based on data quantity and fit quality
+            r_squared = self._calculate_r_squared(speeds, powers, poly)
+            data_confidence = min(1.0, self.count / self.OPTIMAL_DATA_POINTS)
+            fit_confidence = max(0, r_squared) if r_squared > 0.5 else 0
+            self.confidence = round(data_confidence * 0.5 + fit_confidence * 0.5, 2)
+            
+            # Store results
+            self.optimal_speed_ms = round(optimal_speed, 2)
+            self.optimal_speed_kmh = round(optimal_speed * 3.6, 1)
+            self.optimal_efficiency = round(efficiency_km_kwh, 1) if efficiency_km_kwh < 500 else None
+            
+        except Exception as e:
+            logger.debug(f"Optimal speed optimization error: {e}")
+        
+        return self._get_result()
+    
+    def _calculate_r_squared(self, speeds: np.ndarray, powers: np.ndarray, poly: np.poly1d) -> float:
+        """Calculate R-squared value for polynomial fit"""
+        try:
+            predictions = poly(speeds)
+            ss_res = np.sum((powers - predictions) ** 2)
+            ss_tot = np.sum((powers - np.mean(powers)) ** 2)
+            if ss_tot == 0:
+                return 0
+            return 1 - (ss_res / ss_tot)
+        except:
+            return 0
+    
+    def _get_result(self) -> Dict[str, Any]:
+        """Get current optimization result"""
+        if self.optimal_speed_ms is None or self.confidence < 0.3:
+            return {
+                "optimal_speed_ms": None,
+                "optimal_speed_kmh": None,
+                "optimal_efficiency_km_kwh": None,
+                "optimal_speed_confidence": round(self.confidence, 2),
+                "optimal_speed_data_points": self.count
+            }
+        
+        return {
+            "optimal_speed_ms": self.optimal_speed_ms,
+            "optimal_speed_kmh": self.optimal_speed_kmh,
+            "optimal_efficiency_km_kwh": self.optimal_efficiency,
+            "optimal_speed_confidence": self.confidence,
+            "optimal_speed_data_points": self.count
+        }
+
+
+# ============================================================
+# END MODULE: OPTIMAL SPEED OPTIMIZER
 # ============================================================
 
 
