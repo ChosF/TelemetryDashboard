@@ -3994,37 +3994,123 @@
     chartGPSSpeed.setOption(opt, true);
   }
 
-  // Table helpers
+  // ==========================================================================
+  // RAW TELEMETRY TABLE - Priority Column System
+  // ==========================================================================
+
+  // Priority columns shown first (in this order), then remaining alphabetically
+  const PRIORITY_COLUMNS = [
+    'timestamp',
+    'speed_ms',
+    'battery_pct',
+    'voltage',
+    'current_a',
+    'power_w',
+    'throttle_pct',
+    'brake_pct',
+    'lat',
+    'lon',
+    'altitude',
+    'accel_x',
+    'accel_y',
+    'accel_z'
+  ];
+
+  // Number of columns to freeze (sticky left)
+  const FROZEN_COLUMN_COUNT = 3;
+
+  // Human-friendly column names
+  const COLUMN_LABELS = {
+    'timestamp': 'Time',
+    'speed_ms': 'Speed (m/s)',
+    'battery_pct': 'Battery %',
+    'voltage': 'Voltage (V)',
+    'current_a': 'Current (A)',
+    'power_w': 'Power (W)',
+    'throttle_pct': 'Throttle %',
+    'brake_pct': 'Brake %',
+    'lat': 'Latitude',
+    'lon': 'Longitude',
+    'altitude': 'Alt (m)',
+    'accel_x': 'Accel X',
+    'accel_y': 'Accel Y',
+    'accel_z': 'Accel Z',
+    'gyro_x': 'Gyro X',
+    'gyro_y': 'Gyro Y',
+    'gyro_z': 'Gyro Z',
+    'session_id': 'Session',
+    'route_distance_km': 'Distance (km)',
+    'current_efficiency_km_kwh': 'Efficiency',
+    'motion_state': 'Motion',
+    'driver_mode': 'Driver Mode',
+    'quality_score': 'Quality',
+    'outlier_severity': 'Outlier'
+  };
+
+  // Get columns sorted by priority, then alphabetically
   function allColumns(rows, sample = 800) {
     const s = Math.max(0, rows.length - sample);
     const keys = new Set();
     for (let i = s; i < rows.length; i++) {
       for (const k of Object.keys(rows[i])) keys.add(k);
     }
-    const arr = Array.from(keys);
-    arr.sort((a, b) => {
-      if (a === "timestamp") return -1;
-      if (b === "timestamp") return 1;
-      return a.localeCompare(b);
-    });
-    return arr;
+
+    const allKeys = Array.from(keys);
+
+    // Separate into priority and non-priority
+    const priorityPresent = PRIORITY_COLUMNS.filter(col => allKeys.includes(col));
+    const remaining = allKeys
+      .filter(col => !PRIORITY_COLUMNS.includes(col))
+      .sort((a, b) => a.localeCompare(b));
+
+    return [...priorityPresent, ...remaining];
   }
 
-  // DataTable (default pageLength = 10)
+  // Get display label for column
+  function getColumnLabel(colName) {
+    return COLUMN_LABELS[colName] || colName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  // Format cell value for display
+  function formatCellValue(value, colName) {
+    if (value === null || value === undefined || value === '') return '—';
+
+    // Format numbers with appropriate precision
+    if (typeof value === 'number') {
+      if (colName.includes('pct')) return value.toFixed(1);
+      if (colName === 'lat' || colName === 'lon') return value.toFixed(6);
+      if (colName === 'voltage' || colName === 'current_a') return value.toFixed(2);
+      if (colName === 'speed_ms') return value.toFixed(2);
+      if (colName.includes('accel') || colName.includes('gyro')) return value.toFixed(3);
+      if (Number.isInteger(value)) return value.toString();
+      return value.toFixed(2);
+    }
+
+    return value;
+  }
+
+  // DataTable with priority columns and sticky support
   function ensureDataTable(rows) {
     if (!rows.length || typeof $ === "undefined") return;
 
     const colsNow = allColumns(rows);
     const schemaChanged =
       dtColumns.length !== colsNow.length ||
-      dtColumns.some((c, i) => c.title !== colsNow[i]);
+      dtColumns.some((c, i) => c.data !== colsNow[i]);
 
-    const cap = 10000;
+    // Cap at 5000 rows for performance
+    const cap = 5000;
     const dataRows = rows.length > cap ? rows.slice(-cap) : rows;
+
+    // Build data objects with formatted values
     const dataObj = dataRows.map((r) => {
       const o = {};
       for (const c of colsNow) {
-        o[c] = c === "timestamp" ? toISO(r[c]) : r[c] ?? "";
+        if (c === "timestamp") {
+          o[c] = toISO(r[c]);
+        } else {
+          o[c] = formatCellValue(r[c], c);
+        }
       }
       return o;
     });
@@ -4034,27 +4120,56 @@
         $("#data-table").DataTable().clear().destroy();
         $("#data-table").empty();
       }
-      dtColumns = colsNow.map((name) => ({ title: name, data: name }));
+
+      // Build columns with labels and frozen class
+      dtColumns = colsNow.map((name, idx) => ({
+        title: getColumnLabel(name),
+        data: name,
+        className: idx < FROZEN_COLUMN_COUNT ? `frozen-col frozen-col-${idx}` : ''
+      }));
+
       dtApi = $("#data-table").DataTable({
         data: dataObj,
         columns: dtColumns,
-        responsive: true,
         deferRender: true,
         scrollX: true,
-        pageLength: 10, // default to 10 entries
-        lengthMenu: [10, 25, 50, 100, 250, 1000],
-        order: [[0, "asc"]],
-        language: { info: "Showing _START_ to _END_ of _TOTAL_ rows" },
-        dom:
-          "<'row'<'col-sm-6'l><'col-sm-6'f>>" +
+        scrollY: '400px',
+        scrollCollapse: true,
+        pageLength: 25,
+        lengthMenu: [10, 25, 50, 100, 250],
+        order: [[0, "desc"]],
+        language: {
+          info: "_START_–_END_ of _TOTAL_",
+          lengthMenu: "Show _MENU_",
+          search: ""
+        },
+        dom: "<'table-controls'<'table-search'f><'table-length'l>>" +
           "tr" +
-          "<'row'<'col-sm-6'i><'col-sm-6'p>>",
+          "<'table-footer'<'table-info'i><'table-pagination'p>>",
+        createdRow: function (row, data, dataIndex) {
+          row.setAttribute('data-row-index', dataIndex);
+        },
+        headerCallback: function (thead) {
+          const ths = thead.querySelectorAll('th');
+          ths.forEach((th, idx) => {
+            if (idx < FROZEN_COLUMN_COUNT) {
+              th.classList.add('frozen-col', `frozen-col-${idx}`);
+            }
+          });
+        }
       });
+
+      const countEl = el('data-count');
+      if (countEl) countEl.textContent = `${dataRows.length} rows`;
+
       return;
     }
 
     dtApi.clear();
     dtApi.rows.add(dataObj).draw(false);
+
+    const countEl = el('data-count');
+    if (countEl) countEl.textContent = `${dataRows.length} rows`;
   }
 
   // CSV helpers
