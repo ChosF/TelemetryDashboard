@@ -177,39 +177,6 @@ export const insertTelemetryBatch = mutation({
             brake: v.optional(v.number()),
             data_source: v.optional(v.string()),
             outliers: v.optional(v.any()),
-            // Calculated fields from backend bridge
-            current_efficiency_km_kwh: v.optional(v.number()),
-            cumulative_energy_kwh: v.optional(v.number()),
-            route_distance_km: v.optional(v.number()),
-            avg_speed_kmh: v.optional(v.number()),
-            max_speed_kmh: v.optional(v.number()),
-            avg_power: v.optional(v.number()),
-            avg_voltage: v.optional(v.number()),
-            avg_current: v.optional(v.number()),
-            max_power_w: v.optional(v.number()),
-            max_current_a: v.optional(v.number()),
-            // Optimal speed fields
-            optimal_speed_kmh: v.optional(v.number()),
-            optimal_speed_ms: v.optional(v.number()),
-            optimal_efficiency_km_kwh: v.optional(v.number()),
-            optimal_speed_confidence: v.optional(v.number()),
-            optimal_speed_data_points: v.optional(v.number()),
-            optimal_speed_range: v.optional(v.any()),
-            // Motion and driver state
-            motion_state: v.optional(v.string()),
-            driver_mode: v.optional(v.string()),
-            throttle_intensity: v.optional(v.string()),
-            brake_intensity: v.optional(v.string()),
-            // G-force and acceleration stats
-            current_g_force: v.optional(v.number()),
-            max_g_force: v.optional(v.number()),
-            accel_magnitude: v.optional(v.number()),
-            avg_acceleration: v.optional(v.number()),
-            // GPS derived
-            elevation_gain_m: v.optional(v.number()),
-            // Quality metrics
-            quality_score: v.optional(v.number()),
-            outlier_severity: v.optional(v.string()),
         })),
     },
     handler: async (ctx, args) => {
