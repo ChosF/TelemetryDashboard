@@ -2373,37 +2373,66 @@ class TelemetryBridgeWithDB:
                 # Prepare records for Convex mutation
                 records = []
                 for r in batch:
-                    records.append(
-                        {
-                            "session_id": r["session_id"],
-                            "session_name": r.get("session_name", self.session_name),
-                            "timestamp": r["timestamp"],
-                            "speed_ms": r.get("speed_ms"),
-                            "voltage_v": r.get("voltage_v"),
-                            "current_a": r.get("current_a"),
-                            "power_w": r.get("power_w"),
-                            "energy_j": r.get("energy_j"),
-                            "distance_m": r.get("distance_m"),
-                            "latitude": r.get("latitude"),
-                            "longitude": r.get("longitude"),
-                            "altitude_m": r.get("altitude"),
-                            "gyro_x": r.get("gyro_x"),
-                            "gyro_y": r.get("gyro_y"),
-                            "gyro_z": r.get("gyro_z"),
-                            "accel_x": r.get("accel_x"),
-                            "accel_y": r.get("accel_y"),
-                            "accel_z": r.get("accel_z"),
-                            "total_acceleration": r.get("total_acceleration"),
-                            "message_id": r.get("message_id"),
-                            "uptime_seconds": r.get("uptime_seconds"),
-                            "throttle_pct": r.get("throttle_pct"),
-                            "brake_pct": r.get("brake_pct"),
-                            "throttle": r.get("throttle"),
-                            "brake": r.get("brake"),
-                            "data_source": r.get("data_source"),
-                            "outliers": r.get("outliers"),  # Convex handles objects directly
-                        }
-                    )
+                    # Build record, filtering out None values to avoid schema issues
+                    # This ensures backwards compatibility if Convex schema hasn't been updated
+                    record = {
+                        "session_id": r["session_id"],
+                        "session_name": r.get("session_name", self.session_name),
+                        "timestamp": r["timestamp"],
+                    }
+                    
+                    # Core sensor fields (always included if present)
+                    sensor_fields = [
+                        "speed_ms", "voltage_v", "current_a", "power_w", "energy_j",
+                        "distance_m", "latitude", "longitude", "altitude", "altitude_m",
+                        "gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z",
+                        "total_acceleration", "message_id", "uptime_seconds",
+                        "throttle_pct", "brake_pct", "throttle", "brake",
+                        "data_source", "outliers"
+                    ]
+                    
+                    # NOTE: calculated_fields definition moved to commented block below
+                    # Uncomment after running `npx convex deploy`
+                    
+                    # Add sensor fields (special handling for altitude vs altitude_m)
+                    for field in sensor_fields:
+                        if field == "altitude":
+                            value = r.get("altitude")
+                            if value is not None:
+                                record["altitude_m"] = value
+                        else:
+                            value = r.get(field)
+                            if value is not None:
+                                record[field] = value
+                    
+                    # NOTE: Calculated fields are NOT sent until Convex schema is deployed.
+                    # After running `npx convex deploy`, uncomment the following block:
+                    #
+                    # # Calculated fields from TelemetryCalculator
+                    # calculated_fields = [
+                    #     "current_efficiency_km_kwh", "cumulative_energy_kwh", "route_distance_km",
+                    #     "avg_speed_kmh", "max_speed_kmh", "avg_power", "avg_voltage", "avg_current",
+                    #     "max_power_w", "max_current_a",
+                    #     # Optimal speed
+                    #     "optimal_speed_kmh", "optimal_speed_ms", "optimal_efficiency_km_kwh",
+                    #     "optimal_speed_confidence", "optimal_speed_data_points", "optimal_speed_range",
+                    #     # Motion and driver state
+                    #     "motion_state", "driver_mode", "throttle_intensity", "brake_intensity",
+                    #     # G-force and acceleration
+                    #     "current_g_force", "max_g_force", "accel_magnitude", "avg_acceleration",
+                    #     # GPS derived
+                    #     "elevation_gain_m",
+                    #     # Quality metrics
+                    #     "quality_score", "outlier_severity"
+                    # ]
+                    # 
+                    # # Add calculated fields (only if not None)
+                    # for field in calculated_fields:
+                    #     value = r.get(field)
+                    #     if value is not None:
+                    #         record[field] = value
+                    
+                    records.append(record)
 
                 # Call Convex mutation via HTTP API
                 result = self.convex_client.mutation(
