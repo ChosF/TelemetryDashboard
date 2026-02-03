@@ -3609,26 +3609,28 @@
 
   // Map + altitude
   function initMap() {
-    // Stadia Maps Alidade Smooth Dark - Beautiful dark theme with good contrast
+    // CARTO Voyager - Beautiful map with streets, buildings, and labels
     const MAP_STYLE = {
       version: 8,
       glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       sources: {
-        'stadia-dark': {
+        'carto-voyager': {
           type: 'raster',
           tiles: [
-            'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}@2x.png',
+            'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+            'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+            'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
           ],
           tileSize: 256,
-          attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
           maxzoom: 20,
         },
       },
       layers: [
         {
-          id: 'stadia-dark-layer',
+          id: 'carto-voyager-layer',
           type: 'raster',
-          source: 'stadia-dark',
+          source: 'carto-voyager',
           minzoom: 0,
           maxzoom: 20,
         },
