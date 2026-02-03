@@ -3609,34 +3609,35 @@
 
   // Map + altitude
   function initMap() {
-    const DARK_STYLE = {
+    // Stadia Maps Alidade Smooth Dark - Beautiful dark theme with good contrast
+    const MAP_STYLE = {
       version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       sources: {
-        'carto-dark': {
+        'stadia-dark': {
           type: 'raster',
           tiles: [
-            'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-            'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-            'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+            'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}@2x.png',
           ],
           tileSize: 256,
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+          maxzoom: 20,
         },
       },
       layers: [
         {
-          id: 'carto-dark-layer',
+          id: 'stadia-dark-layer',
           type: 'raster',
-          source: 'carto-dark',
+          source: 'stadia-dark',
           minzoom: 0,
-          maxzoom: 19,
+          maxzoom: 20,
         },
       ],
     };
 
     map = new maplibregl.Map({
       container: 'map',
-      style: DARK_STYLE,
+      style: MAP_STYLE,
       center: [0, 20], // [lng, lat]
       zoom: 2,
     });
