@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="view-transition" content="same-origin" />
+
+  <!-- SEO -->
+  <title>EcoVolt Telemetry Dashboard</title>
+  <meta name="description"
+    content="Real-time telemetry dashboard for Shell Eco-marathon vehicle monitoring. Track speed, power, efficiency, GPS, and sensor data." />
+  <meta name="keywords" content="telemetry, eco-marathon, shell, dashboard, real-time, monitoring" />
+  <meta name="author" content="EcoVolt Team" />
+
+  <!-- Favicon -->
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+
+  <!-- Theme Color -->
+  <meta name="theme-color" content="#0a0a0f" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet" />
+
+  <!-- uPlot styles -->
+  <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.30/dist/uPlot.min.css" />
+
+  <!-- MapLibre GL styles -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
+
+  <!-- Convex Browser Bundle -->
+  <script src="https://unpkg.com/convex@1.17.4/dist/browser.bundle.js"></script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <noscript>
+    <div
+      style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #0a0a0f; color: white; font-family: system-ui;">
+      <div style="text-align: center; padding: 40px;">
+        <h1 style="font-size: 24px; margin-bottom: 16px;">JavaScript Required</h1>
+        <p style="color: rgba(255,255,255,0.6);">Please enable JavaScript to use the EcoVolt Telemetry Dashboard.</p>
+      </div>
+    </div>
+  </noscript>
+  <script type="module" src="/src/index.tsx"></script>
+</body>
+
+</html>
