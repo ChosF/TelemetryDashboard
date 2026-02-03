@@ -1,125 +1,151 @@
 # EcoVolt Telemetry Dashboard
 
-Real-time telemetry monitoring dashboard for Shell Eco-marathon vehicles. Built with **SolidJS**, **TypeScript**, and **Convex**.
+Real-time telemetry monitoring for Shell Eco-marathon vehicles. Built with **SolidJS**, **TypeScript**, and **Convex**.
+
+---
 
 ## 🚀 Features
 
-- **Real-time Data**: Live telemetry streaming via Convex
-- **11 Dashboard Panels**: Overview, Speed, Power, IMU, Efficiency, GPS, Data, Quality, Sessions, Custom, Admin
-- **High-Performance Charts**: uPlot for 60fps rendering with 10k+ points
-- **Interactive Map**: MapLibre GL JS with GPS track visualization
-- **Canvas Gauges**: Smooth analog gauges for speed, battery, power, efficiency
-- **Data Export**: CSV export with TanStack Table
-- **Role-Based Access**: Guest, External, Internal, Admin roles
-- **Dark Theme**: Premium glassmorphism design
+| Category | Features |
+|----------|----------|
+| **Real-time** | Live streaming via Ably + Convex subscriptions |
+| **Visualization** | 11 dashboard panels, 60fps charts, interactive maps |
+| **Data** | CSV export, quality metrics, outlier detection |
+| **Security** | Role-based access (Guest, External, Internal, Admin) |
+| **Design** | Dark theme, glassmorphism, responsive |
+
+---
 
 ## 📦 Tech Stack
 
-| Category | Technology |
-|----------|------------|
-| Framework | SolidJS 1.9 |
-| Language | TypeScript 5.6 |
-| Build | Vite 6.0 |
+| Component | Technology |
+|-----------|------------|
+| Frontend | SolidJS 1.8, TypeScript 5.7 |
+| Build | Vite 5.4 |
 | Backend | Convex |
 | Charts | uPlot 1.6 |
 | Maps | MapLibre GL JS 4.1 |
-| Tables | TanStack Table 8 |
+| Tables | TanStack Table 8.17 |
 
-## 🛠️ Setup
+---
+
+## 🛠️ Quick Start
 
 ### Prerequisites
+
 - Node.js 18+
-- npm or pnpm
-- Convex account
+- Convex account ([convex.dev](https://convex.dev))
+- Ably account ([ably.com](https://ably.com))
 
 ### Installation
 
 ```bash
-# Install dependencies
+# Clone and install
 npm install
 
-# Copy environment file
+# Configure environment
 cp .env.example .env.local
-
 # Edit .env.local with your Convex URL
-# VITE_CONVEX_URL=https://your-deployment.convex.cloud
+
+# Start development servers
+npm run dev          # Frontend (port 3000)
+npm run dev:convex   # Convex backend (separate terminal)
 ```
 
-### Development
+### Production
 
 ```bash
-# Start dev server
-npm run dev
-
-# Open http://localhost:3000
-```
-
-### Production Build
-
-```bash
-# Build for production
+# Build
 npm run build
 
-# Preview production build
-npm run preview
+# Deploy Convex
+npm run deploy
+
+# Deploy frontend (Vercel)
+vercel --prod
 ```
+
+---
 
 ## 📁 Project Structure
 
 ```
 src/
+├── App.tsx           # Main application entry
 ├── components/
-│   ├── auth/       # Auth components (Provider, Modals, UserMenu)
-│   ├── charts/     # uPlot chart components and configs
-│   ├── gauges/     # Canvas gauge components
-│   ├── layout/     # Layout components (Header, Tabs, Panel)
-│   ├── map/        # MapLibre components
-│   ├── table/      # TanStack Table components
-│   └── ui/         # UI components (Modal, Toast)
-├── lib/            # Utilities (convex client, helpers)
-├── panels/         # Dashboard panel components
-├── services/       # External service integrations
-├── stores/         # SolidJS reactive stores
-├── styles/         # Global CSS
-├── types/          # TypeScript type definitions
-└── workers/        # Web Worker for data processing
+│   ├── auth/         # Auth (Provider, Modals, UserMenu)
+│   ├── charts/       # uPlot charts + configs
+│   ├── gauges/       # Canvas gauges
+│   ├── layout/       # Header, Tabs, Panel
+│   ├── map/          # MapLibre components
+│   ├── table/        # TanStack Table
+│   └── ui/           # Modal, Toast, Button
+├── panels/           # 11 dashboard panels
+├── stores/           # SolidJS reactive stores
+├── lib/              # Convex client, utilities
+└── types/            # TypeScript definitions
+
+convex/
+├── schema.ts         # Database schema
+├── telemetry.ts      # Telemetry queries/mutations
+├── sessions.ts       # Session management
+├── auth.ts           # Authentication
+└── users.ts          # User management
 ```
 
-## 🔐 User Roles
+---
 
-| Role | Real-time | Historical | CSV Export | Admin |
-|------|-----------|------------|------------|-------|
-| Guest | ✅ | ❌ | ❌ | ❌ |
-| External | ✅ | 7 days | 1k rows | ❌ |
-| Internal | ✅ | ∞ | ∞ | ❌ |
-| Admin | ✅ | ∞ | ∞ | ✅ |
-
-## 📊 Panels
+## 📊 Dashboard Panels
 
 | Panel | Description |
 |-------|-------------|
-| Overview | Key metrics with gauges and G-force scatter |
-| Speed | Speed/acceleration charts and statistics |
-| Power | Power, voltage, current, and energy analysis |
-| IMU | Accelerometer, gyroscope, orientation data |
-| Efficiency | Energy efficiency trends and comparisons |
-| GPS | Map visualization with altitude and speed |
-| Data | Raw telemetry table with export |
-| Quality | Data completeness and outlier detection |
-| Sessions | Session history and selection |
-| Custom | User-customizable widget dashboard |
-| Admin | User management and approvals |
+| **Overview** | Gauges + G-force scatter + stats |
+| **Speed** | Speed/acceleration analysis |
+| **Power** | Power/voltage/current charts |
+| **IMU** | Sensor data visualization |
+| **Efficiency** | Energy trends + optimal speed |
+| **GPS** | Interactive map + altitude |
+| **Data** | Raw table + CSV export |
+| **Quality** | Data completeness + outliers |
+| **Sessions** | Session history |
+| **Custom** | User-defined widgets |
+| **Admin** | User management |
 
-## 🔧 Configuration
+---
 
-### Environment Variables
+## 🔐 User Roles
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `VITE_CONVEX_URL` | Convex deployment URL | ✅ |
-| `VITE_MAPTILER_KEY` | MapTiler API key for custom styles | ❌ |
-| `VITE_DEBUG` | Enable debug logging | ❌ |
+| Role | Real-time | Historical | CSV | Admin |
+|------|-----------|------------|-----|-------|
+| Guest | ✅ | ❌ | ❌ | ❌ |
+| External | ✅ | 7 days | 1k | ❌ |
+| Internal | ✅ | ∞ | ∞ | ❌ |
+| Admin | ✅ | ∞ | ∞ | ✅ |
 
-## 📝 License
+---
 
-MIT License - Shell Eco-marathon Team
+## 📚 Documentation
+
+- [CONVEX_SETUP.md](./CONVEX_SETUP.md) - Backend configuration
+- [DEPLOYMENT.md](./DEPLOYMENT.md) - Production deployment
+- [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - Common issues
+- [SECURITY.md](./SECURITY.md) - Security considerations
+
+---
+
+## 📝 Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Vite dev server |
+| `npm run dev:convex` | Start Convex dev server |
+| `npm run build` | Production build |
+| `npm run preview` | Preview production |
+| `npm run deploy` | Deploy Convex |
+| `npm run typecheck` | TypeScript check |
+
+---
+
+## 📄 License
+
+MIT License - EcoVolt Shell Eco-marathon Team

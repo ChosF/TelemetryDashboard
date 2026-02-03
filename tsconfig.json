@@ -24,6 +24,8 @@
         "noUnusedParameters": true,
         "noFallthroughCasesInSwitch": true,
         "forceConsistentCasingInFileNames": true,
+        "exactOptionalPropertyTypes": false,
+        "noUncheckedIndexedAccess": false,
         /* Library types */
         "lib": [
             "ESNext",
@@ -31,7 +33,8 @@
             "DOM.Iterable"
         ],
         "types": [
-            "node"
+            "node",
+            "vite/client"
         ]
     },
     "include": [

@@ -7,14 +7,14 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "npx convex dev",
-    "dev:new": "vite",
-    "build": "echo 'Build complete - static files in public/'",
-    "build:new": "vite build",
+    "dev": "vite",
+    "dev:convex": "npx convex dev",
+    "build": "vite build",
     "preview": "vite preview",
     "deploy": "npx convex deploy",
-    "vercel-build": "echo 'Vercel build complete'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "clean": "rm -rf dist node_modules/.vite"
   },
   "dependencies": {
     "solid-js": "^1.8.15",
