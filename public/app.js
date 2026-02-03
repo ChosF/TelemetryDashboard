@@ -3609,13 +3609,106 @@
 
   // Map + altitude
   function initMap() {
-    map = L.map("map");
-    const tiles = L.tileLayer(
-      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>' }
-    );
-    tiles.addTo(map);
-    map.setView([20, 0], 2);
+    const DARK_STYLE = {
+      version: 8,
+      sources: {
+        'carto-dark': {
+          type: 'raster',
+          tiles: [
+            'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+            'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+            'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+          ],
+          tileSize: 256,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        },
+      },
+      layers: [
+        {
+          id: 'carto-dark-layer',
+          type: 'raster',
+          source: 'carto-dark',
+          minzoom: 0,
+          maxzoom: 19,
+        },
+      ],
+    };
+
+    map = new maplibregl.Map({
+      container: 'map',
+      style: DARK_STYLE,
+      center: [0, 20], // [lng, lat]
+      zoom: 2,
+    });
+
+    // Add navigation controls
+    map.addControl(new maplibregl.NavigationControl(), 'top-left');
+    map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
+
+    // Add track source and layer when map loads
+    map.on('load', () => {
+      map.addSource('track', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
+      map.addLayer({
+        id: 'track-line',
+        type: 'line',
+        source: 'track',
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round',
+        },
+        paint: {
+          'line-color': '#3b82f6',
+          'line-width': 4,
+          'line-opacity': 0.8,
+        },
+      });
+
+      map.addSource('markers', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
+      map.addLayer({
+        id: 'markers-layer',
+        type: 'circle',
+        source: 'markers',
+        paint: {
+          'circle-radius': 5,
+          'circle-color': ['get', 'color'],
+          'circle-opacity': 0.85,
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#ffffff',
+        },
+      });
+
+      // Add popup on hover
+      const popup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+      });
+
+      map.on('mouseenter', 'markers-layer', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        const props = e.features[0].properties;
+        popup.setLngLat(e.lngLat)
+          .setHTML(`
+            <b>Timestamp:</b> ${props.timestamp}<br>
+            <b>Speed:</b> ${props.speed} km/h<br>
+            <b>Current:</b> ${props.current} A<br>
+            <b>Power:</b> ${props.power} W
+          `)
+          .addTo(map);
+      });
+
+      map.on('mouseleave', 'markers-layer', () => {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
+      });
+    });
   }
   function computeBounds(latlons) {
     let minLat = 90,
@@ -3644,68 +3737,89 @@
     return `rgb(${r},${g},${b})`;
   }
   function renderMapAndAltitude(rows) {
-    const ll = rows
-      .map((r) => [toNum(r.latitude, null), toNum(r.longitude, null)])
-      .filter((x) => x[0] != null && x[1] != null);
-    const valid = ll.filter(
-      ([lat, lon]) =>
-        Math.abs(lat) <= 90 &&
-        Math.abs(lon) <= 180 &&
-        !(Math.abs(lat) < 1e-6 && Math.abs(lon) < 1e-6)
-    );
+    // Skip if map not loaded yet
+    if (!map || !map.getSource) return;
 
-    if (trackPolyline) {
-      map.removeLayer(trackPolyline);
-      trackPolyline = null;
-    }
-    for (const m of trackMarkers) map.removeLayer(m);
-    trackMarkers = [];
-
-    if (valid.length) {
-      trackPolyline = L.polyline(valid, { color: "#1f77b4", weight: 3 });
-      trackPolyline.addTo(map);
-      const bounds = computeBounds(valid);
-      if (bounds) map.fitBounds(bounds, { padding: [20, 20] });
-    }
-
-    const step = Math.max(1, Math.floor(valid.length / 500));
-    for (let i = 0; i < rows.length; i += step) {
-      const r = rows[i];
+    const validRows = rows.filter((r) => {
       const lat = toNum(r.latitude, null);
       const lon = toNum(r.longitude, null);
-      if (lat == null || lon == null) continue;
+      return lat != null && lon != null &&
+        Math.abs(lat) <= 90 && Math.abs(lon) <= 180 &&
+        !(Math.abs(lat) < 1e-6 && Math.abs(lon) < 1e-6);
+    });
+
+    // Build track GeoJSON
+    const coordinates = validRows.map((r) => [r.longitude, r.latitude]);
+    const trackGeoJSON = {
+      type: 'FeatureCollection',
+      features: coordinates.length > 1 ? [{
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates,
+        },
+        properties: {},
+      }] : [],
+    };
+
+    // Build markers GeoJSON
+    const step = Math.max(1, Math.floor(validRows.length / 500));
+    const markerFeatures = [];
+    for (let i = 0; i < validRows.length; i += step) {
+      const r = validRows[i];
       const p = toNum(r.power_w, null);
       const color = powerColor(p);
-      const mk = L.circleMarker([lat, lon], {
-        radius: 4,
-        color,
-        fillColor: color,
-        fillOpacity: 0.85,
-      });
-
-      // Add tooltip with timestamp, speed, current, brake, and throttle
-      const timestamp = r.timestamp ? new Date(r.timestamp).toLocaleString() : 'N/A';
       const speed = toNum(r.speed_ms, null);
       const speedKmh = speed != null ? (speed * 3.6).toFixed(1) : 'N/A';
       const current = toNum(r.current_a, null);
       const currentStr = current != null ? current.toFixed(2) : 'N/A';
-      const brakePct = toNum(r.brake_pct, null);
-      const brakeStr = brakePct != null ? brakePct.toFixed(1) : 'N/A';
-      const throttlePct = toNum(r.throttle_pct, null);
-      const throttleStr = throttlePct != null ? throttlePct.toFixed(1) : 'N/A';
-      const powerStr = p != null ? p.toFixed(0) : 'N/A';
 
-      mk.bindTooltip(`
-        <b>Timestamp:</b> ${timestamp}<br>
-        <b>Speed:</b> ${speedKmh} km/h<br>
-        <b>Current:</b> ${currentStr} A<br>
-        <b>Brake:</b> ${brakeStr}%<br>
-        <b>Throttle:</b> ${throttleStr}%<br>
-        <b>Power:</b> ${powerStr} W
-      `);
+      markerFeatures.push({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [r.longitude, r.latitude],
+        },
+        properties: {
+          color,
+          timestamp: r.timestamp ? new Date(r.timestamp).toLocaleString() : 'N/A',
+          speed: speedKmh,
+          current: currentStr,
+          power: p != null ? p.toFixed(0) : 'N/A',
+        },
+      });
+    }
 
-      mk.addTo(map);
-      trackMarkers.push(mk);
+    const markersGeoJSON = {
+      type: 'FeatureCollection',
+      features: markerFeatures,
+    };
+
+    // Update map sources
+    try {
+      const trackSource = map.getSource('track');
+      const markersSource = map.getSource('markers');
+
+      if (trackSource) {
+        trackSource.setData(trackGeoJSON);
+      }
+      if (markersSource) {
+        markersSource.setData(markersGeoJSON);
+      }
+
+      // Fit bounds if we have valid coordinates
+      if (coordinates.length > 1) {
+        const bounds = computeBounds(validRows.map(r => [r.latitude, r.longitude]));
+        if (bounds) {
+          map.fitBounds([
+            [bounds[0][1], bounds[0][0]], // [lng, lat] SW
+            [bounds[1][1], bounds[1][0]], // [lng, lat] NE
+          ], { padding: 50 });
+        }
+      }
+    } catch (e) {
+      // Map may not be fully loaded yet
+      console.debug('[Map] Source update deferred:', e.message);
     }
 
     // Altitude chart - use uPlot if enabled

@@ -2249,47 +2249,66 @@ button:active {
 }
 
 /* ==========================================================================
-   8. LEAFLET MAP OVERRIDES
+   8. MAPLIBRE GL MAP OVERRIDES
    ========================================================================== */
 
-.leaflet-container {
+.maplibregl-map {
   background: var(--bg-muted);
   font-family: var(--font-sans);
 }
 
-.leaflet-control-zoom {
+.maplibregl-ctrl-group {
   border: 1px solid var(--border-default) !important;
   border-radius: var(--radius-md) !important;
   overflow: hidden;
+  background: var(--surface-primary) !important;
 }
 
-.leaflet-control-zoom a {
+.maplibregl-ctrl-group button {
   background: var(--surface-primary) !important;
   color: var(--text-primary) !important;
   border: none !important;
   width: 32px !important;
   height: 32px !important;
-  line-height: 32px !important;
 }
 
-.leaflet-control-zoom a:hover {
+.maplibregl-ctrl-group button:hover {
   background: var(--surface-hover) !important;
 }
 
-.leaflet-popup-content-wrapper {
+.maplibregl-ctrl-group button+button {
+  border-top: 1px solid var(--border-default) !important;
+}
+
+.maplibregl-popup-content {
   background: var(--surface-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-}
-
-.leaflet-popup-content {
   color: var(--text-primary);
   font-size: var(--text-sm);
+  padding: var(--space-3);
 }
 
-.leaflet-popup-tip {
-  background: var(--surface-primary);
+.maplibregl-popup-tip {
+  border-top-color: var(--surface-primary) !important;
+}
+
+.maplibregl-ctrl-attrib {
+  background: rgba(0, 0, 0, 0.65) !important;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--text-secondary) !important;
+}
+
+.maplibregl-ctrl-scale {
+  background: rgba(0, 0, 0, 0.65) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
+  font-size: var(--text-xs);
 }
 
 /* ==========================================================================
