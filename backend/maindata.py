@@ -555,6 +555,7 @@ class TelemetryCalculator:
         self.elevation_gain_m = 0.0
         self.last_speed = 0.0
         self.max_speed_ms = 0.0
+        self.min_speed_ms = float('inf')  # Min speed (tracked once moving)
         self.max_power_w = 0.0
         self.max_current_a = 0.0
         self.max_g_force = 0.0
@@ -714,12 +715,16 @@ class TelemetryCalculator:
         else:
             result["current_efficiency_km_kwh"] = None
         
-        # --- Session Maximums ---
+        # --- Session Maximums and Minimums ---
         self.max_speed_ms = max(self.max_speed_ms, speed)
+        # Track min speed only when moving (speed > 0.5 m/s)
+        if speed > 0.5:
+            self.min_speed_ms = min(self.min_speed_ms, speed)
         self.max_power_w = max(self.max_power_w, power)
         self.max_current_a = max(self.max_current_a, current)
         
         result["max_speed_kmh"] = round(self.max_speed_ms * 3.6, 1)
+        result["min_speed_kmh"] = round(self.min_speed_ms * 3.6, 1) if self.min_speed_ms != float('inf') else 0.0
         result["max_power_w"] = round(self.max_power_w, 1)
         result["max_current_a"] = round(self.max_current_a, 2)
         
@@ -2408,7 +2413,7 @@ class TelemetryBridgeWithDB:
                     # Calculated fields from TelemetryCalculator
                     calculated_fields = [
                         "current_efficiency_km_kwh", "cumulative_energy_kwh", "route_distance_km",
-                        "avg_speed_kmh", "max_speed_kmh", "avg_power", "avg_voltage", "avg_current",
+                        "avg_speed_kmh", "max_speed_kmh", "min_speed_kmh", "avg_power", "avg_voltage", "avg_current",
                         "max_power_w", "max_current_a",
                         # Optimal speed
                         "optimal_speed_kmh", "optimal_speed_ms", "optimal_efficiency_km_kwh",

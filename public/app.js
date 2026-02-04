@@ -1900,33 +1900,35 @@
     updateSpeedRangeBars(filtered);
   }
 
-  // Update speed stat cards
+  // Update speed stat cards (all values from server)
   function updateSpeedStats(rows) {
-    if (!rows || rows.length === 0) {
-      el('speed-current')?.textContent && (el('speed-current').textContent = '0.0');
-      el('speed-avg')?.textContent && (el('speed-avg').textContent = '0.0');
-      el('speed-max')?.textContent && (el('speed-max').textContent = '0.0');
-      el('speed-min')?.textContent && (el('speed-min').textContent = '0.0');
-      return;
-    }
-
-    const speeds = rows.map(r => toNum(r.speed_ms, null)).filter(v => v !== null);
-    if (speeds.length === 0) return;
-
-    const current = speeds[speeds.length - 1] * 3.6; // m/s to km/h
-    const avg = (speeds.reduce((a, b) => a + b, 0) / speeds.length) * 3.6;
-    const max = Math.max(...speeds) * 3.6;
-    const min = Math.min(...speeds) * 3.6;
-
     const setTxt = (id, v) => {
       const e = el(id);
       if (e) e.textContent = v;
     };
 
-    setTxt('speed-current', current.toFixed(1));
-    setTxt('speed-avg', avg.toFixed(1));
-    setTxt('speed-max', max.toFixed(1));
-    setTxt('speed-min', min.toFixed(1));
+    if (!rows || rows.length === 0) {
+      setTxt('speed-current', '0.0');
+      setTxt('speed-avg', '0.0');
+      setTxt('speed-max', '0.0');
+      setTxt('speed-min', '0.0');
+      return;
+    }
+
+    const lastRow = rows[rows.length - 1];
+
+    // Current speed (raw latest value)
+    const currentSpeed = toNum(lastRow.speed_ms, 0) * 3.6; // m/s to km/h
+
+    // Server-provided values (all from TelemetryCalculator)
+    const avgSpeed = toNum(lastRow.avg_speed_kmh, null);
+    const maxSpeed = toNum(lastRow.max_speed_kmh, null);
+    const minSpeed = toNum(lastRow.min_speed_kmh, null);
+
+    setTxt('speed-current', currentSpeed.toFixed(1));
+    setTxt('speed-avg', avgSpeed !== null ? avgSpeed.toFixed(1) : '0.0');
+    setTxt('speed-max', maxSpeed !== null ? maxSpeed.toFixed(1) : '0.0');
+    setTxt('speed-min', minSpeed !== null ? minSpeed.toFixed(1) : '0.0');
   }
 
   // Calculate and render acceleration chart
@@ -2775,7 +2777,7 @@
     renderAngularHistogram(filtered);
   }
 
-  // Update IMU stat cards
+  // Update IMU stat cards (all values from server/raw data)
   function updateIMUStats(rows) {
     const setTxt = (id, v) => {
       const e = el(id);
@@ -2790,37 +2792,24 @@
       return;
     }
 
-    // Calculate stability from gyro variance
-    const gyroX = rows.map(r => toNum(r.gyro_x, null)).filter(v => v !== null);
-    const gyroY = rows.map(r => toNum(r.gyro_y, null)).filter(v => v !== null);
-    const gyroZ = rows.map(r => toNum(r.gyro_z, null)).filter(v => v !== null);
-
-    let stability = 100;
-    if (gyroX.length > 0) {
-      const meanX = gyroX.reduce((a, b) => a + b, 0) / gyroX.length;
-      const varianceX = gyroX.reduce((sum, v) => sum + Math.pow(v - meanX, 2), 0) / gyroX.length;
-      stability = Math.max(0, 100 - Math.sqrt(varianceX) * 5);
-    }
-
-    // Max G-force
-    const accelX = rows.map(r => toNum(r.accel_x, 0));
-    const accelY = rows.map(r => toNum(r.accel_y, 0));
-    const accelZ = rows.map(r => toNum(r.accel_z, 0));
-
-    let maxG = 0;
-    for (let i = 0; i < rows.length; i++) {
-      const totalAccel = Math.sqrt(accelX[i] ** 2 + accelY[i] ** 2 + accelZ[i] ** 2);
-      const g = totalAccel / 9.81;
-      if (g > maxG) maxG = g;
-    }
-
-    // Current pitch and roll
     const lastRow = rows[rows.length - 1];
-    const pitch = toNum(lastRow.pitch_deg, 0);
-    const roll = toNum(lastRow.roll_deg, 0);
 
-    setTxt('imu-stability', `${stability.toFixed(0)}%`);
-    setTxt('imu-max-g', maxG.toFixed(2));
+    // Server-provided values from TelemetryCalculator
+    const maxGForce = toNum(lastRow.max_g_force, null);
+    const currentGForce = toNum(lastRow.current_g_force, null);
+
+    // Use quality score as stability indicator (server-provided)
+    const qualityScore = toNum(lastRow.quality_score, 100);
+
+    // Raw accelerometer values from last row for pitch/roll calculation
+    const ax = toNum(lastRow.accel_x, 0);
+    const ay = toNum(lastRow.accel_y, 0);
+    const az = toNum(lastRow.accel_z, 9.81);
+    const pitch = Math.atan2(ax, Math.sqrt(ay * ay + az * az)) * (180 / Math.PI);
+    const roll = Math.atan2(ay, Math.sqrt(ax * ax + az * az)) * (180 / Math.PI);
+
+    setTxt('imu-stability', `${Math.round(qualityScore)}%`);
+    setTxt('imu-max-g', maxGForce !== null ? maxGForce.toFixed(2) : (currentGForce !== null ? currentGForce.toFixed(2) : '0.0'));
     setTxt('imu-pitch', pitch.toFixed(1));
     setTxt('imu-roll', roll.toFixed(1));
   }
@@ -3257,50 +3246,34 @@
       return;
     }
 
-    // Calculate efficiency: km/kWh = distance / energy
-    let totalDistance = 0; // km
-    let totalEnergy = 0; // kWh
-    const efficiencies = [];
+    const lastRow = rows[rows.length - 1];
 
-    for (let i = 1; i < rows.length; i++) {
-      const t1 = new Date(rows[i - 1].timestamp).getTime();
-      const t2 = new Date(rows[i].timestamp).getTime();
-      const dt = (t2 - t1) / 1000; // seconds
+    // Use server-provided efficiency values
+    const currentEfficiency = toNum(lastRow.current_efficiency_km_kwh, null);
+    const cumulativeEnergy = toNum(lastRow.cumulative_energy_kwh, null);
+    const routeDistance = toNum(lastRow.route_distance_km, null);
 
-      if (dt > 0 && dt < 10) {
-        const speed = toNum(rows[i].speed_ms, 0); // m/s
-        const power = toNum(rows[i].power_w, toNum(rows[i].voltage_v, 0) * toNum(rows[i].current_a, 0));
-
-        const distanceSegment = (speed * dt) / 1000; // km
-        const energySegment = (power * dt) / 3600000; // kWh
-
-        totalDistance += distanceSegment;
-        totalEnergy += energySegment;
-
-        if (energySegment > 0.00001) {
-          const segmentEff = distanceSegment / energySegment;
-          if (segmentEff > 0 && segmentEff < 1000) {
-            efficiencies.push(segmentEff);
-          }
-        }
-      }
+    // Calculate average efficiency from cumulative values if available
+    let avgEfficiency = null;
+    if (cumulativeEnergy !== null && cumulativeEnergy > 0.00001 && routeDistance !== null) {
+      avgEfficiency = routeDistance / cumulativeEnergy;
     }
 
-    // Current efficiency (last 10 samples)
-    const recentEff = efficiencies.slice(-10);
-    const currentEff = recentEff.length > 0
-      ? recentEff.reduce((a, b) => a + b, 0) / recentEff.length
-      : 0;
+    // Calculate route distance from stored value or from raw data
+    let displayDistance = routeDistance;
+    if (displayDistance === null) {
+      // Fallback: calculate from distance_m in last row
+      const distanceM = toNum(lastRow.distance_m, 0);
+      displayDistance = distanceM / 1000;
+    }
 
-    // Average efficiency
-    const avgEff = totalEnergy > 0.00001 ? totalDistance / totalEnergy : 0;
+    setTxt('eff-current', currentEfficiency !== null && currentEfficiency > 0 && currentEfficiency < 1000
+      ? currentEfficiency.toFixed(1) : '—');
+    setTxt('eff-avg', avgEfficiency !== null && avgEfficiency > 0 && avgEfficiency < 1000
+      ? avgEfficiency.toFixed(1) : '—');
+    setTxt('eff-distance', displayDistance !== null ? displayDistance.toFixed(3) : '0.00');
 
-    setTxt('eff-current', currentEff > 0 && currentEff < 1000 ? currentEff.toFixed(1) : '—');
-    setTxt('eff-avg', avgEff > 0 && avgEff < 1000 ? avgEff.toFixed(1) : '—');
-    setTxt('eff-distance', totalDistance.toFixed(3));
-
-    // Use server-provided optimal speed if available
-    const lastRow = rows[rows.length - 1];
+    // Use server-provided optimal speed
     const optimalSpeedKmh = toNum(lastRow.optimal_speed_kmh, null);
     const optimalConfidence = toNum(lastRow.optimal_speed_confidence, 0);
 
@@ -4003,9 +3976,8 @@
     const routeDistance = toNum(lastRow.route_distance_km, 0);
     const elevationGain = toNum(lastRow.elevation_gain_m, 0);
 
-    // Average speed along route (still calculated client-side - simple average)
-    const speeds = rows.map(r => toNum(r.speed_ms, null) * 3.6).filter(v => v !== null);
-    const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+    // Use server-calculated average speed
+    const avgSpeed = toNum(lastRow.avg_speed_kmh, null);
 
     // GPS accuracy (if available)
     const accuracies = rows.map(r => toNum(r.gps_accuracy, null)).filter(v => v !== null);
@@ -4015,7 +3987,7 @@
 
     setTxt('gps-distance', routeDistance.toFixed(3));
     setTxt('gps-elevation-gain', Math.round(elevationGain));
-    setTxt('gps-avg-speed', avgSpeed.toFixed(1));
+    setTxt('gps-avg-speed', avgSpeed !== null ? avgSpeed.toFixed(1) : '0.0');
     setTxt('gps-accuracy', avgAccuracy !== null ? avgAccuracy.toFixed(1) : '—');
   }
 
@@ -4024,8 +3996,8 @@
     if (!rows || rows.length === 0) return;
 
     const lastRow = rows[rows.length - 1];
-    const lat = toNum(lastRow.lat, null);
-    const lon = toNum(lastRow.lon, null);
+    const lat = toNum(lastRow.latitude, null);
+    const lon = toNum(lastRow.longitude, null);
 
     const latEl = el('gps-lat');
     const lonEl = el('gps-lon');
@@ -4043,10 +4015,10 @@
     let cumDistance = 0;
 
     for (let i = 1; i < rows.length; i++) {
-      const lat1 = toNum(rows[i - 1].lat, null);
-      const lon1 = toNum(rows[i - 1].lon, null);
-      const lat2 = toNum(rows[i].lat, null);
-      const lon2 = toNum(rows[i].lon, null);
+      const lat1 = toNum(rows[i - 1].latitude, null);
+      const lon1 = toNum(rows[i - 1].longitude, null);
+      const lat2 = toNum(rows[i].latitude, null);
+      const lon2 = toNum(rows[i].longitude, null);
 
       if (lat1 !== null && lon1 !== null && lat2 !== null && lon2 !== null) {
         const R = 6371;
@@ -6311,7 +6283,7 @@
         sessionInfo.textContent = "Loading from database...";
         let data = await loadFullSession(sid);
 
-        state.telemetry = withDerived(data || []);
+        state.telemetry = data || [];
         state.currentSessionId = sid;
         sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
         // Show success notification
