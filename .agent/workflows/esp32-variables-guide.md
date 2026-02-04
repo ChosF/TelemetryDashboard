@@ -117,6 +117,25 @@ These are the **most important** variables for efficiency calculations:
 
 > 💡 You can send either `throttle_pct`/`brake_pct` OR `throttle`/`brake`. The `_pct` versions are preferred.
 
+#### 🔧 Throttle Hardware Configuration (Current Implementation)
+
+The ESP32 code is configured to read throttle from **GPIO 3** using ADC1_CHANNEL_3:
+
+| Setting | Value |
+|---------|-------|
+| **GPIO Pin** | GPIO 3 (ADC1_CHANNEL_3) |
+| **Min Voltage** | 0.83V = 0% throttle |
+| **Max Voltage** | 3.33V = 100% throttle |
+| **ADC Attenuation** | 11dB (0-3.9V range) |
+| **Samples** | 100 samples averaged |
+
+**Voltage-to-Percentage Formula:**
+```
+throttle_pct = (voltage - 0.83) / (3.33 - 0.83) × 100
+```
+
+> ⚠️ **Calibration**: If your throttle sensor has different min/max voltages, update the constants `THROTTLE_MIN_VOLTAGE` and `THROTTLE_MAX_VOLTAGE` in `adc_reader.h`
+
 ---
 
 ### 🏷️ Optional Metadata
