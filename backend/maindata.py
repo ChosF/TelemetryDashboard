@@ -2405,32 +2405,29 @@ class TelemetryBridgeWithDB:
                             if value is not None:
                                 record[field] = value
                     
-                    # NOTE: Calculated fields are NOT sent until Convex schema is deployed.
-                    # After running `npx convex deploy`, uncomment the following block:
-                    #
-                    # # Calculated fields from TelemetryCalculator
-                    # calculated_fields = [
-                    #     "current_efficiency_km_kwh", "cumulative_energy_kwh", "route_distance_km",
-                    #     "avg_speed_kmh", "max_speed_kmh", "avg_power", "avg_voltage", "avg_current",
-                    #     "max_power_w", "max_current_a",
-                    #     # Optimal speed
-                    #     "optimal_speed_kmh", "optimal_speed_ms", "optimal_efficiency_km_kwh",
-                    #     "optimal_speed_confidence", "optimal_speed_data_points", "optimal_speed_range",
-                    #     # Motion and driver state
-                    #     "motion_state", "driver_mode", "throttle_intensity", "brake_intensity",
-                    #     # G-force and acceleration
-                    #     "current_g_force", "max_g_force", "accel_magnitude", "avg_acceleration",
-                    #     # GPS derived
-                    #     "elevation_gain_m",
-                    #     # Quality metrics
-                    #     "quality_score", "outlier_severity"
-                    # ]
-                    # 
-                    # # Add calculated fields (only if not None)
-                    # for field in calculated_fields:
-                    #     value = r.get(field)
-                    #     if value is not None:
-                    #         record[field] = value
+                    # Calculated fields from TelemetryCalculator
+                    calculated_fields = [
+                        "current_efficiency_km_kwh", "cumulative_energy_kwh", "route_distance_km",
+                        "avg_speed_kmh", "max_speed_kmh", "avg_power", "avg_voltage", "avg_current",
+                        "max_power_w", "max_current_a",
+                        # Optimal speed
+                        "optimal_speed_kmh", "optimal_speed_ms", "optimal_efficiency_km_kwh",
+                        "optimal_speed_confidence", "optimal_speed_data_points", "optimal_speed_range",
+                        # Motion and driver state
+                        "motion_state", "driver_mode", "throttle_intensity", "brake_intensity",
+                        # G-force and acceleration
+                        "current_g_force", "max_g_force", "accel_magnitude", "avg_acceleration",
+                        # GPS derived
+                        "elevation_gain_m",
+                        # Quality metrics
+                        "quality_score", "outlier_severity"
+                    ]
+                    
+                    # Add calculated fields (only if not None)
+                    for field in calculated_fields:
+                        value = r.get(field)
+                        if value is not None:
+                            record[field] = value
                     
                     records.append(record)
 

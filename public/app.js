@@ -6311,7 +6311,7 @@
         sessionInfo.textContent = "Loading from database...";
         let data = await loadFullSession(sid);
 
-        state.telemetry = data || [];
+        state.telemetry = withDerived(data || []);
         state.currentSessionId = sid;
         sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
         // Show success notification
