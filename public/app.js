@@ -163,6 +163,8 @@
     },
 
     // Filter rows by time range for a specific tab
+    // FIXED: Uses the data's own latest timestamp as reference, not Date.now()
+    // This ensures historical data is filtered correctly relative to itself
     filterData(rows, tabId) {
       if (!rows || rows.length === 0) return rows;
 
@@ -170,8 +172,12 @@
       if (range === 'all') return rows;
 
       const rangeMs = this.ranges[range];
-      const now = Date.now();
-      const cutoff = now - rangeMs;
+
+      // Use the latest row's timestamp as reference (not Date.now())
+      // This makes time filtering work correctly for historical sessions
+      const latestRow = rows[rows.length - 1];
+      const latestTs = new Date(latestRow.timestamp).getTime();
+      const cutoff = latestTs - rangeMs;
 
       return rows.filter(row => {
         const ts = new Date(row.timestamp).getTime();
@@ -616,7 +622,7 @@
     return rows;
   }
 
-  // KPIs
+  // KPIs - Uses server-calculated values from TelemetryCalculator
   function computeKPIs(rows) {
     const out = {
       current_speed_ms: 0,
@@ -639,29 +645,14 @@
     if (!rows.length) return out;
 
     const LR = last(rows);
-    const s = rows.map((r) => toNum(r.speed_ms, 0)).filter(Number.isFinite);
-    const p = rows.map((r) => toNum(r.power_w, null)).filter((x) => x != null);
-    const c = rows
-      .map((r) => toNum(r.current_a, null))
-      .filter((x) => x != null);
 
-    const nz = (a) => a.filter((v) => v !== 0);
-    const mean = (a) =>
-      a.length ? a.reduce((acc, v) => acc + v, 0) / a.length : 0;
+    // Raw current values (always from latest row)
+    out.current_speed_ms = Math.max(0, toNum(LR.speed_ms, 0));
+    out.current_speed_kmh = out.current_speed_ms * 3.6;
+    out.current_power_w = toNum(LR.power_w, 0);
+    out.c_current_a = toNum(LR.current_a, 0);
 
-    const distM = toNum(LR.distance_m, 0);
-    const energyJ = toNum(LR.energy_j, 0);
-    out.total_distance_km = Math.max(0, distM / 1000);
-    out.total_energy_kwh = Math.max(0, energyJ / 3_600_000);
-
-    if (s.length) {
-      out.current_speed_ms = Math.max(0, toNum(LR.speed_ms, 0));
-      out.max_speed_ms = Math.max(0, Math.max(...s));
-      out.avg_speed_ms = nz(s).length ? mean(nz(s)) : 0;
-      out.current_speed_kmh = out.current_speed_ms * 3.6;
-      out.max_speed_kmh = out.max_speed_ms * 3.6;
-      out.avg_speed_kmh = out.avg_speed_ms * 3.6;
-    }
+    // Voltage and battery percentage
     const V = toNum(LR.voltage_v, null);
     if (V !== null) {
       out.battery_voltage_v = Math.max(0, V);
@@ -673,19 +664,26 @@
       else pct = ((V - minV) / (fullV - minV)) * 100;
       out.battery_percentage = clamp(pct, 0, 100);
     }
-    if (p.length) {
-      out.current_power_w = toNum(LR.power_w, 0);
-      out.max_power_w = Math.max(...p);
-      out.avg_power_w = nz(p).length ? mean(nz(p)) : 0;
-    }
-    if (c.length) {
-      out.c_current_a = toNum(LR.current_a, 0);
-      out.avg_current_a = nz(c).length ? mean(nz(c)) : 0;
-    }
-    if (out.total_energy_kwh > 0) {
-      out.efficiency_km_per_kwh =
-        out.total_distance_km / out.total_energy_kwh;
-    }
+
+    // Server-calculated values (from TelemetryCalculator via Convex)
+    // Distance and energy
+    out.total_distance_km = toNum(LR.route_distance_km, toNum(LR.distance_m, 0) / 1000);
+    out.total_energy_kwh = toNum(LR.cumulative_energy_kwh, toNum(LR.energy_j, 0) / 3_600_000);
+
+    // Speed stats
+    out.max_speed_kmh = toNum(LR.max_speed_kmh, 0);
+    out.max_speed_ms = out.max_speed_kmh / 3.6;
+    out.avg_speed_kmh = toNum(LR.avg_speed_kmh, 0);
+    out.avg_speed_ms = out.avg_speed_kmh / 3.6;
+
+    // Power stats
+    out.avg_power_w = toNum(LR.avg_power, 0);
+    out.max_power_w = toNum(LR.max_power_w, 0);
+    out.avg_current_a = toNum(LR.avg_current, 0);
+
+    // Efficiency
+    out.efficiency_km_per_kwh = toNum(LR.current_efficiency_km_kwh, 0);
+
     return out;
   }
 
@@ -1900,7 +1898,7 @@
     updateSpeedRangeBars(filtered);
   }
 
-  // Update speed stat cards (all values from server)
+  // Update speed stat cards (uses server-calculated values ONLY)
   function updateSpeedStats(rows) {
     const setTxt = (id, v) => {
       const e = el(id);
@@ -1911,7 +1909,7 @@
       setTxt('speed-current', '0.0');
       setTxt('speed-avg', '0.0');
       setTxt('speed-max', '0.0');
-      setTxt('speed-min', '0.0');
+      setTxt('speed-min', '—');
       return;
     }
 
@@ -1920,15 +1918,14 @@
     // Current speed (raw latest value)
     const currentSpeed = toNum(lastRow.speed_ms, 0) * 3.6; // m/s to km/h
 
-    // Server-provided values (all from TelemetryCalculator)
+    // Server-provided values (from TelemetryCalculator)
     const avgSpeed = toNum(lastRow.avg_speed_kmh, null);
     const maxSpeed = toNum(lastRow.max_speed_kmh, null);
-    const minSpeed = toNum(lastRow.min_speed_kmh, null);
 
     setTxt('speed-current', currentSpeed.toFixed(1));
-    setTxt('speed-avg', avgSpeed !== null ? avgSpeed.toFixed(1) : '0.0');
-    setTxt('speed-max', maxSpeed !== null ? maxSpeed.toFixed(1) : '0.0');
-    setTxt('speed-min', minSpeed !== null ? minSpeed.toFixed(1) : '0.0');
+    setTxt('speed-avg', avgSpeed !== null ? avgSpeed.toFixed(1) : '—');
+    setTxt('speed-max', maxSpeed !== null ? maxSpeed.toFixed(1) : '—');
+    setTxt('speed-min', '—'); // Min speed not stored on server
   }
 
   // Calculate and render acceleration chart
@@ -2777,7 +2774,7 @@
     renderAngularHistogram(filtered);
   }
 
-  // Update IMU stat cards (all values from server/raw data)
+  // Update IMU stat cards (uses server-calculated values ONLY)
   function updateIMUStats(rows) {
     const setTxt = (id, v) => {
       const e = el(id);
@@ -2786,9 +2783,9 @@
 
     if (!rows || rows.length === 0) {
       setTxt('imu-stability', '—');
-      setTxt('imu-max-g', '0.0');
-      setTxt('imu-pitch', '0.0');
-      setTxt('imu-roll', '0.0');
+      setTxt('imu-max-g', '—');
+      setTxt('imu-pitch', '—');
+      setTxt('imu-roll', '—');
       return;
     }
 
@@ -2798,20 +2795,11 @@
     const maxGForce = toNum(lastRow.max_g_force, null);
     const currentGForce = toNum(lastRow.current_g_force, null);
 
-    // Use quality score as stability indicator (server-provided)
-    const qualityScore = toNum(lastRow.quality_score, 100);
-
-    // Raw accelerometer values from last row for pitch/roll calculation
-    const ax = toNum(lastRow.accel_x, 0);
-    const ay = toNum(lastRow.accel_y, 0);
-    const az = toNum(lastRow.accel_z, 9.81);
-    const pitch = Math.atan2(ax, Math.sqrt(ay * ay + az * az)) * (180 / Math.PI);
-    const roll = Math.atan2(ay, Math.sqrt(ax * ax + az * az)) * (180 / Math.PI);
-
-    setTxt('imu-stability', `${Math.round(qualityScore)}%`);
-    setTxt('imu-max-g', maxGForce !== null ? maxGForce.toFixed(2) : (currentGForce !== null ? currentGForce.toFixed(2) : '0.0'));
-    setTxt('imu-pitch', pitch.toFixed(1));
-    setTxt('imu-roll', roll.toFixed(1));
+    // Display server values only (no client-side calculations)
+    setTxt('imu-stability', '—'); // Not stored on server
+    setTxt('imu-max-g', maxGForce !== null ? maxGForce.toFixed(2) : (currentGForce !== null ? currentGForce.toFixed(2) : '—'));
+    setTxt('imu-pitch', '—'); // Not stored on server
+    setTxt('imu-roll', '—'); // Not stored on server
   }
 
   // Update IMU Detail stat cards
@@ -2825,13 +2813,13 @@
 
     const lastRow = rows[rows.length - 1];
 
-    // Gyro values
+    // Gyro values (raw sensor data)
     const gx = toNum(lastRow.gyro_x, 0);
     const gy = toNum(lastRow.gyro_y, 0);
     const gz = toNum(lastRow.gyro_z, 0);
     const angularTotal = Math.sqrt(gx ** 2 + gy ** 2 + gz ** 2);
 
-    // Accel values
+    // Accel values (raw sensor data)
     const ax = toNum(lastRow.accel_x, 0);
     const ay = toNum(lastRow.accel_y, 0);
     const az = toNum(lastRow.accel_z, 0);
@@ -3248,40 +3236,18 @@
 
     const lastRow = rows[rows.length - 1];
 
-    // Use server-provided efficiency values
+    // Use server-provided efficiency values ONLY (no client-side calculations)
     const currentEfficiency = toNum(lastRow.current_efficiency_km_kwh, null);
-    const cumulativeEnergy = toNum(lastRow.cumulative_energy_kwh, null);
     const routeDistance = toNum(lastRow.route_distance_km, null);
-
-    // Calculate average efficiency from cumulative values if available
-    let avgEfficiency = null;
-    if (cumulativeEnergy !== null && cumulativeEnergy > 0.00001 && routeDistance !== null) {
-      avgEfficiency = routeDistance / cumulativeEnergy;
-    }
-
-    // Calculate route distance from stored value or from raw data
-    let displayDistance = routeDistance;
-    if (displayDistance === null) {
-      // Fallback: calculate from distance_m in last row
-      const distanceM = toNum(lastRow.distance_m, 0);
-      displayDistance = distanceM / 1000;
-    }
-
-    setTxt('eff-current', currentEfficiency !== null && currentEfficiency > 0 && currentEfficiency < 1000
-      ? currentEfficiency.toFixed(1) : '—');
-    setTxt('eff-avg', avgEfficiency !== null && avgEfficiency > 0 && avgEfficiency < 1000
-      ? avgEfficiency.toFixed(1) : '—');
-    setTxt('eff-distance', displayDistance !== null ? displayDistance.toFixed(3) : '0.00');
-
-    // Use server-provided optimal speed
     const optimalSpeedKmh = toNum(lastRow.optimal_speed_kmh, null);
     const optimalConfidence = toNum(lastRow.optimal_speed_confidence, 0);
 
-    if (optimalSpeedKmh !== null && optimalConfidence >= 0.3) {
-      setTxt('eff-optimal-speed', optimalSpeedKmh.toFixed(1));
-    } else {
-      setTxt('eff-optimal-speed', '—');
-    }
+    setTxt('eff-current', currentEfficiency !== null && currentEfficiency > 0 && currentEfficiency < 1000
+      ? currentEfficiency.toFixed(1) : '—');
+    setTxt('eff-avg', '—'); // Average efficiency not stored on server
+    setTxt('eff-distance', routeDistance !== null ? routeDistance.toFixed(3) : '—');
+    setTxt('eff-optimal-speed', optimalSpeedKmh !== null && optimalConfidence >= 0.3
+      ? optimalSpeedKmh.toFixed(1) : '—');
   }
 
   // Render efficiency trend chart (rolling efficiency over time)

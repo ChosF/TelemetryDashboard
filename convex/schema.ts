@@ -52,7 +52,6 @@ export default defineSchema({
     route_distance_km: v.optional(v.number()),
     avg_speed_kmh: v.optional(v.number()),
     max_speed_kmh: v.optional(v.number()),
-    min_speed_kmh: v.optional(v.number()),
     avg_power: v.optional(v.number()),
     avg_voltage: v.optional(v.number()),
     avg_current: v.optional(v.number()),
