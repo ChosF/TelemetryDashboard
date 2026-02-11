@@ -34,6 +34,9 @@ import {
     AdminPanel,
 } from '@/panels';
 
+// Historical Mode
+import HistoricalMode from '@/pages/HistoricalMode';
+
 // Types
 import type { TelemetrySession, TelemetryRow } from '@/types/telemetry';
 
@@ -52,6 +55,7 @@ const TABS: Tab[] = [
     { id: 'quality', label: 'Quality', icon: '✅' },
     { id: 'sessions', label: 'Sessions', icon: '📁' },
     { id: 'custom', label: 'Custom', icon: '🎛️' },
+    { id: 'historical', label: 'Historical', icon: '📜' },
 ];
 
 // Panel component mapping
@@ -128,6 +132,16 @@ const App: Component = () => {
     // Render active panel
     const renderPanel = (): JSX.Element => {
         const tabId = activeTab();
+
+        // Historical mode (full-page takeover)
+        if (tabId === 'historical') {
+            return (
+                <HistoricalMode
+                    sessions={sessions()}
+                    loading={loading()}
+                />
+            );
+        }
 
         // Sessions panel (special props)
         if (tabId === 'sessions') {
