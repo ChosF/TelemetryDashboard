@@ -1,0 +1,1052 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="view-transition" content="same-origin" />
+  <title>EcoVolt Telemetry</title>
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="auth-styles.css" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet" />
+
+  <!-- jQuery DataTables + Responsive -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css" />
+  <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css" />
+
+  <!-- MapLibre GL JS -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
+
+  <!-- uPlot (high-performance charts) -->
+  <link rel="stylesheet" href="lib/uplot.min.css" />
+
+  <!-- Configuration - Set your Convex URL here -->
+  <script>
+    // Detect if running locally or in production
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    window.CONFIG = window.CONFIG || {
+      ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
+      // Use Ably API key directly for now (both local and production)
+      // This avoids the need for the Convex HTTP token endpoint
+      // Note: For better security in production, set up ABLY_API_KEY in Convex 
+      // environment variables and use ABLY_AUTH_URL instead
+      ABLY_API_KEY: "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ",
+      // Alternative: Use Convex HTTP endpoint for token auth (more secure)
+      // ABLY_AUTH_URL: "https://impartial-walrus-693.convex.site/ably/token",
+      // Set your Convex deployment URL - this is the main data backend
+      CONVEX_URL: "https://impartial-walrus-693.convex.cloud",
+    };
+  </script>
+</head>
+
+<body>
+  <!-- Reusable Component Templates -->
+  <template id="time-range-selector-template">
+    <div class="time-range-selector">
+      <button class="time-btn" data-range="30s">30s</button>
+      <button class="time-btn" data-range="1m">1m</button>
+      <button class="time-btn" data-range="5m">5m</button>
+      <button class="time-btn active" data-range="all">All</button>
+    </div>
+  </template>
+
+  <template id="zoom-controls-template">
+    <div class="chart-zoom-controls">
+      <button class="zoom-btn" data-action="zoom-out" title="Zoom Out">−</button>
+      <button class="zoom-btn" data-action="zoom-in" title="Zoom In">+</button>
+      <button class="zoom-btn zoom-reset" data-action="reset" title="Reset Zoom">Reset</button>
+    </div>
+  </template>
+
+  <!-- Floating Action Menu -->
+  <div id="fab-menu" class="fab-menu">
+    <button id="fab-toggle" class="fab-button liquid-hover" aria-label="Menu">
+      <span class="fab-icon">⚡</span>
+    </button>
+    <div id="fab-options" class="fab-options">
+      <button id="fab-connect" class="fab-option liquid-hover" data-tooltip="Connect">
+        <span>🔗</span>
+      </button>
+      <button id="fab-export" class="fab-option liquid-hover" data-tooltip="Export">
+        <span>💾</span>
+      </button>
+      <button id="fab-sessions" class="fab-option liquid-hover" data-tooltip="Sessions">
+        <span>📊</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <div id="layout" class="app-container">
+    <!-- Hero Header -->
+    <header class="hero-header">
+      <div class="hero-content">
+        <div class="hero-title-wrapper">
+          <h1 class="hero-title" data-full-text="Shell Eco-marathon" data-short-text="Shell">Shell Eco-marathon</h1>
+          <p class="hero-subtitle" data-full-text="Real-time Telemetry Dashboard" data-short-text="DASHBOARD">Real-time
+            Telemetry Dashboard</p>
+        </div>
+        <div class="hero-status">
+          <div class="status-badge" id="connection-status">
+            <span class="status-dot"></span>
+            <span class="status-text">Ready</span>
+          </div>
+          <div class="stats-mini">
+            <div class="stat-mini">
+              <span class="stat-mini-value" id="stat-msg">0</span>
+              <span class="stat-mini-label">Messages</span>
+            </div>
+            <div class="stat-mini">
+              <span class="stat-mini-value" id="stat-last">Never</span>
+              <span class="stat-mini-label">Last Update</span>
+            </div>
+          </div>
+          <!-- Header Actions (Theme + Auth) -->
+          <div class="header-actions">
+            <button id="theme-toggle" class="theme-toggle liquid-hover" aria-label="Toggle theme"
+              title="Toggle light/dark mode">
+              <span class="theme-icon theme-icon-sun">☀️</span>
+              <span class="theme-icon theme-icon-moon">🌙</span>
+            </button>
+            <!-- Auth button will be inserted here by auth-ui.js -->
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <div class="main">
+        <!-- Navigation Tabs -->
+        <nav class="tabs-nav">
+          <button class="tab active liquid-hover" data-panel="overview">
+            <span class="tab-icon">📊</span>
+            <span class="tab-label">Overview</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="speed">
+            <span class="tab-icon">🚗</span>
+            <span class="tab-label">Speed</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="power">
+            <span class="tab-icon">⚡</span>
+            <span class="tab-label">Power</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="imu">
+            <span class="tab-icon">🧭</span>
+            <span class="tab-label">IMU</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="imu-detail">
+            <span class="tab-icon">🎮</span>
+            <span class="tab-label">IMU Detail</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="efficiency">
+            <span class="tab-icon">📈</span>
+            <span class="tab-label">Efficiency</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="gps">
+            <span class="tab-icon">🗺️</span>
+            <span class="tab-label">GPS</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="custom">
+            <span class="tab-icon">🎨</span>
+            <span class="tab-label">Custom</span>
+          </button>
+          <button class="tab liquid-hover" data-panel="data">
+            <span class="tab-icon">📋</span>
+            <span class="tab-label">Data</span>
+          </button>
+        </nav>
+
+        <!-- Overview -->
+        <section id="panel-overview" class="panel active">
+          <!-- Overview Top Bar - Two Column Layout -->
+          <div class="overview-top-bar mb-4">
+            <!-- Left: Efficiency + Optimal Speed -->
+            <div class="overview-metrics-left glass-panel">
+              <div class="overview-metric">
+                <span class="metric-icon">⚡</span>
+                <div class="metric-info">
+                  <span class="metric-label">Current Efficiency</span>
+                  <span class="metric-value" id="overview-efficiency">— km/kWh</span>
+                </div>
+              </div>
+              <div class="metric-divider"></div>
+              <div class="overview-metric">
+                <span class="metric-icon">🎯</span>
+                <div class="metric-info">
+                  <span class="metric-label">Optimal Speed</span>
+                  <span class="metric-value" id="overview-optimal-speed">— km/h</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Motion State -->
+            <div class="overview-motion-state glass-panel">
+              <h4 class="motion-state-title">🏷️ Motion State</h4>
+              <div class="motion-classification" id="overview-motion-class">
+                <span class="motion-badge stationary">Stationary</span>
+                <span class="motion-badge accelerating">Accelerating</span>
+                <span class="motion-badge cruising">Cruising</span>
+                <span class="motion-badge braking">Braking</span>
+                <span class="motion-badge turning">Turning</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- KPIs - Collapsible -->
+          <div class="glass-panel mb-4">
+            <div class="collapsible-header" data-target="kpi-content">
+              <h3>📊 Key Performance Indicators</h3>
+              <span class="collapse-icon">−</span>
+            </div>
+            <div id="kpi-content" class="collapsible-content">
+              <div class="kpi-grid">
+                <div class="kpi liquid-hover">
+                  <div class="kpi-label">📏 Distance</div>
+                  <div id="kpi-distance" class="kpi-value">0.00 km</div>
+                </div>
+                <div class="kpi liquid-hover">
+                  <div class="kpi-label">🏃 Max Speed</div>
+                  <div id="kpi-maxspeed" class="kpi-value">0.0 km/h</div>
+                </div>
+                <div class="kpi liquid-hover">
+                  <div class="kpi-label">⚡ Avg Speed</div>
+                  <div id="kpi-avgspeed" class="kpi-value">0.0 km/h</div>
+                </div>
+                <div class="kpi liquid-hover">
+                  <div class="kpi-label">🔋 Energy</div>
+                  <div id="kpi-energy" class="kpi-value">0.00 kWh</div>
+                </div>
+                <div class="kpi liquid-hover">
+                  <div class="kpi-label">⚡ Voltage</div>
+                  <div id="kpi-voltage" class="kpi-value">0.00 V</div>
+                </div>
+                <div class="kpi liquid-hover">
+                  <div class="kpi-label">🔄 Current</div>
+                  <div id="kpi-current" class="kpi-value">0.00 A</div>
+                </div>
+                <div class="kpi liquid-hover">
+                  <div class="kpi-label">💡 Avg Power</div>
+                  <div id="kpi-avgpower" class="kpi-value">0.00 W</div>
+                </div>
+                <div class="kpi liquid-hover">
+                  <div class="kpi-label">🌊 Avg Current</div>
+                  <div id="kpi-avgcurrent" class="kpi-value">0.00 A</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Gauges - Collapsible -->
+          <div class="glass-panel mb-4">
+            <div class="collapsible-header" data-target="gauges-content">
+              <h3>📊 Live Performance Gauges</h3>
+              <span class="collapse-icon">−</span>
+            </div>
+            <div id="gauges-content" class="collapsible-content">
+              <div class="gauge-grid">
+                <div class="gauge-wrap">
+                  <div class="gauge" id="gauge-speed"></div>
+                  <div class="gauge-title">Speed (km/h)</div>
+                </div>
+                <div class="gauge-wrap">
+                  <div class="gauge" id="gauge-battery"></div>
+                  <div class="gauge-title">Battery (%)</div>
+                </div>
+                <div class="gauge-wrap">
+                  <div class="gauge" id="gauge-power"></div>
+                  <div class="gauge-title">Power (W)</div>
+                </div>
+                <div class="gauge-wrap">
+                  <div class="gauge" id="gauge-efficiency"></div>
+                  <div class="gauge-title">Efficiency (km/kWh)</div>
+                </div>
+                <div class="gauge-wrap">
+                  <div class="gauge" id="gauge-total-g"></div>
+                  <div class="gauge-title">G Forces</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Driver Inputs - Collapsible -->
+          <div class="glass-panel driver-box mb-4">
+            <div class="collapsible-header" data-target="driver-content">
+              <h3>🎮 Driver Inputs (Live)</h3>
+              <span class="collapse-icon">−</span>
+            </div>
+            <div id="driver-content" class="collapsible-content">
+              <div class="chart tiny" id="chart-pedals"></div>
+              <div class="center fine">Brake and Throttle (0–100%)</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Speed -->
+        <section id="panel-speed" class="panel">
+          <!-- Filter Bar -->
+          <div class="tab-filter-bar glass-panel">
+            <div id="speed-time-range"></div>
+            <div id="speed-field-toggles"></div>
+          </div>
+
+          <!-- Stats Row -->
+          <div class="stat-card-grid mb-4">
+            <div class="stat-card-mini glass-panel accent-blue">
+              <span class="stat-label">Current</span>
+              <span class="stat-value" id="speed-current">0.0</span>
+              <span class="stat-unit">km/h</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Average</span>
+              <span class="stat-value" id="speed-avg">0.0</span>
+              <span class="stat-unit">km/h</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-green">
+              <span class="stat-label">Maximum</span>
+              <span class="stat-value" id="speed-max">0.0</span>
+              <span class="stat-unit">km/h</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-amber">
+              <span class="stat-label">Minimum</span>
+              <span class="stat-value" id="speed-min">0.0</span>
+              <span class="stat-unit">km/h</span>
+            </div>
+          </div>
+
+          <!-- Primary Speed Chart -->
+          <div class="glass-panel mb-4">
+            <div class="chart-header">
+              <h3>🚗 Speed Over Time</h3>
+              <div id="speed-zoom-controls"></div>
+            </div>
+            <div class="chart tall" id="chart-speed"></div>
+          </div>
+
+          <!-- Secondary Charts Row -->
+          <div class="chart-grid-2col mb-4">
+            <div class="glass-panel">
+              <h4>📈 Acceleration Rate</h4>
+              <div class="chart" id="chart-speed-accel"></div>
+            </div>
+            <div class="glass-panel">
+              <h4>📊 Speed Distribution</h4>
+              <div class="chart" id="chart-speed-histogram"></div>
+            </div>
+          </div>
+
+          <!-- Time in Speed Ranges -->
+          <div class="glass-panel">
+            <h4>⏱️ Time in Speed Ranges</h4>
+            <div class="speed-range-bars" id="speed-range-bars">
+              <div class="speed-range-item">
+                <span class="speed-range-label">0-10 km/h</span>
+                <div class="speed-range-bar-container">
+                  <div class="speed-range-bar-fill" id="range-0-10" style="width: 0%"></div>
+                </div>
+                <span class="speed-range-value" id="range-0-10-pct">0%</span>
+              </div>
+              <div class="speed-range-item">
+                <span class="speed-range-label">10-20 km/h</span>
+                <div class="speed-range-bar-container">
+                  <div class="speed-range-bar-fill" id="range-10-20" style="width: 0%"></div>
+                </div>
+                <span class="speed-range-value" id="range-10-20-pct">0%</span>
+              </div>
+              <div class="speed-range-item">
+                <span class="speed-range-label">20-30 km/h</span>
+                <div class="speed-range-bar-container">
+                  <div class="speed-range-bar-fill" id="range-20-30" style="width: 0%"></div>
+                </div>
+                <span class="speed-range-value" id="range-20-30-pct">0%</span>
+              </div>
+              <div class="speed-range-item">
+                <span class="speed-range-label">30-40 km/h</span>
+                <div class="speed-range-bar-container">
+                  <div class="speed-range-bar-fill" id="range-30-40" style="width: 0%"></div>
+                </div>
+                <span class="speed-range-value" id="range-30-40-pct">0%</span>
+              </div>
+              <div class="speed-range-item">
+                <span class="speed-range-label">40+ km/h</span>
+                <div class="speed-range-bar-container">
+                  <div class="speed-range-bar-fill" id="range-40-plus" style="width: 0%"></div>
+                </div>
+                <span class="speed-range-value" id="range-40-plus-pct">0%</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Power -->
+        <section id="panel-power" class="panel">
+          <!-- Filter Bar -->
+          <div class="tab-filter-bar glass-panel">
+            <div id="power-time-range"></div>
+            <div id="power-field-toggles"></div>
+          </div>
+
+          <!-- Primary Metrics -->
+          <div class="stat-card-grid mb-4">
+            <div class="stat-card-mini glass-panel accent-green">
+              <span class="stat-label">Voltage</span>
+              <span class="stat-value" id="power-voltage">0.00</span>
+              <span class="stat-unit">V</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-red">
+              <span class="stat-label">Current</span>
+              <span class="stat-value" id="power-current">0.00</span>
+              <span class="stat-unit">A</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-amber">
+              <span class="stat-label">Power</span>
+              <span class="stat-value" id="power-power">0.00</span>
+              <span class="stat-unit">W</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-purple">
+              <span class="stat-label">Energy</span>
+              <span class="stat-value" id="power-energy">0.00</span>
+              <span class="stat-unit">kWh</span>
+            </div>
+          </div>
+
+          <!-- Secondary Stats Row -->
+          <div class="stat-card-grid mb-4">
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Avg Voltage</span>
+              <span class="stat-value" id="power-avg-voltage">0.00</span>
+              <span class="stat-unit">V</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Avg Current</span>
+              <span class="stat-value" id="power-avg-current">0.00</span>
+              <span class="stat-unit">A</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Avg Power</span>
+              <span class="stat-value" id="power-avg-power">0.00</span>
+              <span class="stat-unit">W</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Peak Power</span>
+              <span class="stat-value" id="power-peak-power">0.00</span>
+              <span class="stat-unit">W</span>
+            </div>
+          </div>
+
+          <!-- Primary Power Chart -->
+          <div class="glass-panel mb-4">
+            <div class="chart-header">
+              <h3>⚡ Voltage & Current Over Time</h3>
+              <div id="power-zoom-controls"></div>
+            </div>
+            <div class="chart tall" id="chart-power"></div>
+          </div>
+
+          <!-- Secondary Analysis Charts -->
+          <div class="chart-grid-2col mb-4">
+            <div class="glass-panel">
+              <h4>📊 Voltage Stability</h4>
+              <div class="chart" id="chart-voltage-stability"></div>
+              <div class="stability-indicator" id="voltage-stability-indicator">
+                <span class="stability-dot"></span>
+                <span class="stability-text">Voltage Stability</span>
+                <span class="stability-value" id="voltage-stability-value">—</span>
+              </div>
+            </div>
+            <div class="glass-panel">
+              <h4>⚠️ Current Peaks</h4>
+              <div class="chart" id="chart-current-peaks"></div>
+              <div class="peak-count" id="current-peak-count">0 peaks detected</div>
+            </div>
+          </div>
+
+          <!-- Cumulative Energy & Current Spikes Grid -->
+          <div class="chart-grid-2col">
+            <div class="glass-panel">
+              <h4>🔋 Cumulative Energy Consumption</h4>
+              <div class="chart" id="chart-energy-cumulative"></div>
+              <div class="energy-total" id="power-total-energy">
+                <span class="energy-label">Total Energy:</span>
+                <span class="energy-value" id="cumulative-energy-value">0.000</span>
+                <span class="energy-unit">kWh</span>
+              </div>
+            </div>
+            <div class="glass-panel">
+              <h4>⚡ Current Spike Log</h4>
+              <div class="current-spikes-list" id="power-current-spikes">
+                <div class="empty-state">
+                  <span class="empty-state-icon">⚡</span>
+                  <span class="empty-state-text">No current spikes detected</span>
+                </div>
+              </div>
+              <div class="spikes-summary" id="power-spikes-summary">
+                <span class="spikes-count">0 spikes detected</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- IMU -->
+        <section id="panel-imu" class="panel">
+          <!-- Filter Bar -->
+          <div class="tab-filter-bar glass-panel">
+            <div id="imu-time-range"></div>
+            <div id="imu-field-toggles"></div>
+          </div>
+
+          <!-- Stability Stats -->
+          <div class="stat-card-grid mb-4">
+            <div class="stat-card-mini glass-panel accent-green">
+              <span class="stat-label">Stability Score</span>
+              <span class="stat-value" id="imu-stability">100%</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-amber">
+              <span class="stat-label">Max G-Force</span>
+              <span class="stat-value" id="imu-max-g">0.0</span>
+              <span class="stat-unit">G</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-blue">
+              <span class="stat-label">Pitch</span>
+              <span class="stat-value" id="imu-pitch">0.0</span>
+              <span class="stat-unit">°</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-purple">
+              <span class="stat-label">Roll</span>
+              <span class="stat-value" id="imu-roll">0.0</span>
+              <span class="stat-unit">°</span>
+            </div>
+          </div>
+
+          <!-- Primary IMU Chart -->
+          <div class="glass-panel mb-4">
+            <div class="chart-header">
+              <h3>🧭 IMU Sensors Overview</h3>
+              <div id="imu-zoom-controls"></div>
+            </div>
+            <div class="chart tall" id="chart-imu"></div>
+          </div>
+
+          <!-- Secondary Charts -->
+          <div class="chart-grid-2col mb-4">
+            <div class="glass-panel">
+              <h4>🎮 Orientation (Pitch & Roll)</h4>
+              <div class="chart" id="chart-imu-orientation"></div>
+            </div>
+            <div class="glass-panel">
+              <h4>📊 Vibration Analysis</h4>
+              <div class="chart" id="chart-imu-vibration"></div>
+            </div>
+          </div>
+
+          <!-- Motion Classification -->
+          <div class="glass-panel">
+            <h4>🏷️ Motion State</h4>
+            <div class="motion-classification" id="imu-motion-class">
+              <span class="motion-badge stationary">Stationary</span>
+              <span class="motion-badge accelerating">Accelerating</span>
+              <span class="motion-badge cruising">Cruising</span>
+              <span class="motion-badge braking">Braking</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- IMU Detail -->
+        <section id="panel-imu-detail" class="panel">
+          <!-- Filter Bar -->
+          <div class="tab-filter-bar glass-panel">
+            <div id="imu-detail-time-range"></div>
+          </div>
+
+          <!-- Detail Stats -->
+          <div class="stat-card-grid mb-4">
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Gyro X</span>
+              <span class="stat-value" id="imu-gyro-x">0.0</span>
+              <span class="stat-unit">°/s</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Gyro Y</span>
+              <span class="stat-value" id="imu-gyro-y">0.0</span>
+              <span class="stat-unit">°/s</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Gyro Z</span>
+              <span class="stat-value" id="imu-gyro-z">0.0</span>
+              <span class="stat-unit">°/s</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Total Angular</span>
+              <span class="stat-value" id="imu-angular-total">0.0</span>
+              <span class="stat-unit">°/s</span>
+            </div>
+          </div>
+
+          <div class="stat-card-grid mb-4">
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Accel X</span>
+              <span class="stat-value" id="imu-accel-x">0.0</span>
+              <span class="stat-unit">m/s²</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Accel Y</span>
+              <span class="stat-value" id="imu-accel-y">0.0</span>
+              <span class="stat-unit">m/s²</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Accel Z</span>
+              <span class="stat-value" id="imu-accel-z">0.0</span>
+              <span class="stat-unit">m/s²</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Total G</span>
+              <span class="stat-value" id="imu-total-g">0.0</span>
+              <span class="stat-unit">G</span>
+            </div>
+          </div>
+
+          <!-- Detailed IMU Chart Grid -->
+          <div class="glass-panel mb-4">
+            <div class="chart-header">
+              <h3>🎮 Detailed Sensor Analysis</h3>
+            </div>
+            <div class="chart xxl" id="chart-imu-detail"></div>
+          </div>
+
+          <!-- Force Peaks -->
+          <div class="chart-grid-2col">
+            <div class="glass-panel">
+              <h4>⚡ Acceleration Force Peaks</h4>
+              <div class="force-peaks-list" id="imu-force-peaks">
+                <div class="empty-state">
+                  <span class="empty-state-icon">📊</span>
+                  <span class="empty-state-text">No significant peaks detected</span>
+                </div>
+              </div>
+            </div>
+            <div class="glass-panel">
+              <h4>🔄 Angular Velocity Histogram</h4>
+              <div class="chart" id="chart-imu-angular-histogram"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Efficiency -->
+        <section id="panel-efficiency" class="panel">
+          <!-- Filter Bar -->
+          <div class="tab-filter-bar glass-panel">
+            <div id="efficiency-time-range"></div>
+          </div>
+
+          <!-- Efficiency KPIs -->
+          <div class="stat-card-grid mb-4">
+            <div class="stat-card-mini glass-panel accent-green">
+              <span class="stat-label">Current Efficiency</span>
+              <span class="stat-value" id="eff-current">0.0</span>
+              <span class="stat-unit">km/kWh</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Average Efficiency</span>
+              <span class="stat-value" id="eff-avg">0.0</span>
+              <span class="stat-unit">km/kWh</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-blue">
+              <span class="stat-label">Optimal Speed</span>
+              <span class="stat-value" id="eff-optimal-speed">—</span>
+              <span class="stat-unit">km/h</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Total Distance</span>
+              <span class="stat-value" id="eff-distance">0.00</span>
+              <span class="stat-unit">km</span>
+            </div>
+          </div>
+
+          <!-- Primary Efficiency Chart -->
+          <div class="glass-panel mb-4">
+            <div class="chart-header">
+              <h3>📈 Speed vs Power</h3>
+              <div id="efficiency-zoom-controls"></div>
+            </div>
+            <div class="chart tall" id="chart-efficiency"></div>
+          </div>
+
+          <!-- Secondary Charts -->
+          <div class="chart-grid-2col mb-4">
+            <div class="glass-panel">
+              <h4>📉 Efficiency Over Time</h4>
+              <div class="chart" id="chart-eff-trend"></div>
+            </div>
+            <div class="glass-panel">
+              <h4>📊 Efficiency by Speed Range</h4>
+              <div class="chart" id="chart-eff-by-speed"></div>
+            </div>
+          </div>
+
+          <!-- Optimal Speed Recommendation -->
+          <div class="glass-panel">
+            <h4>💡 Optimal Speed Recommendation</h4>
+            <div class="optimal-speed-display" id="optimal-speed-display">
+              <p>Collecting data to determine optimal speed range...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- GPS -->
+        <section id="panel-gps" class="panel">
+          <!-- Filter Bar -->
+          <div class="tab-filter-bar glass-panel">
+            <div id="gps-time-range"></div>
+            <div class="map-controls">
+              <label><input type="checkbox" id="gps-show-trail" checked> Show Trail</label>
+              <label><input type="checkbox" id="gps-follow-marker" checked> Follow Marker</label>
+            </div>
+          </div>
+
+          <!-- Route Stats -->
+          <div class="stat-card-grid mb-4">
+            <div class="stat-card-mini glass-panel accent-blue">
+              <span class="stat-label">Route Distance</span>
+              <span class="stat-value" id="gps-distance">0.00</span>
+              <span class="stat-unit">km</span>
+            </div>
+            <div class="stat-card-mini glass-panel accent-green">
+              <span class="stat-label">Elevation Gain</span>
+              <span class="stat-value" id="gps-elevation-gain">0</span>
+              <span class="stat-unit">m</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">Avg Speed</span>
+              <span class="stat-value" id="gps-avg-speed">0.0</span>
+              <span class="stat-unit">km/h</span>
+            </div>
+            <div class="stat-card-mini glass-panel">
+              <span class="stat-label">GPS Accuracy</span>
+              <span class="stat-value" id="gps-accuracy">—</span>
+              <span class="stat-unit">m</span>
+            </div>
+          </div>
+
+          <!-- Map Section -->
+          <div class="glass-panel mb-4">
+            <div class="chart-header">
+              <h3>🗺️ Route Map</h3>
+              <div id="gps-current-coords" style="font-size: 0.75rem; color: var(--text-muted);">
+                <span id="gps-lat">—</span>, <span id="gps-lon">—</span>
+              </div>
+            </div>
+            <div class="map" id="map" style="height: 350px;"></div>
+          </div>
+
+          <!-- Secondary Charts -->
+          <div class="chart-grid-2col">
+            <div class="glass-panel">
+              <h4>📈 Altitude Profile</h4>
+              <div class="chart" id="chart-altitude"></div>
+            </div>
+            <div class="glass-panel">
+              <h4>🏎️ Speed Along Route</h4>
+              <div class="chart" id="chart-gps-speed"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Custom -->
+        <section id="panel-custom" class="panel">
+          <div class="glass-panel center-content">
+            <h3>🎨 Custom Charts</h3>
+            <p class="fine">
+              Click <strong>"Add Chart"</strong> to create custom
+              visualizations.
+            </p>
+            <button id="btn-add-custom-chart" class="liquid-hover mt-2">
+              ➕ Add Chart
+            </button>
+          </div>
+          <div id="custom-charts-container"></div>
+        </section>
+
+        <!-- Data -->
+        <section id="panel-data" class="panel">
+          <!-- Table first -->
+          <div class="data-quality-table">
+            <div class="table-header" style="padding: 1.2rem; border-bottom: 1px solid var(--glass-border);">
+              <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                📋 Raw Telemetry Data
+                <span id="data-count" class="text-subtle small"></span>
+              </h3>
+            </div>
+            <div class="table-wrap">
+              <table id="data-table" class="display responsive nowrap" style="width: 100%"></table>
+            </div>
+          </div>
+
+          <!-- Data Quality Metrics - Redesigned -->
+          <div class="quality-metrics-container">
+            <!-- Hero Quality Score -->
+            <div class="quality-hero glass-panel">
+              <div class="quality-hero-score">
+                <div class="quality-gauge-ring" id="quality-gauge-ring">
+                  <svg viewBox="0 0 120 120">
+                    <circle class="gauge-bg" cx="60" cy="60" r="52" />
+                    <circle class="gauge-fill" id="quality-gauge-fill" cx="60" cy="60" r="52" />
+                  </svg>
+                  <div class="quality-gauge-value">
+                    <span id="quality-score-hero">0</span>
+                    <span class="quality-gauge-unit">%</span>
+                  </div>
+                </div>
+                <div class="quality-hero-label">Quality Score</div>
+              </div>
+              <div class="quality-hero-stats">
+                <div class="quality-stat">
+                  <span class="quality-stat-value" id="total-records">0</span>
+                  <span class="quality-stat-label">Total Records</span>
+                </div>
+                <div class="quality-stat">
+                  <span class="quality-stat-value" id="complete-records">0%</span>
+                  <span class="quality-stat-label">Complete</span>
+                </div>
+                <div class="quality-stat">
+                  <span class="quality-stat-value" id="missing-values">0%</span>
+                  <span class="quality-stat-label">Missing</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bridge Health Section -->
+            <div class="bridge-health glass-panel">
+              <h3>
+                <span class="bridge-status-dot" id="bridge-status-dot"></span>
+                🔗 Server Health
+              </h3>
+              <div class="bridge-health-grid">
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">📡</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-connection-status">Disconnected</span>
+                    <span class="bridge-metric-label">Connection</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">🔄</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-reconnects">0</span>
+                    <span class="bridge-metric-label">Reconnects</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">⚠️</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-error-rate">0/min</span>
+                    <span class="bridge-metric-label">Error Rate</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">⚡</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-latency">—</span>
+                    <span class="bridge-metric-label">Latency</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">🔢</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-messages-count">0</span>
+                    <span class="bridge-metric-label">Since Connect</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">⏱️</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-last-update">Never</span>
+                    <span class="bridge-metric-label">Last Update</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">✅</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-uptime-pct">0%</span>
+                    <span class="bridge-metric-label">Uptime</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">📊</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-data-rate">0/min</span>
+                    <span class="bridge-metric-label">Data Pts/min</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">🕐</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-session-time">0:00</span>
+                    <span class="bridge-metric-label">Session Time</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">⚡</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-msg-rate">0 Hz</span>
+                    <span class="bridge-metric-label">Live Rate</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">📉</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-median-hz">—</span>
+                    <span class="bridge-metric-label">Median Hz</span>
+                  </div>
+                </div>
+                <div class="bridge-metric">
+                  <div class="bridge-metric-icon">📡</div>
+                  <div class="bridge-metric-info">
+                    <span class="bridge-metric-value" id="bridge-expected-rate">—</span>
+                    <span class="bridge-metric-label">Message Rate</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Outlier Analysis Panel (NEW) -->
+            <div class="outlier-analysis glass-panel">
+              <h3>
+                <span class="outlier-status-indicator" id="outlier-status-indicator"></span>
+                🔍 Outlier Analysis
+              </h3>
+              <!-- Severity Badges -->
+              <div class="outlier-severity-row" id="outlier-severity-badges">
+                <div class="severity-card critical" id="severity-critical-card">
+                  <span class="severity-count" id="outlier-critical-count">0</span>
+                  <span class="severity-label">Critical</span>
+                </div>
+                <div class="severity-card warning" id="severity-warning-card">
+                  <span class="severity-count" id="outlier-warning-count">0</span>
+                  <span class="severity-label">Warning</span>
+                </div>
+                <div class="severity-card info" id="severity-info-card">
+                  <span class="severity-count" id="outlier-info-count">0</span>
+                  <span class="severity-label">Info</span>
+                </div>
+              </div>
+              <!-- Per-Field Outlier Breakdown -->
+              <div class="outlier-fields-container" id="outlier-fields-breakdown">
+                <div class="outlier-fields-placeholder">No outliers detected</div>
+              </div>
+              <!-- Recent Outliers Timeline -->
+              <div class="outlier-timeline" id="outlier-timeline">
+                <h4>Recent Outliers</h4>
+                <div class="outlier-timeline-items" id="outlier-timeline-items">
+                  <div class="outlier-timeline-empty">No recent outliers</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Secondary Metrics Row -->
+            <div class="quality-secondary-grid">
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">🔄 Duplicates</div>
+                <div id="duplicate-records" class="kpi-value">0</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">⚠️ Anomalies</div>
+                <div id="anomalies-detected" class="kpi-value">0</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">📉 Dropouts</div>
+                <div id="dropout-count" class="kpi-value">0</div>
+              </div>
+              <div class="kpi liquid-hover">
+                <div class="kpi-label">⏳ Max Gap</div>
+                <div id="max-gap-value" class="kpi-value">N/A</div>
+              </div>
+            </div>
+
+            <!-- Quality Alerts (always visible when present) -->
+            <div id="quality-alerts" class="note-list"></div>
+
+            <!-- Quality Score Trend Chart -->
+            <div class="glass-panel quality-trend-chart">
+              <h4>📈 Quality Score Trend</h4>
+              <div class="chart h-200" id="chart-quality-score"></div>
+            </div>
+
+            <!-- Collapsible Sections -->
+            <div class="collapsible-sections">
+              <!-- Field Completeness (moved to bottom) -->
+              <details class="collapsible-section">
+                <summary class="collapsible-header">
+                  <span class="collapsible-icon">📊</span>
+                  <span class="collapsible-title">Field Completeness</span>
+                  <span class="collapsible-arrow">▼</span>
+                </summary>
+                <div class="collapsible-content">
+                  <div id="field-completeness" class="field-bars"></div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="footer">
+        <div class="glass-panel footer-panel">
+          <p class="fine">
+            🏎️ Shell Eco-marathon Telemetry Dashboard
+          </p>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+
+  <!-- Ably realtime for telemetry streaming -->
+  <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+
+  <!-- Convex browser client for real-time data & auth -->
+  <script src="https://unpkg.com/convex@1.17.0/dist/browser.bundle.js"></script>
+
+  <!-- Auth modules -->
+  <script src="auth.js"></script>
+  <script src="auth-ui.js"></script>
+
+  <!-- High-performance charting (uPlot) -->
+  <script src="lib/uplot.iife.min.js"></script>
+  <script src="lib/gauges.js"></script>
+  <script src="lib/charts.js"></script>
+  <script src="lib/mock-data.js"></script>
+  <script src="lib/worker-bridge.js"></script>
+  <script src="lib/convex-bridge.js"></script>
+
+  <!-- App logic -->
+  <script src="app.js"></script>
+
+  <!-- View Transitions API Polyfill -->
+  <script>
+    // Polyfill for browsers that don't support View Transitions API
+    if (!document.startViewTransition) {
+      document.startViewTransition = (callback) => {
+        callback();
+      };
+    }
+  </script>
+</body>
+
+</html>

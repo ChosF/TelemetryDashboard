@@ -1,1052 +1,728 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="es">
 
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="view-transition" content="same-origin" />
-  <title>EcoVolt Telemetry</title>
-  <link rel="icon"
-    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
-
-  <!-- App styles -->
-  <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="auth-styles.css" />
-
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
-    rel="stylesheet" />
-
-  <!-- jQuery DataTables + Responsive -->
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css" />
-  <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css" />
-
-  <!-- MapLibre GL JS -->
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
-
-  <!-- uPlot (high-performance charts) -->
-  <link rel="stylesheet" href="lib/uplot.min.css" />
-
-  <!-- Configuration - Set your Convex URL here -->
-  <script>
-    // Detect if running locally or in production
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
-    window.CONFIG = window.CONFIG || {
-      ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
-      // Use Ably API key directly for now (both local and production)
-      // This avoids the need for the Convex HTTP token endpoint
-      // Note: For better security in production, set up ABLY_API_KEY in Convex 
-      // environment variables and use ABLY_AUTH_URL instead
-      ABLY_API_KEY: "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ",
-      // Alternative: Use Convex HTTP endpoint for token auth (more secure)
-      // ABLY_AUTH_URL: "https://impartial-walrus-693.convex.site/ably/token",
-      // Set your Convex deployment URL - this is the main data backend
-      CONVEX_URL: "https://impartial-walrus-693.convex.cloud",
-    };
-  </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoVolt CCM — Sé el cambio</title>
+    <meta name="description"
+        content="EcoVolt CCM - Escudería Shell Borregos del Tecnológico de Monterrey. Innovación en vehículos eléctricos de alta eficiencia energética.">
+    <link rel="icon" type="image/png" href="/images/logo.png">
+    <link rel="stylesheet" href="/landing.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'ecovolt-orange': '#FF6B35',
+                        'ecovolt-orange-light': '#FF8F5C',
+                        'ecovolt-orange-dark': '#E55A2B',
+                        'ecovolt-ember': '#FF4500',
+                        'ecovolt-sunset': '#FF7849',
+                        'ecovolt-black': '#0A0A0A',
+                        'ecovolt-charcoal': '#141414',
+                        'ecovolt-graphite': '#1E1E1E',
+                        'ecovolt-slate': '#2A2A2A',
+                        'ecovolt-white': '#FAFAFA',
+                        'ecovolt-cream': '#F5F5F0',
+                        'ecovolt-gold': '#D4A574',
+                        'ecovolt-copper': '#B87333',
+                        'ecovolt-bronze': '#CD7F32',
+                        'energy-green': '#22C55E',
+                        'energy-teal': '#14B8A6',
+                        'energy-cyan': '#06B6D4',
+                    }
+                }
+            }
+        }
+    </script>
 </head>
 
-<body>
-  <!-- Reusable Component Templates -->
-  <template id="time-range-selector-template">
-    <div class="time-range-selector">
-      <button class="time-btn" data-range="30s">30s</button>
-      <button class="time-btn" data-range="1m">1m</button>
-      <button class="time-btn" data-range="5m">5m</button>
-      <button class="time-btn active" data-range="all">All</button>
-    </div>
-  </template>
+<body class="swiss-grid overflow-x-hidden">
 
-  <template id="zoom-controls-template">
-    <div class="chart-zoom-controls">
-      <button class="zoom-btn" data-action="zoom-out" title="Zoom Out">−</button>
-      <button class="zoom-btn" data-action="zoom-in" title="Zoom In">+</button>
-      <button class="zoom-btn zoom-reset" data-action="reset" title="Reset Zoom">Reset</button>
-    </div>
-  </template>
+    <!-- ═══ NAVIGATION ═══ -->
+    <nav id="navbar"
+        class="fixed top-0 left-0 right-0 z-50 border-b border-ecovolt-white/5 bg-ecovolt-black/80 backdrop-blur-xl transition-all duration-300">
+        <div class="max-w-[1600px] mx-auto">
+            <div class="flex items-center justify-between h-20 px-6 lg:px-12">
+                <!-- Logo -->
+                <a href="/" class="flex items-center gap-4 group">
+                    <img src="/images/logo.png" alt="EcoVolt"
+                        class="h-9 w-auto transition-transform duration-300 group-hover:scale-105">
+                    <div class="hidden sm:block">
+                        <div class="text-[10px] uppercase tracking-[0.25em] text-ecovolt-white/40 leading-none mb-1">
+                            Escudería</div>
+                        <div class="font-bold tracking-tight leading-none">EcoVolt CCM</div>
+                    </div>
+                </a>
 
-  <!-- Floating Action Menu -->
-  <div id="fab-menu" class="fab-menu">
-    <button id="fab-toggle" class="fab-button liquid-hover" aria-label="Menu">
-      <span class="fab-icon">⚡</span>
-    </button>
-    <div id="fab-options" class="fab-options">
-      <button id="fab-connect" class="fab-option liquid-hover" data-tooltip="Connect">
-        <span>🔗</span>
-      </button>
-      <button id="fab-export" class="fab-option liquid-hover" data-tooltip="Export">
-        <span>💾</span>
-      </button>
-      <button id="fab-sessions" class="fab-option liquid-hover" data-tooltip="Sessions">
-        <span>📊</span>
-      </button>
-    </div>
-  </div>
+                <!-- Desktop Nav -->
+                <div class="hidden lg:flex items-center gap-1">
+                    <a href="#about"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Nosotros</a>
+                    <a href="#dashboard"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Dashboard</a>
+                    <a href="#achievements"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Logros</a>
+                    <a href="competition.html"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Competencia</a>
+                    <a href="sponsors.html"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Patrocinadores</a>
+                    <a href="#contact"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Contacto</a>
+                </div>
 
-  <!-- Main Container -->
-  <div id="layout" class="app-container">
-    <!-- Hero Header -->
-    <header class="hero-header">
-      <div class="hero-content">
-        <div class="hero-title-wrapper">
-          <h1 class="hero-title" data-full-text="Shell Eco-marathon" data-short-text="Shell">Shell Eco-marathon</h1>
-          <p class="hero-subtitle" data-full-text="Real-time Telemetry Dashboard" data-short-text="DASHBOARD">Real-time
-            Telemetry Dashboard</p>
+                <!-- Right side -->
+                <div class="flex items-center gap-4">
+                    <a href="/dashboard"
+                        class="hidden sm:inline-flex bg-ecovolt-white text-ecovolt-black px-6 py-2.5 text-sm font-semibold tracking-wide hover:bg-ecovolt-orange hover:text-white transition-colors">
+                        VER DASHBOARD
+                    </a>
+                    <!-- Mobile menu toggle -->
+                    <button id="menu-toggle"
+                        class="lg:hidden w-10 h-10 flex flex-col items-center justify-center gap-1.5 group"
+                        aria-label="Menu">
+                        <span
+                            class="block w-6 h-0.5 bg-ecovolt-white transition-all group-hover:bg-ecovolt-orange menu-line-1"></span>
+                        <span
+                            class="block w-6 h-0.5 bg-ecovolt-white transition-all group-hover:bg-ecovolt-orange menu-line-2"></span>
+                        <span
+                            class="block w-4 h-0.5 bg-ecovolt-white transition-all group-hover:bg-ecovolt-orange menu-line-3"></span>
+                    </button>
+                </div>
+            </div>
         </div>
-        <div class="hero-status">
-          <div class="status-badge" id="connection-status">
-            <span class="status-dot"></span>
-            <span class="status-text">Ready</span>
-          </div>
-          <div class="stats-mini">
-            <div class="stat-mini">
-              <span class="stat-mini-value" id="stat-msg">0</span>
-              <span class="stat-mini-label">Messages</span>
+    </nav>
+
+    <!-- Mobile Menu -->
+    <div id="mobile-menu" class="mobile-menu">
+        <button id="menu-close"
+            class="absolute top-6 right-6 w-10 h-10 flex items-center justify-center text-ecovolt-white/60 hover:text-ecovolt-orange transition-colors"
+            aria-label="Close">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+        <a href="#about" class="mobile-link">Nosotros</a>
+        <a href="#dashboard" class="mobile-link">Dashboard</a>
+        <a href="#achievements" class="mobile-link">Logros</a>
+        <a href="competition.html" class="mobile-link">Competencia</a>
+        <a href="sponsors.html" class="mobile-link">Patrocinadores</a>
+        <a href="#contact" class="mobile-link">Contacto</a>
+        <a href="/dashboard" class="mt-4 btn-primary text-lg">VER
+            DASHBOARD</a>
+    </div>
+
+    <!-- ═══ HERO ═══ -->
+    <section class="min-h-screen flex flex-col pt-20">
+        <!-- Info bar -->
+        <div class="border-b border-ecovolt-white/5">
+            <div class="max-w-[1600px] mx-auto px-6 lg:px-12 py-4">
+                <div
+                    class="flex items-center justify-between text-[10px] sm:text-xs uppercase tracking-[0.2em] text-ecovolt-white/35 mono">
+                    <span>Shell Eco-marathon</span>
+                    <span class="hidden sm:block">Tecnológico de Monterrey</span>
+                    <span class="hidden md:block">Campus CCM, CDMX</span>
+                    <span class="flex items-center gap-2">
+                        <span class="w-1.5 h-1.5 rounded-full bg-energy-green animate-pulse"></span>
+                        <span>Activo</span>
+                    </span>
+                </div>
             </div>
-            <div class="stat-mini">
-              <span class="stat-mini-value" id="stat-last">Never</span>
-              <span class="stat-mini-label">Last Update</span>
-            </div>
-          </div>
-          <!-- Header Actions (Theme + Auth) -->
-          <div class="header-actions">
-            <button id="theme-toggle" class="theme-toggle liquid-hover" aria-label="Toggle theme"
-              title="Toggle light/dark mode">
-              <span class="theme-icon theme-icon-sun">☀️</span>
-              <span class="theme-icon theme-icon-moon">🌙</span>
-            </button>
-            <!-- Auth button will be inserted here by auth-ui.js -->
-          </div>
         </div>
-      </div>
-    </header>
 
-    <!-- Main Content -->
-    <main class="main-content">
+        <!-- Main hero -->
+        <div class="flex-1 flex items-center">
+            <div class="max-w-[1600px] mx-auto px-6 lg:px-12 py-12 lg:py-16 w-full">
+                <div class="grid lg:grid-cols-12 gap-8 lg:gap-12 items-center">
 
-      <div class="main">
-        <!-- Navigation Tabs -->
-        <nav class="tabs-nav">
-          <button class="tab active liquid-hover" data-panel="overview">
-            <span class="tab-icon">📊</span>
-            <span class="tab-label">Overview</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="speed">
-            <span class="tab-icon">🚗</span>
-            <span class="tab-label">Speed</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="power">
-            <span class="tab-icon">⚡</span>
-            <span class="tab-label">Power</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="imu">
-            <span class="tab-icon">🧭</span>
-            <span class="tab-label">IMU</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="imu-detail">
-            <span class="tab-icon">🎮</span>
-            <span class="tab-label">IMU Detail</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="efficiency">
-            <span class="tab-icon">📈</span>
-            <span class="tab-label">Efficiency</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="gps">
-            <span class="tab-icon">🗺️</span>
-            <span class="tab-label">GPS</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="custom">
-            <span class="tab-icon">🎨</span>
-            <span class="tab-label">Custom</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="data">
-            <span class="tab-icon">📋</span>
-            <span class="tab-label">Data</span>
-          </button>
-        </nav>
+                    <!-- Left: Typography -->
+                    <div class="lg:col-span-7">
+                        <div class="mb-6 lg:mb-8">
+                            <div class="section-label">
+                                <span class="line"></span>
+                                <span>2017 — Presente</span>
+                            </div>
+                        </div>
 
-        <!-- Overview -->
-        <section id="panel-overview" class="panel active">
-          <!-- Overview Top Bar - Two Column Layout -->
-          <div class="overview-top-bar mb-4">
-            <!-- Left: Efficiency + Optimal Speed -->
-            <div class="overview-metrics-left glass-panel">
-              <div class="overview-metric">
-                <span class="metric-icon">⚡</span>
-                <div class="metric-info">
-                  <span class="metric-label">Current Efficiency</span>
-                  <span class="metric-value" id="overview-efficiency">— km/kWh</span>
+                        <h1 class="text-display font-black uppercase tracking-tighter mb-6 lg:mb-8">
+                            <span class="block reveal-up">Sé el</span>
+                            <span class="block reveal-up text-ecovolt-orange"
+                                style="animation-delay: 0.15s;">cambio</span>
+                        </h1>
+
+                        <div class="max-w-xl mb-10 lg:mb-12">
+                            <p class="text-body-lg text-ecovolt-white/55 leading-relaxed">
+                                Impulsando la innovación en vehículos eléctricos de alta eficiencia energética en el
+                                Tecnológico de Monterrey Campus Ciudad de México.
+                            </p>
+                        </div>
+
+                        <!-- Stats -->
+                        <div
+                            class="grid grid-cols-3 gap-6 lg:gap-8 py-6 lg:py-8 border-t border-b border-ecovolt-white/8">
+                            <div>
+                                <div class="text-3xl sm:text-4xl md:text-5xl font-black text-ecovolt-orange mono">2017
+                                </div>
+                                <div
+                                    class="text-[10px] sm:text-xs uppercase tracking-[0.15em] text-ecovolt-white/35 mt-2">
+                                    Fundación</div>
+                            </div>
+                            <div>
+                                <div class="text-3xl sm:text-4xl md:text-5xl font-black text-ecovolt-orange mono">03
+                                </div>
+                                <div
+                                    class="text-[10px] sm:text-xs uppercase tracking-[0.15em] text-ecovolt-white/35 mt-2">
+                                    Premios globales</div>
+                            </div>
+                            <div>
+                                <div class="text-3xl sm:text-4xl md:text-5xl font-black text-ecovolt-orange mono">∞
+                                </div>
+                                <div
+                                    class="text-[10px] sm:text-xs uppercase tracking-[0.15em] text-ecovolt-white/35 mt-2">
+                                    Datos telemetría</div>
+                            </div>
+                        </div>
+
+                        <!-- CTAs -->
+                        <div class="flex flex-wrap gap-4 mt-10 lg:mt-12">
+                            <a href="/dashboard" class="btn-primary group">
+                                <span>Telemetría en Vivo</span>
+                                <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none"
+                                    stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                                </svg>
+                            </a>
+                            <a href="#about" class="btn-outline">Conocer Más</a>
+                        </div>
+                    </div>
+
+                    <!-- Right: Image -->
+                    <div class="lg:col-span-5 relative mt-8 lg:mt-0">
+                        <div class="relative aspect-[4/5] corner-brackets">
+                            <!-- Grid overlay -->
+                            <div class="absolute inset-0 z-10 pointer-events-none">
+                                <div class="h-full w-full grid grid-cols-4 grid-rows-5">
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-b border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-ecovolt-orange/8"></div>
+                                    <div class="border-r border-ecovolt-orange/8"></div>
+                                    <div></div>
+                                </div>
+                            </div>
+
+                            <img src="/images/hero.jpg" alt="Equipo EcoVolt en Shell Eco-marathon"
+                                class="w-full h-full object-cover reveal-up">
+                        </div>
+
+                        <!-- Caption badge -->
+                        <div
+                            class="absolute -bottom-5 left-6 right-6 bg-ecovolt-black border border-ecovolt-white/8 px-6 py-4 z-20">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-white/30 mono">Fig.
+                                    01</span>
+                                <span class="text-xs text-ecovolt-white/50">Shell Eco-marathon 2024</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-              </div>
-              <div class="metric-divider"></div>
-              <div class="overview-metric">
-                <span class="metric-icon">🎯</span>
-                <div class="metric-info">
-                  <span class="metric-label">Optimal Speed</span>
-                  <span class="metric-value" id="overview-optimal-speed">— km/h</span>
-                </div>
-              </div>
             </div>
-
-            <!-- Right: Motion State -->
-            <div class="overview-motion-state glass-panel">
-              <h4 class="motion-state-title">🏷️ Motion State</h4>
-              <div class="motion-classification" id="overview-motion-class">
-                <span class="motion-badge stationary">Stationary</span>
-                <span class="motion-badge accelerating">Accelerating</span>
-                <span class="motion-badge cruising">Cruising</span>
-                <span class="motion-badge braking">Braking</span>
-                <span class="motion-badge turning">Turning</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- KPIs - Collapsible -->
-          <div class="glass-panel mb-4">
-            <div class="collapsible-header" data-target="kpi-content">
-              <h3>📊 Key Performance Indicators</h3>
-              <span class="collapse-icon">−</span>
-            </div>
-            <div id="kpi-content" class="collapsible-content">
-              <div class="kpi-grid">
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">📏 Distance</div>
-                  <div id="kpi-distance" class="kpi-value">0.00 km</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">🏃 Max Speed</div>
-                  <div id="kpi-maxspeed" class="kpi-value">0.0 km/h</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">⚡ Avg Speed</div>
-                  <div id="kpi-avgspeed" class="kpi-value">0.0 km/h</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">🔋 Energy</div>
-                  <div id="kpi-energy" class="kpi-value">0.00 kWh</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">⚡ Voltage</div>
-                  <div id="kpi-voltage" class="kpi-value">0.00 V</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">🔄 Current</div>
-                  <div id="kpi-current" class="kpi-value">0.00 A</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">💡 Avg Power</div>
-                  <div id="kpi-avgpower" class="kpi-value">0.00 W</div>
-                </div>
-                <div class="kpi liquid-hover">
-                  <div class="kpi-label">🌊 Avg Current</div>
-                  <div id="kpi-avgcurrent" class="kpi-value">0.00 A</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Gauges - Collapsible -->
-          <div class="glass-panel mb-4">
-            <div class="collapsible-header" data-target="gauges-content">
-              <h3>📊 Live Performance Gauges</h3>
-              <span class="collapse-icon">−</span>
-            </div>
-            <div id="gauges-content" class="collapsible-content">
-              <div class="gauge-grid">
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-speed"></div>
-                  <div class="gauge-title">Speed (km/h)</div>
-                </div>
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-battery"></div>
-                  <div class="gauge-title">Battery (%)</div>
-                </div>
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-power"></div>
-                  <div class="gauge-title">Power (W)</div>
-                </div>
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-efficiency"></div>
-                  <div class="gauge-title">Efficiency (km/kWh)</div>
-                </div>
-                <div class="gauge-wrap">
-                  <div class="gauge" id="gauge-total-g"></div>
-                  <div class="gauge-title">G Forces</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Driver Inputs - Collapsible -->
-          <div class="glass-panel driver-box mb-4">
-            <div class="collapsible-header" data-target="driver-content">
-              <h3>🎮 Driver Inputs (Live)</h3>
-              <span class="collapse-icon">−</span>
-            </div>
-            <div id="driver-content" class="collapsible-content">
-              <div class="chart tiny" id="chart-pedals"></div>
-              <div class="center fine">Brake and Throttle (0–100%)</div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Speed -->
-        <section id="panel-speed" class="panel">
-          <!-- Filter Bar -->
-          <div class="tab-filter-bar glass-panel">
-            <div id="speed-time-range"></div>
-            <div id="speed-field-toggles"></div>
-          </div>
-
-          <!-- Stats Row -->
-          <div class="stat-card-grid mb-4">
-            <div class="stat-card-mini glass-panel accent-blue">
-              <span class="stat-label">Current</span>
-              <span class="stat-value" id="speed-current">0.0</span>
-              <span class="stat-unit">km/h</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Average</span>
-              <span class="stat-value" id="speed-avg">0.0</span>
-              <span class="stat-unit">km/h</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-green">
-              <span class="stat-label">Maximum</span>
-              <span class="stat-value" id="speed-max">0.0</span>
-              <span class="stat-unit">km/h</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-amber">
-              <span class="stat-label">Minimum</span>
-              <span class="stat-value" id="speed-min">0.0</span>
-              <span class="stat-unit">km/h</span>
-            </div>
-          </div>
-
-          <!-- Primary Speed Chart -->
-          <div class="glass-panel mb-4">
-            <div class="chart-header">
-              <h3>🚗 Speed Over Time</h3>
-              <div id="speed-zoom-controls"></div>
-            </div>
-            <div class="chart tall" id="chart-speed"></div>
-          </div>
-
-          <!-- Secondary Charts Row -->
-          <div class="chart-grid-2col mb-4">
-            <div class="glass-panel">
-              <h4>📈 Acceleration Rate</h4>
-              <div class="chart" id="chart-speed-accel"></div>
-            </div>
-            <div class="glass-panel">
-              <h4>📊 Speed Distribution</h4>
-              <div class="chart" id="chart-speed-histogram"></div>
-            </div>
-          </div>
-
-          <!-- Time in Speed Ranges -->
-          <div class="glass-panel">
-            <h4>⏱️ Time in Speed Ranges</h4>
-            <div class="speed-range-bars" id="speed-range-bars">
-              <div class="speed-range-item">
-                <span class="speed-range-label">0-10 km/h</span>
-                <div class="speed-range-bar-container">
-                  <div class="speed-range-bar-fill" id="range-0-10" style="width: 0%"></div>
-                </div>
-                <span class="speed-range-value" id="range-0-10-pct">0%</span>
-              </div>
-              <div class="speed-range-item">
-                <span class="speed-range-label">10-20 km/h</span>
-                <div class="speed-range-bar-container">
-                  <div class="speed-range-bar-fill" id="range-10-20" style="width: 0%"></div>
-                </div>
-                <span class="speed-range-value" id="range-10-20-pct">0%</span>
-              </div>
-              <div class="speed-range-item">
-                <span class="speed-range-label">20-30 km/h</span>
-                <div class="speed-range-bar-container">
-                  <div class="speed-range-bar-fill" id="range-20-30" style="width: 0%"></div>
-                </div>
-                <span class="speed-range-value" id="range-20-30-pct">0%</span>
-              </div>
-              <div class="speed-range-item">
-                <span class="speed-range-label">30-40 km/h</span>
-                <div class="speed-range-bar-container">
-                  <div class="speed-range-bar-fill" id="range-30-40" style="width: 0%"></div>
-                </div>
-                <span class="speed-range-value" id="range-30-40-pct">0%</span>
-              </div>
-              <div class="speed-range-item">
-                <span class="speed-range-label">40+ km/h</span>
-                <div class="speed-range-bar-container">
-                  <div class="speed-range-bar-fill" id="range-40-plus" style="width: 0%"></div>
-                </div>
-                <span class="speed-range-value" id="range-40-plus-pct">0%</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Power -->
-        <section id="panel-power" class="panel">
-          <!-- Filter Bar -->
-          <div class="tab-filter-bar glass-panel">
-            <div id="power-time-range"></div>
-            <div id="power-field-toggles"></div>
-          </div>
-
-          <!-- Primary Metrics -->
-          <div class="stat-card-grid mb-4">
-            <div class="stat-card-mini glass-panel accent-green">
-              <span class="stat-label">Voltage</span>
-              <span class="stat-value" id="power-voltage">0.00</span>
-              <span class="stat-unit">V</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-red">
-              <span class="stat-label">Current</span>
-              <span class="stat-value" id="power-current">0.00</span>
-              <span class="stat-unit">A</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-amber">
-              <span class="stat-label">Power</span>
-              <span class="stat-value" id="power-power">0.00</span>
-              <span class="stat-unit">W</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-purple">
-              <span class="stat-label">Energy</span>
-              <span class="stat-value" id="power-energy">0.00</span>
-              <span class="stat-unit">kWh</span>
-            </div>
-          </div>
-
-          <!-- Secondary Stats Row -->
-          <div class="stat-card-grid mb-4">
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Avg Voltage</span>
-              <span class="stat-value" id="power-avg-voltage">0.00</span>
-              <span class="stat-unit">V</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Avg Current</span>
-              <span class="stat-value" id="power-avg-current">0.00</span>
-              <span class="stat-unit">A</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Avg Power</span>
-              <span class="stat-value" id="power-avg-power">0.00</span>
-              <span class="stat-unit">W</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Peak Power</span>
-              <span class="stat-value" id="power-peak-power">0.00</span>
-              <span class="stat-unit">W</span>
-            </div>
-          </div>
-
-          <!-- Primary Power Chart -->
-          <div class="glass-panel mb-4">
-            <div class="chart-header">
-              <h3>⚡ Voltage & Current Over Time</h3>
-              <div id="power-zoom-controls"></div>
-            </div>
-            <div class="chart tall" id="chart-power"></div>
-          </div>
-
-          <!-- Secondary Analysis Charts -->
-          <div class="chart-grid-2col mb-4">
-            <div class="glass-panel">
-              <h4>📊 Voltage Stability</h4>
-              <div class="chart" id="chart-voltage-stability"></div>
-              <div class="stability-indicator" id="voltage-stability-indicator">
-                <span class="stability-dot"></span>
-                <span class="stability-text">Voltage Stability</span>
-                <span class="stability-value" id="voltage-stability-value">—</span>
-              </div>
-            </div>
-            <div class="glass-panel">
-              <h4>⚠️ Current Peaks</h4>
-              <div class="chart" id="chart-current-peaks"></div>
-              <div class="peak-count" id="current-peak-count">0 peaks detected</div>
-            </div>
-          </div>
-
-          <!-- Cumulative Energy & Current Spikes Grid -->
-          <div class="chart-grid-2col">
-            <div class="glass-panel">
-              <h4>🔋 Cumulative Energy Consumption</h4>
-              <div class="chart" id="chart-energy-cumulative"></div>
-              <div class="energy-total" id="power-total-energy">
-                <span class="energy-label">Total Energy:</span>
-                <span class="energy-value" id="cumulative-energy-value">0.000</span>
-                <span class="energy-unit">kWh</span>
-              </div>
-            </div>
-            <div class="glass-panel">
-              <h4>⚡ Current Spike Log</h4>
-              <div class="current-spikes-list" id="power-current-spikes">
-                <div class="empty-state">
-                  <span class="empty-state-icon">⚡</span>
-                  <span class="empty-state-text">No current spikes detected</span>
-                </div>
-              </div>
-              <div class="spikes-summary" id="power-spikes-summary">
-                <span class="spikes-count">0 spikes detected</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- IMU -->
-        <section id="panel-imu" class="panel">
-          <!-- Filter Bar -->
-          <div class="tab-filter-bar glass-panel">
-            <div id="imu-time-range"></div>
-            <div id="imu-field-toggles"></div>
-          </div>
-
-          <!-- Stability Stats -->
-          <div class="stat-card-grid mb-4">
-            <div class="stat-card-mini glass-panel accent-green">
-              <span class="stat-label">Stability Score</span>
-              <span class="stat-value" id="imu-stability">100%</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-amber">
-              <span class="stat-label">Max G-Force</span>
-              <span class="stat-value" id="imu-max-g">0.0</span>
-              <span class="stat-unit">G</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-blue">
-              <span class="stat-label">Pitch</span>
-              <span class="stat-value" id="imu-pitch">0.0</span>
-              <span class="stat-unit">°</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-purple">
-              <span class="stat-label">Roll</span>
-              <span class="stat-value" id="imu-roll">0.0</span>
-              <span class="stat-unit">°</span>
-            </div>
-          </div>
-
-          <!-- Primary IMU Chart -->
-          <div class="glass-panel mb-4">
-            <div class="chart-header">
-              <h3>🧭 IMU Sensors Overview</h3>
-              <div id="imu-zoom-controls"></div>
-            </div>
-            <div class="chart tall" id="chart-imu"></div>
-          </div>
-
-          <!-- Secondary Charts -->
-          <div class="chart-grid-2col mb-4">
-            <div class="glass-panel">
-              <h4>🎮 Orientation (Pitch & Roll)</h4>
-              <div class="chart" id="chart-imu-orientation"></div>
-            </div>
-            <div class="glass-panel">
-              <h4>📊 Vibration Analysis</h4>
-              <div class="chart" id="chart-imu-vibration"></div>
-            </div>
-          </div>
-
-          <!-- Motion Classification -->
-          <div class="glass-panel">
-            <h4>🏷️ Motion State</h4>
-            <div class="motion-classification" id="imu-motion-class">
-              <span class="motion-badge stationary">Stationary</span>
-              <span class="motion-badge accelerating">Accelerating</span>
-              <span class="motion-badge cruising">Cruising</span>
-              <span class="motion-badge braking">Braking</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- IMU Detail -->
-        <section id="panel-imu-detail" class="panel">
-          <!-- Filter Bar -->
-          <div class="tab-filter-bar glass-panel">
-            <div id="imu-detail-time-range"></div>
-          </div>
-
-          <!-- Detail Stats -->
-          <div class="stat-card-grid mb-4">
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Gyro X</span>
-              <span class="stat-value" id="imu-gyro-x">0.0</span>
-              <span class="stat-unit">°/s</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Gyro Y</span>
-              <span class="stat-value" id="imu-gyro-y">0.0</span>
-              <span class="stat-unit">°/s</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Gyro Z</span>
-              <span class="stat-value" id="imu-gyro-z">0.0</span>
-              <span class="stat-unit">°/s</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Total Angular</span>
-              <span class="stat-value" id="imu-angular-total">0.0</span>
-              <span class="stat-unit">°/s</span>
-            </div>
-          </div>
-
-          <div class="stat-card-grid mb-4">
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Accel X</span>
-              <span class="stat-value" id="imu-accel-x">0.0</span>
-              <span class="stat-unit">m/s²</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Accel Y</span>
-              <span class="stat-value" id="imu-accel-y">0.0</span>
-              <span class="stat-unit">m/s²</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Accel Z</span>
-              <span class="stat-value" id="imu-accel-z">0.0</span>
-              <span class="stat-unit">m/s²</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Total G</span>
-              <span class="stat-value" id="imu-total-g">0.0</span>
-              <span class="stat-unit">G</span>
-            </div>
-          </div>
-
-          <!-- Detailed IMU Chart Grid -->
-          <div class="glass-panel mb-4">
-            <div class="chart-header">
-              <h3>🎮 Detailed Sensor Analysis</h3>
-            </div>
-            <div class="chart xxl" id="chart-imu-detail"></div>
-          </div>
-
-          <!-- Force Peaks -->
-          <div class="chart-grid-2col">
-            <div class="glass-panel">
-              <h4>⚡ Acceleration Force Peaks</h4>
-              <div class="force-peaks-list" id="imu-force-peaks">
-                <div class="empty-state">
-                  <span class="empty-state-icon">📊</span>
-                  <span class="empty-state-text">No significant peaks detected</span>
-                </div>
-              </div>
-            </div>
-            <div class="glass-panel">
-              <h4>🔄 Angular Velocity Histogram</h4>
-              <div class="chart" id="chart-imu-angular-histogram"></div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Efficiency -->
-        <section id="panel-efficiency" class="panel">
-          <!-- Filter Bar -->
-          <div class="tab-filter-bar glass-panel">
-            <div id="efficiency-time-range"></div>
-          </div>
-
-          <!-- Efficiency KPIs -->
-          <div class="stat-card-grid mb-4">
-            <div class="stat-card-mini glass-panel accent-green">
-              <span class="stat-label">Current Efficiency</span>
-              <span class="stat-value" id="eff-current">0.0</span>
-              <span class="stat-unit">km/kWh</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Average Efficiency</span>
-              <span class="stat-value" id="eff-avg">0.0</span>
-              <span class="stat-unit">km/kWh</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-blue">
-              <span class="stat-label">Optimal Speed</span>
-              <span class="stat-value" id="eff-optimal-speed">—</span>
-              <span class="stat-unit">km/h</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Total Distance</span>
-              <span class="stat-value" id="eff-distance">0.00</span>
-              <span class="stat-unit">km</span>
-            </div>
-          </div>
-
-          <!-- Primary Efficiency Chart -->
-          <div class="glass-panel mb-4">
-            <div class="chart-header">
-              <h3>📈 Speed vs Power</h3>
-              <div id="efficiency-zoom-controls"></div>
-            </div>
-            <div class="chart tall" id="chart-efficiency"></div>
-          </div>
-
-          <!-- Secondary Charts -->
-          <div class="chart-grid-2col mb-4">
-            <div class="glass-panel">
-              <h4>📉 Efficiency Over Time</h4>
-              <div class="chart" id="chart-eff-trend"></div>
-            </div>
-            <div class="glass-panel">
-              <h4>📊 Efficiency by Speed Range</h4>
-              <div class="chart" id="chart-eff-by-speed"></div>
-            </div>
-          </div>
-
-          <!-- Optimal Speed Recommendation -->
-          <div class="glass-panel">
-            <h4>💡 Optimal Speed Recommendation</h4>
-            <div class="optimal-speed-display" id="optimal-speed-display">
-              <p>Collecting data to determine optimal speed range...</p>
-            </div>
-          </div>
-        </section>
-
-        <!-- GPS -->
-        <section id="panel-gps" class="panel">
-          <!-- Filter Bar -->
-          <div class="tab-filter-bar glass-panel">
-            <div id="gps-time-range"></div>
-            <div class="map-controls">
-              <label><input type="checkbox" id="gps-show-trail" checked> Show Trail</label>
-              <label><input type="checkbox" id="gps-follow-marker" checked> Follow Marker</label>
-            </div>
-          </div>
-
-          <!-- Route Stats -->
-          <div class="stat-card-grid mb-4">
-            <div class="stat-card-mini glass-panel accent-blue">
-              <span class="stat-label">Route Distance</span>
-              <span class="stat-value" id="gps-distance">0.00</span>
-              <span class="stat-unit">km</span>
-            </div>
-            <div class="stat-card-mini glass-panel accent-green">
-              <span class="stat-label">Elevation Gain</span>
-              <span class="stat-value" id="gps-elevation-gain">0</span>
-              <span class="stat-unit">m</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">Avg Speed</span>
-              <span class="stat-value" id="gps-avg-speed">0.0</span>
-              <span class="stat-unit">km/h</span>
-            </div>
-            <div class="stat-card-mini glass-panel">
-              <span class="stat-label">GPS Accuracy</span>
-              <span class="stat-value" id="gps-accuracy">—</span>
-              <span class="stat-unit">m</span>
-            </div>
-          </div>
-
-          <!-- Map Section -->
-          <div class="glass-panel mb-4">
-            <div class="chart-header">
-              <h3>🗺️ Route Map</h3>
-              <div id="gps-current-coords" style="font-size: 0.75rem; color: var(--text-muted);">
-                <span id="gps-lat">—</span>, <span id="gps-lon">—</span>
-              </div>
-            </div>
-            <div class="map" id="map" style="height: 350px;"></div>
-          </div>
-
-          <!-- Secondary Charts -->
-          <div class="chart-grid-2col">
-            <div class="glass-panel">
-              <h4>📈 Altitude Profile</h4>
-              <div class="chart" id="chart-altitude"></div>
-            </div>
-            <div class="glass-panel">
-              <h4>🏎️ Speed Along Route</h4>
-              <div class="chart" id="chart-gps-speed"></div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Custom -->
-        <section id="panel-custom" class="panel">
-          <div class="glass-panel center-content">
-            <h3>🎨 Custom Charts</h3>
-            <p class="fine">
-              Click <strong>"Add Chart"</strong> to create custom
-              visualizations.
-            </p>
-            <button id="btn-add-custom-chart" class="liquid-hover mt-2">
-              ➕ Add Chart
-            </button>
-          </div>
-          <div id="custom-charts-container"></div>
-        </section>
-
-        <!-- Data -->
-        <section id="panel-data" class="panel">
-          <!-- Table first -->
-          <div class="data-quality-table">
-            <div class="table-header" style="padding: 1.2rem; border-bottom: 1px solid var(--glass-border);">
-              <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
-                📋 Raw Telemetry Data
-                <span id="data-count" class="text-subtle small"></span>
-              </h3>
-            </div>
-            <div class="table-wrap">
-              <table id="data-table" class="display responsive nowrap" style="width: 100%"></table>
-            </div>
-          </div>
-
-          <!-- Data Quality Metrics - Redesigned -->
-          <div class="quality-metrics-container">
-            <!-- Hero Quality Score -->
-            <div class="quality-hero glass-panel">
-              <div class="quality-hero-score">
-                <div class="quality-gauge-ring" id="quality-gauge-ring">
-                  <svg viewBox="0 0 120 120">
-                    <circle class="gauge-bg" cx="60" cy="60" r="52" />
-                    <circle class="gauge-fill" id="quality-gauge-fill" cx="60" cy="60" r="52" />
-                  </svg>
-                  <div class="quality-gauge-value">
-                    <span id="quality-score-hero">0</span>
-                    <span class="quality-gauge-unit">%</span>
-                  </div>
-                </div>
-                <div class="quality-hero-label">Quality Score</div>
-              </div>
-              <div class="quality-hero-stats">
-                <div class="quality-stat">
-                  <span class="quality-stat-value" id="total-records">0</span>
-                  <span class="quality-stat-label">Total Records</span>
-                </div>
-                <div class="quality-stat">
-                  <span class="quality-stat-value" id="complete-records">0%</span>
-                  <span class="quality-stat-label">Complete</span>
-                </div>
-                <div class="quality-stat">
-                  <span class="quality-stat-value" id="missing-values">0%</span>
-                  <span class="quality-stat-label">Missing</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Bridge Health Section -->
-            <div class="bridge-health glass-panel">
-              <h3>
-                <span class="bridge-status-dot" id="bridge-status-dot"></span>
-                🔗 Server Health
-              </h3>
-              <div class="bridge-health-grid">
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">📡</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-connection-status">Disconnected</span>
-                    <span class="bridge-metric-label">Connection</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">🔄</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-reconnects">0</span>
-                    <span class="bridge-metric-label">Reconnects</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">⚠️</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-error-rate">0/min</span>
-                    <span class="bridge-metric-label">Error Rate</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">⚡</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-latency">—</span>
-                    <span class="bridge-metric-label">Latency</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">🔢</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-messages-count">0</span>
-                    <span class="bridge-metric-label">Since Connect</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">⏱️</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-last-update">Never</span>
-                    <span class="bridge-metric-label">Last Update</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">✅</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-uptime-pct">0%</span>
-                    <span class="bridge-metric-label">Uptime</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">📊</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-data-rate">0/min</span>
-                    <span class="bridge-metric-label">Data Pts/min</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">🕐</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-session-time">0:00</span>
-                    <span class="bridge-metric-label">Session Time</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">⚡</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-msg-rate">0 Hz</span>
-                    <span class="bridge-metric-label">Live Rate</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">📉</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-median-hz">—</span>
-                    <span class="bridge-metric-label">Median Hz</span>
-                  </div>
-                </div>
-                <div class="bridge-metric">
-                  <div class="bridge-metric-icon">📡</div>
-                  <div class="bridge-metric-info">
-                    <span class="bridge-metric-value" id="bridge-expected-rate">—</span>
-                    <span class="bridge-metric-label">Message Rate</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Outlier Analysis Panel (NEW) -->
-            <div class="outlier-analysis glass-panel">
-              <h3>
-                <span class="outlier-status-indicator" id="outlier-status-indicator"></span>
-                🔍 Outlier Analysis
-              </h3>
-              <!-- Severity Badges -->
-              <div class="outlier-severity-row" id="outlier-severity-badges">
-                <div class="severity-card critical" id="severity-critical-card">
-                  <span class="severity-count" id="outlier-critical-count">0</span>
-                  <span class="severity-label">Critical</span>
-                </div>
-                <div class="severity-card warning" id="severity-warning-card">
-                  <span class="severity-count" id="outlier-warning-count">0</span>
-                  <span class="severity-label">Warning</span>
-                </div>
-                <div class="severity-card info" id="severity-info-card">
-                  <span class="severity-count" id="outlier-info-count">0</span>
-                  <span class="severity-label">Info</span>
-                </div>
-              </div>
-              <!-- Per-Field Outlier Breakdown -->
-              <div class="outlier-fields-container" id="outlier-fields-breakdown">
-                <div class="outlier-fields-placeholder">No outliers detected</div>
-              </div>
-              <!-- Recent Outliers Timeline -->
-              <div class="outlier-timeline" id="outlier-timeline">
-                <h4>Recent Outliers</h4>
-                <div class="outlier-timeline-items" id="outlier-timeline-items">
-                  <div class="outlier-timeline-empty">No recent outliers</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Secondary Metrics Row -->
-            <div class="quality-secondary-grid">
-              <div class="kpi liquid-hover">
-                <div class="kpi-label">🔄 Duplicates</div>
-                <div id="duplicate-records" class="kpi-value">0</div>
-              </div>
-              <div class="kpi liquid-hover">
-                <div class="kpi-label">⚠️ Anomalies</div>
-                <div id="anomalies-detected" class="kpi-value">0</div>
-              </div>
-              <div class="kpi liquid-hover">
-                <div class="kpi-label">📉 Dropouts</div>
-                <div id="dropout-count" class="kpi-value">0</div>
-              </div>
-              <div class="kpi liquid-hover">
-                <div class="kpi-label">⏳ Max Gap</div>
-                <div id="max-gap-value" class="kpi-value">N/A</div>
-              </div>
-            </div>
-
-            <!-- Quality Alerts (always visible when present) -->
-            <div id="quality-alerts" class="note-list"></div>
-
-            <!-- Quality Score Trend Chart -->
-            <div class="glass-panel quality-trend-chart">
-              <h4>📈 Quality Score Trend</h4>
-              <div class="chart h-200" id="chart-quality-score"></div>
-            </div>
-
-            <!-- Collapsible Sections -->
-            <div class="collapsible-sections">
-              <!-- Field Completeness (moved to bottom) -->
-              <details class="collapsible-section">
-                <summary class="collapsible-header">
-                  <span class="collapsible-icon">📊</span>
-                  <span class="collapsible-title">Field Completeness</span>
-                  <span class="collapsible-arrow">▼</span>
-                </summary>
-                <div class="collapsible-content">
-                  <div id="field-completeness" class="field-bars"></div>
-                </div>
-              </details>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <footer class="footer">
-        <div class="glass-panel footer-panel">
-          <p class="fine">
-            🏎️ Shell Eco-marathon Telemetry Dashboard
-          </p>
         </div>
-      </footer>
-    </main>
-  </div>
+    </section>
 
-  <!-- Scripts -->
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-  <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+    <!-- ═══ ABOUT ═══ -->
+    <section id="about" class="py-24 lg:py-32 border-t border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
 
-  <!-- Ably realtime for telemetry streaming -->
-  <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+            <!-- Header -->
+            <div class="grid lg:grid-cols-12 gap-8 mb-16 lg:mb-20">
+                <div class="lg:col-span-4">
+                    <div class="section-label">
+                        <span>01</span>
+                        <span class="line"></span>
+                        <span>Nosotros</span>
+                    </div>
+                    <h2 class="text-headline font-black uppercase tracking-tighter">
+                        Más allá<br>de la<br>velocidad
+                    </h2>
+                </div>
+                <div class="lg:col-span-6 lg:col-start-7 flex items-end">
+                    <p class="text-body-lg text-ecovolt-white/55 max-w-xl">
+                        Desde 2017, la Escudería Shell Borregos CCM ha estado impulsando la innovación en el Tecnológico
+                        de Monterrey Campus CCM a través de vehículos eléctricos de alta eficiencia energética.
+                    </p>
+                </div>
+            </div>
 
-  <!-- Convex browser client for real-time data & auth -->
-  <script src="https://unpkg.com/convex@1.17.0/dist/browser.bundle.js"></script>
+            <!-- Values grid -->
+            <div data-animate class="grid lg:grid-cols-3 gap-px bg-ecovolt-white/5">
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-6xl lg:text-7xl font-black text-ecovolt-orange/15 mb-6 mono">01</div>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-4">Misión</h3>
+                    <p class="text-ecovolt-white/55 leading-relaxed text-sm">
+                        Nuestro enfoque va más allá de la velocidad y la competencia; buscamos marcar la diferencia en
+                        la eficiencia energética y la sostenibilidad.
+                    </p>
+                </div>
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-6xl lg:text-7xl font-black text-ecovolt-orange/15 mb-6 mono">02</div>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-4">Sustentabilidad</h3>
+                    <p class="text-ecovolt-white/55 leading-relaxed text-sm">
+                        Exploramos materiales amigables con el medio ambiente. Ganadores del premio "Carbon Footprint
+                        Reduction" en dos ocasiones.
+                    </p>
+                </div>
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-6xl lg:text-7xl font-black text-ecovolt-orange/15 mb-6 mono">03</div>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-4">Equipo</h3>
+                    <p class="text-ecovolt-white/55 leading-relaxed text-sm">
+                        Creemos en el poder del trabajo en equipo y sabemos que solo juntos podemos lograr resultados
+                        extraordinarios.
+                    </p>
+                </div>
+            </div>
 
-  <!-- Auth modules -->
-  <script src="auth.js"></script>
-  <script src="auth-ui.js"></script>
+            <!-- Sustainability highlight -->
+            <div data-animate class="mt-16 lg:mt-20 grid lg:grid-cols-2 gap-px bg-ecovolt-white/5">
+                <div class="bg-ecovolt-black p-8 lg:p-12 flex flex-col justify-center order-2 lg:order-1">
+                    <div class="section-label" style="color: var(--color-ecovolt-gold);">
+                        <span class="line" style="background: var(--color-ecovolt-gold);"></span>
+                        <span>Innovación Verde</span>
+                    </div>
+                    <h3 class="text-title font-black uppercase tracking-tight mb-6">
+                        Carbon Footprint<br>Reduction Award
+                    </h3>
+                    <p class="text-ecovolt-white/55 leading-relaxed mb-8 text-sm">
+                        No solo nos esforzamos por superar límites en nuestros vehículos, sino que también exploramos
+                        nuevos horizontes con materiales amigables con el medio ambiente en la creación de prototipos.
+                    </p>
+                    <div class="flex items-center gap-6">
+                        <div class="text-4xl lg:text-5xl font-black text-ecovolt-gold mono">2×</div>
+                        <div class="text-xs text-ecovolt-white/35 uppercase tracking-wider leading-tight">
+                            Premio<br>obtenido
+                        </div>
+                    </div>
+                </div>
+                <div class="relative h-[300px] lg:h-auto order-1 lg:order-2">
+                    <img src="/images/sustainability.png" alt="Sustentabilidad EcoVolt"
+                        class="w-full h-full object-cover">
+                    <div
+                        class="absolute inset-0 bg-gradient-to-t from-ecovolt-black/80 via-transparent to-transparent lg:bg-gradient-to-r lg:from-ecovolt-black/40 lg:via-transparent lg:to-transparent">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-  <!-- High-performance charting (uPlot) -->
-  <script src="lib/uplot.iife.min.js"></script>
-  <script src="lib/gauges.js"></script>
-  <script src="lib/charts.js"></script>
-  <script src="lib/mock-data.js"></script>
-  <script src="lib/worker-bridge.js"></script>
-  <script src="lib/convex-bridge.js"></script>
+    <!-- ═══ DASHBOARD ═══ -->
+    <section id="dashboard" class="py-24 lg:py-32 bg-ecovolt-charcoal border-t border-b border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
 
-  <!-- App logic -->
-  <script src="app.js"></script>
+            <div class="grid lg:grid-cols-12 gap-8 mb-12 lg:mb-16">
+                <div class="lg:col-span-5">
+                    <div class="section-label">
+                        <span>02</span>
+                        <span class="line"></span>
+                        <span>Tecnología</span>
+                    </div>
+                    <h2 class="text-headline font-black uppercase tracking-tighter">
+                        Dashboard<br>Telemetría
+                    </h2>
+                </div>
+                <div class="lg:col-span-5 lg:col-start-7 flex items-end">
+                    <p class="text-body-lg text-ecovolt-white/55 max-w-xl">
+                        Sistema avanzado de monitoreo en tiempo real. Visualiza métricas de rendimiento, ubicación GPS y
+                        datos históricos de cada competencia.
+                    </p>
+                </div>
+            </div>
 
-  <!-- View Transitions API Polyfill -->
-  <script>
-    // Polyfill for browsers that don't support View Transitions API
-    if (!document.startViewTransition) {
-      document.startViewTransition = (callback) => {
-        callback();
-      };
-    }
-  </script>
+            <!-- Dashboard preview -->
+            <div data-animate class="border border-ecovolt-white/8 bg-ecovolt-black p-6 lg:p-8 mb-12 lg:mb-16">
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-6 lg:mb-8 pb-4 border-b border-ecovolt-white/8">
+                    <div class="flex items-center gap-3">
+                        <div class="w-2 h-2 rounded-full bg-energy-green animate-pulse"></div>
+                        <span class="text-xs uppercase tracking-wider text-ecovolt-white/35 mono">Sesión Activa</span>
+                    </div>
+                    <div class="text-xs mono text-ecovolt-white/30">12:34:56 UTC</div>
+                </div>
+
+                <!-- Metrics -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-px bg-ecovolt-white/5">
+                    <div class="bg-ecovolt-charcoal p-5 lg:p-6 text-center">
+                        <div class="text-3xl lg:text-4xl font-black mono text-ecovolt-orange">45.8</div>
+                        <div class="text-[10px] uppercase tracking-wider text-ecovolt-white/35 mt-2 mono">km/h</div>
+                    </div>
+                    <div class="bg-ecovolt-charcoal p-5 lg:p-6 text-center">
+                        <div class="text-3xl lg:text-4xl font-black mono text-energy-green">98.2%</div>
+                        <div class="text-[10px] uppercase tracking-wider text-ecovolt-white/35 mt-2 mono">Eficiencia
+                        </div>
+                    </div>
+                    <div class="bg-ecovolt-charcoal p-5 lg:p-6 text-center">
+                        <div class="text-3xl lg:text-4xl font-black mono text-ecovolt-gold">48.2V</div>
+                        <div class="text-[10px] uppercase tracking-wider text-ecovolt-white/35 mt-2 mono">Voltaje</div>
+                    </div>
+                    <div class="bg-ecovolt-charcoal p-5 lg:p-6 text-center">
+                        <div class="text-3xl lg:text-4xl font-black mono text-energy-teal">12.5A</div>
+                        <div class="text-[10px] uppercase tracking-wider text-ecovolt-white/35 mt-2 mono">Corriente
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chart -->
+                <div class="mt-6 lg:mt-8 h-32 lg:h-40 flex items-end gap-0.5 lg:gap-1">
+                    <div
+                        class="flex-1 bg-ecovolt-orange/20 rounded-t-sm h-[35%] transition-all hover:bg-ecovolt-orange/40">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/25 rounded-t-sm h-[52%] transition-all hover:bg-ecovolt-orange/45">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/35 rounded-t-sm h-[70%] transition-all hover:bg-ecovolt-orange/55">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/30 rounded-t-sm h-[48%] transition-all hover:bg-ecovolt-orange/50">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/45 rounded-t-sm h-[82%] transition-all hover:bg-ecovolt-orange/65">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/35 rounded-t-sm h-[63%] transition-all hover:bg-ecovolt-orange/55">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/55 rounded-t-sm h-[92%] transition-all hover:bg-ecovolt-orange/75">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/45 rounded-t-sm h-[75%] transition-all hover:bg-ecovolt-orange/65">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/40 rounded-t-sm h-[58%] transition-all hover:bg-ecovolt-orange/60">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/60 rounded-t-sm h-[88%] transition-all hover:bg-ecovolt-orange/80">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/50 rounded-t-sm h-[68%] transition-all hover:bg-ecovolt-orange/70">
+                    </div>
+                    <div
+                        class="flex-1 bg-ecovolt-orange/70 rounded-t-sm h-[100%] transition-all hover:bg-ecovolt-orange/90">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Features -->
+            <div data-animate class="grid md:grid-cols-3 gap-px bg-ecovolt-white/5">
+                <div class="data-card bg-ecovolt-black p-6 lg:p-8">
+                    <svg class="w-7 h-7 text-ecovolt-orange mb-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <h4 class="text-base font-bold uppercase tracking-wide mb-2">Tiempo Real</h4>
+                    <p class="text-ecovolt-white/45 text-sm leading-relaxed">Velocidad, voltaje, corriente y GPS
+                        actualizados instantáneamente desde el vehículo.</p>
+                </div>
+                <div class="data-card bg-ecovolt-black p-6 lg:p-8">
+                    <svg class="w-7 h-7 text-ecovolt-gold mb-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h4 class="text-base font-bold uppercase tracking-wide mb-2">Historial</h4>
+                    <p class="text-ecovolt-white/45 text-sm leading-relaxed">Accede a sesiones pasadas para análisis
+                        detallado post-competencia.</p>
+                </div>
+                <div class="data-card bg-ecovolt-black p-6 lg:p-8">
+                    <svg class="w-7 h-7 text-energy-teal mb-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <h4 class="text-base font-bold uppercase tracking-wide mb-2">GPS + G-Force</h4>
+                    <p class="text-ecovolt-white/45 text-sm leading-relaxed">Ubicación precisa en el circuito y análisis
+                        de fuerzas en cada maniobra.</p>
+                </div>
+            </div>
+
+            <!-- CTA -->
+            <div class="mt-12 lg:mt-16 flex justify-center">
+                <a href="/dashboard" class="btn-primary group">
+                    <span>Acceder al Dashboard</span>
+                    <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ ACHIEVEMENTS ═══ -->
+    <section id="achievements" class="py-24 lg:py-32">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+
+            <div class="grid lg:grid-cols-12 gap-8 mb-12 lg:mb-16">
+                <div class="lg:col-span-6">
+                    <div class="section-label" style="color: var(--color-ecovolt-gold);">
+                        <span>03</span>
+                        <span class="line" style="background: var(--color-ecovolt-gold);"></span>
+                        <span>Reconocimientos</span>
+                    </div>
+                    <h2 class="text-headline font-black uppercase tracking-tighter">
+                        Logros<br>Internacionales
+                    </h2>
+                </div>
+            </div>
+
+            <div data-animate class="space-y-px">
+                <div
+                    class="group data-card bg-ecovolt-black p-6 lg:p-8 flex flex-col md:flex-row md:items-center gap-4 lg:gap-6">
+                    <div
+                        class="text-5xl lg:text-6xl font-black text-ecovolt-gold/40 mono shrink-0 w-20 lg:w-24 group-hover:text-ecovolt-gold/70 transition-colors">
+                        01</div>
+                    <div class="flex-1">
+                        <h3 class="text-lg lg:text-xl font-bold mb-1">Off-track Award América</h3>
+                        <p class="text-ecovolt-orange font-semibold text-sm">Reducción de Huella de Carbono</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs text-ecovolt-white/30 uppercase tracking-wider mono">Shell
+                            Eco-marathon</span>
+                    </div>
+                </div>
+
+                <div
+                    class="group data-card bg-ecovolt-black p-6 lg:p-8 flex flex-col md:flex-row md:items-center gap-4 lg:gap-6">
+                    <div
+                        class="text-5xl lg:text-6xl font-black text-ecovolt-gold/40 mono shrink-0 w-20 lg:w-24 group-hover:text-ecovolt-gold/70 transition-colors">
+                        02</div>
+                    <div class="flex-1">
+                        <h3 class="text-lg lg:text-xl font-bold mb-1">Off-track Award América</h3>
+                        <p class="text-ecovolt-orange font-semibold text-sm">Simulate to Innovate Award</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs text-ecovolt-white/30 uppercase tracking-wider mono">Shell
+                            Eco-marathon</span>
+                    </div>
+                </div>
+
+                <div
+                    class="group data-card bg-ecovolt-black p-6 lg:p-8 flex flex-col md:flex-row md:items-center gap-4 lg:gap-6">
+                    <div
+                        class="text-5xl lg:text-6xl font-black text-ecovolt-gold/40 mono shrink-0 w-20 lg:w-24 group-hover:text-ecovolt-gold/70 transition-colors">
+                        03</div>
+                    <div class="flex-1">
+                        <h3 class="text-lg lg:text-xl font-bold mb-1">Altair Global Student Contest</h3>
+                        <p class="text-ecovolt-orange font-semibold text-sm">Primer Lugar Global</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs text-ecovolt-white/30 uppercase tracking-wider mono">Simulación e
+                            Innovación</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ QUOTE ═══ -->
+    <section class="py-20 lg:py-24 bg-ecovolt-orange">
+        <div class="max-w-[1200px] mx-auto px-6 lg:px-12">
+            <div class="text-center">
+                <div class="text-7xl lg:text-8xl font-black text-ecovolt-black/10 mb-2 leading-none">"</div>
+                <h2
+                    class="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-ecovolt-black leading-snug max-w-4xl mx-auto">
+                    Atribuimos nuestro éxito al arduo trabajo de nuestros talentosos miembros, quienes son la fuerza
+                    motriz detrás de nuestro equipo.
+                </h2>
+                <div class="mt-8 text-ecovolt-black/50 uppercase tracking-[0.3em] text-xs">
+                    Escudería Borregos Shell CCM
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ CONTACT ═══ -->
+    <section id="contact" class="py-24 lg:py-32 border-t border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+
+            <div class="grid lg:grid-cols-12 gap-12 lg:gap-16">
+                <!-- Left -->
+                <div class="lg:col-span-5">
+                    <div class="section-label">
+                        <span>04</span>
+                        <span class="line"></span>
+                        <span>Contacto</span>
+                    </div>
+                    <h2 class="text-headline font-black uppercase tracking-tighter mb-6 lg:mb-8">
+                        Únete a<br>la revolución
+                    </h2>
+                    <p class="text-body-lg text-ecovolt-white/55 mb-10 lg:mb-12">
+                        ¿Interesado en patrocinarnos o unirte al equipo? Siempre buscamos talento apasionado por la
+                        innovación.
+                    </p>
+
+                    <div class="space-y-6 lg:space-y-8">
+                        <div class="border-l-2 border-ecovolt-orange pl-5 lg:pl-6">
+                            <div class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-white/30 mb-1">Email</div>
+                            <a href="mailto:shellborregos.ccm@servicios.tec.mx"
+                                class="text-base lg:text-lg font-semibold hover:text-ecovolt-orange transition-colors break-all">
+                                shellborregos.ccm@servicios.tec.mx
+                            </a>
+                        </div>
+                        <div class="border-l-2 border-ecovolt-gold pl-5 lg:pl-6">
+                            <div class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-white/30 mb-1">Ubicación
+                            </div>
+                            <p class="text-base lg:text-lg font-semibold">
+                                Tecnológico de Monterrey, Campus CCM, CDMX
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right -->
+                <div class="lg:col-span-6 lg:col-start-7">
+                    <div class="space-y-px bg-ecovolt-white/5">
+                        <a href="competition.html"
+                            class="data-card bg-ecovolt-black p-6 lg:p-8 flex items-center justify-between group relative z-10">
+                            <div>
+                                <h3 class="text-lg lg:text-xl font-bold mb-1">Competencia</h3>
+                                <p class="text-ecovolt-white/40 text-sm">Shell Eco-marathon Americas</p>
+                            </div>
+                            <svg class="w-5 h-5 text-ecovolt-orange group-hover:translate-x-2 transition-transform"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                            </svg>
+                        </a>
+                        <a href="sponsors.html"
+                            class="data-card bg-ecovolt-black p-6 lg:p-8 flex items-center justify-between group relative z-10">
+                            <div>
+                                <h3 class="text-lg lg:text-xl font-bold mb-1">Patrocinadores</h3>
+                                <p class="text-ecovolt-white/40 text-sm">Conoce quienes nos apoyan</p>
+                            </div>
+                            <svg class="w-5 h-5 text-ecovolt-gold group-hover:translate-x-2 transition-transform"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                            </svg>
+                        </a>
+                        <a href="/dashboard"
+                            class="data-card bg-ecovolt-black p-6 lg:p-8 flex items-center justify-between group relative z-10">
+                            <div>
+                                <h3 class="text-lg lg:text-xl font-bold mb-1">Dashboard en Vivo</h3>
+                                <p class="text-ecovolt-white/40 text-sm">Telemetría en tiempo real</p>
+                            </div>
+                            <svg class="w-5 h-5 text-energy-teal group-hover:translate-x-2 transition-transform"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                            </svg>
+                        </a>
+                    </div>
+
+                    <!-- Social -->
+                    <div class="mt-10 lg:mt-12 flex gap-3">
+                        <a href="https://x.com/ecovoltccm/" target="_blank"
+                            class="w-11 h-11 border border-ecovolt-white/8 flex items-center justify-center hover:border-ecovolt-orange hover:text-ecovolt-orange transition-colors"
+                            aria-label="X">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                <path
+                                    d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                            </svg>
+                        </a>
+                        <a href="https://www.instagram.com/ecovoltccm/" target="_blank"
+                            class="w-11 h-11 border border-ecovolt-white/8 flex items-center justify-center hover:border-ecovolt-orange hover:text-ecovolt-orange transition-colors"
+                            aria-label="Instagram">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                <path
+                                    d="M12.315 2c2.43 0 2.784.013 3.808.06 1.064.049 1.791.218 2.427.465a4.902 4.902 0 011.772 1.153 4.902 4.902 0 011.153 1.772c.247.636.416 1.363.465 2.427.048 1.067.06 1.407.06 4.123v.08c0 2.643-.012 2.987-.06 4.043-.049 1.064-.218 1.791-.465 2.427a4.902 4.902 0 01-1.153 1.772 4.902 4.902 0 01-1.772 1.153c-.636.247-1.363.416-2.427.465-1.067.048-1.407.06-4.123.06h-.08c-2.643 0-2.987-.012-4.043-.06-1.064-.049-1.791-.218-2.427-.465a4.902 4.902 0 01-1.772-1.153 4.902 4.902 0 01-1.153-1.772c-.247-.636-.416-1.363-.465-2.427-.047-1.024-.06-1.379-.06-3.808v-.63c0-2.43.013-2.784.06-3.808.049-1.064.218-1.791.465-2.427a4.902 4.902 0 011.153-1.772A4.902 4.902 0 015.45 2.525c.636-.247 1.363-.416 2.427-.465C8.901 2.013 9.256 2 11.685 2h.63zm-.081 1.802h-.468c-2.456 0-2.784.011-3.807.058-.975.045-1.504.207-1.857.344-.467.182-.8.398-1.15.748-.35.35-.566.683-.748 1.15-.137.353-.3.882-.344 1.857-.047 1.023-.058 1.351-.058 3.807v.468c0 2.456.011 2.784.058 3.807.045.975.207 1.504.344 1.857.182.466.399.8.748 1.15.35.35.683.566 1.15.748.353.137.882.3 1.857.344 1.054.048 1.37.058 4.041.058h.08c2.597 0 2.917-.01 3.96-.058.976-.045 1.505-.207 1.858-.344.466-.182.8-.398 1.15-.748.35-.35.566-.683.748-1.15.137-.353.3-.882.344-1.857.048-1.055.058-1.37.058-4.041v-.08c0-2.597-.01-2.917-.058-3.96-.045-.976-.207-1.505-.344-1.858a3.097 3.097 0 00-.748-1.15 3.098 3.098 0 00-1.15-.748c-.353-.137-.882-.3-1.857-.344-1.023-.047-1.351-.058-3.807-.058zM12 6.865a5.135 5.135 0 110 10.27 5.135 5.135 0 010-10.27zm0 1.802a3.333 3.333 0 100 6.666 3.333 3.333 0 000-6.666zm5.338-3.205a1.2 1.2 0 110 2.4 1.2 1.2 0 010-2.4z" />
+                            </svg>
+                        </a>
+                        <a href="https://mx.linkedin.com/company/eshellccm" target="_blank"
+                            class="w-11 h-11 border border-ecovolt-white/8 flex items-center justify-center hover:border-ecovolt-orange hover:text-ecovolt-orange transition-colors"
+                            aria-label="LinkedIn">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                <path
+                                    d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ FOOTER ═══ -->
+    <footer class="py-8 border-t border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-4 lg:gap-8">
+                    <img src="/images/logo.png" alt="EcoVolt" class="h-6 w-auto opacity-40">
+                    <p class="text-ecovolt-white/30 text-xs">
+                        © 2025 Escudería Borregos Shell CCM
+                    </p>
+                </div>
+                <div class="flex items-center gap-6 text-xs">
+                    <a href="competition.html"
+                        class="text-ecovolt-white/30 hover:text-ecovolt-orange transition-colors">Competencia</a>
+                    <a href="sponsors.html"
+                        class="text-ecovolt-white/30 hover:text-ecovolt-orange transition-colors">Patrocinadores</a>
+                    <a href="/dashboard"
+                        class="text-ecovolt-orange hover:text-ecovolt-ember transition-colors">Dashboard →</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // ── Scroll animations ──
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('animated'); });
+        }, { threshold: 0.08 });
+        document.querySelectorAll('[data-animate]').forEach(el => observer.observe(el));
+
+        // ── Mobile menu ──
+        const toggle = document.getElementById('menu-toggle');
+        const menu = document.getElementById('mobile-menu');
+        const close = document.getElementById('menu-close');
+        toggle?.addEventListener('click', () => menu.classList.add('open'));
+        close?.addEventListener('click', () => menu.classList.remove('open'));
+        menu?.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.classList.remove('open')));
+
+        // ── Navbar shrink on scroll ──
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            navbar.classList.toggle('py-0', window.scrollY > 80);
+        }, { passive: true });
+
+        // ── Smooth scroll for anchor links ──
+        document.querySelectorAll('a[href^="#"]').forEach(a => {
+            a.addEventListener('click', (e) => {
+                const target = document.querySelector(a.getAttribute('href'));
+                if (target) {
+                    e.preventDefault();
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    </script>
 </body>
 
 </html>

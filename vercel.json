@@ -4,20 +4,8 @@
   "outputDirectory": "public",
   "rewrites": [
     {
-      "source": "/",
-      "destination": "/landing.html"
-    },
-    {
-      "source": "/competition",
-      "destination": "/competition.html"
-    },
-    {
-      "source": "/sponsors",
-      "destination": "/sponsors.html"
-    },
-    {
       "source": "/dashboard",
-      "destination": "/index.html"
+      "destination": "/dashboard.html"
     }
   ],
   "headers": [
