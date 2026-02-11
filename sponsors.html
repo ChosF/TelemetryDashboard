@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patrocinadores — EcoVolt CCM</title>
+    <meta name="description"
+        content="Patrocinadores y aliados de EcoVolt CCM. Empresas e instituciones que impulsan la innovación en eficiencia energética.">
+    <link rel="icon" type="image/png" href="/images/logo.png">
+    <link rel="stylesheet" href="/landing.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'ecovolt-orange': '#FF6B35',
+                        'ecovolt-orange-light': '#FF8F5C',
+                        'ecovolt-orange-dark': '#E55A2B',
+                        'ecovolt-ember': '#FF4500',
+                        'ecovolt-sunset': '#FF7849',
+                        'ecovolt-black': '#0A0A0A',
+                        'ecovolt-charcoal': '#141414',
+                        'ecovolt-graphite': '#1E1E1E',
+                        'ecovolt-slate': '#2A2A2A',
+                        'ecovolt-white': '#FAFAFA',
+                        'ecovolt-cream': '#F5F5F0',
+                        'ecovolt-gold': '#D4A574',
+                        'ecovolt-copper': '#B87333',
+                        'ecovolt-bronze': '#CD7F32',
+                        'energy-green': '#22C55E',
+                        'energy-teal': '#14B8A6',
+                        'energy-cyan': '#06B6D4',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="swiss-grid overflow-x-hidden">
+
+    <!-- ═══ NAVIGATION ═══ -->
+    <nav id="navbar"
+        class="fixed top-0 left-0 right-0 z-50 border-b border-ecovolt-white/5 bg-ecovolt-black/80 backdrop-blur-xl transition-all duration-300">
+        <div class="max-w-[1600px] mx-auto">
+            <div class="flex items-center justify-between h-20 px-6 lg:px-12">
+                <a href="/" class="flex items-center gap-4 group">
+                    <img src="/images/logo.png" alt="EcoVolt"
+                        class="h-9 w-auto transition-transform duration-300 group-hover:scale-105">
+                    <div class="hidden sm:block">
+                        <div class="text-[10px] uppercase tracking-[0.25em] text-ecovolt-white/40 leading-none mb-1">
+                            Escudería</div>
+                        <div class="font-bold tracking-tight leading-none">EcoVolt CCM</div>
+                    </div>
+                </a>
+                <div class="hidden lg:flex items-center gap-1">
+                    <a href="/"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Inicio</a>
+                    <a href="/#dashboard"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Dashboard</a>
+                    <a href="/#achievements"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Logros</a>
+                    <a href="competition.html"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Competencia</a>
+                    <a href="sponsors.html"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-orange hover:text-ecovolt-orange transition-colors">Patrocinadores</a>
+                    <a href="/#contact"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Contacto</a>
+                </div>
+                <div class="flex items-center gap-4">
+                    <a href="/dashboard"
+                        class="hidden sm:inline-flex bg-ecovolt-white text-ecovolt-black px-6 py-2.5 text-sm font-semibold tracking-wide hover:bg-ecovolt-orange hover:text-white transition-colors">
+                        VER DASHBOARD
+                    </a>
+                    <button id="menu-toggle"
+                        class="lg:hidden w-10 h-10 flex flex-col items-center justify-center gap-1.5 group"
+                        aria-label="Menu">
+                        <span
+                            class="block w-6 h-0.5 bg-ecovolt-white transition-all group-hover:bg-ecovolt-orange"></span>
+                        <span
+                            class="block w-6 h-0.5 bg-ecovolt-white transition-all group-hover:bg-ecovolt-orange"></span>
+                        <span
+                            class="block w-4 h-0.5 bg-ecovolt-white transition-all group-hover:bg-ecovolt-orange"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Mobile Menu -->
+    <div id="mobile-menu" class="mobile-menu">
+        <button id="menu-close"
+            class="absolute top-6 right-6 w-10 h-10 flex items-center justify-center text-ecovolt-white/60 hover:text-ecovolt-orange transition-colors"
+            aria-label="Close">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+        <a href="/">Inicio</a>
+        <a href="/#dashboard">Dashboard</a>
+        <a href="/#achievements">Logros</a>
+        <a href="competition.html">Competencia</a>
+        <a href="sponsors.html" class="!text-ecovolt-orange">Patrocinadores</a>
+        <a href="/#contact">Contacto</a>
+    </div>
+
+    <!-- ═══ PAGE HERO ═══ -->
+    <section class="pt-20">
+        <!-- Breadcrumb bar -->
+        <div class="border-b border-ecovolt-white/5">
+            <div class="max-w-[1600px] mx-auto px-6 lg:px-12 py-4">
+                <div
+                    class="flex items-center gap-3 text-[10px] sm:text-xs uppercase tracking-[0.2em] text-ecovolt-white/35 mono">
+                    <a href="/" class="hover:text-ecovolt-orange transition-colors">Inicio</a>
+                    <span>/</span>
+                    <span class="text-ecovolt-gold">Patrocinadores</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hero content -->
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12 py-16 lg:py-24">
+            <div class="grid lg:grid-cols-12 gap-8 items-end">
+                <div class="lg:col-span-8">
+                    <div class="section-label" style="color: var(--color-ecovolt-gold);">
+                        <span class="line" style="background: var(--color-ecovolt-gold);"></span>
+                        <span>Aliados Estratégicos</span>
+                    </div>
+                    <h1 class="text-headline font-black uppercase tracking-tighter">
+                        <span class="block reveal-up">Nuestros</span>
+                        <span class="block reveal-up text-ecovolt-gold"
+                            style="animation-delay: 0.15s;">Patrocinadores</span>
+                    </h1>
+                </div>
+                <div class="lg:col-span-3 lg:col-start-10">
+                    <p class="text-body-lg text-ecovolt-white/55">
+                        Agradecemos a las empresas e instituciones que hacen posible nuestra misión de innovación en
+                        eficiencia energética.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ MAIN SPONSORS ═══ -->
+    <section class="py-24 lg:py-32 border-t border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+
+            <div class="mb-16 lg:mb-20">
+                <div class="section-label">
+                    <span>01</span>
+                    <span class="line"></span>
+                    <span>Patrocinadores Principales</span>
+                </div>
+                <h2 class="text-title font-black uppercase tracking-tight">
+                    Socios que impulsan<br>la innovación
+                </h2>
+            </div>
+
+            <!-- Primary sponsors - large cards -->
+            <div data-animate class="grid md:grid-cols-2 gap-px bg-ecovolt-white/5 mb-16">
+                <!-- Tec de Monterrey -->
+                <div class="data-card bg-ecovolt-black p-10 lg:p-14 flex flex-col justify-between min-h-[280px]">
+                    <div>
+                        <div class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-orange mb-8 mono">Institución
+                            Educativa</div>
+                        <h3 class="text-3xl lg:text-4xl font-black uppercase tracking-tight mb-4">
+                            Tecnológico<br>de Monterrey
+                        </h3>
+                        <p class="text-ecovolt-white/50 text-sm leading-relaxed max-w-md">
+                            Nuestra alma mater y sede principal. El Tecnológico de Monterrey Campus Ciudad de México nos
+                            brinda instalaciones, mentoría y el espíritu emprendedor que define a EcoVolt.
+                        </p>
+                    </div>
+                    <div class="mt-8 flex items-center gap-3">
+                        <div class="w-2 h-2 bg-ecovolt-orange"></div>
+                        <span class="text-xs text-ecovolt-white/30 uppercase tracking-wider">Campus CCM, CDMX</span>
+                    </div>
+                </div>
+
+                <!-- Shell -->
+                <div class="data-card bg-ecovolt-black p-10 lg:p-14 flex flex-col justify-between min-h-[280px]">
+                    <div>
+                        <div class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-gold mb-8 mono">Organizador
+                        </div>
+                        <h3 class="text-3xl lg:text-4xl font-black uppercase tracking-tight mb-4">Shell</h3>
+                        <p class="text-ecovolt-white/50 text-sm leading-relaxed max-w-md">
+                            Organizadores del Shell Eco-marathon, la competencia que nos impulsa a innovar
+                            constantemente en eficiencia energética y sustentabilidad.
+                        </p>
+                    </div>
+                    <div class="mt-8 flex items-center gap-3">
+                        <div class="w-2 h-2 bg-ecovolt-gold"></div>
+                        <span class="text-xs text-ecovolt-white/30 uppercase tracking-wider">Shell Eco-marathon
+                            Americas</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ TECHNOLOGY SPONSORS ═══ -->
+    <section class="py-24 lg:py-32 bg-ecovolt-charcoal border-t border-b border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+
+            <div class="mb-16 lg:mb-20">
+                <div class="section-label">
+                    <span>02</span>
+                    <span class="line"></span>
+                    <span>Socios Tecnológicos</span>
+                </div>
+                <h2 class="text-title font-black uppercase tracking-tight">
+                    Tecnología de<br>clase mundial
+                </h2>
+            </div>
+
+            <!-- Tech sponsors grid -->
+            <div data-animate class="grid md:grid-cols-3 gap-px bg-ecovolt-white/5">
+                <!-- Altair -->
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">01</div>
+                    <h3 class="text-xl font-bold mb-3">Altair</h3>
+                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Simulación y Análisis</div>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Software de simulación para optimización estructural y aerodinámica. Ganadores del Altair Global
+                        Student Contest — primer lugar mundial.
+                    </p>
+                </div>
+
+                <!-- Ansys -->
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">02</div>
+                    <h3 class="text-xl font-bold mb-3">Ansys</h3>
+                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Ingeniería CFD</div>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Herramientas de análisis de dinámica de fluidos computacional para optimizar la aerodinámica del
+                        vehículo y reducir la resistencia al avance.
+                    </p>
+                </div>
+
+                <!-- SolidWorks -->
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">03</div>
+                    <h3 class="text-xl font-bold mb-3">SolidWorks</h3>
+                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Diseño CAD</div>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Plataforma de diseño asistido por computadora para el modelado 3D completo del prototipo, desde
+                        chasis hasta componentes mecánicos.
+                    </p>
+                </div>
+
+                <!-- Tesla -->
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">04</div>
+                    <h3 class="text-xl font-bold mb-3">Tesla</h3>
+                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Movilidad Eléctrica</div>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Apoyo y mentoría en tecnología de vehículos eléctricos, sistemas de batería y gestión energética
+                        avanzada.
+                    </p>
+                </div>
+
+                <!-- Google -->
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">05</div>
+                    <h3 class="text-xl font-bold mb-3">Google</h3>
+                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Cloud & Datos</div>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Infraestructura cloud para procesamiento de datos de telemetría y herramientas de desarrollo
+                        para nuestro dashboard en tiempo real.
+                    </p>
+                </div>
+
+                <!-- EcoPoxy -->
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">06</div>
+                    <h3 class="text-xl font-bold mb-3">EcoPoxy</h3>
+                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Materiales Sustentables</div>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Resinas ecológicas de base biológica para la construcción del chasis. Clave en nuestra
+                        estrategia de reducción de huella de carbono.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ BECOME A SPONSOR ═══ -->
+    <section class="py-24 lg:py-32">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+
+            <div class="grid lg:grid-cols-12 gap-12 lg:gap-16">
+                <div class="lg:col-span-5">
+                    <div class="section-label">
+                        <span>03</span>
+                        <span class="line"></span>
+                        <span>Únete</span>
+                    </div>
+                    <h2 class="text-title font-black uppercase tracking-tight mb-6">
+                        Sé parte del<br>cambio
+                    </h2>
+                    <p class="text-body-lg text-ecovolt-white/55 mb-10">
+                        Tu apoyo nos permite seguir innovando y representando a México en competencias internacionales
+                        de eficiencia energética.
+                    </p>
+                    <a href="mailto:shellborregos.ccm@servicios.tec.mx" class="btn-primary group">
+                        <span>Contáctanos</span>
+                        <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                        </svg>
+                    </a>
+                </div>
+
+                <div class="lg:col-span-6 lg:col-start-7">
+                    <div class="space-y-px bg-ecovolt-white/5">
+                        <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                            <div class="flex items-center gap-4 mb-4">
+                                <div class="w-2 h-2 bg-ecovolt-orange"></div>
+                                <h3 class="text-lg font-bold uppercase tracking-wide">Visibilidad Global</h3>
+                            </div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Tu marca en competencias internacionales, redes sociales, y nuestro sitio web —
+                                alcanzando audiencias apasionadas por la innovación y sustentabilidad.
+                            </p>
+                        </div>
+                        <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                            <div class="flex items-center gap-4 mb-4">
+                                <div class="w-2 h-2 bg-ecovolt-gold"></div>
+                                <h3 class="text-lg font-bold uppercase tracking-wide">Talento del Futuro</h3>
+                            </div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Acceso directo a estudiantes de ingeniería de alto rendimiento del Tecnológico de
+                                Monterrey, futuros líderes en tecnología y sustentabilidad.
+                            </p>
+                        </div>
+                        <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                            <div class="flex items-center gap-4 mb-4">
+                                <div class="w-2 h-2 bg-energy-teal"></div>
+                                <h3 class="text-lg font-bold uppercase tracking-wide">Impacto Sustentable</h3>
+                            </div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Contribuye directamente al desarrollo de tecnología de eficiencia energética y movilidad
+                                sustentable — un compromiso real con el futuro.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ QUOTE BAR ═══ -->
+    <section class="py-16 lg:py-20 bg-ecovolt-orange">
+        <div class="max-w-[1200px] mx-auto px-6 lg:px-12 text-center">
+            <p class="text-xl md:text-2xl lg:text-3xl font-bold text-ecovolt-black leading-snug max-w-3xl mx-auto">
+                Gracias a nuestros patrocinadores por creer en nosotros y hacer posible esta aventura.
+            </p>
+            <div class="mt-6 text-ecovolt-black/50 uppercase tracking-[0.3em] text-xs">
+                Escudería Borregos Shell CCM
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ FOOTER ═══ -->
+    <footer class="py-8 border-t border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-4 lg:gap-8">
+                    <img src="/images/logo.png" alt="EcoVolt" class="h-6 w-auto opacity-40">
+                    <p class="text-ecovolt-white/30 text-xs">© 2025 Escudería Borregos Shell CCM</p>
+                </div>
+                <div class="flex items-center gap-6 text-xs">
+                    <a href="/" class="text-ecovolt-white/30 hover:text-ecovolt-orange transition-colors">Inicio</a>
+                    <a href="competition.html"
+                        class="text-ecovolt-white/30 hover:text-ecovolt-orange transition-colors">Competencia</a>
+                    <a href="/dashboard"
+                        class="text-ecovolt-orange hover:text-ecovolt-ember transition-colors">Dashboard →</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Scroll animations
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('animated'); });
+        }, { threshold: 0.08 });
+        document.querySelectorAll('[data-animate]').forEach(el => observer.observe(el));
+
+        // Mobile menu
+        const toggle = document.getElementById('menu-toggle');
+        const menu = document.getElementById('mobile-menu');
+        const close = document.getElementById('menu-close');
+        toggle?.addEventListener('click', () => menu.classList.add('open'));
+        close?.addEventListener('click', () => menu.classList.remove('open'));
+        menu?.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.classList.remove('open')));
+    </script>
+</body>
+
+</html>

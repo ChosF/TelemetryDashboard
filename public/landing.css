@@ -1,0 +1,392 @@
+/* ═══════════════════════════════════════════════════════════
+   EcoVolt CCM — Grid System Design Language
+   Swiss-inspired, data-driven, precision engineering aesthetic
+   ═══════════════════════════════════════════════════════════ */
+
+/* Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+/* ── Base ─────────────────────────────────────────────────── */
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #0A0A0A;
+    color: #FAFAFA;
+}
+
+/* ── Swiss Grid Background ───────────────────────────────── */
+.swiss-grid {
+    background-image:
+        linear-gradient(to right, rgba(255, 107, 53, 0.025) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 107, 53, 0.025) 1px, transparent 1px);
+    background-size: 80px 80px;
+}
+
+/* ── Typography Scale ────────────────────────────────────── */
+.text-display {
+    font-size: clamp(3rem, 11vw, 9rem);
+    line-height: 0.85;
+    letter-spacing: -0.03em;
+}
+
+.text-headline {
+    font-size: clamp(2rem, 6vw, 4.8rem);
+    line-height: 0.9;
+    letter-spacing: -0.02em;
+}
+
+.text-title {
+    font-size: clamp(1.4rem, 3vw, 2.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+}
+
+.text-body-lg {
+    font-size: clamp(1.05rem, 1.4vw, 1.35rem);
+    line-height: 1.65;
+}
+
+.mono {
+    font-family: 'Space Grotesk', monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+}
+
+/* ── Gradient Utilities ──────────────────────────────────── */
+.text-gradient-orange {
+    background: linear-gradient(135deg, #FF6B35, #FF4500);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.text-gradient-gold {
+    background: linear-gradient(135deg, #D4A574, #B87333);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* ── Section Label ───────────────────────────────────────── */
+.section-label {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.3em;
+    color: #FF6B35;
+    margin-bottom: 1rem;
+}
+
+.section-label .line {
+    width: 3rem;
+    height: 1px;
+    background: currentColor;
+}
+
+/* ── Data Card ───────────────────────────────────────────── */
+.data-card {
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.data-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background: linear-gradient(135deg, rgba(255, 107, 53, 0.04), transparent 60%);
+    transition: opacity 0.35s ease;
+}
+
+.data-card:hover {
+    border-color: rgba(255, 107, 53, 0.4);
+    transform: translateY(-2px);
+}
+
+.data-card:hover::after {
+    opacity: 1;
+}
+
+/* ── Hover Underline ─────────────────────────────────────── */
+.hover-line {
+    position: relative;
+}
+
+.hover-line::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: #FF6B35;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-line:hover::after {
+    width: 100%;
+}
+
+/* ── Corner Brackets ─────────────────────────────────────── */
+.corner-brackets {
+    position: relative;
+}
+
+.corner-brackets::before,
+.corner-brackets::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-color: #FF6B35;
+}
+
+.corner-brackets::before {
+    top: -4px;
+    left: -4px;
+    border-top: 2px solid;
+    border-left: 2px solid;
+}
+
+.corner-brackets::after {
+    bottom: -4px;
+    right: -4px;
+    border-bottom: 2px solid;
+    border-right: 2px solid;
+}
+
+/* ── Reveal Animations ───────────────────────────────────── */
+.reveal-up {
+    clip-path: inset(100% 0 0 0);
+    animation: revealUp 0.9s cubic-bezier(0.77, 0, 0.175, 1) forwards;
+}
+
+@keyframes revealUp {
+    to {
+        clip-path: inset(0 0 0 0);
+    }
+}
+
+.reveal-right {
+    clip-path: inset(0 100% 0 0);
+    animation: revealRight 0.9s cubic-bezier(0.77, 0, 0.175, 1) forwards;
+}
+
+@keyframes revealRight {
+    to {
+        clip-path: inset(0 0 0 0);
+    }
+}
+
+/* ── Stagger Children ────────────────────────────────────── */
+.stagger>* {
+    opacity: 0;
+    animation: staggerIn 0.7s ease-out forwards;
+}
+
+.stagger>*:nth-child(1) { animation-delay: 0.1s; }
+.stagger>*:nth-child(2) { animation-delay: 0.25s; }
+.stagger>*:nth-child(3) { animation-delay: 0.4s; }
+.stagger>*:nth-child(4) { animation-delay: 0.55s; }
+.stagger>*:nth-child(5) { animation-delay: 0.7s; }
+.stagger>*:nth-child(6) { animation-delay: 0.85s; }
+
+@keyframes staggerIn {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Scroll-triggered animations ─────────────────────────── */
+[data-animate] {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1), transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-animate].animated {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* ── Button styles ───────────────────────────────────────── */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: #FF6B35;
+    color: #0A0A0A;
+    padding: 1rem 2rem;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    text-decoration: none;
+}
+
+.btn-primary::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.5s ease;
+}
+
+.btn-primary:hover {
+    background: #FF4500;
+}
+
+.btn-primary:hover::before {
+    transform: translateX(100%);
+}
+
+.btn-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 1rem 2rem;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    color: #FAFAFA;
+}
+
+.btn-outline:hover {
+    border-color: #FAFAFA;
+    background: #FAFAFA;
+    color: #0A0A0A;
+}
+
+/* ── Sponsor Logo ────────────────────────────────────────── */
+.sponsor-card {
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.35s ease;
+    background: #0A0A0A;
+}
+
+.sponsor-card:hover {
+    border-color: rgba(255, 107, 53, 0.3);
+    background: rgba(255, 107, 53, 0.03);
+}
+
+.sponsor-card img {
+    max-height: 48px;
+    max-width: 140px;
+    object-fit: contain;
+    filter: grayscale(100%) brightness(2);
+    opacity: 0.5;
+    transition: all 0.35s ease;
+}
+
+.sponsor-card:hover img {
+    filter: grayscale(0%) brightness(1);
+    opacity: 1;
+}
+
+/* ── Mobile Menu ─────────────────────────────────────────── */
+.mobile-menu {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(10, 10, 10, 0.98);
+    backdrop-filter: blur(24px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.mobile-menu.open {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.mobile-menu a {
+    font-size: 1.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(250, 250, 250, 0.6);
+    transition: color 0.3s ease;
+    text-decoration: none;
+}
+
+.mobile-menu a:hover {
+    color: #FF6B35;
+}
+
+/* ── Custom scrollbar ────────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #141414;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #FF6B35;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #FF8F5C;
+}
+
+/* ── Selection & Focus ───────────────────────────────────── */
+::selection {
+    background: #FF6B35;
+    color: #FAFAFA;
+}
+
+:focus-visible {
+    outline: 2px solid #FF6B35;
+    outline-offset: 2px;
+}
+
+/* ── Reduced motion ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* ── EcoVolt Color Utility Classes ───────────────────────── */
+/* These replace Tailwind theme colors for static deployment */
+.text-ecovolt-orange { color: #FF6B35; }
+.text-ecovolt-gold { color: #D4A574; }
+.text-ecovolt-copper { color: #B87333; }
+.text-ecovolt-ember { color: #FF4500; }
+.bg-ecovolt-orange { background-color: #FF6B35; }
+.bg-ecovolt-black { background-color: #0A0A0A; }
+.bg-ecovolt-charcoal { background-color: #141414; }
+.text-energy-green { color: #22C55E; }
+.text-energy-teal { color: #14B8A6; }
