@@ -76,7 +76,6 @@ const ConvexBridge = (function () {
      */
     async function listSessions() {
         if (!client) throw new Error('ConvexBridge not initialized');
-
         try {
             const result = await client.query('sessions:listSessions', {});
             return result;
@@ -85,6 +84,49 @@ const ConvexBridge = (function () {
             throw error;
         }
     }
+
+    /**
+     * Populate the sessions metadata table from existing telemetry records.
+     *
+     * Uses a direct fetch() to the Convex REST API — more reliable than
+     * ConvexClient.action() which requires TypeScript generated API references.
+     *
+     * Idempotent: the server-side action is a no-op if the sessions table
+     * already has data.
+     *
+     * @returns {Promise<{skipped?: boolean, sessions?: number, error?: string}>}
+     */
+    async function kickstartSessions() {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        try {
+            // Derive the deployment base URL from the Convex URL
+            // e.g. "https://impartial-walrus-693.convex.cloud"
+            const convexUrl = window.CONFIG?.CONVEX_URL || '';
+            if (!convexUrl) throw new Error('CONVEX_URL not configured');
+
+            const response = await fetch(`${convexUrl}/api/run/sessions/kickstartSessions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ args: {}, format: 'json' }),
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`HTTP ${response.status}: ${text}`);
+            }
+
+            const result = await response.json();
+            console.log('[ConvexBridge] kickstartSessions:', result);
+            return result;
+        } catch (error) {
+            console.warn('[ConvexBridge] kickstartSessions failed (non-fatal):', error);
+            return { error: String(error) };
+        }
+    }
+
+
+
+
 
     /**
      * Get ALL records for a session.
@@ -411,6 +453,7 @@ const ConvexBridge = (function () {
         _getClient, // Internal use by auth module
         getConfig,
         listSessions,
+        kickstartSessions,
         getSessionRecords,
         getRecentRecords,
         getLatestRecord,
@@ -423,6 +466,7 @@ const ConvexBridge = (function () {
         isConnected,
         close
     };
+
 })();
 
 // Export to window for global access

@@ -1,4 +1,5 @@
 import { query, mutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 const BATCH_SIZE = 3000; // Safe well under the 16,384 .collect() hard cap
@@ -239,11 +240,68 @@ export const insertTelemetryBatch = mutation({
         })),
     },
     handler: async (ctx, args) => {
+        // ── Insert telemetry records ─────────────────────────────────────────
         const insertedIds = [];
         for (const record of args.records) {
             const id = await ctx.db.insert("telemetry", record);
             insertedIds.push(id);
         }
+
+        // ── Maintain sessions metadata table ─────────────────────────────────
+        // Group the batch by session to compute min/max timestamps and counts.
+        const sessionMap = new Map<string, {
+            session_name: string | undefined;
+            start_time: string;
+            end_time: string;
+            record_count: number;
+        }>();
+
+        for (const record of args.records) {
+            const sid = record.session_id;
+            if (!sid) continue;
+            const ts = record.timestamp;
+            const existing = sessionMap.get(sid);
+            if (!existing) {
+                sessionMap.set(sid, {
+                    session_name: record.session_name,
+                    start_time: ts,
+                    end_time: ts,
+                    record_count: 1,
+                });
+            } else {
+                existing.record_count++;
+                if (ts < existing.start_time) existing.start_time = ts;
+                if (ts > existing.end_time) existing.end_time = ts;
+            }
+        }
+
+        // Upsert each session in the sessions metadata table
+        for (const [sessionId, update] of sessionMap) {
+            const existingSession = await ctx.db
+                .query("sessions")
+                .withIndex("by_session_id", q => q.eq("session_id", sessionId))
+                .first();
+
+            if (!existingSession) {
+                await ctx.db.insert("sessions", {
+                    session_id: sessionId,
+                    session_name: update.session_name,
+                    start_time: update.start_time,
+                    end_time: update.end_time,
+                    record_count: update.record_count,
+                });
+            } else {
+                await ctx.db.patch(existingSession._id, {
+                    end_time: update.end_time > existingSession.end_time
+                        ? update.end_time : existingSession.end_time,
+                    start_time: update.start_time < existingSession.start_time
+                        ? update.start_time : existingSession.start_time,
+                    record_count: existingSession.record_count + update.record_count,
+                    session_name: update.session_name ?? existingSession.session_name,
+                });
+            }
+        }
+
         return { inserted: insertedIds.length };
     },
 });

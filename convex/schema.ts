@@ -17,7 +17,19 @@ export default defineSchema({
     .index("by_token", ["token"])
     .index("by_userId", ["userId"]),
 
+  // Session metadata table — ONE document per session.
+  // Maintained by insertTelemetryBatch so listSessions is O(sessions) not O(records).
+  sessions: defineTable({
+    session_id: v.string(),
+    session_name: v.optional(v.string()),
+    start_time: v.string(),   // ISO 8601 timestamp of first record
+    end_time: v.string(),     // ISO 8601 timestamp of last record
+    record_count: v.number(),
+  })
+    .index("by_session_id", ["session_id"]),
+
   // Telemetry data table - stores all vehicle sensor data
+
   telemetry: defineTable({
     session_id: v.string(),
     session_name: v.optional(v.string()),

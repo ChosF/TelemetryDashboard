@@ -20,8 +20,34 @@
 
     // ── Sessions ──
     async function loadSessions() {
-        const el = $('h-sessions-list'); el.innerHTML = '<div class="ha-loading"><div class="ha-spinner"></div><span>Loading sessions…</span></div>';
-        try { const res = await ConvexBridge.listSessions(); S.sessions = res?.sessions || (Array.isArray(res) ? res : []); renderSessions() } catch (e) { console.error(e); el.innerHTML = '<div class="ha-empty"><div class="ha-empty-icon">⚠️</div>Failed to load sessions</div>' }
+        const el = $('h-sessions-list');
+        el.innerHTML = '<div class="ha-loading"><div class="ha-spinner"></div><span>Loading sessions\u2026</span></div>';
+        try {
+            const res = await ConvexBridge.listSessions();
+            S.sessions = res?.sessions || (Array.isArray(res) ? res : []);
+            renderSessions();
+
+            // If the fast-path sessions table was empty, populate it in the background
+            // (one-time migration — subsequent page loads will use the sessions table directly)
+            if (res?.source === 'telemetry_scan' && S.sessions.length > 0) {
+                console.log('[historical] Sessions table empty — running kickstart migration\u2026');
+                el.insertAdjacentHTML('beforeend',
+                    '<div id="h-kickstart-notice" style="padding:6px 12px;font-size:11px;color:var(--ha-text3)">&#x26A1; Optimizing session index\u2026</div>');
+                ConvexBridge.kickstartSessions().then(result => {
+                    document.getElementById('h-kickstart-notice')?.remove();
+                    if (!result?.error && !result?.skipped) {
+                        // Reload sessions from the fast-path table
+                        ConvexBridge.listSessions().then(r => {
+                            S.sessions = r?.sessions || S.sessions;
+                            renderSessions();
+                        });
+                    }
+                });
+            }
+        } catch (e) {
+            console.error(e);
+            el.innerHTML = '<div class="ha-empty"><div class="ha-empty-icon">\u26a0\ufe0f</div>Failed to load sessions</div>';
+        }
     }
 
     function renderSessions() {
