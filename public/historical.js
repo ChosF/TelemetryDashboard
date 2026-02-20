@@ -87,8 +87,8 @@
         renderSummary(d); renderSyncedCharts(d); renderEnergy(d); renderDriverAnalysis(d);
         renderDescriptiveStats(d); renderAnomalies(d); renderRegression(d); renderSegments(d);
         renderMap(d); renderDataTable(d); renderQualityBadge(d);
-        // Inject save/copy action buttons on all charts
-        setTimeout(initChartActions, 200);
+        // Inject chart image overlay menus after charts have had time to initialise
+        setTimeout(() => initChartImageMenus(), 800);
     }
 
 
@@ -933,104 +933,159 @@
         });
     }
 
-    // ── Export ──
-    function downloadBlob(content, type, name) {
-        const b = new Blob([content], { type });
+    // ── Export helpers ────────────────────────────────────────────────────
+    function downloadBlob(content, mimeType, filename) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(b);
-        a.download = name;
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 150);
+        document.body.removeChild(a);
+        // Delay revoke so download can start before URL is invalidated
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
     }
 
     function exportCSV() {
         const keys = Object.keys(S.data[0]).filter(k => !k.startsWith('_'));
+        const escape = v => {
+            if (v == null) return '';
+            const s = String(v);
+            // Quote if contains comma, double-quote, newline
+            return (s.includes(',') || s.includes('"') || s.includes('\n'))
+                ? `"${s.replace(/"/g, '""')}"` : s;
+        };
         const lines = [keys.join(',')];
-        S.data.forEach(r => {
-            lines.push(keys.map(k => {
-                const v = r[k];
-                if (v == null) return '';
-                if (typeof v === 'object') return JSON.stringify(v).replace(/,/g, ';');
-                if (typeof v === 'string' && v.includes(',')) return '"' + v + '"';
-                return v;
-            }).join(','));
-        });
-        downloadBlob(lines.join('\n'), 'text/csv;charset=utf-8', `session_${S.activeSessionId?.slice(0, 8) || 'data'}.csv`);
-        toast('CSV downloaded');
+        S.data.forEach(r => lines.push(keys.map(k => escape(r[k])).join(',')));
+        const name = (S.activeSessionMeta?.session_name || S.activeSessionId?.slice(0, 8) || 'session')
+            .replace(/[^a-z0-9_\-]/gi, '_');
+        downloadBlob(lines.join('\r\n'), 'text/csv;charset=utf-8;', `${name}_telemetry.csv`);
+        toast('✅ CSV downloaded');
     }
 
     function exportJSON() {
-        downloadBlob(JSON.stringify(S.data, null, 2), 'application/json', `session_${S.activeSessionId?.slice(0, 8) || 'data'}.json`);
-        toast('JSON downloaded');
+        // Strip internal _ts etc but keep everything else
+        const clean = S.data.map(r => {
+            const out = {};
+            Object.keys(r).forEach(k => { if (!k.startsWith('_')) out[k] = r[k]; });
+            return out;
+        });
+        const name = (S.activeSessionMeta?.session_name || S.activeSessionId?.slice(0, 8) || 'session')
+            .replace(/[^a-z0-9_\-]/gi, '_');
+        downloadBlob(JSON.stringify(clean, null, 2), 'application/json', `${name}_telemetry.json`);
+        toast('✅ JSON downloaded');
     }
 
     function exportClipboard() {
         const keys = Object.keys(S.data[0]).filter(k => !k.startsWith('_'));
         const lines = [keys.join('\t')];
-        S.data.forEach(r => { lines.push(keys.map(k => r[k] ?? '').join('\t')); });
-        navigator.clipboard.writeText(lines.join('\n')).then(() => toast('Copied to clipboard'));
+        S.data.forEach(r => lines.push(keys.map(k => r[k] ?? '').join('\t')));
+        navigator.clipboard.writeText(lines.join('\n'))
+            .then(() => toast('✅ Copied to clipboard'))
+            .catch(() => toast('⚠️ Clipboard access denied'));
     }
 
     function exportMATLAB() {
         const keys = Object.keys(S.data[0]).filter(k => !k.startsWith('_'));
+        const safeName = k => k.replace(/[^a-zA-Z0-9_]/g, '_');
+        // Build struct-style .m file — more useful than bare matrix
         const lines = [
-            '% MATLAB Telemetry Data',
-            '% Columns: ' + keys.join(', '),
-            'data = [',
+            '% EcoVolt Telemetry — MATLAB/Octave script',
+            `% Session: ${S.activeSessionMeta?.session_name || S.activeSessionId || 'unknown'}`,
+            `% Records: ${S.data.length}`,
+            `% Generated: ${new Date().toISOString()}`,
+            '',
+            '% Each field is a column vector',
         ];
-        S.data.forEach(r => {
-            lines.push(keys.map(k => {
-                const v = r[k]; return typeof v === 'number' ? v : 'NaN';
-            }).join('\t'));
+        keys.forEach(k => {
+            const vals = S.data.map(r => {
+                const v = r[k];
+                return (typeof v === 'number' && isFinite(v)) ? v : 'NaN';
+            });
+            lines.push(`data.${safeName(k)} = [${vals.join(', ')}]';`);
         });
-        lines.push('];');
-        downloadBlob(lines.join('\n'), 'text/plain', `session_${S.activeSessionId?.slice(0, 8) || 'data'}.m`);
-        toast('MATLAB file downloaded');
+        lines.push('');
+        lines.push('% Quick plot example:');
+        lines.push('% plot(data.speed_kmh); xlabel(\'Sample\'); ylabel(\'Speed (km/h)\');');
+        const name = (S.activeSessionMeta?.session_name || S.activeSessionId?.slice(0, 8) || 'session')
+            .replace(/[^a-z0-9_\-]/gi, '_');
+        // Use application/octet-stream so browser preserves .m extension
+        downloadBlob(lines.join('\n'), 'application/octet-stream', `${name}_telemetry.m`);
+        toast('✅ MATLAB file downloaded');
     }
 
     function exportPython() {
-        const sid = S.activeSessionId?.slice(0, 8) || 'data';
+        const name = (S.activeSessionMeta?.session_name || S.activeSessionId?.slice(0, 8) || 'session')
+            .replace(/[^a-z0-9_\-]/gi, '_');
         const script = [
-            `# Python Analysis Script — Session ${sid}`,
-            'import pandas as pd',
-            'import matplotlib.pyplot as plt',
-            '',
-            '# Load the CSV exported from EcoVolt Telemetry Dashboard',
-            `df = pd.read_csv('session_${sid}.csv')`,
-            '',
-            '# Quick overview',
-            'print(df.describe())',
-            'print(f"\\nShape: {df.shape}")',
-            'print(f"Columns: {list(df.columns)}")',
-            '',
-            '# Plot speed over time',
-            'fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)',
-            "axes[0].plot(df['speed_kmh'], color='#00d4be', linewidth=0.8)",
-            "axes[0].set_ylabel('Speed (km/h)')",
-            `axes[0].set_title('Session ${sid} — Telemetry Analysis')`,
-            "axes[1].plot(df['power_w'], color='#a855f7', linewidth=0.8)",
-            "axes[1].set_ylabel('Power (W)')",
-            "axes[2].plot(df['voltage_v'], color='#3b82f6', linewidth=0.8)",
-            "axes[2].set_ylabel('Voltage (V)')",
-            "axes[2].set_xlabel('Sample Index')",
-            'plt.tight_layout()',
-            `plt.savefig('session_${sid}_analysis.png', dpi=150)`,
-            'plt.show()',
-            '',
-            '# Correlation matrix',
-            "num_cols = df.select_dtypes(include='number').columns",
-            'corr = df[num_cols].corr()',
-            'print("\\nCorrelation matrix:")',
-            'print(corr.round(2))',
+            `# EcoVolt Telemetry — Python analysis script`,
+            `# Session: ${S.activeSessionMeta?.session_name || S.activeSessionId || 'unknown'}`,
+            `# Records: ${S.data.length}  |  Generated: ${new Date().toISOString()}`,
+            ``,
+            `import pandas as pd`,
+            `import matplotlib.pyplot as plt`,
+            `import matplotlib.gridspec as gridspec`,
+            ``,
+            `# ── Load data ─────────────────────────────────────────────────────────`,
+            `# First export the CSV from EcoVolt, then load it here:`,
+            `df = pd.read_csv('${name}_telemetry.csv')`,
+            ``,
+            `print(f"Loaded {len(df)} records")`,
+            `print(f"Columns: {list(df.columns)}")`,
+            `print()`,
+            `print(df.describe().round(2))`,
+            ``,
+            `# ── Convert timestamp if present ──────────────────────────────────────`,
+            `if 'timestamp' in df.columns:`,
+            `    df['t'] = pd.to_datetime(df['timestamp'], unit='ms')`,
+            `    df = df.set_index('t')`,
+            ``,
+            `# ── Main telemetry plot ────────────────────────────────────────────────`,
+            `fig = plt.figure(figsize=(16, 12))`,
+            `gs  = gridspec.GridSpec(4, 1, hspace=0.4)`,
+            ``,
+            `ax0 = fig.add_subplot(gs[0])`,
+            `if 'speed_kmh' in df.columns:`,
+            `    ax0.plot(df['speed_kmh'].values, color='#00d4be', linewidth=0.8, label='Speed')`,
+            `    ax0.set_ylabel('Speed (km/h)'); ax0.legend(fontsize=8)`,
+            ``,
+            `ax1 = fig.add_subplot(gs[1])`,
+            `if 'power_w' in df.columns:`,
+            `    ax1.plot(df['power_w'].values, color='#a855f7', linewidth=0.8, label='Power')`,
+            `    ax1.set_ylabel('Power (W)'); ax1.legend(fontsize=8)`,
+            ``,
+            `ax2 = fig.add_subplot(gs[2])`,
+            `if 'voltage_v' in df.columns:`,
+            `    ax2.plot(df['voltage_v'].values, color='#3b82f6', linewidth=0.8, label='Voltage')`,
+            `    ax2.set_ylabel('Voltage (V)'); ax2.legend(fontsize=8)`,
+            ``,
+            `ax3 = fig.add_subplot(gs[3])`,
+            `if 'current_a' in df.columns:`,
+            `    ax3.plot(df['current_a'].values, color='#f97316', linewidth=0.8, label='Current')`,
+            `    ax3.set_ylabel('Current (A)'); ax3.legend(fontsize=8)`,
+            `    ax3.set_xlabel('Sample index')`,
+            ``,
+            `fig.suptitle('${name} — Telemetry Analysis', fontsize=14, y=0.98)`,
+            `plt.savefig('${name}_analysis.png', dpi=150, bbox_inches='tight')`,
+            `print("Saved ${name}_analysis.png")`,
+            `plt.show()`,
+            ``,
+            `# ── Correlation matrix ────────────────────────────────────────────────`,
+            `num_cols = df.select_dtypes(include='number').columns`,
+            `corr = df[num_cols].corr().round(2)`,
+            `print("\\nCorrelation matrix:")`,
+            `print(corr)`,
         ].join('\n');
-        downloadBlob(script, 'text/x-python', `session_${sid}_analysis.py`);
-        toast('Python script downloaded');
+        // Use application/octet-stream so the browser preserves .py extension
+        downloadBlob(script, 'application/octet-stream', `${name}_analysis.py`);
+        toast('✅ Python script downloaded');
     }
 
-    $$('.ha-export-btn').forEach(c => c.addEventListener('click', () => {
-        if (!S.data.length) { toast('No data to export'); return; }
-        const f = c.dataset.format;
+    $$('.ha-export-btn').forEach(btn => btn.addEventListener('click', () => {
+        if (!S.data.length) { toast('⚠️ No session data loaded'); return; }
+        const f = btn.dataset.format;
         if (f === 'csv') exportCSV();
         else if (f === 'json') exportJSON();
         else if (f === 'clipboard') exportClipboard();
@@ -1038,66 +1093,9 @@
         else if (f === 'python') exportPython();
     }));
 
+
     // Quick CSV from header
     $('h-btn-export-quick')?.addEventListener('click', () => { if (S.data.length) exportCSV(); else toast('No data loaded'); });
-
-    // ── Chart Image Save / Copy ──────────────────────────────────────────
-    function saveChartAsImage(chartId, title) {
-        const inst = HA.charts[chartId];
-        if (!inst) { toast('No chart to save'); return; }
-        const dataUrl = inst.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0a0f1a' });
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = `${title || chartId}_${Date.now()}.png`;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => document.body.removeChild(a), 100);
-        toast('Chart saved as PNG');
-    }
-
-    async function copyChartToClipboard(chartId) {
-        const inst = HA.charts[chartId];
-        if (!inst) { toast('No chart to copy'); return; }
-        try {
-            const dataUrl = inst.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0a0f1a' });
-            const resp = await fetch(dataUrl);
-            const blob = await resp.blob();
-            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-            toast('Chart copied to clipboard');
-        } catch (e) {
-            toast('Copy failed — try saving instead');
-        }
-    }
-
-    // Inject small action buttons onto every chart container
-    function initChartActions() {
-        document.querySelectorAll('.ha-chart-box[id]').forEach(el => {
-            if (el.querySelector('.ha-chart-actions')) return; // already added
-            const wrap = document.createElement('div');
-            wrap.className = 'ha-chart-actions';
-            wrap.innerHTML = `
-                <button class="ha-chart-act-btn" data-action="save" title="Save as PNG">📷</button>
-                <button class="ha-chart-act-btn" data-action="copy" title="Copy to clipboard">📋</button>`;
-            el.style.position = 'relative';
-            el.appendChild(wrap);
-            wrap.addEventListener('click', e => {
-                const btn = e.target.closest('[data-action]');
-                if (!btn) return;
-                e.stopPropagation();
-                const chartId = el.id;
-                const label = el.closest('.ha-chart-card')?.querySelector('.ha-chart-label')?.textContent
-                    || el.closest('.ha-card')?.querySelector('.ha-card-title')?.textContent
-                    || chartId;
-                const safeName = label.replace(/[^a-zA-Z0-9]+/g, '_').toLowerCase();
-                if (btn.dataset.action === 'save') saveChartAsImage(chartId, safeName);
-                else if (btn.dataset.action === 'copy') copyChartToClipboard(chartId);
-            });
-        });
-    }
-
-    // Section-level save buttons
-    $('h-ts-save-img')?.addEventListener('click', () => saveChartAsImage('hc-speed', 'speed_chart'));
-    $('h-energy-save')?.addEventListener('click', () => saveChartAsImage('hc-energy-cum', 'energy_chart'));
 
 
     // ── Collapsible Sections ──
@@ -1217,8 +1215,10 @@
         const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'throttle_pct', 'brake_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
         const filtered = filter ? S.data.filter(r => cols.some(c => { const v = r[c]; return v != null && String(v).toLowerCase().includes(filter) })) : S.data;
         const lines = [cols.join(','), ...filtered.map(r => cols.map(k => r[k] ?? '').join(','))];
-        downloadBlob(lines.join('\n'), 'text/csv', `table_${S.activeSessionId?.slice(0, 8)}.csv`);
-        toast(`${filtered.length} rows exported`);
+        const sessionName = (S.activeSessionMeta?.session_name || S.activeSessionId?.slice(0, 8) || 'session')
+            .replace(/[^a-z0-9_\-]/gi, '_');
+        downloadBlob(lines.join('\r\n'), 'text/csv;charset=utf-8;', `${sessionName}_table.csv`);
+        toast(`✅ ${filtered.length} rows exported`);
     });
 
     // ── Compare Clear ──
@@ -1276,15 +1276,98 @@
     const _origOpenSession = openSession;
     // (already defined above, just add post-render hook)
 
+    // ── Chart Image Export ─────────────────────────────────────────────────
+    // Injects a small hover toolbar on every .ha-chart-box with Save/Copy buttons
+    function initChartImageMenus() {
+        $$('.ha-chart-box').forEach(box => {
+            // Skip if already has overlay
+            if (box.querySelector('.ha-chart-imgmenu')) return;
+
+            const overlay = document.createElement('div');
+            overlay.className = 'ha-chart-imgmenu';
+            overlay.innerHTML = `
+                <button class="ha-cim-btn ha-cim-save" title="Save chart as PNG">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Save PNG
+                </button>
+                <button class="ha-cim-btn ha-cim-copy" title="Copy chart to clipboard">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    Copy
+                </button>`;
+
+            // Position relative needed on parent
+            if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
+            box.appendChild(overlay);
+
+            function getChartPng(pixelRatio = 2) {
+                const chart = window.echarts?.getInstanceByDom(box);
+                if (chart) {
+                    // ECharts native export — preserves all series
+                    return chart.getDataURL({ type: 'png', pixelRatio, backgroundColor: '#0a0f1a' });
+                }
+                // Fallback: plain canvas screenshot
+                const canvas = box.querySelector('canvas');
+                if (canvas) return canvas.toDataURL('image/png');
+                return null;
+            }
+
+            // ── Save as PNG ───────────────────────────────────────────────
+            overlay.querySelector('.ha-cim-save').addEventListener('click', e => {
+                e.stopPropagation();
+                const dataUrl = getChartPng(3);
+                if (!dataUrl) { toast('⚠️ Chart not ready'); return; }
+                const sessionLabel = (S.activeSessionMeta?.session_name || S.activeSessionId?.slice(0, 8) || 'chart')
+                    .replace(/[^a-z0-9_\-]/gi, '_');
+                const chartLabel = (box.id || 'chart').replace(/[^a-z0-9_\-]/gi, '_');
+                const a = document.createElement('a');
+                a.href = dataUrl;
+                a.download = `${sessionLabel}_${chartLabel}.png`;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                toast('✅ Chart image saved');
+            });
+
+            // ── Copy to clipboard ─────────────────────────────────────────
+            overlay.querySelector('.ha-cim-copy').addEventListener('click', async e => {
+                e.stopPropagation();
+                const dataUrl = getChartPng(2);
+                if (!dataUrl) { toast('⚠️ Chart not ready'); return; }
+                try {
+                    // Convert dataURL to blob for Clipboard API
+                    const res = await fetch(dataUrl);
+                    const blob = await res.blob();
+                    await navigator.clipboard.write([
+                        new ClipboardItem({ 'image/png': blob })
+                    ]);
+                    toast('✅ Chart copied to clipboard');
+                } catch (err) {
+                    // Clipboard API not available (file:// or http) — fall back to opening in new tab
+                    const win = window.open();
+                    if (win) {
+                        win.document.write(`<img src="${dataUrl}" style="max-width:100%">`);
+                        toast('📋 Opened in new tab — right-click to copy');
+                    } else {
+                        toast('⚠️ Clipboard access denied');
+                    }
+                }
+            });
+        });
+    }
+
     // ── Boot ──
+
     async function boot() {
         const ok = await checkPermission(); if (!ok) return;
         buildTOC();
         initCollapsibles();
         initMetricToggles();
+        initChartImageMenus();
         if (convexReady) await loadSessions();
         else $('h-sessions-list').innerHTML = '<div class="ha-empty"><div class="ha-empty-icon">⚡</div>Convex not connected.</div>';
     }
+
     boot();
 
 })();

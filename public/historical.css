@@ -786,52 +786,7 @@ body.hist-page {
     height: 260px;
     border-radius: var(--ha-radius-xs);
     position: relative;
-}
-
-/* Chart action buttons (save/copy) — hover reveal */
-.ha-chart-actions {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    display: flex;
-    gap: 3px;
-    z-index: 10;
-    opacity: 0;
-    transition: opacity 0.2s;
-    pointer-events: none;
-}
-
-.ha-chart-box:hover .ha-chart-actions {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.ha-chart-act-btn {
-    width: 26px;
-    height: 26px;
-    border: none;
-    border-radius: 6px;
-    background: rgba(10, 15, 26, 0.85);
-    color: var(--ha-text2);
-    font-size: 13px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s, transform 0.1s;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.ha-chart-act-btn:hover {
-    background: rgba(0, 212, 190, 0.25);
-    color: var(--ha-accent);
-    transform: scale(1.1);
-}
-
-.ha-chart-act-btn:active {
-    transform: scale(0.95);
+    /* required for chart image menu overlay */
 }
 
 
@@ -1806,8 +1761,71 @@ body.hist-page {
 
 
 /* ==========================================================================
+   CHART IMAGE EXPORT MENU
+   ========================================================================== */
+
+/* Overlay that appears on top of every .ha-chart-box on hover */
+.ha-chart-imgmenu {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 20;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transform: translateY(-4px);
+}
+
+/* Show on chart hover */
+.ha-chart-box:hover .ha-chart-imgmenu {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.ha-cim-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--ha-sans);
+    color: var(--ha-text2);
+    background: rgba(10, 15, 26, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    white-space: nowrap;
+}
+
+.ha-cim-btn:hover {
+    color: var(--ha-text);
+    background: rgba(0, 212, 190, 0.12);
+    border-color: var(--ha-accent-glow);
+}
+
+.ha-cim-btn:active {
+    transform: scale(0.96);
+}
+
+.ha-cim-save:hover {
+    color: var(--ha-accent);
+}
+
+.ha-cim-copy:hover {
+    color: #a855f7;
+}
+
+/* ==========================================================================
    EXPORT
    ========================================================================== */
+
 .ha-export-grid {
     display: flex;
     gap: 8px;
