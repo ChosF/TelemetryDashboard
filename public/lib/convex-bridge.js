@@ -87,23 +87,92 @@ const ConvexBridge = (function () {
     }
 
     /**
-     * Get all records for a session
+     * Get all records for a session.
+     * For sessions with ≤8000 records: single fast query.
+     * For larger sessions: transparent cursor-based pagination (2000 per page)
+     * so Convex's collect() hard cap is never hit.
+     * Returns a flat sorted array either way — callers see no difference.
+     *
      * @param {string} sessionId - Session UUID
-     * @returns {Promise<Array>} Array of telemetry records
+     * @param {function} [onProgress] - Optional callback(loaded, total) for progress UI
+     * @returns {Promise<Array>} Full array of telemetry records
      */
-    async function getSessionRecords(sessionId) {
+    async function getSessionRecords(sessionId, onProgress = null) {
         if (!client) throw new Error('ConvexBridge not initialized');
 
+        const PAGE_SIZE = 2000;
+        const LARGE_THRESHOLD = 8000;
+
         try {
-            const records = await client.query('telemetry:getSessionRecords', {
-                sessionId: sessionId
-            });
-            return records;
+            // ── Fast path: count first, then decide strategy ─────────────
+            // getSessionRecordCount is a cheap index scan with no data transfer
+            let count = null;
+            try {
+                const countResult = await client.query('telemetry:getSessionRecordCount', { sessionId });
+                count = countResult?.count ?? null;
+            } catch (_) {
+                // If count query fails (e.g. not deployed yet), fall through to single collect
+                count = null;
+            }
+
+            // ── Single-shot path (small sessions) ────────────────────────
+            if (count === null || count <= LARGE_THRESHOLD) {
+                const records = await client.query('telemetry:getSessionRecords', { sessionId });
+                return records;
+            }
+
+            // ── Paginated path (large sessions) ───────────────────────────
+            console.log(`[ConvexBridge] 📄 Large session (${count} records) — paginating…`);
+
+            const allRecords = [];
+            let cursor = null;   // null = start from beginning
+            let isDone = false;
+            let pageNum = 0;
+
+            while (!isDone) {
+                const paginationOpts = {
+                    numItems: PAGE_SIZE,
+                    cursor: cursor,  // null on first call, string cursor on subsequent calls
+                };
+
+                const page = await client.query('telemetry:getSessionRecordsPage', {
+                    sessionId,
+                    paginationOpts,
+                });
+
+                // Convex paginate() returns { page: [], isDone: bool, continueCursor: string }
+                if (page.page && page.page.length > 0) {
+                    allRecords.push(...page.page);
+                }
+
+                isDone = page.isDone;
+                cursor = page.continueCursor;
+                pageNum++;
+
+                console.log(`[ConvexBridge]   page ${pageNum}: +${page.page?.length ?? 0} records (total: ${allRecords.length})`);
+
+                // Fire progress callback so the UI can show loading progress
+                if (onProgress) {
+                    onProgress(allRecords.length, count);
+                }
+
+                // Safety: if cursor didn't advance, break to avoid infinite loop
+                if (!isDone && !cursor) {
+                    console.warn('[ConvexBridge] ⚠️ No cursor returned — stopping pagination');
+                    break;
+                }
+            }
+
+            console.log(`[ConvexBridge] ✅ Pagination complete: ${allRecords.length} records in ${pageNum} pages`);
+            return allRecords;
+
         } catch (error) {
             console.error('[ConvexBridge] getSessionRecords failed:', error);
             throw error;
         }
     }
+
+
 
     /**
      * Get recent records for a session (for incremental updates)

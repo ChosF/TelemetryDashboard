@@ -4,7 +4,8 @@ import { paginationOptsValidator } from "convex/server";
 
 /**
  * Get all records for a specific session (reactive query)
- * This query will automatically update when new records are added
+ * NOTE: Convex hard-caps .collect() at ~16k documents.
+ * For sessions with >8k records, use getSessionRecordsPage instead.
  */
 export const getSessionRecords = query({
     args: { sessionId: v.string() },
@@ -17,6 +18,46 @@ export const getSessionRecords = query({
         return records;
     },
 });
+
+/**
+ * Cursor-based page query — used by the client to fetch large sessions
+ * in chunks without hitting Convex's collect() document limit.
+ *
+ * Call repeatedly until isDone === true, passing the returned cursor
+ * back as the next call's `cursor` argument.
+ *
+ * Page size: 2000 records (well under the 16k hard cap per call).
+ */
+export const getSessionRecordsPage = query({
+    args: {
+        sessionId: v.string(),
+        paginationOpts: paginationOptsValidator,
+    },
+    handler: async (ctx, args) => {
+        return await ctx.db
+            .query("telemetry")
+            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+            .order("asc")
+            .paginate(args.paginationOpts);
+    },
+});
+
+/**
+ * Return the exact count of records for a session without fetching data.
+ * Useful for showing totals in the UI without loading all records.
+ */
+export const getSessionRecordCount = query({
+    args: { sessionId: v.string() },
+    handler: async (ctx, args) => {
+        const records = await ctx.db
+            .query("telemetry")
+            .withIndex("by_session", (q) => q.eq("session_id", args.sessionId))
+            .collect();
+        return { count: records.length };
+    },
+});
+
+
 
 /**
  * Paginated query for large sessions

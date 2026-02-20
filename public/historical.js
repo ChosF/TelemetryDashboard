@@ -49,23 +49,42 @@
     async function openSession(sid) {
         S.activeSessionId = sid;
         S.activeSessionMeta = S.sessions.find(s => s.session_id === sid);
-        $('h-active-session-label').textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
+        const label = $('h-active-session-label');
+        if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
         $('h-back-to-sessions').style.display = '';
         $('h-view-explorer').classList.remove('active');
         $('h-view-analysis').classList.add('active');
         showTOC(true);
+
         // Loading state
-        $('h-summary-grid').style.opacity = '0.4';
+        const grid = $('h-summary-grid');
+        if (grid) grid.style.opacity = '0.4';
+
+        // Progress callback — shown only when paginating large sessions
+        const onProgress = (loaded, total) => {
+            if (label) label.textContent =
+                `Loading… ${fmtInt(loaded)} / ${fmtInt(total)} records`;
+        };
+
         try {
-            const raw = await ConvexBridge.getSessionRecords(sid);
+            const raw = await ConvexBridge.getSessionRecords(sid, onProgress);
             S.data = (Array.isArray(raw) ? raw : []).map(normalizeRecord).sort((a, b) => a._ts - b._ts);
-            if (!S.data.length) { toast('No data for this session'); return }
+
+            // Restore label after load
+            if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
+
+            if (!S.data.length) { toast('No data for this session'); return; }
             renderAll();
-            $('h-summary-grid').style.opacity = '1';
-        } catch (e) { console.error(e); toast('Failed to load session data') }
+            if (grid) grid.style.opacity = '1';
+        } catch (e) {
+            console.error(e);
+            toast('Failed to load session data');
+            if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
+        }
         populateCompareSelect();
         showAnalysisActions(true);
     }
+
 
     function backToSessions() {
         $('h-view-analysis').classList.remove('active');
