@@ -60,11 +60,15 @@
         const grid = $('h-summary-grid');
         if (grid) grid.style.opacity = '0.4';
 
-        // Progress callback — shown only when paginating large sessions
+        // Progress callback — only fired when batch-fetching large sessions
+        const sessionName = S.activeSessionMeta?.session_name || sid.slice(0, 12);
         const onProgress = (loaded, total) => {
-            if (label) label.textContent =
-                `Loading… ${fmtInt(loaded)} / ${fmtInt(total)} records`;
+            if (!label) return;
+            const l = Number(loaded).toLocaleString();
+            const t = total ? ` / ${Number(total).toLocaleString()}` : '';
+            label.textContent = `Loading… ${l}${t}`;
         };
+
 
         try {
             const raw = await ConvexBridge.getSessionRecords(sid, onProgress);

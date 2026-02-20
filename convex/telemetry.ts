@@ -1,11 +1,12 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { paginationOptsValidator } from "convex/server";
+
+const BATCH_SIZE = 3000; // Safe well under the 16,384 .collect() hard cap
 
 /**
- * Get all records for a specific session (reactive query)
- * NOTE: Convex hard-caps .collect() at ~16k documents.
- * For sessions with >8k records, use getSessionRecordsPage instead.
+ * Get all records for a specific session.
+ * Works for sessions up to ~14k records (Convex .collect() hard cap is 16,384).
+ * For larger sessions, clients should loop getSessionRecordsBatch instead.
  */
 export const getSessionRecords = query({
     args: { sessionId: v.string() },
@@ -20,62 +21,46 @@ export const getSessionRecords = query({
 });
 
 /**
- * Cursor-based page query — used by the client to fetch large sessions
- * in chunks without hitting Convex's collect() document limit.
+ * Timestamp-cursor batch fetch for large sessions.
  *
- * Call repeatedly until isDone === true, passing the returned cursor
- * back as the next call's `cursor` argument.
+ * Uses the compound index ["session_id", "timestamp"] to efficiently
+ * fetch records AFTER a given timestamp — no Convex pagination API needed.
  *
- * Page size: 2000 records (well under the 16k hard cap per call).
+ * Algorithm:
+ *   1. First call: omit afterTimestamp (or pass null/undefined)
+ *   2. Subsequent calls: pass lastTimestamp from previous response
+ *   3. Stop when hasMore === false
+ *
+ * Returns:
+ *   page          — array of up to BATCH_SIZE records (sorted asc)
+ *   hasMore       — true if there are more records after this batch
+ *   lastTimestamp — timestamp of the last record in page (use as next afterTimestamp)
  */
-export const getSessionRecordsPage = query({
+export const getSessionRecordsBatch = query({
     args: {
         sessionId: v.string(),
-        paginationOpts: paginationOptsValidator,
+        afterTimestamp: v.optional(v.string()),
     },
-    handler: async (ctx, args) => {
-        return await ctx.db
-            .query("telemetry")
-            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
-            .order("asc")
-            .paginate(args.paginationOpts);
-    },
-});
-
-/**
- * Return the exact count of records for a session without fetching data.
- * Useful for showing totals in the UI without loading all records.
- */
-export const getSessionRecordCount = query({
-    args: { sessionId: v.string() },
     handler: async (ctx, args) => {
         const records = await ctx.db
             .query("telemetry")
-            .withIndex("by_session", (q) => q.eq("session_id", args.sessionId))
-            .collect();
-        return { count: records.length };
-    },
-});
-
-
-
-/**
- * Paginated query for large sessions
- * Use this for historical data with many records
- */
-export const getSessionRecordsPaginated = query({
-    args: {
-        sessionId: v.string(),
-        paginationOpts: paginationOptsValidator,
-    },
-    handler: async (ctx, args) => {
-        return await ctx.db
-            .query("telemetry")
-            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+            .withIndex("by_session_timestamp", (qb) => {
+                const base = qb.eq("session_id", args.sessionId);
+                return args.afterTimestamp
+                    ? base.gt("timestamp", args.afterTimestamp)
+                    : base;
+            })
             .order("asc")
-            .paginate(args.paginationOpts);
+            .take(BATCH_SIZE + 1); // +1 to probe if more records exist
+
+        const hasMore = records.length > BATCH_SIZE;
+        const page = hasMore ? records.slice(0, BATCH_SIZE) : records;
+        const lastTimestamp = page.length > 0 ? page[page.length - 1].timestamp : null;
+
+        return { page, hasMore, lastTimestamp };
     },
 });
+
 
 /**
  * Get recent records for a session (for incremental updates)
