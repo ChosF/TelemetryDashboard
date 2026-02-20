@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Historical Analysis — EcoVolt Telemetry</title>
+    <meta name="description" content="Deep post-race telemetry analysis for EcoVolt Shell Eco-marathon vehicle." />
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="historical.css" />
+    <script>
+        window.CONFIG = window.CONFIG || { CONVEX_URL: "https://impartial-walrus-693.convex.cloud" };
+    </script>
+</head>
+
+<body class="hist-page">
+
+    <!-- Auth Gate -->
+    <div id="h-auth-gate" class="h-auth-gate" style="display:none">
+        <div class="h-auth-gate-content">
+            <div class="h-auth-gate-icon">🔒</div>
+            <h2>Access Restricted</h2>
+            <p>Historical analysis requires <b>External</b>, <b>Internal</b>, or <b>Admin</b> access.</p>
+            <a href="dashboard.html" class="ha-btn ha-btn-primary">← Back to Dashboard</a>
+        </div>
+    </div>
+
+    <!-- ── HEADER ── -->
+    <header class="ha-header">
+        <a href="dashboard.html" class="ha-header-logo" title="Dashboard"><span class="ha-logo-icon">⚡</span></a>
+        <div class="ha-header-divider"></div>
+        <a href="dashboard.html" class="ha-header-back">← Dashboard</a>
+        <h1 class="ha-header-title">Historical Analysis</h1>
+        <div class="ha-header-session" id="h-active-session-label"></div>
+        <div class="ha-quality-badge" id="h-quality-badge" style="display:none">
+            <span class="ha-quality-dot" id="h-quality-dot"></span>
+            <span id="h-quality-text">—</span>
+        </div>
+        <div class="ha-header-actions">
+            <button class="ha-btn ha-btn-ghost ha-btn-icon" id="h-btn-export-quick" style="display:none"
+                title="Quick export CSV">↓ CSV</button>
+            <button class="ha-btn ha-btn-ghost" id="h-back-to-sessions" style="display:none">↩ Sessions</button>
+        </div>
+    </header>
+
+    <main class="ha-main">
+
+        <!-- ── EXPLORER VIEW ── -->
+        <div class="ha-view active" id="h-view-explorer">
+            <div class="ha-explorer-hero">
+                <div class="ha-hero-badge">📊 Telemetry Analysis</div>
+                <h1>Historical Sessions</h1>
+                <p>Select a session to unlock synchronized charts, statistical analysis, driver scoring, and data
+                    export.</p>
+            </div>
+
+            <div class="ha-explorer-toolbar">
+                <div class="ha-search-wrap">
+                    <span class="ha-search-icon">🔍</span>
+                    <input type="text" class="ha-input" id="h-search" placeholder="Search sessions…"
+                        autocomplete="off" />
+                    <button class="ha-search-clear" id="h-search-clear" title="Clear">✕</button>
+                </div>
+                <select class="ha-select" id="h-sort">
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="most-records">Most Records</option>
+                    <option value="name-asc">Name A–Z</option>
+                </select>
+                <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-refresh-sessions" title="Refresh session list">↺
+                    Refresh</button>
+            </div>
+
+            <div class="ha-explorer-stats" id="h-explorer-stats"></div>
+            <div id="h-sessions-list" class="ha-sessions-grid">
+                <div class="ha-loading">
+                    <div class="ha-spinner"></div><span>Loading sessions…</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── ANALYSIS VIEW ── -->
+        <div class="ha-view" id="h-view-analysis">
+
+            <!-- ─── Overview KPIs ─── -->
+            <section class="ha-section" id="ha-sec-overview" data-toc="Overview">
+                <div class="ha-kpi-grid" id="h-summary-grid">
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🛣️</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-distance">—</div>
+                            <div class="ha-kpi-label">Distance</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">⚡</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-energy">—</div>
+                            <div class="ha-kpi-label">Energy Used</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">📊</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-efficiency">—</div>
+                            <div class="ha-kpi-label">Efficiency</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🏎️</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-maxspeed">—</div>
+                            <div class="ha-kpi-label">Max Speed</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">⏱️</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-duration">—</div>
+                            <div class="ha-kpi-label">Duration</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🔌</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-avgpower">—</div>
+                            <div class="ha-kpi-label">Avg Power</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">📈</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-avgspeed">—</div>
+                            <div class="ha-kpi-label">Avg Speed</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🎯</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-optimal-speed">—</div>
+                            <div class="ha-kpi-label">Optimal Speed</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">⚡</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-maxpower">—</div>
+                            <div class="ha-kpi-label">Peak Power</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🔋</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-avgvoltage">—</div>
+                            <div class="ha-kpi-label">Avg Voltage</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">⛰️</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-elevation">—</div>
+                            <div class="ha-kpi-label">Elev. Gain</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">📦</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-records">—</div>
+                            <div class="ha-kpi-label">Records</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Time-Series Charts ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-timeseries" data-toc="Time Series">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="ts-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">📈</span> Time Series</h2>
+                        <span class="ha-sec-hint">Brush any chart to zoom all</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ts-reset-zoom"
+                            title="Reset zoom on all charts">↺ Reset Zoom</button>
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ts-save-img"
+                            title="Save speed chart as image">⬇ Save</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="ts-body">
+                    <!-- Metric toggles -->
+                    <div class="ha-metric-toggles" id="h-ts-toggles">
+                        <button class="ha-toggle active" data-chart="hc-speed">Speed</button>
+                        <button class="ha-toggle active" data-chart="hc-power">Power</button>
+                        <button class="ha-toggle active" data-chart="hc-voltage">Voltage/Current</button>
+                        <button class="ha-toggle active" data-chart="hc-throttle">Throttle</button>
+                        <button class="ha-toggle active" data-chart="hc-brake">Brake</button>
+                        <button class="ha-toggle active" data-chart="hc-imu">IMU</button>
+                    </div>
+                    <div class="ha-synced-stack" id="ha-synced-stack">
+                        <div class="ha-chart-card" id="wrap-hc-speed">
+                            <div class="ha-chart-label">Speed (km/h)</div>
+                            <div class="ha-chart-box ha-chart-primary" id="hc-speed"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-power">
+                            <div class="ha-chart-label">Power (W)</div>
+                            <div class="ha-chart-box" id="hc-power"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-voltage">
+                            <div class="ha-chart-label">Voltage (V) / Current (A)</div>
+                            <div class="ha-chart-box" id="hc-voltage"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-throttle">
+                            <div class="ha-chart-label">Throttle (%)</div>
+                            <div class="ha-chart-box" id="hc-throttle"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-brake">
+                            <div class="ha-chart-label">Brake (%)</div>
+                            <div class="ha-chart-box" id="hc-brake"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-imu">
+                            <div class="ha-chart-label">IMU / Acceleration</div>
+                            <div class="ha-chart-box" id="hc-imu"></div>
+                        </div>
+                    </div>
+                    <!-- Sub-interval stats -->
+                    <div class="ha-subinterval-panel" id="ha-subinterval" style="display:none">
+                        <div class="ha-subinterval-head">
+                            <span class="ha-subinterval-title">📐 Selection Stats</span>
+                            <span class="ha-subinterval-range" id="ha-subinterval-range"></span>
+                            <button class="ha-btn ha-btn-ghost ha-btn-xs" id="h-subint-copy"
+                                title="Copy stats to clipboard">Copy</button>
+                        </div>
+                        <div class="ha-subinterval-grid" id="ha-subinterval-grid"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Energy ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-energy" data-toc="Energy">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="energy-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🔋</span> Energy</h2>
+                        <span class="ha-sec-hint">Consumption, efficiency & distribution</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-energy-save" title="Save energy chart">⬇
+                            Save</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="energy-body">
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Cumulative Energy (Wh)</div>
+                            <div class="ha-chart-box" id="hc-energy-cum"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Rolling Efficiency (km/kWh)</div>
+                            <div class="ha-chart-box" id="hc-efficiency"></div>
+                        </div>
+                    </div>
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Energy by Speed Bracket</div>
+                            <div class="ha-chart-box" id="hc-energy-bracket"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Power Distribution</div>
+                            <div class="ha-chart-box" id="hc-power-dist"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Driver Behavior ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-driver" data-toc="Driver">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="driver-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🏎️</span> Driver Behavior</h2>
+                        <span class="ha-sec-hint">Smoothness, G-G diagram, input distributions</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-driver-copy" title="Copy driver stats">Copy
+                            Stats</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="driver-body">
+                    <div class="ha-driver-top">
+                        <div class="ha-card ha-driver-score-card">
+                            <div class="ha-card-title">Driving Smoothness</div>
+                            <div class="ha-score-ring" id="h-smoothness-ring">
+                                <svg viewBox="0 0 120 120">
+                                    <circle class="ring-bg" cx="60" cy="60" r="50" />
+                                    <circle class="ring-fill" cx="60" cy="60" r="50" stroke-dasharray="314.16"
+                                        stroke-dashoffset="314.16" id="h-ring-arc" />
+                                </svg>
+                                <div class="ha-score-value" id="h-smoothness-val">—</div>
+                            </div>
+                            <div class="ha-driver-stats" id="h-driver-stats"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">G-G Diagram</div>
+                            <div class="ha-chart-box ha-chart-tall" id="hc-accel-scatter"></div>
+                        </div>
+                    </div>
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Speed Histogram</div>
+                            <div class="ha-chart-box" id="hc-speed-hist"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Throttle Distribution</div>
+                            <div class="ha-chart-box" id="hc-throttle-dist"></div>
+                        </div>
+                    </div>
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Motion State</div>
+                            <div class="ha-chart-box" id="hc-motion-state"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Driver Mode</div>
+                            <div class="ha-chart-box" id="hc-driver-mode"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Statistics ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-stats" data-toc="Statistics">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="stats-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🧮</span> Statistics</h2>
+                        <span class="ha-sec-hint">Descriptive stats & correlation heatmap</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-stats-copy"
+                            title="Copy stats table as TSV">Copy Table</button>
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-stats-csv" title="Download stats as CSV">⬇
+                            CSV</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="stats-body">
+                    <div class="ha-card">
+                        <div class="ha-stats-table-wrap" id="h-desc-stats"></div>
+                    </div>
+                    <div class="ha-card" style="margin-top:12px">
+                        <div class="ha-card-title">Correlation Heatmap</div>
+                        <div class="ha-chart-box ha-chart-tall" id="hc-correlation"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Anomalies ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-anomalies" data-toc="Anomalies">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="anomaly-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">⚠️</span> Anomalies</h2>
+                        <span class="ha-anomaly-count-badge" id="ha-anomaly-count-badge" style="display:none"></span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-anomaly-export"
+                            title="Export anomaly list as CSV">⬇ Export</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="anomaly-body">
+                    <!-- Always-visible: summary banner + severity chips -->
+                    <div class="ha-anomaly-summary" id="ha-anomaly-summary"></div>
+
+                    <!-- Always-visible: Data Health KPI row -->
+                    <div class="ha-anomaly-kpi-row" id="ha-anomaly-kpi-row"></div>
+
+                    <!-- Toggle button -->
+                    <button class="ha-anomaly-expand-btn" id="ha-anomaly-expand-btn" style="display:none">
+                        <span class="ha-aeb-icon">📊</span>
+                        <span class="ha-aeb-label">Show Analysis</span>
+                        <span class="ha-aeb-arrow">▾</span>
+                    </button>
+
+                    <!-- Collapsible details panel (hidden by default) -->
+                    <div class="ha-anomaly-details" id="ha-anomaly-details">
+                        <!-- Row 1: Quality Score Trend + Anomaly Rate -->
+                        <div class="ha-chart-grid-2">
+                            <div class="ha-card">
+                                <div class="ha-card-title">Quality Score Trend</div>
+                                <span class="ha-card-hint">Per-record quality score from Convex</span>
+                                <div class="ha-chart-box" id="hc-quality-trend"></div>
+                            </div>
+                            <div class="ha-card">
+                                <div class="ha-card-title">Anomaly Rate Over Time</div>
+                                <span class="ha-card-hint">30-second rolling window anomaly %</span>
+                                <div class="ha-chart-box" id="hc-anomaly-rate"></div>
+                            </div>
+                        </div>
+
+                        <!-- Row 2: Full-width Outlier Timeline -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Outlier Timeline</div>
+                            <span class="ha-card-hint">Each dot = one flagged record, coloured by severity</span>
+                            <div class="ha-chart-box" id="hc-anomaly-timeline"></div>
+                        </div>
+
+                        <!-- Row 3: Field Breakdown bar + Motion-State Breakdown -->
+                        <div class="ha-chart-grid-2">
+                            <div class="ha-card">
+                                <div class="ha-card-title">Field Anomaly Breakdown</div>
+                                <span class="ha-card-hint">Which fields are most frequently flagged</span>
+                                <div class="ha-chart-box ha-chart-tall" id="hc-anomaly-radar"></div>
+                            </div>
+                            <div class="ha-card">
+                                <div class="ha-card-title">Anomalies by Motion State</div>
+                                <span class="ha-card-hint">When anomalies occur during each driving phase</span>
+                                <div class="ha-chart-box ha-chart-tall" id="hc-anomaly-motion"></div>
+                            </div>
+                        </div>
+
+                        <!-- Row 4: Voltage vs Current scatter -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Voltage × Current — Anomaly Map</div>
+                            <span class="ha-card-hint">Normal records in blue, anomalies coloured by severity</span>
+                            <div class="ha-chart-box ha-chart-tall" id="hc-anomaly-scatter"></div>
+                        </div>
+
+                        <!-- Row 5: Anomaly events log table -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Anomaly Events Log
+                                <span id="ha-events-count"
+                                    style="font-size:11px;color:rgba(255,255,255,0.35);margin-left:8px"></span>
+                            </div>
+                            <div class="ha-anomaly-table-wrap" id="ha-anomaly-events-table"></div>
+                        </div>
+                    </div><!-- /.ha-anomaly-details -->
+                </div>
+            </section>
+
+            <!-- ─── Regression ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-regression" data-toc="Regression">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="reg-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">📐</span> Regression</h2>
+                        <span class="ha-sec-hint">Linear fits with R², slope & intercept</span>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="reg-body">
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Speed vs Efficiency</div>
+                            <div class="ha-chart-box ha-chart-tall" id="hc-reg-speed-eff"></div>
+                            <div class="ha-regression-info" id="ha-reg-info-1"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Power vs Speed</div>
+                            <div class="ha-chart-box ha-chart-tall" id="hc-reg-power-speed"></div>
+                            <div class="ha-regression-info" id="ha-reg-info-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Segments ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-segments" data-toc="Segments">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="seg-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🔀</span> Segments</h2>
+                        <span class="ha-sec-hint">Auto-detected by motion state transitions</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-seg-export" title="Export segments as CSV">⬇
+                            Export</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="seg-body">
+                    <div class="ha-card">
+                        <div class="ha-stats-table-wrap" id="ha-segments-table"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── GPS Map ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-map" data-toc="Route Map">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="map-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🗺️</span> Route Map</h2>
+                        <span class="ha-sec-hint">Speed-colored GPS overlay</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-map-fit" title="Fit map to route">⊡ Fit
+                            Route</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="map-body">
+                    <div class="ha-card ha-card-flush">
+                        <div class="ha-map-container" id="h-map"></div>
+                    </div>
+                    <div class="ha-card" style="margin-top:12px">
+                        <div class="ha-card-title">Altitude Profile</div>
+                        <div class="ha-chart-box" id="hc-altitude"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Raw Data ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-table" data-toc="Raw Data">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="table-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">📋</span> Raw Data</h2>
+                        <span class="ha-table-count" id="h-table-count"></span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <input type="text" class="ha-input ha-input-sm" id="h-table-filter" placeholder="Filter rows…"
+                            autocomplete="off" />
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-table-csv"
+                            title="Download filtered data as CSV">⬇ CSV</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="table-body">
+                    <div class="ha-card ha-card-flush">
+                        <div class="ha-datatable-scroll" id="h-datatable"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Compare ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-compare" data-toc="Compare">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="compare-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">⚖️</span> Compare</h2>
+                        <span class="ha-sec-hint">Side-by-side session comparison</span>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="compare-body">
+                    <div class="ha-compare-toolbar">
+                        <select class="ha-select" id="h-compare-session" style="min-width:240px">
+                            <option value="">Select session to compare…</option>
+                        </select>
+                        <button class="ha-btn ha-btn-primary ha-btn-sm" id="h-compare-go">Compare ↗</button>
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-compare-clear" style="display:none">✕
+                            Clear</button>
+                        <span id="h-compare-loading" style="display:none;font-size:12px;color:var(--ha-text3)">⏳
+                            Loading…</span>
+                    </div>
+
+                    <!-- Results root — hidden until compare runs -->
+                    <div id="h-compare-results" style="display:none">
+                        <!-- Scorecard strip -->
+                        <div class="hcmp-scorecard" id="hcmp-scorecard"></div>
+
+                        <!-- Metric comparison table with visual bars -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Metric Breakdown
+                                <span style="font-size:10px;color:var(--ha-text3);margin-left:8px;font-weight:400">green
+                                    = better</span>
+                            </div>
+                            <div class="hcmp-metric-table" id="hcmp-metric-table"></div>
+                        </div>
+
+                        <!-- Two charts side by side: Radar + Time overlay -->
+                        <div class="ha-chart-grid-2">
+                            <div class="ha-card">
+                                <div class="ha-card-title">Performance Radar</div>
+                                <span class="ha-card-hint">Normalised across 7 key metrics (higher = better)</span>
+                                <div class="ha-chart-box ha-chart-tall" id="hcmp-radar"></div>
+                            </div>
+                            <div class="ha-card">
+                                <div class="ha-card-title">Speed Overlay</div>
+                                <span class="ha-card-hint">Speed profile — both sessions normalised to percentage of
+                                    session duration</span>
+                                <div class="ha-chart-box ha-chart-tall" id="hcmp-speed-overlay"></div>
+                            </div>
+                        </div>
+
+                        <!-- Power overlay full-width -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Power Overlay</div>
+                            <span class="ha-card-hint">Power (W) over normalised session time — blue = current, purple =
+                                compared</span>
+                            <div class="ha-chart-box" id="hcmp-power-overlay"></div>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ─── Export ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-export" data-toc="Export">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="export-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">💾</span> Export</h2>
+                        <span class="ha-sec-hint">Download in multiple formats</span>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="export-body">
+                    <div class="ha-export-grid">
+                        <button class="ha-export-btn" data-format="csv"><span class="ha-export-icon">📄</span><span
+                                class="ha-export-name">CSV</span><span
+                                class="ha-export-desc">Spreadsheets</span></button>
+                        <button class="ha-export-btn" data-format="json"><span class="ha-export-icon">{ }</span><span
+                                class="ha-export-name">JSON</span><span
+                                class="ha-export-desc">Programmatic</span></button>
+                        <button class="ha-export-btn" data-format="clipboard"><span
+                                class="ha-export-icon">📋</span><span class="ha-export-name">Clipboard</span><span
+                                class="ha-export-desc">TSV copy</span></button>
+                        <button class="ha-export-btn" data-format="matlab"><span class="ha-export-icon">🧪</span><span
+                                class="ha-export-name">MATLAB</span><span class="ha-export-desc">.m file</span></button>
+                        <button class="ha-export-btn" data-format="python"><span class="ha-export-icon">🐍</span><span
+                                class="ha-export-name">Python</span><span class="ha-export-desc">Pandas
+                                script</span></button>
+                    </div>
+                </div>
+            </section>
+
+        </div><!-- ha-view-analysis -->
+    </main>
+
+    <!-- Floating TOC -->
+    <nav class="ha-toc" id="ha-toc">
+        <div class="ha-toc-toggle" id="ha-toc-toggle"><span class="ha-toc-icon">☰</span></div>
+        <div class="ha-toc-list" id="ha-toc-list"></div>
+    </nav>
+
+    <!-- Mobile bottom nav -->
+    <nav class="ha-mobile-nav" id="ha-mobile-nav">
+        <button class="ha-mob-btn" data-scroll="ha-sec-overview" title="Overview">📊</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-timeseries" title="Charts">📈</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-energy" title="Energy">🔋</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-driver" title="Driver">🏎️</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-stats" title="Stats">🧮</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-map" title="Map">🗺️</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-compare" title="Compare">⚖️</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-export" title="Export">💾</button>
+    </nav>
+
+    <!-- Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/convex@1.17.4/dist/browser.bundle.js"></script>
+    <script src="lib/convex-bridge.js"></script>
+    <script src="auth.js"></script>
+    <script src="auth-ui.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+    <script src="historical-engine.js"></script>
+    <script src="historical.js"></script>
+</body>
+
+</html>

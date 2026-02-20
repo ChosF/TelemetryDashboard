@@ -68,23 +68,6 @@
     </div>
   </template>
 
-  <!-- Floating Action Menu -->
-  <div id="fab-menu" class="fab-menu">
-    <button id="fab-toggle" class="fab-button liquid-hover" aria-label="Menu">
-      <span class="fab-icon">⚡</span>
-    </button>
-    <div id="fab-options" class="fab-options">
-      <button id="fab-connect" class="fab-option liquid-hover" data-tooltip="Connect">
-        <span>🔗</span>
-      </button>
-      <button id="fab-export" class="fab-option liquid-hover" data-tooltip="Export">
-        <span>💾</span>
-      </button>
-      <button id="fab-sessions" class="fab-option liquid-hover" data-tooltip="Sessions">
-        <span>📊</span>
-      </button>
-    </div>
-  </div>
 
   <!-- Main Container -->
   <div id="layout" class="app-container">
@@ -113,6 +96,9 @@
           </div>
           <!-- Header Actions (Theme + Auth) -->
           <div class="header-actions">
+            <a href="historical.html" class="header-historical-link" title="Historical Analysis">
+              <span>📊</span> Historical
+            </a>
             <button id="theme-toggle" class="theme-toggle liquid-hover" aria-label="Toggle theme"
               title="Toggle light/dark mode">
               <span class="theme-icon theme-icon-sun">☀️</span>
@@ -129,44 +115,46 @@
 
       <div class="main">
         <!-- Navigation Tabs -->
-        <nav class="tabs-nav">
-          <button class="tab active liquid-hover" data-panel="overview">
-            <span class="tab-icon">📊</span>
-            <span class="tab-label">Overview</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="speed">
-            <span class="tab-icon">🚗</span>
-            <span class="tab-label">Speed</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="power">
-            <span class="tab-icon">⚡</span>
-            <span class="tab-label">Power</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="imu">
-            <span class="tab-icon">🧭</span>
-            <span class="tab-label">IMU</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="imu-detail">
-            <span class="tab-icon">🎮</span>
-            <span class="tab-label">IMU Detail</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="efficiency">
-            <span class="tab-icon">📈</span>
-            <span class="tab-label">Efficiency</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="gps">
-            <span class="tab-icon">🗺️</span>
-            <span class="tab-label">GPS</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="custom">
-            <span class="tab-icon">🎨</span>
-            <span class="tab-label">Custom</span>
-          </button>
-          <button class="tab liquid-hover" data-panel="data">
-            <span class="tab-icon">📋</span>
-            <span class="tab-label">Data</span>
-          </button>
-        </nav>
+        <div class="tabs-nav-wrapper">
+          <nav class="tabs-nav">
+            <button class="tab active liquid-hover" data-panel="overview">
+              <span class="tab-icon">📊</span>
+              <span class="tab-label">Overview</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="speed">
+              <span class="tab-icon">🚗</span>
+              <span class="tab-label">Speed</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="power">
+              <span class="tab-icon">⚡</span>
+              <span class="tab-label">Power</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="imu">
+              <span class="tab-icon">🧭</span>
+              <span class="tab-label">IMU</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="imu-detail">
+              <span class="tab-icon">🎮</span>
+              <span class="tab-label">IMU Detail</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="efficiency">
+              <span class="tab-icon">📈</span>
+              <span class="tab-label">Efficiency</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="gps">
+              <span class="tab-icon">🗺️</span>
+              <span class="tab-label">GPS</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="custom">
+              <span class="tab-icon">🎨</span>
+              <span class="tab-label">Custom</span>
+            </button>
+            <button class="tab liquid-hover" data-panel="data">
+              <span class="tab-icon">📋</span>
+              <span class="tab-label">Data</span>
+            </button>
+          </nav>
+        </div>
 
         <!-- Overview -->
         <section id="panel-overview" class="panel active">
@@ -995,6 +983,179 @@
                   <div id="field-completeness" class="field-bars"></div>
                 </div>
               </details>
+            </div>
+          </div>
+        </section>
+
+        <!-- Historical Analysis -->
+        <section id="panel-historical" class="panel">
+          <!-- Session Explorer (shown when no session is loaded) -->
+          <div id="hist-explorer" class="hist-explorer">
+            <div class="hist-hero glass-panel">
+              <div class="hist-hero-content">
+                <h2 class="hist-hero-title">📜 Historical Analysis</h2>
+                <p class="hist-hero-subtitle">Browse past sessions for deep post-race analysis. Select a session to
+                  explore telemetry data, energy usage, driver behavior, and more.</p>
+              </div>
+            </div>
+            <div class="hist-controls">
+              <div class="hist-search-row">
+                <input type="text" id="hist-search" class="hist-search-input"
+                  placeholder="Search sessions by name or ID..." />
+                <select id="hist-sort" class="hist-sort-select">
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                  <option value="longest">Most Data</option>
+                </select>
+              </div>
+            </div>
+            <div id="hist-session-list" class="hist-session-list">
+              <div class="hist-loading">
+                <div class="hist-spinner"></div>
+                <span>Loading sessions...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Session Analysis (shown when a session is loaded) -->
+          <div id="hist-analysis" class="hist-analysis" style="display:none;">
+            <!-- Back button -->
+            <div class="hist-toolbar">
+              <button id="hist-back-btn" class="hist-back-btn liquid-hover">
+                ← Back to Sessions
+              </button>
+              <div class="hist-session-info">
+                <span id="hist-session-name" class="hist-session-name">Session</span>
+                <span id="hist-session-meta" class="hist-session-meta"></span>
+              </div>
+              <button id="hist-export-btn" class="hist-export-btn liquid-hover">💾 Export CSV</button>
+            </div>
+
+            <!-- Summary Stats -->
+            <div class="hist-stats-grid">
+              <div class="hist-stat-card glass-panel">
+                <div class="hist-stat-icon">🏁</div>
+                <div class="hist-stat-value" id="hist-distance">—</div>
+                <div class="hist-stat-label">Distance</div>
+              </div>
+              <div class="hist-stat-card glass-panel">
+                <div class="hist-stat-icon">⚡</div>
+                <div class="hist-stat-value" id="hist-avg-speed">—</div>
+                <div class="hist-stat-label">Avg Speed</div>
+              </div>
+              <div class="hist-stat-card glass-panel">
+                <div class="hist-stat-icon">🏎️</div>
+                <div class="hist-stat-value" id="hist-max-speed">—</div>
+                <div class="hist-stat-label">Max Speed</div>
+              </div>
+              <div class="hist-stat-card glass-panel">
+                <div class="hist-stat-icon">🔋</div>
+                <div class="hist-stat-value" id="hist-energy">—</div>
+                <div class="hist-stat-label">Energy Used</div>
+              </div>
+              <div class="hist-stat-card glass-panel">
+                <div class="hist-stat-icon">📈</div>
+                <div class="hist-stat-value" id="hist-efficiency">—</div>
+                <div class="hist-stat-label">Efficiency</div>
+              </div>
+              <div class="hist-stat-card glass-panel">
+                <div class="hist-stat-icon">⏱️</div>
+                <div class="hist-stat-value" id="hist-duration">—</div>
+                <div class="hist-stat-label">Duration</div>
+              </div>
+            </div>
+
+            <!-- Analysis Sections (tabs within historical) -->
+            <div class="hist-section-nav">
+              <button class="hist-section-btn active" data-section="charts">📊 Charts</button>
+              <button class="hist-section-btn" data-section="energy">🔋 Energy</button>
+              <button class="hist-section-btn" data-section="driver">🎮 Driver</button>
+              <button class="hist-section-btn" data-section="map">🗺️ Route</button>
+            </div>
+
+            <!-- Charts Section -->
+            <div id="hist-sec-charts" class="hist-section active">
+              <div class="chart-grid-2col mb-4">
+                <div class="glass-panel">
+                  <h4>🏎️ Speed Over Time</h4>
+                  <div class="chart tall" id="hist-chart-speed"></div>
+                </div>
+                <div class="glass-panel">
+                  <h4>⚡ Power Over Time</h4>
+                  <div class="chart tall" id="hist-chart-power"></div>
+                </div>
+              </div>
+              <div class="chart-grid-2col">
+                <div class="glass-panel">
+                  <h4>🔋 Voltage & Current</h4>
+                  <div class="chart tall" id="hist-chart-voltage"></div>
+                </div>
+                <div class="glass-panel">
+                  <h4>📐 IMU Forces</h4>
+                  <div class="chart tall" id="hist-chart-imu"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Energy Section -->
+            <div id="hist-sec-energy" class="hist-section">
+              <div class="chart-grid-2col mb-4">
+                <div class="glass-panel">
+                  <h4>🔋 Cumulative Energy</h4>
+                  <div class="chart tall" id="hist-chart-energy-cum"></div>
+                </div>
+                <div class="glass-panel">
+                  <h4>📈 Rolling Efficiency</h4>
+                  <div class="chart tall" id="hist-chart-efficiency"></div>
+                </div>
+              </div>
+              <div class="glass-panel">
+                <h4>⚡ Speed vs Power Scatter</h4>
+                <div class="chart tall" id="hist-chart-speed-power"></div>
+              </div>
+            </div>
+
+            <!-- Driver Section -->
+            <div id="hist-sec-driver" class="hist-section">
+              <div class="hist-stats-grid mb-4">
+                <div class="hist-stat-card glass-panel">
+                  <div class="hist-stat-icon">🎯</div>
+                  <div class="hist-stat-value" id="hist-smoothness">—</div>
+                  <div class="hist-stat-label">Smoothness</div>
+                </div>
+                <div class="hist-stat-card glass-panel">
+                  <div class="hist-stat-icon">🚦</div>
+                  <div class="hist-stat-value" id="hist-brakes">—</div>
+                  <div class="hist-stat-label">Brake Events</div>
+                </div>
+                <div class="hist-stat-card glass-panel">
+                  <div class="hist-stat-icon">🏎️</div>
+                  <div class="hist-stat-value" id="hist-hard-accels">—</div>
+                  <div class="hist-stat-label">Hard Accels</div>
+                </div>
+              </div>
+              <div class="chart-grid-2col">
+                <div class="glass-panel">
+                  <h4>📊 Throttle Distribution</h4>
+                  <div class="chart tall" id="hist-chart-throttle"></div>
+                </div>
+                <div class="glass-panel">
+                  <h4>📉 Speed Histogram</h4>
+                  <div class="chart tall" id="hist-chart-speed-hist"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Map Section -->
+            <div id="hist-sec-map" class="hist-section">
+              <div class="glass-panel">
+                <h4>🗺️ GPS Route</h4>
+                <div id="hist-map" style="height:400px; border-radius:12px;"></div>
+              </div>
+              <div class="glass-panel mt-4">
+                <h4>📈 Altitude Profile</h4>
+                <div class="chart" id="hist-chart-altitude"></div>
+              </div>
             </div>
           </div>
         </section>

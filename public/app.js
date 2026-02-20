@@ -418,6 +418,7 @@
     gps: el("panel-gps"),
     custom: el("panel-custom"),
     data: el("panel-data"),
+    historical: el("panel-historical"),
   };
 
   // Charts
@@ -6690,9 +6691,556 @@
     }
 
     // Start on Overview
-    Object.values(panels).forEach((p) => (p.style.display = "none"));
+    Object.values(panels).forEach((p) => {
+      if (p) p.style.display = "none";
+    });
     panels.overview.classList.add("active");
     panels.overview.style.display = "block";
+
+    // Initialize Historical Mode
+    initHistoricalMode();
+  }
+
+  // =========================================================================
+  // HISTORICAL MODE
+  // =========================================================================
+  function initHistoricalMode() {
+    const explorer = document.getElementById('hist-explorer');
+    const analysis = document.getElementById('hist-analysis');
+    const sessionList = document.getElementById('hist-session-list');
+    const searchInput = document.getElementById('hist-search');
+    const sortSelect = document.getElementById('hist-sort');
+    const backBtn = document.getElementById('hist-back-btn');
+    const exportBtn = document.getElementById('hist-export-btn');
+
+    if (!explorer || !analysis) return;
+
+    let allSessions = [];
+    let histData = [];
+    let histCharts = {};
+    let histMap = null;
+    let histSessionsLoaded = false;
+
+    // Sub-section tab navigation
+    const sectionBtns = document.querySelectorAll('.hist-section-btn');
+    sectionBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sectionName = btn.dataset.section;
+        sectionBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.hist-section').forEach(s => {
+          s.classList.toggle('active', s.id === `hist-sec-${sectionName}`);
+          s.style.display = s.id === `hist-sec-${sectionName}` ? 'block' : 'none';
+        });
+        // Resize charts when section becomes visible
+        setTimeout(() => {
+          Object.values(histCharts).forEach(c => { try { c.resize(); } catch (e) { } });
+          if (sectionName === 'map' && histMap) histMap.resize();
+        }, 100);
+      });
+    });
+
+    // Init section visibility
+    document.querySelectorAll('.hist-section').forEach(s => {
+      s.style.display = s.classList.contains('active') ? 'block' : 'none';
+    });
+
+    // Back button
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        analysis.style.display = 'none';
+        explorer.style.display = 'block';
+        histData = [];
+        // Destroy charts
+        Object.values(histCharts).forEach(c => { try { c.dispose(); } catch (e) { } });
+        histCharts = {};
+        if (histMap) { try { histMap.remove(); } catch (e) { } histMap = null; }
+      });
+    }
+
+    // Export CSV
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        if (!histData.length) return;
+        const keys = Object.keys(histData[0]);
+        const csv = [keys.join(',')].concat(
+          histData.map(r => keys.map(k => {
+            const v = r[k];
+            return typeof v === 'string' && v.includes(',') ? `"${v}"` : (v ?? '');
+          }).join(','))
+        ).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `session_${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    // Search and sort
+    if (searchInput) {
+      searchInput.addEventListener('input', () => renderSessionList());
+    }
+    if (sortSelect) {
+      sortSelect.addEventListener('change', () => renderSessionList());
+    }
+
+    // Load sessions when Historical tab is activated
+    const histTab = document.querySelector('.tab[data-panel="historical"]');
+    if (histTab) {
+      histTab.addEventListener('click', () => {
+        if (!histSessionsLoaded) {
+          loadHistSessions();
+        }
+      });
+    }
+
+    async function loadHistSessions() {
+      sessionList.innerHTML = '<div class="hist-loading"><div class="hist-spinner"></div><span>Loading sessions...</span></div>';
+      try {
+        if (window.ConvexBridge) {
+          const result = await ConvexBridge.listSessions();
+          allSessions = (result && result.sessions) ? result.sessions : (Array.isArray(result) ? result : []);
+        } else {
+          // Fallback: use state.sessions if available
+          allSessions = state.sessions || [];
+        }
+        histSessionsLoaded = true;
+        renderSessionList();
+      } catch (err) {
+        console.error('[Historical] Failed to load sessions:', err);
+        sessionList.innerHTML = '<div class="hist-empty"><span class="hist-empty-icon">⚠️</span><span>Failed to load sessions. Check your connection.</span></div>';
+      }
+    }
+
+    function renderSessionList() {
+      const query = (searchInput?.value || '').toLowerCase();
+      const sort = sortSelect?.value || 'newest';
+
+      let filtered = allSessions.filter(s => {
+        const name = (s.session_name || s.session_id || '').toLowerCase();
+        const id = (s.session_id || '').toLowerCase();
+        return name.includes(query) || id.includes(query);
+      });
+
+      // Sort
+      if (sort === 'newest') {
+        filtered.sort((a, b) => new Date(b.start_time || 0) - new Date(a.start_time || 0));
+      } else if (sort === 'oldest') {
+        filtered.sort((a, b) => new Date(a.start_time || 0) - new Date(b.start_time || 0));
+      } else if (sort === 'longest') {
+        filtered.sort((a, b) => (b.record_count || 0) - (a.record_count || 0));
+      }
+
+      if (!filtered.length) {
+        sessionList.innerHTML = '<div class="hist-empty"><span class="hist-empty-icon">📭</span><span>No sessions found</span></div>';
+        return;
+      }
+
+      sessionList.innerHTML = filtered.map(s => {
+        const name = s.session_name || 'Unnamed Session';
+        const date = s.start_time ? new Date(s.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unknown date';
+        const count = s.record_count || 0;
+        const id = s.session_id || '';
+        return `
+          <div class="hist-session-card glass-panel" data-session-id="${id}">
+            <div class="hist-card-header">
+              <div class="hist-card-name">${name}</div>
+              <div class="hist-card-date">${date}</div>
+            </div>
+            <div class="hist-card-footer">
+              <span class="hist-card-id">${id.slice(0, 8)}...</span>
+              <span class="hist-card-count">${count.toLocaleString()} records</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Add click handlers
+      sessionList.querySelectorAll('.hist-session-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const sid = card.dataset.sessionId;
+          const session = allSessions.find(s => s.session_id === sid);
+          loadHistSession(sid, session);
+        });
+      });
+    }
+
+    async function loadHistSession(sessionId, sessionMeta) {
+      explorer.style.display = 'none';
+      analysis.style.display = 'block';
+
+      // Show loading state
+      const nameEl = document.getElementById('hist-session-name');
+      const metaEl = document.getElementById('hist-session-meta');
+      if (nameEl) nameEl.textContent = sessionMeta?.session_name || 'Loading...';
+      if (metaEl) metaEl.textContent = `${sessionId.slice(0, 8)} · Loading data...`;
+
+      try {
+        let data = [];
+        if (window.ConvexBridge) {
+          data = await ConvexBridge.getSessionRecords(sessionId);
+        }
+        if (!Array.isArray(data)) data = [];
+
+        // Normalize and add derived fields
+        histData = data.map(d => {
+          const norm = { ...d };
+          if (!norm.power_w && norm.voltage_v && norm.current_a) {
+            norm.power_w = norm.voltage_v * norm.current_a;
+          }
+          if (!norm.speed_kmh && norm.speed_ms) {
+            norm.speed_kmh = norm.speed_ms * 3.6;
+          }
+          if (!norm.speed_ms && norm.speed_kmh) {
+            norm.speed_ms = norm.speed_kmh / 3.6;
+          }
+          return norm;
+        });
+
+        if (metaEl) metaEl.textContent = `${sessionId.slice(0, 8)} · ${histData.length.toLocaleString()} records`;
+
+        renderHistSummary();
+        renderHistCharts();
+        renderHistDriverStats();
+      } catch (err) {
+        console.error('[Historical] Failed to load session:', err);
+        if (metaEl) metaEl.textContent = `Error loading session`;
+      }
+    }
+
+    function renderHistSummary() {
+      const rows = histData;
+      if (!rows.length) return;
+
+      const speeds = rows.map(r => r.speed_kmh || (r.speed_ms || 0) * 3.6).filter(v => v > 0);
+      const avgSpeed = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+      const maxSpeed = speeds.length ? Math.max(...speeds) : 0;
+
+      // Distance
+      let totalDist = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const t1 = new Date(rows[i - 1].timestamp).getTime();
+        const t2 = new Date(rows[i].timestamp).getTime();
+        const dt = (t2 - t1) / 1000;
+        const spd = (rows[i].speed_ms || (rows[i].speed_kmh || 0) / 3.6);
+        if (dt > 0 && dt < 60) totalDist += spd * dt;
+      }
+      const distKm = totalDist / 1000;
+
+      // Energy
+      let totalEnergy = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const t1 = new Date(rows[i - 1].timestamp).getTime();
+        const t2 = new Date(rows[i].timestamp).getTime();
+        const dt = (t2 - t1) / 3600000; // hours
+        const p = rows[i].power_w || ((rows[i].voltage_v || 0) * (rows[i].current_a || 0));
+        if (dt > 0 && dt < 0.02) totalEnergy += Math.abs(p) * dt;
+      }
+      const energyKwh = totalEnergy / 1000;
+
+      // Duration
+      const firstTs = new Date(rows[0].timestamp).getTime();
+      const lastTs = new Date(rows[rows.length - 1].timestamp).getTime();
+      const durationMs = lastTs - firstTs;
+      const minutes = Math.floor(durationMs / 60000);
+      const seconds = Math.floor((durationMs % 60000) / 1000);
+
+      // Efficiency
+      const efficiency = energyKwh > 0 ? distKm / energyKwh : 0;
+
+      // Update DOM
+      const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setText('hist-distance', `${distKm.toFixed(2)} km`);
+      setText('hist-avg-speed', `${avgSpeed.toFixed(1)} km/h`);
+      setText('hist-max-speed', `${maxSpeed.toFixed(1)} km/h`);
+      setText('hist-energy', `${(energyKwh * 1000).toFixed(1)} Wh`);
+      setText('hist-efficiency', efficiency > 0 ? `${efficiency.toFixed(1)} km/kWh` : '—');
+      setText('hist-duration', `${minutes}m ${seconds}s`);
+    }
+
+    function renderHistCharts() {
+      const rows = histData;
+      if (!rows.length) return;
+
+      // Destroy old charts
+      Object.values(histCharts).forEach(c => { try { c.dispose(); } catch (e) { } });
+      histCharts = {};
+
+      const ts = rows.map(r => new Date(r.timestamp));
+      const speeds = rows.map(r => r.speed_kmh || (r.speed_ms || 0) * 3.6);
+      const powers = rows.map(r => r.power_w || ((r.voltage_v || 0) * (r.current_a || 0)));
+      const voltages = rows.map(r => r.voltage_v || 0);
+      const currents = rows.map(r => r.current_a || 0);
+
+      const chartOpts = {
+        backgroundColor: 'transparent',
+        textStyle: { color: 'rgba(255,255,255,0.7)' },
+        grid: { left: 50, right: 20, top: 30, bottom: 40 },
+        tooltip: { trigger: 'axis', backgroundColor: 'rgba(20,20,25,0.95)', borderColor: 'rgba(0,210,190,0.3)', textStyle: { color: '#fff' } },
+        xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, splitLine: { show: false } },
+        yAxis: { type: 'value', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 5 }],
+      };
+
+      // Speed chart
+      const speedEl = document.getElementById('hist-chart-speed');
+      if (speedEl) {
+        histCharts.speed = echarts.init(speedEl);
+        histCharts.speed.setOption({
+          ...chartOpts,
+          series: [{ type: 'line', data: ts.map((t, i) => [t, speeds[i]]), smooth: true, lineStyle: { color: '#00d2be', width: 2 }, itemStyle: { color: '#00d2be' }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(0,210,190,0.3)' }, { offset: 1, color: 'rgba(0,210,190,0)' }] } } }]
+        });
+      }
+
+      // Power chart
+      const powerEl = document.getElementById('hist-chart-power');
+      if (powerEl) {
+        histCharts.power = echarts.init(powerEl);
+        histCharts.power.setOption({
+          ...chartOpts,
+          series: [{ type: 'line', data: ts.map((t, i) => [t, powers[i]]), smooth: true, lineStyle: { color: '#ff6b35', width: 2 }, itemStyle: { color: '#ff6b35' }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(255,107,53,0.3)' }, { offset: 1, color: 'rgba(255,107,53,0)' }] } } }]
+        });
+      }
+
+      // Voltage & Current chart
+      const voltEl = document.getElementById('hist-chart-voltage');
+      if (voltEl) {
+        histCharts.voltage = echarts.init(voltEl);
+        histCharts.voltage.setOption({
+          ...chartOpts,
+          legend: { data: ['Voltage', 'Current'], textStyle: { color: 'rgba(255,255,255,0.6)' }, top: 0 },
+          yAxis: [
+            { type: 'value', name: 'V', axisLine: { lineStyle: { color: '#22c55e' } }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+            { type: 'value', name: 'A', axisLine: { lineStyle: { color: '#f59e0b' } }, splitLine: { show: false } }
+          ],
+          series: [
+            { name: 'Voltage', type: 'line', data: ts.map((t, i) => [t, voltages[i]]), smooth: true, lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' }, showSymbol: false },
+            { name: 'Current', type: 'line', data: ts.map((t, i) => [t, currents[i]]), smooth: true, lineStyle: { color: '#f59e0b', width: 2 }, itemStyle: { color: '#f59e0b' }, showSymbol: false, yAxisIndex: 1 }
+          ]
+        });
+      }
+
+      // IMU chart
+      const imuEl = document.getElementById('hist-chart-imu');
+      if (imuEl) {
+        const ax = rows.map(r => r.accel_x || 0);
+        const ay = rows.map(r => r.accel_y || 0);
+        const totalG = rows.map(r => {
+          const x = r.accel_x || 0, y = r.accel_y || 0, z = r.accel_z || 0;
+          return Math.sqrt(x * x + y * y + z * z) / 9.81;
+        });
+        histCharts.imu = echarts.init(imuEl);
+        histCharts.imu.setOption({
+          ...chartOpts,
+          legend: { data: ['Accel X', 'Accel Y', 'Total G'], textStyle: { color: 'rgba(255,255,255,0.6)' }, top: 0 },
+          series: [
+            { name: 'Accel X', type: 'line', data: ts.map((t, i) => [t, ax[i]]), smooth: true, lineStyle: { color: '#ef4444', width: 1.5 }, itemStyle: { color: '#ef4444' }, showSymbol: false },
+            { name: 'Accel Y', type: 'line', data: ts.map((t, i) => [t, ay[i]]), smooth: true, lineStyle: { color: '#3b82f6', width: 1.5 }, itemStyle: { color: '#3b82f6' }, showSymbol: false },
+            { name: 'Total G', type: 'line', data: ts.map((t, i) => [t, totalG[i]]), smooth: true, lineStyle: { color: '#a855f7', width: 2 }, itemStyle: { color: '#a855f7' }, showSymbol: false }
+          ]
+        });
+      }
+
+      // Energy section charts
+      // Cumulative energy
+      const energyCumEl = document.getElementById('hist-chart-energy-cum');
+      if (energyCumEl) {
+        let cum = 0;
+        const cumData = [];
+        for (let i = 0; i < rows.length; i++) {
+          if (i > 0) {
+            const dt = (new Date(rows[i].timestamp) - new Date(rows[i - 1].timestamp)) / 3600000;
+            const p = Math.abs(powers[i]);
+            if (dt > 0 && dt < 0.02) cum += p * dt;
+          }
+          cumData.push([ts[i], cum]);
+        }
+        histCharts.energyCum = echarts.init(energyCumEl);
+        histCharts.energyCum.setOption({
+          ...chartOpts,
+          series: [{ type: 'line', data: cumData, smooth: true, lineStyle: { color: '#06b6d4', width: 2 }, itemStyle: { color: '#06b6d4' }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(6,182,212,0.25)' }, { offset: 1, color: 'rgba(6,182,212,0)' }] } } }]
+        });
+      }
+
+      // Rolling efficiency
+      const effEl = document.getElementById('hist-chart-efficiency');
+      if (effEl) {
+        const window = 30;
+        const effData = [];
+        for (let i = window; i < rows.length; i++) {
+          let dist = 0, energy = 0;
+          for (let j = i - window + 1; j <= i; j++) {
+            const dt = (new Date(rows[j].timestamp) - new Date(rows[j - 1].timestamp)) / 1000;
+            const spd = rows[j].speed_ms || (rows[j].speed_kmh || 0) / 3.6;
+            const p = Math.abs(powers[j]);
+            if (dt > 0 && dt < 60) {
+              dist += spd * dt / 1000;
+              energy += p * dt / 3600000;
+            }
+          }
+          const eff = energy > 0 ? dist / energy : 0;
+          if (eff < 500) effData.push([ts[i], eff]);
+        }
+        histCharts.efficiency = echarts.init(effEl);
+        histCharts.efficiency.setOption({
+          ...chartOpts,
+          series: [{ type: 'line', data: effData, smooth: true, lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' }, showSymbol: false }]
+        });
+      }
+
+      // Speed vs Power scatter
+      const spEl = document.getElementById('hist-chart-speed-power');
+      if (spEl) {
+        const scatterData = speeds.map((s, i) => [s, powers[i]]).filter(([s, p]) => s > 0);
+        histCharts.speedPower = echarts.init(spEl);
+        histCharts.speedPower.setOption({
+          ...chartOpts,
+          xAxis: { type: 'value', name: 'Speed (km/h)', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+          series: [{ type: 'scatter', data: scatterData, symbolSize: 4, itemStyle: { color: 'rgba(0,210,190,0.5)' } }]
+        });
+      }
+
+      // Speed histogram
+      const shEl = document.getElementById('hist-chart-speed-hist');
+      if (shEl) {
+        const validSpeeds = speeds.filter(s => s > 0);
+        const bins = 20;
+        const max = Math.max(...validSpeeds, 1);
+        const binWidth = max / bins;
+        const hist = new Array(bins).fill(0);
+        validSpeeds.forEach(s => {
+          const idx = Math.min(bins - 1, Math.floor(s / binWidth));
+          hist[idx]++;
+        });
+        histCharts.speedHist = echarts.init(shEl);
+        histCharts.speedHist.setOption({
+          ...chartOpts,
+          xAxis: { type: 'category', data: hist.map((_, i) => `${(i * binWidth).toFixed(0)}-${((i + 1) * binWidth).toFixed(0)}`), axisLabel: { rotate: 45, fontSize: 10 } },
+          series: [{ type: 'bar', data: hist, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#00d2be' }, { offset: 1, color: '#0891b2' }] } }, barWidth: '70%' }]
+        });
+      }
+
+      // Throttle distribution (if available)
+      const thEl = document.getElementById('hist-chart-throttle');
+      if (thEl) {
+        const throttle = rows.map(r => r.throttle_pct || 0);
+        const tBins = 10;
+        const tHist = new Array(tBins).fill(0);
+        throttle.forEach(t => {
+          const idx = Math.min(tBins - 1, Math.floor(t / 10));
+          tHist[idx]++;
+        });
+        histCharts.throttle = echarts.init(thEl);
+        histCharts.throttle.setOption({
+          ...chartOpts,
+          xAxis: { type: 'category', data: tHist.map((_, i) => `${i * 10}-${(i + 1) * 10}%`), axisLabel: { fontSize: 10 } },
+          series: [{ type: 'bar', data: tHist, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#f59e0b' }, { offset: 1, color: '#d97706' }] } }, barWidth: '70%' }]
+        });
+      }
+
+      // Map
+      renderHistMap();
+
+      // Resize all on window resize
+      window.addEventListener('resize', () => {
+        Object.values(histCharts).forEach(c => { try { c.resize(); } catch (e) { } });
+      }, { passive: true });
+    }
+
+    function renderHistDriverStats() {
+      const rows = histData;
+      if (!rows.length) return;
+
+      // Smoothness: based on acceleration variance
+      const accels = [];
+      for (let i = 1; i < rows.length; i++) {
+        const dt = (new Date(rows[i].timestamp) - new Date(rows[i - 1].timestamp)) / 1000;
+        const s1 = rows[i - 1].speed_ms || (rows[i - 1].speed_kmh || 0) / 3.6;
+        const s2 = rows[i].speed_ms || (rows[i].speed_kmh || 0) / 3.6;
+        if (dt > 0 && dt < 10) accels.push((s2 - s1) / dt);
+      }
+      const avgAccel = accels.length ? accels.reduce((a, b) => a + Math.abs(b), 0) / accels.length : 0;
+      const smoothness = Math.max(0, Math.min(100, 100 - avgAccel * 50));
+
+      // Brake events (deceleration > 1 m/s²)
+      const brakes = accels.filter(a => a < -1).length;
+
+      // Hard accels (acceleration > 1.5 m/s²)
+      const hardAccels = accels.filter(a => a > 1.5).length;
+
+      const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setText('hist-smoothness', `${smoothness.toFixed(0)}%`);
+      setText('hist-brakes', brakes.toString());
+      setText('hist-hard-accels', hardAccels.toString());
+    }
+
+    function renderHistMap() {
+      const rows = histData;
+      if (!rows.length) return;
+
+      const gpsPoints = rows.filter(r => r.latitude && r.longitude && r.latitude !== 0 && r.longitude !== 0);
+      if (!gpsPoints.length) return;
+
+      const mapEl = document.getElementById('hist-map');
+      if (!mapEl || !window.maplibregl) return;
+
+      try {
+        if (histMap) { histMap.remove(); histMap = null; }
+
+        const center = [gpsPoints[Math.floor(gpsPoints.length / 2)].longitude, gpsPoints[Math.floor(gpsPoints.length / 2)].latitude];
+        histMap = new maplibregl.Map({
+          container: 'hist-map',
+          style: { version: 8, sources: { 'osm-tiles': { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap' } }, layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm-tiles' }] },
+          center: center,
+          zoom: 15,
+        });
+
+        histMap.on('load', () => {
+          const coords = gpsPoints.map(r => [r.longitude, r.latitude]);
+          histMap.addSource('route', {
+            type: 'geojson',
+            data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+          });
+          histMap.addLayer({
+            id: 'route-line',
+            type: 'line',
+            source: 'route',
+            paint: { 'line-color': '#00d2be', 'line-width': 3, 'line-opacity': 0.8 }
+          });
+
+          // Fit bounds
+          const lngs = coords.map(c => c[0]);
+          const lats = coords.map(c => c[1]);
+          histMap.fitBounds(
+            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+            { padding: 40 }
+          );
+        });
+
+        // Altitude chart
+        const altEl = document.getElementById('hist-chart-altitude');
+        if (altEl) {
+          const alts = gpsPoints.map(r => r.altitude || 0);
+          const altTs = gpsPoints.map(r => new Date(r.timestamp));
+          if (histCharts.altitude) { try { histCharts.altitude.dispose(); } catch (e) { } }
+          histCharts.altitude = echarts.init(altEl);
+          histCharts.altitude.setOption({
+            backgroundColor: 'transparent',
+            textStyle: { color: 'rgba(255,255,255,0.7)' },
+            grid: { left: 50, right: 20, top: 20, bottom: 40 },
+            tooltip: { trigger: 'axis' },
+            xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } } },
+            yAxis: { type: 'value', name: 'Altitude (m)', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } } },
+            series: [{ type: 'line', data: altTs.map((t, i) => [t, alts[i]]), smooth: true, lineStyle: { color: '#a855f7', width: 2 }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(168,85,247,0.25)' }, { offset: 1, color: 'rgba(168,85,247,0)' }] } } }]
+          });
+        }
+      } catch (err) {
+        console.error('[Historical] Map error:', err);
+      }
+    }
   }
 
   // Responsive Header Text Handler
