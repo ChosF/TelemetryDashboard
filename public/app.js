@@ -4359,6 +4359,37 @@
     a.click();
   }
 
+  function getExternalHistoricalPointLimit() {
+    if (!window.AuthModule || typeof window.AuthModule.getUserRole !== "function") {
+      return Infinity;
+    }
+    const role = window.AuthModule.getUserRole();
+    if (role !== "external") return Infinity;
+    const configured = window.AuthModule.getPermissionValue?.("downloadLimit");
+    if (Number.isFinite(configured) && configured > 0) {
+      return Math.min(1000, Math.floor(configured));
+    }
+    return 1000;
+  }
+
+  function sampleRowsEvenly(rows, maxPoints) {
+    if (!Array.isArray(rows) || rows.length <= maxPoints) return rows;
+    if (maxPoints <= 1) return [rows[rows.length - 1]];
+    const sampled = [];
+    const stride = (rows.length - 1) / (maxPoints - 1);
+    for (let i = 0; i < maxPoints; i++) {
+      const idx = Math.round(i * stride);
+      sampled.push(rows[Math.min(rows.length - 1, idx)]);
+    }
+    return sampled;
+  }
+
+  function applyExternalHistoricalDataCap(rows) {
+    const limit = getExternalHistoricalPointLimit();
+    if (!Number.isFinite(limit) || limit <= 0) return rows;
+    return sampleRowsEvenly(rows, limit);
+  }
+
   // Sessions - use Convex when available, fallback to Express API
   async function fetchSessions() {
     // Try Convex first
@@ -6285,7 +6316,7 @@
     const sid = opt.value;
     sessionInfo.textContent = "Loading session data...";
     const data = await loadFullSession(sid);
-    state.telemetry = data;
+    state.telemetry = applyExternalHistoricalDataCap(data || []);
     state.currentSessionId = sid;
     sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
     scheduleRender();
@@ -6461,8 +6492,7 @@
         // 2. Historical data is already fully persisted in Convex
         sessionInfo.textContent = "Loading from database...";
         let data = await loadFullSession(sid);
-
-        state.telemetry = data || [];
+        state.telemetry = applyExternalHistoricalDataCap(data || []);
         state.currentSessionId = sid;
         sessionInfo.textContent = `Loaded ${state.telemetry.length.toLocaleString()} rows.`;
         // Show success notification
@@ -6921,7 +6951,7 @@
           console.log(`📊 Reloading session ${sid.slice(0, 8)}...`);
           const data = await loadFullSession(sid);
           if (data && data.length > 0) {
-            state.telemetry = withDerived(data);
+            state.telemetry = applyExternalHistoricalDataCap(withDerived(data));
             state.msgCount = state.telemetry.length;
             statMsg.textContent = String(state.msgCount);
             scheduleRender();

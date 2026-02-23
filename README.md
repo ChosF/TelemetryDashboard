@@ -118,9 +118,11 @@ convex/
 | Role | Real-time | Historical | CSV | Admin |
 |------|-----------|------------|-----|-------|
 | Guest | ✅ | ❌ | ❌ | ❌ |
-| External | ✅ | Last session | 1000 points | ❌ |
+| External | ✅ | Last session (max 1000 representative points) | Up to 1000 points | ❌ |
 | Internal | ✅ | ∞ | ∞ | ❌ |
 | Admin | ✅ | ∞ | ∞ | ✅ |
+
+External users do not have access to the Custom Analysis view.
 
 ---
 
