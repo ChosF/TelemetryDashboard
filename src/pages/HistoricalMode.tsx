@@ -33,6 +33,8 @@ export interface HistoricalModeProps {
     loading?: boolean;
     accessLevel?: 'full' | 'limited';
     historicalLimitDays?: number;
+    onSelectSession?: (session: TelemetrySession) => void;
+    onBackToSessions?: () => void;
 }
 
 // =============================================================================
@@ -86,6 +88,7 @@ const HistoricalMode: Component<HistoricalModeProps> = (props) => {
      */
     const handleSelectSession = (session: TelemetrySession) => {
         historicalStore.loadSession(session, fetchRecords);
+        props.onSelectSession?.(session);
     };
 
     /**
@@ -93,6 +96,7 @@ const HistoricalMode: Component<HistoricalModeProps> = (props) => {
      */
     const handleBack = () => {
         historicalStore.unloadSession();
+        props.onBackToSessions?.();
     };
 
     /**

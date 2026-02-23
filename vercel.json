@@ -1,11 +1,23 @@
 {
   "version": 2,
-  "buildCommand": "echo 'Static build complete'",
-  "outputDirectory": "public",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "rewrites": [
     {
       "source": "/dashboard",
-      "destination": "/dashboard.html"
+      "destination": "/dashboard-solid.html"
+    },
+    {
+      "source": "/dashboard/sessions",
+      "destination": "/historical.html"
+    },
+    {
+      "source": "/historical/custom",
+      "destination": "/historical.html"
+    },
+    {
+      "source": "/historical/:sessionId",
+      "destination": "/historical.html"
     }
   ],
   "headers": [
