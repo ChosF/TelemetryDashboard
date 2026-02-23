@@ -498,6 +498,56 @@
   }
 
   /**
+   * Ban user (admin only)
+   */
+  async function banUser(targetUserId) {
+    if (!hasPermission('canAccessAdmin')) {
+      throw new Error('Unauthorized');
+    }
+
+    if (!convexClient) {
+      throw new Error('Not authenticated');
+    }
+
+    const token = getAuthToken();
+    try {
+      const result = await convexClient.mutation('users:banUser', {
+        token,
+        targetUserId
+      });
+      return result;
+    } catch (error) {
+      console.error('Error banning user:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete user (admin only)
+   */
+  async function deleteUser(targetUserId) {
+    if (!hasPermission('canAccessAdmin')) {
+      throw new Error('Unauthorized');
+    }
+
+    if (!convexClient) {
+      throw new Error('Not authenticated');
+    }
+
+    const token = getAuthToken();
+    try {
+      const result = await convexClient.mutation('users:deleteUser', {
+        token,
+        targetUserId
+      });
+      return result;
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Reload profile (for diagnostics)
    */
   async function reloadProfile() {
@@ -531,6 +581,8 @@
     getAllUsers,
     updateUserRole,
     rejectUser,
+    banUser,
+    deleteUser,
     reloadProfile,
     USER_ROLES,
     ROLE_PERMISSIONS
