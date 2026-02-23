@@ -170,6 +170,8 @@ await ConvexBridge.getCurrentProfile(token);
 | Live telemetry | ✅ | ✅ | ✅ | ✅ |
 | CSV export | ❌ | ≤1000 | Unlimited | Unlimited |
 | Historical sessions | ❌ | Last only | All | All |
+| Historical data points in analysis/export | ❌ | ≤1000 total | Unlimited | Unlimited |
+| Custom analysis view | ❌ | ❌ | ✅ | ✅ |
 | Admin panel | ❌ | ❌ | ❌ | ✅ |
 
 Four user roles with increasing privileges:

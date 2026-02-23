@@ -9,6 +9,8 @@
 
     const S = { sessions: [], activeSessionId: null, activeSessionMeta: null, data: [], compareData: [], map: null, stats: null };
     let historicalLimit = Infinity;
+    let canAccessCustomAnalysis = true;
+    let externalDataPointLimit = Infinity;
     const HIST_ROUTE_BASE = '/historical';
     const HIST_CUSTOM_ROUTE = '/historical/custom';
     const HIST_SESSIONS_ROUTE = '/dashboard/sessions';
@@ -84,11 +86,36 @@
                 return false;
             }
             historicalLimit = p.historicalLimit || Infinity;
+            const role = p.role || 'guest';
+            canAccessCustomAnalysis = role !== 'external';
+            const configuredDownloadLimit = Number.isFinite(p.downloadLimit) && p.downloadLimit > 0
+                ? Math.floor(p.downloadLimit)
+                : Infinity;
+            externalDataPointLimit = role === 'external'
+                ? Math.min(1000, configuredDownloadLimit)
+                : Infinity;
             return true;
         } catch (e) {
             $('h-auth-gate').style.display = 'flex';
             return false;
         }
+    }
+
+    function sampleRowsEvenly(rows, maxPoints) {
+        if (!Array.isArray(rows) || rows.length <= maxPoints) return rows;
+        if (maxPoints <= 1) return [rows[rows.length - 1]];
+        const sampled = [];
+        const stride = (rows.length - 1) / (maxPoints - 1);
+        for (let i = 0; i < maxPoints; i++) {
+            const idx = Math.round(i * stride);
+            sampled.push(rows[Math.min(rows.length - 1, idx)]);
+        }
+        return sampled;
+    }
+
+    function applyExternalDataCap(rows) {
+        if (!Number.isFinite(externalDataPointLimit) || externalDataPointLimit <= 0) return rows;
+        return sampleRowsEvenly(rows, externalDataPointLimit);
     }
 
     // ── Sessions ──
@@ -152,7 +179,7 @@
         $('h-back-to-sessions').style.display = '';
         showTOC(true);
         showAnalysisActions(true);
-        $('h-btn-custom-analysis').style.display = '';
+        $('h-btn-custom-analysis').style.display = canAccessCustomAnalysis ? '' : 'none';
         $('h-btn-collapse-all').style.display = '';
     }
 
@@ -200,13 +227,17 @@
             const rawRecords = Array.isArray(raw) ? raw : [];
             const { normalized, stats } = await runHistoricalWorkerTask('NORMALIZE_RECORDS', { records: rawRecords });
 
-            S.data = normalized;
+            const cappedData = applyExternalDataCap(normalized);
+            S.data = cappedData;
             S.stats = stats; // Cache stats locally so we don't have to recompute on render
 
             // Restore label after load
             if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
 
             if (!S.data.length) { toast('No data for this session'); return; }
+            if (cappedData.length < normalized.length) {
+                toast(`External access limited to ${externalDataPointLimit.toLocaleString()} representative points.`);
+            }
             renderAll();
             if (grid) grid.style.opacity = '1';
         } catch (e) {
@@ -217,7 +248,7 @@
         }
         populateCompareSelect();
         showAnalysisActions(true);
-        if (options.openCustomAfterLoad) {
+        if (options.openCustomAfterLoad && canAccessCustomAnalysis) {
             showCustomAnalysisView();
             if (!options.skipHistory) {
                 updateRoute(
@@ -252,6 +283,10 @@
 
     // ── Custom Analysis Routing ──
     $('h-btn-custom-analysis')?.addEventListener('click', () => {
+        if (!canAccessCustomAnalysis) {
+            toast('Custom Analysis is not available for external accounts.');
+            return;
+        }
         showCustomAnalysisView();
         if (S.activeSessionId) {
             updateRoute(
@@ -267,7 +302,7 @@
     $('h-ca-back')?.addEventListener('click', () => {
         $('h-view-custom-analysis').classList.remove('active');
         $('h-view-analysis').classList.add('active');
-        $('h-btn-custom-analysis').style.display = '';
+        $('h-btn-custom-analysis').style.display = canAccessCustomAnalysis ? '' : 'none';
         $('h-btn-collapse-all').style.display = '';
         showTOC(true);
         if (S.activeSessionId) {
@@ -1558,7 +1593,7 @@
         const collapseBtn = $('h-btn-collapse-all');
         if (collapseBtn) collapseBtn.style.display = show ? '' : 'none';
         const customBtn = $('h-btn-custom-analysis');
-        if (customBtn) customBtn.style.display = show ? '' : 'none';
+        if (customBtn) customBtn.style.display = show && canAccessCustomAnalysis ? '' : 'none';
     }
 
     // ── Floating TOC ──
@@ -2899,8 +2934,14 @@
         const initialRoute = parseHistoricalRoute();
         if (initialRoute.view === 'analysis' && initialRoute.sessionId) {
             await openSession(initialRoute.sessionId, { skipHistory: true, replaceHistory: true });
-        } else if (initialRoute.view === 'custom' && initialRoute.sessionId) {
+        } else if (initialRoute.view === 'custom' && initialRoute.sessionId && canAccessCustomAnalysis) {
             await openSession(initialRoute.sessionId, { skipHistory: true, replaceHistory: true, openCustomAfterLoad: true });
+        } else if (initialRoute.view === 'custom') {
+            if (initialRoute.sessionId) {
+                await openSession(initialRoute.sessionId, { skipHistory: true, replaceHistory: true });
+            } else {
+                updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, true);
+            }
         } else {
             updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, true);
         }
@@ -2923,6 +2964,14 @@
         }
 
         if (route.view === 'custom') {
+            if (!canAccessCustomAnalysis) {
+                if (route.sessionId) {
+                    await openSession(route.sessionId, { skipHistory: true, replaceHistory: true });
+                } else {
+                    backToSessions({ skipHistory: true });
+                }
+                return;
+            }
             if (route.sessionId && (S.activeSessionId !== route.sessionId || !S.data?.length)) {
                 await openSession(route.sessionId, { skipHistory: true, replaceHistory: true, openCustomAfterLoad: true });
                 return;

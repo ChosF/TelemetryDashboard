@@ -6,7 +6,7 @@ import CustomAnalysisWorkbench from '@/components/historical/CustomAnalysisWorkb
 import { convexClient } from '@/lib/convex';
 import type { TelemetrySession } from '@/types/telemetry';
 import type { TelemetryRow } from '@/types/telemetry';
-import { withDerived } from '@/lib/utils';
+import { lttbDownsample, withDerived } from '@/lib/utils';
 import { historicalStore } from '@/stores/historical';
 
 interface AccessPermissions {
@@ -22,6 +22,7 @@ const DEFAULT_PERMISSIONS: AccessPermissions = {
     downloadLimit: 0,
     historicalLimit: 0,
 };
+const EXTERNAL_MAX_POINTS = 1000;
 
 const HistoricalRoute: Component = () => {
     const [booting, setBooting] = createSignal(true);
@@ -59,6 +60,20 @@ const HistoricalRoute: Component = () => {
         return null;
     });
     const isCustomRoute = createMemo(() => location.pathname === '/historical/custom');
+    const canAccessCustomAnalysis = createMemo(() =>
+        permissions().canViewHistorical && permissions().role !== 'external'
+    );
+
+    const capExternalDataset = (rows: TelemetryRow[]): TelemetryRow[] => {
+        if (permissions().role !== 'external') return rows;
+        const configuredLimit = permissions().downloadLimit;
+        const requestedLimit = Number.isFinite(configuredLimit) && configuredLimit > 0
+            ? Math.floor(configuredLimit)
+            : EXTERNAL_MAX_POINTS;
+        const cap = Math.min(EXTERNAL_MAX_POINTS, requestedLimit);
+        if (rows.length <= cap) return rows;
+        return lttbDownsample(rows, cap, (r) => r.speed_ms ?? 0);
+    };
 
     onMount(async () => {
         const fallbackConfig = (window as unknown as { CONFIG?: Record<string, string> }).CONFIG ?? {};
@@ -131,10 +146,23 @@ const HistoricalRoute: Component = () => {
 
         const fetchRecords = async (sid: string): Promise<TelemetryRow[]> => {
             const records = await convexClient.getSessionRecords(sid);
-            return withDerived(records as TelemetryRow[]);
+            const derived = withDerived(records as TelemetryRow[]);
+            return capExternalDataset(derived);
         };
         historicalStore.loadSession(sessionMeta, fetchRecords);
         setLastLoadedSessionId(sessionId);
+    });
+
+    createEffect(() => {
+        if (booting()) return;
+        if (!isCustomRoute()) return;
+        if (canAccessCustomAnalysis()) return;
+        const sid = routeSessionId();
+        if (sid) {
+            navigate(`/historical/${encodeURIComponent(sid)}`, { replace: true });
+            return;
+        }
+        navigate('/dashboard/sessions', { replace: true });
     });
 
     return (
@@ -153,42 +181,51 @@ const HistoricalRoute: Component = () => {
                 when={!isCustomRoute()}
                 fallback={
                     <Show
-                        when={historicalStore.hasSession()}
+                        when={canAccessCustomAnalysis()}
                         fallback={
-                            <div class="historical-mode">
-                                <div class="hist-layout">
-                                    <div class="hist-panel">
-                                        <div class="hist-panel-header">
-                                            <div class="hist-panel-title">
-                                                <span class="icon">📊</span> Select Session for Custom Analysis
-                                            </div>
-                                        </div>
-                                        <div class="hist-panel-body">
-                                            <SessionExplorer
-                                                sessions={sessions() ?? []}
-                                                loading={sessions.loading}
-                                                onSelect={(session) =>
-                                                    navigate(`/historical/custom?sessionId=${encodeURIComponent(session.session_id)}`)
-                                                }
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
+                            <div style={{ padding: '24px' }}>
+                                External accounts do not have access to Custom Analysis.
                             </div>
                         }
                     >
-                        <CustomAnalysisWorkbench
-                            data={historicalStore.sessionData()}
-                            sessionId={routeSessionId()}
-                            onBackToAnalysis={() => {
-                                const sid = routeSessionId();
-                                if (sid) {
-                                    navigate(`/historical/${encodeURIComponent(sid)}`);
-                                } else {
-                                    navigate('/dashboard/sessions');
-                                }
-                            }}
-                        />
+                        <Show
+                            when={historicalStore.hasSession()}
+                            fallback={
+                                <div class="historical-mode">
+                                    <div class="hist-layout">
+                                        <div class="hist-panel">
+                                            <div class="hist-panel-header">
+                                                <div class="hist-panel-title">
+                                                    <span class="icon">📊</span> Select Session for Custom Analysis
+                                                </div>
+                                            </div>
+                                            <div class="hist-panel-body">
+                                                <SessionExplorer
+                                                    sessions={sessions() ?? []}
+                                                    loading={sessions.loading}
+                                                    onSelect={(session) =>
+                                                        navigate(`/historical/custom?sessionId=${encodeURIComponent(session.session_id)}`)
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        >
+                            <CustomAnalysisWorkbench
+                                data={historicalStore.sessionData()}
+                                sessionId={routeSessionId()}
+                                onBackToAnalysis={() => {
+                                    const sid = routeSessionId();
+                                    if (sid) {
+                                        navigate(`/historical/${encodeURIComponent(sid)}`);
+                                    } else {
+                                        navigate('/dashboard/sessions');
+                                    }
+                                }}
+                            />
+                        </Show>
                     </Show>
                 }
             >
