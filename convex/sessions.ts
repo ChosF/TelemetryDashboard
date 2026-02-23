@@ -3,6 +3,46 @@ import { paginationOptsValidator } from "convex/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
+type HistoricalAccess = {
+    role: "guest" | "external" | "internal" | "admin";
+    canViewHistorical: boolean;
+    historicalLimitDays: number;
+};
+
+async function getHistoricalAccess(ctx: any, token?: string): Promise<HistoricalAccess> {
+    if (!token) {
+        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+    }
+
+    const session = await ctx.db
+        .query("authSessions")
+        .withIndex("by_token", (q: any) => q.eq("token", token))
+        .first();
+
+    if (!session) {
+        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+    }
+
+    const expiry = 24 * 60 * 60 * 1000;
+    if (Date.now() - session._creationTime > expiry) {
+        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+    }
+
+    const profile = await ctx.db
+        .query("user_profiles")
+        .withIndex("by_userId", (q: any) => q.eq("userId", session.userId))
+        .first();
+
+    const role = (profile?.role ?? "guest") as HistoricalAccess["role"];
+    if (role === "admin" || role === "internal") {
+        return { role, canViewHistorical: true, historicalLimitDays: Infinity };
+    }
+    if (role === "external") {
+        return { role, canViewHistorical: true, historicalLimitDays: 7 };
+    }
+    return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // PUBLIC QUERIES
 // ──────────────────────────────────────────────────────────────────────────────
@@ -19,9 +59,18 @@ import { v } from "convex/values";
  * After calling kickstartSessions() once, the fast path is always taken.
  */
 export const listSessions = query({
-    args: {},
-    handler: async (ctx) => {
+    args: { token: v.optional(v.string()) },
+    handler: async (ctx, args) => {
         try {
+            const access = await getHistoricalAccess(ctx, args.token);
+            if (!access.canViewHistorical) {
+                return { sessions: [], scanned_rows: 0, source: "restricted" };
+            }
+
+            const cutoffMs = Number.isFinite(access.historicalLimitDays)
+                ? Date.now() - (access.historicalLimitDays * 24 * 60 * 60 * 1000)
+                : Number.NEGATIVE_INFINITY;
+
             // ── Fast path: sessions metadata table ────────────────────────────
             const sessionDocs = await ctx.db.query("sessions").collect();
 
@@ -36,10 +85,18 @@ export const listSessions = query({
                         (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / 1000
                     ),
                 }));
-                sessions.sort((a, b) =>
+                let filteredSessions = sessions;
+                if (Number.isFinite(access.historicalLimitDays)) {
+                    filteredSessions = sessions.filter((s) => {
+                        const startMs = new Date(s.start_time).getTime();
+                        return Number.isFinite(startMs) && startMs >= cutoffMs;
+                    });
+                }
+
+                filteredSessions.sort((a, b) =>
                     new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
                 );
-                return { sessions, scanned_rows: sessions.length, source: "sessions_table" };
+                return { sessions: filteredSessions, scanned_rows: filteredSessions.length, source: "sessions_table" };
             }
 
             // ── Fallback: direct telemetry scan (pre-migration) ───────────────
@@ -80,11 +137,19 @@ export const listSessions = query({
                     (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / 1000
                 ),
             }));
-            sessions.sort((a, b) =>
+            let filteredSessions = sessions;
+            if (Number.isFinite(access.historicalLimitDays)) {
+                filteredSessions = sessions.filter((s) => {
+                    const startMs = new Date(s.start_time).getTime();
+                    return Number.isFinite(startMs) && startMs >= cutoffMs;
+                });
+            }
+
+            filteredSessions.sort((a, b) =>
                 new Date(b.start_time).getTime() - new Date(a.start_time).getTime()
             );
 
-            return { sessions, scanned_rows: recentRecords.length, source: "telemetry_scan" };
+            return { sessions: filteredSessions, scanned_rows: recentRecords.length, source: "telemetry_scan" };
 
         } catch (error) {
             console.error("listSessions error:", error);

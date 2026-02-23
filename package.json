@@ -17,18 +17,19 @@
     "clean": "rm -rf dist node_modules/.vite"
   },
   "dependencies": {
-    "solid-js": "^1.8.15",
     "@solidjs/router": "^0.14.10",
-    "uplot": "^1.6.30",
-    "maplibre-gl": "^4.1.2",
     "@tanstack/solid-table": "^8.17.3",
+    "ably": "^1.2.48",
     "convex": "^1.31.5",
-    "ably": "^1.2.48"
+    "maplibre-gl": "^4.1.2",
+    "pdf-parse": "^2.4.5",
+    "solid-js": "^1.8.15",
+    "uplot": "^1.6.30"
   },
   "devDependencies": {
-    "vite": "^5.4.11",
-    "vite-plugin-solid": "^2.10.2",
+    "@types/node": "^20.17.10",
     "typescript": "^5.7.2",
-    "@types/node": "^20.17.10"
+    "vite": "^5.4.11",
+    "vite-plugin-solid": "^2.10.2"
   }
 }

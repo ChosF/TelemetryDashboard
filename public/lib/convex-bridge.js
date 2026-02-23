@@ -21,6 +21,21 @@ const ConvexBridge = (function () {
     let isInitialized = false;
     let activeSubscriptions = new Map();
 
+    function getAuthToken() {
+        return localStorage.getItem('convex_auth_token')
+            || sessionStorage.getItem('convex_auth_token')
+            || localStorage.getItem('auth_session_token')
+            || sessionStorage.getItem('auth_session_token');
+    }
+
+    function shouldRetryWithoutToken(error) {
+        const message = String(error?.message || error || '').toLowerCase();
+        return message.includes('extra field')
+            || message.includes('object has extra')
+            || message.includes('unexpected field')
+            || message.includes('validator');
+    }
+
     /**
      * Initialize the Convex client
      * @param {string} convexUrl - The Convex deployment URL
@@ -76,12 +91,22 @@ const ConvexBridge = (function () {
      */
     async function listSessions() {
         if (!client) throw new Error('ConvexBridge not initialized');
+        const token = getAuthToken();
         try {
-            const result = await client.query('sessions:listSessions', {});
+            const result = await client.query('sessions:listSessions', { token: token || undefined });
             return result;
         } catch (error) {
-            console.error('[ConvexBridge] listSessions failed:', error);
-            throw error;
+            try {
+                console.warn('[ConvexBridge] listSessions retrying without token arg for compatibility');
+                const result = await client.query('sessions:listSessions', {});
+                return result;
+            } catch (legacyError) {
+                if (token && shouldRetryWithoutToken(error)) {
+                    console.warn('[ConvexBridge] listSessions compatibility retry failed:', legacyError);
+                }
+                console.error('[ConvexBridge] listSessions failed:', error);
+                throw error;
+            }
         }
     }
 
@@ -144,6 +169,7 @@ const ConvexBridge = (function () {
      */
     async function getSessionRecords(sessionId, onProgress = null) {
         if (!client) throw new Error('ConvexBridge not initialized');
+        const token = getAuthToken();
 
         const BATCH_SIZE = 3000;   // must match server BATCH_SIZE
         const COLLECT_CAP = 16000; // if collect() returns ≥ this, assume it was capped
@@ -151,10 +177,20 @@ const ConvexBridge = (function () {
         // ── Fast path: single collect() ──────────────────────────────────────
         let singleResult = null;
         try {
-            singleResult = await client.query('telemetry:getSessionRecords', { sessionId });
-        } catch (_) {
-            // collect() hard cap exceeded — fall through to batch path
-            singleResult = null;
+            singleResult = await client.query('telemetry:getSessionRecords', {
+                sessionId,
+                token: token || undefined,
+            });
+        } catch (error) {
+            try {
+                singleResult = await client.query('telemetry:getSessionRecords', { sessionId });
+            } catch (legacyError) {
+                if (token && shouldRetryWithoutToken(error)) {
+                    console.warn('[ConvexBridge] getSessionRecords compatibility retry failed:', legacyError);
+                }
+                // collect() hard cap exceeded OR incompatible signature — fall through to batch path
+                singleResult = null;
+            }
         }
 
         if (singleResult !== null && singleResult.length < COLLECT_CAP) {
@@ -172,10 +208,24 @@ const ConvexBridge = (function () {
         let hasMore = true;
 
         while (hasMore) {
-            const args = { sessionId };
+            const args = { sessionId, token: token || undefined };
             if (afterTimestamp !== undefined) args.afterTimestamp = afterTimestamp;
 
-            const result = await client.query('telemetry:getSessionRecordsBatch', args);
+            let result;
+            try {
+                result = await client.query('telemetry:getSessionRecordsBatch', args);
+            } catch (error) {
+                const legacyArgs = { sessionId };
+                if (afterTimestamp !== undefined) legacyArgs.afterTimestamp = afterTimestamp;
+                try {
+                    result = await client.query('telemetry:getSessionRecordsBatch', legacyArgs);
+                } catch (legacyError) {
+                    if (token && shouldRetryWithoutToken(error)) {
+                        console.warn('[ConvexBridge] getSessionRecordsBatch compatibility retry failed:', legacyError);
+                    }
+                    throw error;
+                }
+            }
 
             if (!result || !Array.isArray(result.page)) {
                 console.error('[ConvexBridge] ⚠️ Unexpected batch response:', result);

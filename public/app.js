@@ -6400,6 +6400,14 @@
       fabMenu.classList.remove("active");
     });
 
+    // Header Connection Status click - Manual connect trigger
+    headerConnStatus?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!state.isConnected && state.mode === "realtime") {
+        await connectRealtime();
+      }
+    });
+
     // FAB Mode button removed - Toggle Mode functionality is not needed
 
     // FAB Export button - Show export menu
@@ -6526,6 +6534,12 @@
     initEvents();
     initCustomCharts();
     initDataWorker(); // Initialize Web Worker for data processing
+
+    // Automate real-time connection on load
+    if (state.mode === "realtime") {
+      console.log("🚀 Auto-connecting to realtime...");
+      connectRealtime();
+    }
 
     // Mock data integration for testing (no Ably required)
     if (window.MockDataGenerator) {
@@ -6800,6 +6814,11 @@
     async function loadHistSessions() {
       sessionList.innerHTML = '<div class="hist-loading"><div class="hist-spinner"></div><span>Loading sessions...</span></div>';
       try {
+        if (window.AuthModule && !window.AuthModule.hasPermission('canViewHistorical')) {
+          sessionList.innerHTML = '<div class="hist-empty"><span class="hist-empty-icon">🔒</span><span>Sign in to access historical sessions.</span></div>';
+          return;
+        }
+
         if (window.ConvexBridge) {
           const result = await ConvexBridge.listSessions();
           allSessions = (result && result.sessions) ? result.sessions : (Array.isArray(result) ? result : []);

@@ -3,6 +3,70 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 const BATCH_SIZE = 3000; // Safe well under the 16,384 .collect() hard cap
+const EXTERNAL_HISTORICAL_LIMIT_DAYS = 7;
+
+type HistoricalAccess = {
+    role: "guest" | "external" | "internal" | "admin";
+    canViewHistorical: boolean;
+    historicalLimitDays: number;
+};
+
+async function getHistoricalAccess(ctx: any, token?: string): Promise<HistoricalAccess> {
+    if (!token) {
+        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+    }
+
+    const session = await ctx.db
+        .query("authSessions")
+        .withIndex("by_token", (q: any) => q.eq("token", token))
+        .first();
+
+    if (!session) {
+        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+    }
+
+    const expiry = 24 * 60 * 60 * 1000;
+    if (Date.now() - session._creationTime > expiry) {
+        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+    }
+
+    const profile = await ctx.db
+        .query("user_profiles")
+        .withIndex("by_userId", (q: any) => q.eq("userId", session.userId))
+        .first();
+
+    const role = (profile?.role ?? "guest") as HistoricalAccess["role"];
+    if (role === "admin" || role === "internal") {
+        return { role, canViewHistorical: true, historicalLimitDays: Infinity };
+    }
+    if (role === "external") {
+        return { role, canViewHistorical: true, historicalLimitDays: EXTERNAL_HISTORICAL_LIMIT_DAYS };
+    }
+    return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+}
+
+async function canAccessHistoricalSession(
+    ctx: any,
+    sessionId: string,
+    access: HistoricalAccess
+): Promise<boolean> {
+    if (!access.canViewHistorical) return false;
+    if (!Number.isFinite(access.historicalLimitDays)) return true;
+
+    const sessionMeta = await ctx.db
+        .query("sessions")
+        .withIndex("by_session_id", (q: any) => q.eq("session_id", sessionId))
+        .first();
+
+    const sessionStart = sessionMeta?.start_time;
+    if (!sessionStart) return false;
+
+    const startMs = new Date(sessionStart).getTime();
+    if (!Number.isFinite(startMs)) return false;
+
+    const cutoffMs = Date.now() - (access.historicalLimitDays * 24 * 60 * 60 * 1000);
+    return startMs >= cutoffMs;
+}
 
 /**
  * Get all records for a specific session.
@@ -10,8 +74,12 @@ const BATCH_SIZE = 3000; // Safe well under the 16,384 .collect() hard cap
  * For larger sessions, clients should loop getSessionRecordsBatch instead.
  */
 export const getSessionRecords = query({
-    args: { sessionId: v.string() },
+    args: { sessionId: v.string(), token: v.optional(v.string()) },
     handler: async (ctx, args) => {
+        const access = await getHistoricalAccess(ctx, args.token);
+        const allowed = await canAccessHistoricalSession(ctx, args.sessionId, access);
+        if (!allowed) return [];
+
         const records = await ctx.db
             .query("telemetry")
             .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
@@ -41,8 +109,13 @@ export const getSessionRecordsBatch = query({
     args: {
         sessionId: v.string(),
         afterTimestamp: v.optional(v.string()),
+        token: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        const access = await getHistoricalAccess(ctx, args.token);
+        const allowed = await canAccessHistoricalSession(ctx, args.sessionId, access);
+        if (!allowed) return { page: [], hasMore: false, lastTimestamp: null };
+
         const records = await ctx.db
             .query("telemetry")
             .withIndex("by_session_timestamp", (qb) => {

@@ -38,6 +38,21 @@ let client: ConvexClient | null = null;
 let isInitialized = false;
 const activeSubscriptions = new Map<string, Unsubscribe>();
 
+function getAuthToken(): string | undefined {
+    return localStorage.getItem('auth_session_token')
+        ?? localStorage.getItem('convex_auth_token')
+        ?? sessionStorage.getItem('convex_auth_token')
+        ?? undefined;
+}
+
+function shouldRetryWithoutToken(error: unknown): boolean {
+    const message = String(error instanceof Error ? error.message : error).toLowerCase();
+    return message.includes('extra field')
+        || message.includes('object has extra')
+        || message.includes('unexpected field')
+        || message.includes('validator');
+}
+
 // =============================================================================
 // PUBLIC API
 // =============================================================================
@@ -90,8 +105,21 @@ export function isConnected(): boolean {
 export async function listSessions(): Promise<SessionsResult> {
     if (!client) throw new Error('Convex not initialized');
 
-    const result = await client.query('sessions:listSessions', {});
-    return result as SessionsResult;
+    const token = getAuthToken();
+    try {
+        const result = await client.query('sessions:listSessions', { token });
+        return result as SessionsResult;
+    } catch (error) {
+        try {
+            const result = await client.query('sessions:listSessions', {});
+            return result as SessionsResult;
+        } catch {
+            if (token && shouldRetryWithoutToken(error)) {
+                console.warn('[Convex] listSessions compatibility retry failed');
+            }
+            throw error;
+        }
+    }
 }
 
 /**
@@ -100,10 +128,24 @@ export async function listSessions(): Promise<SessionsResult> {
 export async function getSessionRecords(sessionId: string): Promise<TelemetryRecord[]> {
     if (!client) throw new Error('Convex not initialized');
 
-    const records = await client.query('telemetry:getSessionRecords', {
-        sessionId,
-    });
-    return records as TelemetryRecord[];
+    const token = getAuthToken();
+    try {
+        const records = await client.query('telemetry:getSessionRecords', {
+            sessionId,
+            token,
+        });
+        return records as TelemetryRecord[];
+    } catch (error) {
+        try {
+            const records = await client.query('telemetry:getSessionRecords', { sessionId });
+            return records as TelemetryRecord[];
+        } catch {
+            if (token && shouldRetryWithoutToken(error)) {
+                console.warn('[Convex] getSessionRecords compatibility retry failed');
+            }
+            throw error;
+        }
+    }
 }
 
 /**

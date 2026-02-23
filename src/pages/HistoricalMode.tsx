@@ -31,6 +31,8 @@ import ExportPanel from '@/components/historical/ExportPanel';
 export interface HistoricalModeProps {
     sessions: TelemetrySession[];
     loading?: boolean;
+    accessLevel?: 'full' | 'limited';
+    historicalLimitDays?: number;
 }
 
 // =============================================================================
@@ -64,6 +66,12 @@ const HistoricalMode: Component<HistoricalModeProps> = (props) => {
     const activeSection = createMemo(() => historicalStore.activeSection());
     const isLoading = createMemo(() => historicalStore.isLoading());
     const loadError = createMemo(() => historicalStore.loadError());
+    const isLimitedAccess = createMemo(() => props.accessLevel === 'limited');
+    const limitLabel = createMemo(() => {
+        const days = props.historicalLimitDays;
+        if (!days || !Number.isFinite(days) || days <= 0) return 'a limited window';
+        return `the last ${days} day${days === 1 ? '' : 's'}`;
+    });
 
     /**
      * Fetch records from Convex and apply derived calculations
@@ -141,11 +149,22 @@ const HistoricalMode: Component<HistoricalModeProps> = (props) => {
             <div class="hist-layout">
                 {/* No session loaded → Show explorer */}
                 <Show when={!hasSession() && !isLoading()}>
-                    <SessionExplorer
-                        sessions={props.sessions}
-                        onSelect={handleSelectSession}
-                        loading={props.loading}
-                    />
+                    <div style={{ display: 'flex', 'flex-direction': 'column', gap: '12px' }}>
+                        <Show when={isLimitedAccess()}>
+                            <div class="hist-panel" style={{ margin: 0 }}>
+                                <div class="hist-panel-body">
+                                    <div style={{ color: 'var(--hist-text-muted)', 'font-size': '14px' }}>
+                                        External account access is limited to <strong>{limitLabel()}</strong>.
+                                    </div>
+                                </div>
+                            </div>
+                        </Show>
+                        <SessionExplorer
+                            sessions={props.sessions}
+                            onSelect={handleSelectSession}
+                            loading={props.loading}
+                        />
+                    </div>
                 </Show>
 
                 {/* Loading state */}

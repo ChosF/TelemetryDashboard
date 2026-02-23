@@ -5103,35 +5103,45 @@ body {
   }
 }
 
-/* ==========================================================================
-   HEADER HISTORICAL LINK
-   ========================================================================== */
-
 .header-historical-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(0, 210, 190, 0.1);
-  color: #00d2be;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
   text-decoration: none;
-  font-size: 11px;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  border: 1px solid rgba(0, 210, 190, 0.2);
-  white-space: nowrap;
+  transition: all var(--duration-fast) var(--ease-out);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+
+.header-historical-link span {
+  font-size: 1.25rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .header-historical-link:hover {
-  background: rgba(0, 210, 190, 0.2);
-  border-color: rgba(0, 210, 190, 0.4);
-  color: #00e6cf;
-  transform: translateY(-1px);
+  background: var(--surface-tertiary);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
-@media (max-width: 600px) {
-  .header-historical-link .tab-label-text {
-    display: none;
+.header-historical-link:active {
+  transform: scale(0.95);
+}
+
+@media (max-width: 767px) {
+  .header-historical-link {
+    width: 40px;
+    height: 40px;
   }
 }

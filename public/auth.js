@@ -370,6 +370,25 @@
   }
 
   /**
+   * Get full permission object for current user role
+   */
+  async function getPermissions() {
+    // Historical page can call this before profile is hydrated.
+    // Try to load it from stored token first so valid users are not treated as guests.
+    if (!currentProfile && convexClient && getAuthToken()) {
+      try {
+        await loadUserProfile();
+      } catch (error) {
+        console.warn('Could not refresh profile for permissions check:', error);
+      }
+    }
+
+    const role = getUserRole();
+    const permissions = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS[USER_ROLES.GUEST];
+    return { ...permissions, role };
+  }
+
+  /**
    * Check if user is authenticated
    */
   function isAuthenticated() {
@@ -505,6 +524,7 @@
     getUserRole,
     hasPermission,
     getPermissionValue,
+    getPermissions,
     isAuthenticated,
     needsApproval,
     getPendingUsers,

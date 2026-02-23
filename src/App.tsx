@@ -3,7 +3,7 @@
  * TelemetryDashboard - SolidJS Migration Complete
  */
 
-import { Component, createSignal, onMount, Show, createMemo, JSX } from 'solid-js';
+import { Component, createSignal, onMount, Show, createMemo, JSX, createEffect } from 'solid-js';
 
 // Stores
 import { telemetryStore, telemetryData, currentSessionId } from '@/stores/telemetry';
@@ -88,13 +88,39 @@ const App: Component = () => {
     const data = createMemo(() => telemetryData());
     const loading = createMemo(() => !telemetryStore.isDataFresh());
 
+    // Role-aware historical access
+    const canViewHistorical = createMemo(() => authStore.canViewHistory());
+    const historicalLimitDays = createMemo(() => {
+        const value = authStore.getPermissionValue('historicalLimit');
+        return typeof value === 'number' && Number.isFinite(value) ? value : Infinity;
+    });
+    const historicalSessions = createMemo(() => {
+        const limitDays = historicalLimitDays();
+        if (!Number.isFinite(limitDays)) {
+            return sessions();
+        }
+
+        const cutoff = Date.now() - (limitDays * 24 * 60 * 60 * 1000);
+        return sessions().filter((session) => {
+            const ts = new Date(session.start_time).getTime();
+            return Number.isFinite(ts) && ts >= cutoff;
+        });
+    });
+
     // Available tabs (add admin if user is admin)
     const availableTabs = createMemo(() => {
-        const tabs = [...TABS];
+        const tabs = TABS.filter((tab) => tab.id !== 'historical' || canViewHistorical());
         if (authStore.canAccessAdmin()) {
             tabs.push({ id: 'admin', label: 'Admin', icon: '⚙️' });
         }
         return tabs;
+    });
+
+    // If permissions change while historical is selected, move back to realtime view.
+    createEffect(() => {
+        if (activeTab() === 'historical' && !canViewHistorical()) {
+            setActiveTab('overview');
+        }
     });
 
     // Initialize app
@@ -137,7 +163,9 @@ const App: Component = () => {
         if (tabId === 'historical') {
             return (
                 <HistoricalMode
-                    sessions={sessions()}
+                    sessions={historicalSessions()}
+                    accessLevel={Number.isFinite(historicalLimitDays()) ? 'limited' : 'full'}
+                    historicalLimitDays={historicalLimitDays()}
                     loading={loading()}
                 />
             );
