@@ -91,9 +91,143 @@
     return notification;
   }
 
+  // Inject confirm dialog styles once
+  (function injectConfirmStyles() {
+    if (document.getElementById('ecv-confirm-styles')) return;
+    const sheet = document.createElement('style');
+    sheet.id = 'ecv-confirm-styles';
+    sheet.textContent = `
+      @keyframes ecvOverlayIn {
+        from { opacity: 0; backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0); }
+        to   { opacity: 1; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+      }
+      @keyframes ecvCardIn {
+        0%   { opacity: 0; transform: scale(0.92) translateY(8px); filter: blur(6px); }
+        60%  { opacity: 1; transform: scale(1.015) translateY(-2px); filter: blur(0); }
+        100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+      }
+      @keyframes ecvOverlayOut {
+        from { opacity: 1; }
+        to   { opacity: 0; }
+      }
+      @keyframes ecvCardOut {
+        from { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+        to   { opacity: 0; transform: scale(0.96) translateY(6px); filter: blur(4px); }
+      }
+      @keyframes ecvShimmer {
+        from { background-position: -200% center; }
+        to   { background-position: 200% center; }
+      }
+
+      .ecv-confirm {
+        position: fixed; inset: 0; z-index: 12000;
+        display: flex; align-items: center; justify-content: center;
+        padding: 20px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      }
+      .ecv-confirm-overlay {
+        position: absolute; inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        animation: ecvOverlayIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .ecv-confirm.closing .ecv-confirm-overlay {
+        animation: ecvOverlayOut 0.22s ease both;
+      }
+
+      .ecv-confirm-card {
+        position: relative; z-index: 1;
+        width: min(88vw, 380px);
+        padding: 28px 26px 22px;
+        border-radius: 16px;
+        background: rgba(17, 20, 28, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow:
+          0 0 0 1px rgba(255,255,255,0.04),
+          0 24px 64px -12px rgba(0, 0, 0, 0.55),
+          0 8px 20px -4px rgba(0, 0, 0, 0.3),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        color: rgba(255, 255, 255, 0.92);
+        animation: ecvCardIn 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      }
+      .ecv-confirm.closing .ecv-confirm-card {
+        animation: ecvCardOut 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+      }
+
+      .ecv-confirm-stripe {
+        position: absolute; top: 0; left: 24px; right: 24px; height: 2px;
+        border-radius: 0 0 2px 2px;
+        background: linear-gradient(90deg,
+          transparent, rgba(239, 68, 68, 0.7), rgba(251, 191, 36, 0.5), transparent);
+        background-size: 200% 100%;
+        animation: ecvShimmer 2.4s ease-in-out infinite;
+      }
+
+      .ecv-confirm-body {
+        text-align: center;
+        font-size: 14px;
+        line-height: 1.55;
+        letter-spacing: -0.006em;
+        color: rgba(255, 255, 255, 0.78);
+        margin-bottom: 24px;
+      }
+
+      .ecv-confirm-actions {
+        display: flex; gap: 10px;
+        justify-content: flex-end;
+      }
+
+      .ecv-confirm-btn {
+        padding: 9px 18px;
+        border-radius: 10px;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition: all 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+        outline: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .ecv-confirm-btn:focus-visible {
+        box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.6);
+      }
+
+      .ecv-btn-cancel {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: rgba(255, 255, 255, 0.7);
+      }
+      .ecv-btn-cancel:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+        color: rgba(255, 255, 255, 0.92);
+      }
+      .ecv-btn-cancel:active {
+        transform: scale(0.97);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .ecv-btn-danger {
+        background: rgba(239, 68, 68, 0.85);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #fff;
+        box-shadow: 0 1px 3px rgba(239, 68, 68, 0.25), inset 0 1px 0 rgba(255,255,255,0.1);
+      }
+      .ecv-btn-danger:hover {
+        background: rgba(239, 68, 68, 1);
+        box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35), inset 0 1px 0 rgba(255,255,255,0.12);
+        transform: translateY(-1px);
+      }
+      .ecv-btn-danger:active {
+        transform: translateY(0) scale(0.97);
+        box-shadow: 0 1px 4px rgba(239, 68, 68, 0.2);
+      }
+    `;
+    document.head.appendChild(sheet);
+  })();
+
   // Custom confirmation dialog
   function showConfirm(message, onConfirm, onCancel) {
-    // Guaranteed fallback if modal UI cannot be rendered.
     if (!document?.body) {
       const confirmed = window.confirm(message);
       if (confirmed && onConfirm) onConfirm();
@@ -102,128 +236,47 @@
     }
 
     const modal = document.createElement('div');
-    modal.className = 'confirm-modal';
+    modal.className = 'ecv-confirm';
     modal.innerHTML = `
-      <div class="confirm-modal-overlay"></div>
-      <div class="confirm-modal-content glass-panel">
-        <div class="confirm-modal-icon">⚠️</div>
-        <div class="confirm-modal-message">${message}</div>
-        <div class="confirm-modal-actions">
-          <button class="confirm-cancel liquid-hover">Cancel</button>
-          <button class="confirm-ok liquid-hover">Confirm</button>
+      <div class="ecv-confirm-overlay"></div>
+      <div class="ecv-confirm-card">
+        <div class="ecv-confirm-stripe"></div>
+        <div class="ecv-confirm-body">${message}</div>
+        <div class="ecv-confirm-actions">
+          <button class="ecv-confirm-btn ecv-btn-cancel">Cancel</button>
+          <button class="ecv-confirm-btn ecv-btn-danger">Confirm</button>
         </div>
       </div>
     `;
 
-    applyConfirmInlineStyles(modal);
     document.body.appendChild(modal);
 
-    const overlay = modal.querySelector('.confirm-modal-overlay');
-    const cancelBtn = modal.querySelector('.confirm-cancel');
-    const okBtn = modal.querySelector('.confirm-ok');
+    const overlay = modal.querySelector('.ecv-confirm-overlay');
+    const cancelBtn = modal.querySelector('.ecv-btn-cancel');
+    const okBtn = modal.querySelector('.ecv-btn-danger');
 
     const escHandler = (e) => {
-      if (e.key === 'Escape') {
-        close(false);
-      }
+      if (e.key === 'Escape') close(false);
     };
 
     const close = (confirmed) => {
       document.removeEventListener('keydown', escHandler);
       modal.classList.add('closing');
-      modal.style.opacity = '0';
       setTimeout(() => {
         modal.remove();
-        if (confirmed && onConfirm) {
-          onConfirm();
-        } else if (!confirmed && onCancel) {
-          onCancel();
-        }
-      }, 300);
+        if (confirmed && onConfirm) onConfirm();
+        else if (!confirmed && onCancel) onCancel();
+      }, 240);
     };
 
     overlay.addEventListener('click', () => close(false));
     cancelBtn.addEventListener('click', () => close(false));
     okBtn.addEventListener('click', () => close(true));
-
-    // ESC key support
     document.addEventListener('keydown', escHandler);
 
+    requestAnimationFrame(() => okBtn.focus());
+
     return modal;
-  }
-
-  function applyConfirmInlineStyles(modal) {
-    modal.style.position = 'fixed';
-    modal.style.inset = '0';
-    modal.style.zIndex = '12000';
-    modal.style.display = 'flex';
-    modal.style.alignItems = 'center';
-    modal.style.justifyContent = 'center';
-    modal.style.padding = '16px';
-    modal.style.opacity = '1';
-    modal.style.transition = 'opacity 0.22s ease';
-
-    const overlay = modal.querySelector('.confirm-modal-overlay');
-    if (overlay) {
-      overlay.style.position = 'absolute';
-      overlay.style.inset = '0';
-      overlay.style.background = 'rgba(0, 0, 0, 0.6)';
-      overlay.style.backdropFilter = 'blur(4px)';
-    }
-
-    const content = modal.querySelector('.confirm-modal-content');
-    if (content) {
-      content.style.position = 'relative';
-      content.style.width = 'min(92vw, 420px)';
-      content.style.padding = '22px';
-      content.style.borderRadius = '14px';
-      content.style.background = 'rgba(22, 27, 34, 0.96)';
-      content.style.border = '1px solid rgba(255, 255, 255, 0.14)';
-      content.style.boxShadow = '0 18px 44px rgba(0,0,0,0.36)';
-      content.style.color = 'white';
-      content.style.zIndex = '1';
-    }
-
-    const icon = modal.querySelector('.confirm-modal-icon');
-    if (icon) {
-      icon.style.fontSize = '28px';
-      icon.style.marginBottom = '10px';
-      icon.style.textAlign = 'center';
-    }
-
-    const message = modal.querySelector('.confirm-modal-message');
-    if (message) {
-      message.style.textAlign = 'center';
-      message.style.lineHeight = '1.45';
-      message.style.marginBottom = '16px';
-    }
-
-    const actions = modal.querySelector('.confirm-modal-actions');
-    if (actions) {
-      actions.style.display = 'flex';
-      actions.style.justifyContent = 'center';
-      actions.style.gap = '10px';
-    }
-
-    const cancelBtn = modal.querySelector('.confirm-cancel');
-    if (cancelBtn) {
-      cancelBtn.style.padding = '8px 14px';
-      cancelBtn.style.borderRadius = '8px';
-      cancelBtn.style.border = '1px solid rgba(255,255,255,0.2)';
-      cancelBtn.style.background = 'rgba(255,255,255,0.08)';
-      cancelBtn.style.color = 'white';
-      cancelBtn.style.cursor = 'pointer';
-    }
-
-    const okBtn = modal.querySelector('.confirm-ok');
-    if (okBtn) {
-      okBtn.style.padding = '8px 14px';
-      okBtn.style.borderRadius = '8px';
-      okBtn.style.border = 'none';
-      okBtn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
-      okBtn.style.color = 'white';
-      okBtn.style.cursor = 'pointer';
-    }
   }
 
   // Create and show login modal
