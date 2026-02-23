@@ -21,6 +21,21 @@ const ConvexBridge = (function () {
     let isInitialized = false;
     let activeSubscriptions = new Map();
 
+    function getAuthToken() {
+        return localStorage.getItem('convex_auth_token')
+            || sessionStorage.getItem('convex_auth_token')
+            || localStorage.getItem('auth_session_token')
+            || sessionStorage.getItem('auth_session_token');
+    }
+
+    function shouldRetryWithoutToken(error) {
+        const message = String(error?.message || error || '').toLowerCase();
+        return message.includes('extra field')
+            || message.includes('object has extra')
+            || message.includes('unexpected field')
+            || message.includes('validator');
+    }
+
     /**
      * Initialize the Convex client
      * @param {string} convexUrl - The Convex deployment URL
@@ -76,34 +91,168 @@ const ConvexBridge = (function () {
      */
     async function listSessions() {
         if (!client) throw new Error('ConvexBridge not initialized');
-
+        const token = getAuthToken();
         try {
-            const result = await client.query('sessions:listSessions', {});
+            const result = await client.query('sessions:listSessions', { token: token || undefined });
             return result;
         } catch (error) {
-            console.error('[ConvexBridge] listSessions failed:', error);
-            throw error;
+            try {
+                console.warn('[ConvexBridge] listSessions retrying without token arg for compatibility');
+                const result = await client.query('sessions:listSessions', {});
+                return result;
+            } catch (legacyError) {
+                if (token && shouldRetryWithoutToken(error)) {
+                    console.warn('[ConvexBridge] listSessions compatibility retry failed:', legacyError);
+                }
+                console.error('[ConvexBridge] listSessions failed:', error);
+                throw error;
+            }
         }
     }
 
     /**
-     * Get all records for a session
-     * @param {string} sessionId - Session UUID
-     * @returns {Promise<Array>} Array of telemetry records
+     * Populate the sessions metadata table from existing telemetry records.
+     *
+     * Uses a direct fetch() to the Convex REST API — more reliable than
+     * ConvexClient.action() which requires TypeScript generated API references.
+     *
+     * Idempotent: the server-side action is a no-op if the sessions table
+     * already has data.
+     *
+     * @returns {Promise<{skipped?: boolean, sessions?: number, error?: string}>}
      */
-    async function getSessionRecords(sessionId) {
+    async function kickstartSessions() {
         if (!client) throw new Error('ConvexBridge not initialized');
-
         try {
-            const records = await client.query('telemetry:getSessionRecords', {
-                sessionId: sessionId
+            // Derive the deployment base URL from the Convex URL
+            // e.g. "https://impartial-walrus-693.convex.cloud"
+            const convexUrl = window.CONFIG?.CONVEX_URL || '';
+            if (!convexUrl) throw new Error('CONVEX_URL not configured');
+
+            const response = await fetch(`${convexUrl}/api/run/sessions/kickstartSessions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ args: {}, format: 'json' }),
             });
-            return records;
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`HTTP ${response.status}: ${text}`);
+            }
+
+            const result = await response.json();
+            console.log('[ConvexBridge] kickstartSessions:', result);
+            return result;
         } catch (error) {
-            console.error('[ConvexBridge] getSessionRecords failed:', error);
-            throw error;
+            console.warn('[ConvexBridge] kickstartSessions failed (non-fatal):', error);
+            return { error: String(error) };
         }
     }
+
+
+
+
+
+    /**
+     * Get ALL records for a session.
+     *
+     * Strategy:
+     *   1. Try getSessionRecords (single .collect()) — fastest path, works for <14k records
+     *   2. If that fails OR returns exactly 16k (capped), fall back to looping
+     *      getSessionRecordsBatch with advancing timestamps (3000 records per call)
+     *
+     * Callers receive a flat sorted array and never need to know which path was taken.
+     *
+     * @param {string}   sessionId  - Session UUID
+     * @param {function} onProgress - Optional callback(loaded, estimated) for large sessions
+     * @returns {Promise<Array>} Complete sorted telemetry record array
+     */
+    async function getSessionRecords(sessionId, onProgress = null) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        const token = getAuthToken();
+
+        const BATCH_SIZE = 3000;   // must match server BATCH_SIZE
+        const COLLECT_CAP = 16000; // if collect() returns ≥ this, assume it was capped
+
+        // ── Fast path: single collect() ──────────────────────────────────────
+        let singleResult = null;
+        try {
+            singleResult = await client.query('telemetry:getSessionRecords', {
+                sessionId,
+                token: token || undefined,
+            });
+        } catch (error) {
+            try {
+                singleResult = await client.query('telemetry:getSessionRecords', { sessionId });
+            } catch (legacyError) {
+                if (token && shouldRetryWithoutToken(error)) {
+                    console.warn('[ConvexBridge] getSessionRecords compatibility retry failed:', legacyError);
+                }
+                // collect() hard cap exceeded OR incompatible signature — fall through to batch path
+                singleResult = null;
+            }
+        }
+
+        if (singleResult !== null && singleResult.length < COLLECT_CAP) {
+            // Got a clean result — no truncation
+            return singleResult;
+        }
+
+        // ── Batch path: timestamp-cursor loop ────────────────────────────────
+        const approxTotal = singleResult ? singleResult.length : null;
+        console.log(`[ConvexBridge] 📄 Session needs batch fetch (collect returned ${approxTotal ?? 'error'}).`);
+
+        const allRecords = [];
+        let afterTimestamp = undefined; // first call: no filter
+        let batchNum = 0;
+        let hasMore = true;
+
+        while (hasMore) {
+            const args = { sessionId, token: token || undefined };
+            if (afterTimestamp !== undefined) args.afterTimestamp = afterTimestamp;
+
+            let result;
+            try {
+                result = await client.query('telemetry:getSessionRecordsBatch', args);
+            } catch (error) {
+                const legacyArgs = { sessionId };
+                if (afterTimestamp !== undefined) legacyArgs.afterTimestamp = afterTimestamp;
+                try {
+                    result = await client.query('telemetry:getSessionRecordsBatch', legacyArgs);
+                } catch (legacyError) {
+                    if (token && shouldRetryWithoutToken(error)) {
+                        console.warn('[ConvexBridge] getSessionRecordsBatch compatibility retry failed:', legacyError);
+                    }
+                    throw error;
+                }
+            }
+
+            if (!result || !Array.isArray(result.page)) {
+                console.error('[ConvexBridge] ⚠️ Unexpected batch response:', result);
+                break;
+            }
+
+            allRecords.push(...result.page);
+            hasMore = result.hasMore;
+            afterTimestamp = result.lastTimestamp ?? undefined;
+            batchNum++;
+
+            console.log(`[ConvexBridge]   batch ${batchNum}: +${result.page.length} records (total: ${allRecords.length}, hasMore: ${hasMore})`);
+
+            if (onProgress) onProgress(allRecords.length, approxTotal ?? allRecords.length);
+
+            // Safety guard: if lastTimestamp didn't advance, stop to avoid infinite loop
+            if (hasMore && !result.lastTimestamp) {
+                console.warn('[ConvexBridge] ⚠️ lastTimestamp missing — stopping to avoid loop');
+                break;
+            }
+        }
+
+        console.log(`[ConvexBridge] ✅ Batch fetch complete: ${allRecords.length} records in ${batchNum} batches`);
+        return allRecords;
+    }
+
+
 
     /**
      * Get recent records for a session (for incremental updates)
@@ -354,6 +503,7 @@ const ConvexBridge = (function () {
         _getClient, // Internal use by auth module
         getConfig,
         listSessions,
+        kickstartSessions,
         getSessionRecords,
         getRecentRecords,
         getLatestRecord,
@@ -366,6 +516,7 @@ const ConvexBridge = (function () {
         isConnected,
         close
     };
+
 })();
 
 // Export to window for global access

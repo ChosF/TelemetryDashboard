@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Competencia — EcoVolt CCM</title>
+    <meta name="description"
+        content="EcoVolt CCM en la Shell Eco-marathon Americas. Vehículos eléctricos de ultra-eficiencia compitiendo a nivel global.">
+    <link rel="icon" type="image/png" href="/images/logo.png">
+    <link rel="stylesheet" href="/landing.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'ecovolt-orange': '#FF6B35',
+                        'ecovolt-orange-light': '#FF8F5C',
+                        'ecovolt-orange-dark': '#E55A2B',
+                        'ecovolt-ember': '#FF4500',
+                        'ecovolt-sunset': '#FF7849',
+                        'ecovolt-black': '#0A0A0A',
+                        'ecovolt-charcoal': '#141414',
+                        'ecovolt-graphite': '#1E1E1E',
+                        'ecovolt-slate': '#2A2A2A',
+                        'ecovolt-white': '#FAFAFA',
+                        'ecovolt-cream': '#F5F5F0',
+                        'ecovolt-gold': '#D4A574',
+                        'ecovolt-copper': '#B87333',
+                        'ecovolt-bronze': '#CD7F32',
+                        'energy-green': '#22C55E',
+                        'energy-teal': '#14B8A6',
+                        'energy-cyan': '#06B6D4',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="swiss-grid overflow-x-hidden">
+
+    <!-- ═══ NAVIGATION ═══ -->
+    <nav id="navbar"
+        class="fixed top-0 left-0 right-0 z-50 border-b border-ecovolt-white/5 bg-ecovolt-black/80 backdrop-blur-xl transition-all duration-300">
+        <div class="max-w-[1600px] mx-auto">
+            <div class="flex items-center justify-between h-20 px-6 lg:px-12">
+                <a href="/" class="flex items-center gap-4 group">
+                    <img src="/images/logo.png" alt="EcoVolt"
+                        class="h-9 w-auto transition-transform duration-300 group-hover:scale-105">
+                    <div class="hidden sm:block">
+                        <div class="text-[10px] uppercase tracking-[0.25em] text-ecovolt-white/40 leading-none mb-1">
+                            Escudería</div>
+                        <div class="font-bold tracking-tight leading-none">EcoVolt CCM</div>
+                    </div>
+                </a>
+                <div class="hidden lg:flex items-center gap-1">
+                    <a href="/"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Inicio</a>
+                    <a href="/#dashboard"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Dashboard</a>
+                    <a href="/#achievements"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Logros</a>
+                    <a href="competition.html"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-orange hover:text-ecovolt-orange transition-colors">Competencia</a>
+                    <a href="sponsors.html"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Patrocinadores</a>
+                    <a href="/#contact"
+                        class="hover-line px-4 py-2 text-sm tracking-wide text-ecovolt-white/60 hover:text-ecovolt-white transition-colors">Contacto</a>
+                </div>
+                <div class="flex items-center gap-4">
+                    <a href="/dashboard"
+                        class="hidden sm:inline-flex bg-ecovolt-white text-ecovolt-black px-6 py-2.5 text-sm font-semibold tracking-wide hover:bg-ecovolt-orange hover:text-white transition-colors">
+                        VER DASHBOARD
+                    </a>
+                    <button id="menu-toggle"
+                        class="lg:hidden w-10 h-10 flex flex-col items-center justify-center gap-1.5 group"
+                        aria-label="Menu">
+                        <span
+                            class="block w-6 h-0.5 bg-ecovolt-white transition-all group-hover:bg-ecovolt-orange"></span>
+                        <span
+                            class="block w-6 h-0.5 bg-ecovolt-white transition-all group-hover:bg-ecovolt-orange"></span>
+                        <span
+                            class="block w-4 h-0.5 bg-ecovolt-white transition-all group-hover:bg-ecovolt-orange"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Mobile Menu -->
+    <div id="mobile-menu" class="mobile-menu">
+        <button id="menu-close"
+            class="absolute top-6 right-6 w-10 h-10 flex items-center justify-center text-ecovolt-white/60 hover:text-ecovolt-orange transition-colors"
+            aria-label="Close">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+        <a href="/">Inicio</a>
+        <a href="/#dashboard">Dashboard</a>
+        <a href="/#achievements">Logros</a>
+        <a href="competition.html" class="!text-ecovolt-orange">Competencia</a>
+        <a href="sponsors.html">Patrocinadores</a>
+        <a href="/#contact">Contacto</a>
+    </div>
+
+    <!-- ═══ PAGE HERO ═══ -->
+    <section class="pt-20">
+        <!-- Breadcrumb bar -->
+        <div class="border-b border-ecovolt-white/5">
+            <div class="max-w-[1600px] mx-auto px-6 lg:px-12 py-4">
+                <div
+                    class="flex items-center gap-3 text-[10px] sm:text-xs uppercase tracking-[0.2em] text-ecovolt-white/35 mono">
+                    <a href="/" class="hover:text-ecovolt-orange transition-colors">Inicio</a>
+                    <span>/</span>
+                    <span class="text-ecovolt-orange">Competencia</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hero content -->
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12 py-16 lg:py-24">
+            <div class="grid lg:grid-cols-12 gap-8 items-end">
+                <div class="lg:col-span-7">
+                    <div class="section-label">
+                        <span class="line"></span>
+                        <span>Shell Eco-marathon</span>
+                    </div>
+                    <h1 class="text-headline font-black uppercase tracking-tighter">
+                        <span class="block reveal-up">La</span>
+                        <span class="block reveal-up text-ecovolt-orange"
+                            style="animation-delay: 0.15s;">Competencia</span>
+                    </h1>
+                </div>
+                <div class="lg:col-span-4 lg:col-start-9">
+                    <p class="text-body-lg text-ecovolt-white/55">
+                        Donde la eficiencia energética se pone a prueba en las pistas más exigentes del mundo.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ WHAT IS SHELL ECO-MARATHON ═══ -->
+    <section class="py-24 lg:py-32 border-t border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+
+            <div class="grid lg:grid-cols-12 gap-8 mb-16 lg:mb-20">
+                <div class="lg:col-span-4">
+                    <div class="section-label">
+                        <span>01</span>
+                        <span class="line"></span>
+                        <span>La Carrera</span>
+                    </div>
+                    <h2 class="text-title font-black uppercase tracking-tight">
+                        ¿Qué es Shell<br>Eco-marathon?
+                    </h2>
+                </div>
+                <div class="lg:col-span-6 lg:col-start-7 flex items-end">
+                    <p class="text-body-lg text-ecovolt-white/55 max-w-xl">
+                        Shell Eco-marathon es una competencia global donde equipos de estudiantes diseñan, construyen y
+                        conducen vehículos de ultra-eficiencia energética. El objetivo: recorrer la mayor distancia
+                        posible con la menor cantidad de energía.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Competition details grid -->
+            <div data-animate class="grid lg:grid-cols-3 gap-px bg-ecovolt-white/5">
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-6xl lg:text-7xl font-black text-ecovolt-orange/15 mb-6 mono">01</div>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-4">Categoría</h3>
+                    <div class="text-ecovolt-orange font-bold text-xl mb-3">Battery Electric</div>
+                    <p class="text-ecovolt-white/55 leading-relaxed text-sm">
+                        Competimos en la categoría de vehículos eléctricos alimentados por baterías, optimizando cada
+                        watt de energía almacenada.
+                    </p>
+                </div>
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-6xl lg:text-7xl font-black text-ecovolt-orange/15 mb-6 mono">02</div>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-4">Clase</h3>
+                    <div class="text-ecovolt-orange font-bold text-xl mb-3">Prototype</div>
+                    <p class="text-ecovolt-white/55 leading-relaxed text-sm">
+                        Vehículos ligeros con diseño aerodinámico optimizado para máxima eficiencia, sin limitación de
+                        formas convencionales.
+                    </p>
+                </div>
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <div class="text-6xl lg:text-7xl font-black text-ecovolt-orange/15 mb-6 mono">03</div>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-4">Región</h3>
+                    <div class="text-ecovolt-orange font-bold text-xl mb-3">Americas</div>
+                    <p class="text-ecovolt-white/55 leading-relaxed text-sm">
+                        Participamos en la división Americas, compitiendo contra universidades de todo el continente.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ THE VEHICLE ═══ -->
+    <section class="py-24 lg:py-32 bg-ecovolt-charcoal border-t border-b border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+
+            <div class="grid lg:grid-cols-2 gap-px bg-ecovolt-white/5">
+                <!-- Image -->
+                <div data-animate class="relative h-[350px] lg:h-[500px]">
+                    <img src="/images/hero.jpg" alt="Prototipo EcoVolt" class="w-full h-full object-cover">
+                    <div class="absolute inset-0 bg-gradient-to-t from-ecovolt-charcoal via-transparent to-transparent">
+                    </div>
+                    <!-- Data overlay -->
+                    <div class="absolute bottom-6 left-6 right-6">
+                        <div class="grid grid-cols-3 gap-3">
+                            <div
+                                class="bg-ecovolt-black/80 backdrop-blur-sm border border-ecovolt-white/8 p-4 text-center">
+                                <div class="text-2xl font-black text-ecovolt-orange mono">&lt;30</div>
+                                <div class="text-[10px] uppercase tracking-wider text-ecovolt-white/35 mt-1">kg peso
+                                </div>
+                            </div>
+                            <div
+                                class="bg-ecovolt-black/80 backdrop-blur-sm border border-ecovolt-white/8 p-4 text-center">
+                                <div class="text-2xl font-black text-energy-green mono">48V</div>
+                                <div class="text-[10px] uppercase tracking-wider text-ecovolt-white/35 mt-1">Sistema
+                                </div>
+                            </div>
+                            <div
+                                class="bg-ecovolt-black/80 backdrop-blur-sm border border-ecovolt-white/8 p-4 text-center">
+                                <div class="text-2xl font-black text-energy-teal mono">3</div>
+                                <div class="text-[10px] uppercase tracking-wider text-ecovolt-white/35 mt-1">Ruedas
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Content -->
+                <div data-animate class="bg-ecovolt-black p-8 lg:p-12 flex flex-col justify-center">
+                    <div class="section-label">
+                        <span>02</span>
+                        <span class="line"></span>
+                        <span>El Vehículo</span>
+                    </div>
+                    <h2 class="text-title font-black uppercase tracking-tight mb-6">
+                        Nuestro Prototipo
+                    </h2>
+                    <p class="text-ecovolt-white/55 leading-relaxed mb-8">
+                        Un vehículo diseñado desde cero con un solo objetivo: maximizar la eficiencia energética. Cada
+                        componente — desde el chasis de fibra de carbono hasta el tren motriz eléctrico — está
+                        optimizado para extraer el máximo rendimiento de cada watt.
+                    </p>
+
+                    <div class="space-y-4">
+                        <div class="flex items-center gap-4 p-4 border border-ecovolt-white/5">
+                            <div class="w-2 h-2 bg-ecovolt-orange shrink-0"></div>
+                            <span class="text-sm text-ecovolt-white/70">Chasis ultraligero con materiales
+                                compuestos</span>
+                        </div>
+                        <div class="flex items-center gap-4 p-4 border border-ecovolt-white/5">
+                            <div class="w-2 h-2 bg-ecovolt-orange shrink-0"></div>
+                            <span class="text-sm text-ecovolt-white/70">Motor eléctrico BLDC de alta eficiencia</span>
+                        </div>
+                        <div class="flex items-center gap-4 p-4 border border-ecovolt-white/5">
+                            <div class="w-2 h-2 bg-ecovolt-orange shrink-0"></div>
+                            <span class="text-sm text-ecovolt-white/70">Sistema de telemetría avanzado en tiempo
+                                real</span>
+                        </div>
+                        <div class="flex items-center gap-4 p-4 border border-ecovolt-white/5">
+                            <div class="w-2 h-2 bg-ecovolt-orange shrink-0"></div>
+                            <span class="text-sm text-ecovolt-white/70">Diseño aerodinámico validado por simulación
+                                CFD</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ TELEMETRY ROLE ═══ -->
+    <section class="py-24 lg:py-32">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+
+            <div class="grid lg:grid-cols-12 gap-8 mb-16 lg:mb-20">
+                <div class="lg:col-span-5">
+                    <div class="section-label">
+                        <span>03</span>
+                        <span class="line"></span>
+                        <span>Telemetría</span>
+                    </div>
+                    <h2 class="text-title font-black uppercase tracking-tight">
+                        Datos que<br>ganan carreras
+                    </h2>
+                </div>
+                <div class="lg:col-span-5 lg:col-start-7 flex items-end">
+                    <p class="text-body-lg text-ecovolt-white/55">
+                        En eficiencia energética, cada decisión cuenta. Nuestro sistema de telemetría permite al equipo
+                        tomar decisiones en tiempo real basadas en datos precisos.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Telemetry features -->
+            <div data-animate class="grid md:grid-cols-2 gap-px bg-ecovolt-white/5">
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <svg class="w-8 h-8 text-ecovolt-orange mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-3">Consumo Energético</h3>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Monitoreo preciso de voltaje, corriente y potencia consumida. Optimizamos la estrategia de
+                        conducción en tiempo real para minimizar el gasto energético.
+                    </p>
+                </div>
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <svg class="w-8 h-8 text-ecovolt-gold mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-3">Velocidad & Estrategia</h3>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Análisis de velocidad óptima versus consumo. El equipo puede ajustar la estrategia de
+                        burn-and-coast para maximizar la distancia recorrida.
+                    </p>
+                </div>
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <svg class="w-8 h-8 text-energy-teal mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-3">GPS en Circuito</h3>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Posición precisa en el circuito con análisis de secciones. Identificamos zonas de alto consumo y
+                        oportunidades de optimización.
+                    </p>
+                </div>
+                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
+                    <svg class="w-8 h-8 text-ecovolt-copper mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h3 class="text-lg font-bold uppercase tracking-wide mb-3">Análisis Post-Carrera</h3>
+                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                        Datos históricos completos de todas las sesiones. Comparamos el rendimiento entre intentos para
+                        iterar y mejorar.
+                    </p>
+                </div>
+            </div>
+
+            <!-- CTA -->
+            <div class="mt-16 flex justify-center">
+                <a href="/dashboard" class="btn-primary group">
+                    <span>Ver Dashboard en Vivo</span>
+                    <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ COMPETITION STATS ═══ -->
+    <section class="py-20 lg:py-24 bg-ecovolt-orange">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8 lg:gap-12 text-center">
+                <div>
+                    <div class="text-4xl lg:text-5xl font-black text-ecovolt-black mono">7+</div>
+                    <div class="text-xs uppercase tracking-wider text-ecovolt-black/60 mt-2">Años compitiendo</div>
+                </div>
+                <div>
+                    <div class="text-4xl lg:text-5xl font-black text-ecovolt-black mono">30+</div>
+                    <div class="text-xs uppercase tracking-wider text-ecovolt-black/60 mt-2">Miembros activos</div>
+                </div>
+                <div>
+                    <div class="text-4xl lg:text-5xl font-black text-ecovolt-black mono">3</div>
+                    <div class="text-xs uppercase tracking-wider text-ecovolt-black/60 mt-2">Premios internacionales
+                    </div>
+                </div>
+                <div>
+                    <div class="text-4xl lg:text-5xl font-black text-ecovolt-black mono">∞</div>
+                    <div class="text-xs uppercase tracking-wider text-ecovolt-black/60 mt-2">Datos capturados</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══ FOOTER ═══ -->
+    <footer class="py-8 border-t border-ecovolt-white/5">
+        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-4 lg:gap-8">
+                    <img src="/images/logo.png" alt="EcoVolt" class="h-6 w-auto opacity-40">
+                    <p class="text-ecovolt-white/30 text-xs">© 2025 Escudería Borregos Shell CCM</p>
+                </div>
+                <div class="flex items-center gap-6 text-xs">
+                    <a href="/" class="text-ecovolt-white/30 hover:text-ecovolt-orange transition-colors">Inicio</a>
+                    <a href="sponsors.html"
+                        class="text-ecovolt-white/30 hover:text-ecovolt-orange transition-colors">Patrocinadores</a>
+                    <a href="/dashboard"
+                        class="text-ecovolt-orange hover:text-ecovolt-ember transition-colors">Dashboard →</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Scroll animations
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('animated'); });
+        }, { threshold: 0.08 });
+        document.querySelectorAll('[data-animate]').forEach(el => observer.observe(el));
+
+        // Mobile menu
+        const toggle = document.getElementById('menu-toggle');
+        const menu = document.getElementById('mobile-menu');
+        const close = document.getElementById('menu-close');
+        toggle?.addEventListener('click', () => menu.classList.add('open'));
+        close?.addEventListener('click', () => menu.classList.remove('open'));
+        menu?.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.classList.remove('open')));
+    </script>
+</body>
+
+</html>

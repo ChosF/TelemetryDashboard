@@ -1,14 +1,85 @@
 import { query, mutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { paginationOptsValidator } from "convex/server";
+
+const BATCH_SIZE = 3000; // Safe well under the 16,384 .collect() hard cap
+const EXTERNAL_HISTORICAL_LIMIT_DAYS = 7;
+
+type HistoricalAccess = {
+    role: "guest" | "external" | "internal" | "admin";
+    canViewHistorical: boolean;
+    historicalLimitDays: number;
+};
+
+async function getHistoricalAccess(ctx: any, token?: string): Promise<HistoricalAccess> {
+    if (!token) {
+        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+    }
+
+    const session = await ctx.db
+        .query("authSessions")
+        .withIndex("by_token", (q: any) => q.eq("token", token))
+        .first();
+
+    if (!session) {
+        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+    }
+
+    const expiry = 24 * 60 * 60 * 1000;
+    if (Date.now() - session._creationTime > expiry) {
+        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+    }
+
+    const profile = await ctx.db
+        .query("user_profiles")
+        .withIndex("by_userId", (q: any) => q.eq("userId", session.userId))
+        .first();
+
+    const role = (profile?.role ?? "guest") as HistoricalAccess["role"];
+    if (role === "admin" || role === "internal") {
+        return { role, canViewHistorical: true, historicalLimitDays: Infinity };
+    }
+    if (role === "external") {
+        return { role, canViewHistorical: true, historicalLimitDays: EXTERNAL_HISTORICAL_LIMIT_DAYS };
+    }
+    return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
+}
+
+async function canAccessHistoricalSession(
+    ctx: any,
+    sessionId: string,
+    access: HistoricalAccess
+): Promise<boolean> {
+    if (!access.canViewHistorical) return false;
+    if (!Number.isFinite(access.historicalLimitDays)) return true;
+
+    const sessionMeta = await ctx.db
+        .query("sessions")
+        .withIndex("by_session_id", (q: any) => q.eq("session_id", sessionId))
+        .first();
+
+    const sessionStart = sessionMeta?.start_time;
+    if (!sessionStart) return false;
+
+    const startMs = new Date(sessionStart).getTime();
+    if (!Number.isFinite(startMs)) return false;
+
+    const cutoffMs = Date.now() - (access.historicalLimitDays * 24 * 60 * 60 * 1000);
+    return startMs >= cutoffMs;
+}
 
 /**
- * Get all records for a specific session (reactive query)
- * This query will automatically update when new records are added
+ * Get all records for a specific session.
+ * Works for sessions up to ~14k records (Convex .collect() hard cap is 16,384).
+ * For larger sessions, clients should loop getSessionRecordsBatch instead.
  */
 export const getSessionRecords = query({
-    args: { sessionId: v.string() },
+    args: { sessionId: v.string(), token: v.optional(v.string()) },
     handler: async (ctx, args) => {
+        const access = await getHistoricalAccess(ctx, args.token);
+        const allowed = await canAccessHistoricalSession(ctx, args.sessionId, access);
+        if (!allowed) return [];
+
         const records = await ctx.db
             .query("telemetry")
             .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
@@ -19,22 +90,51 @@ export const getSessionRecords = query({
 });
 
 /**
- * Paginated query for large sessions
- * Use this for historical data with many records
+ * Timestamp-cursor batch fetch for large sessions.
+ *
+ * Uses the compound index ["session_id", "timestamp"] to efficiently
+ * fetch records AFTER a given timestamp — no Convex pagination API needed.
+ *
+ * Algorithm:
+ *   1. First call: omit afterTimestamp (or pass null/undefined)
+ *   2. Subsequent calls: pass lastTimestamp from previous response
+ *   3. Stop when hasMore === false
+ *
+ * Returns:
+ *   page          — array of up to BATCH_SIZE records (sorted asc)
+ *   hasMore       — true if there are more records after this batch
+ *   lastTimestamp — timestamp of the last record in page (use as next afterTimestamp)
  */
-export const getSessionRecordsPaginated = query({
+export const getSessionRecordsBatch = query({
     args: {
         sessionId: v.string(),
-        paginationOpts: paginationOptsValidator,
+        afterTimestamp: v.optional(v.string()),
+        token: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        return await ctx.db
+        const access = await getHistoricalAccess(ctx, args.token);
+        const allowed = await canAccessHistoricalSession(ctx, args.sessionId, access);
+        if (!allowed) return { page: [], hasMore: false, lastTimestamp: null };
+
+        const records = await ctx.db
             .query("telemetry")
-            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+            .withIndex("by_session_timestamp", (qb) => {
+                const base = qb.eq("session_id", args.sessionId);
+                return args.afterTimestamp
+                    ? base.gt("timestamp", args.afterTimestamp)
+                    : base;
+            })
             .order("asc")
-            .paginate(args.paginationOpts);
+            .take(BATCH_SIZE + 1); // +1 to probe if more records exist
+
+        const hasMore = records.length > BATCH_SIZE;
+        const page = hasMore ? records.slice(0, BATCH_SIZE) : records;
+        const lastTimestamp = page.length > 0 ? page[page.length - 1].timestamp : null;
+
+        return { page, hasMore, lastTimestamp };
     },
 });
+
 
 /**
  * Get recent records for a session (for incremental updates)
@@ -213,11 +313,68 @@ export const insertTelemetryBatch = mutation({
         })),
     },
     handler: async (ctx, args) => {
+        // ── Insert telemetry records ─────────────────────────────────────────
         const insertedIds = [];
         for (const record of args.records) {
             const id = await ctx.db.insert("telemetry", record);
             insertedIds.push(id);
         }
+
+        // ── Maintain sessions metadata table ─────────────────────────────────
+        // Group the batch by session to compute min/max timestamps and counts.
+        const sessionMap = new Map<string, {
+            session_name: string | undefined;
+            start_time: string;
+            end_time: string;
+            record_count: number;
+        }>();
+
+        for (const record of args.records) {
+            const sid = record.session_id;
+            if (!sid) continue;
+            const ts = record.timestamp;
+            const existing = sessionMap.get(sid);
+            if (!existing) {
+                sessionMap.set(sid, {
+                    session_name: record.session_name,
+                    start_time: ts,
+                    end_time: ts,
+                    record_count: 1,
+                });
+            } else {
+                existing.record_count++;
+                if (ts < existing.start_time) existing.start_time = ts;
+                if (ts > existing.end_time) existing.end_time = ts;
+            }
+        }
+
+        // Upsert each session in the sessions metadata table
+        for (const [sessionId, update] of sessionMap) {
+            const existingSession = await ctx.db
+                .query("sessions")
+                .withIndex("by_session_id", q => q.eq("session_id", sessionId))
+                .first();
+
+            if (!existingSession) {
+                await ctx.db.insert("sessions", {
+                    session_id: sessionId,
+                    session_name: update.session_name,
+                    start_time: update.start_time,
+                    end_time: update.end_time,
+                    record_count: update.record_count,
+                });
+            } else {
+                await ctx.db.patch(existingSession._id, {
+                    end_time: update.end_time > existingSession.end_time
+                        ? update.end_time : existingSession.end_time,
+                    start_time: update.start_time < existingSession.start_time
+                        ? update.start_time : existingSession.start_time,
+                    record_count: existingSession.record_count + update.record_count,
+                    session_name: update.session_name ?? existingSession.session_name,
+                });
+            }
+        }
+
         return { inserted: insertedIds.length };
     },
 });

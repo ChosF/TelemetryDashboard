@@ -1,0 +1,1040 @@
+/**
+ * Historical Mode Styles
+ * Cool-toned accent palette (teal/cyan) to distinguish from real-time mode
+ */
+
+/* =============================================================================
+   HISTORICAL MODE CSS VARIABLES
+   ============================================================================= */
+
+.historical-mode {
+    --hist-accent: #06b6d4;
+    --hist-accent-light: #22d3ee;
+    --hist-accent-dark: #0891b2;
+    --hist-accent-glow: rgba(6, 182, 212, 0.15);
+    --hist-accent-subtle: rgba(6, 182, 212, 0.08);
+
+    --hist-bg-primary: #0a0a0f;
+    --hist-bg-panel: rgba(15, 23, 35, 0.75);
+    --hist-bg-card: rgba(20, 30, 45, 0.6);
+    --hist-border: rgba(6, 182, 212, 0.12);
+    --hist-border-hover: rgba(6, 182, 212, 0.25);
+
+    --hist-text-primary: #f0f4f8;
+    --hist-text-secondary: #94a3b8;
+    --hist-text-muted: #64748b;
+
+    --hist-segment-cruise: #22c55e;
+    --hist-segment-accel: #facc15;
+    --hist-segment-brake: #ef4444;
+    --hist-segment-stop: #6b7280;
+
+    --hist-transition: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --hist-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* =============================================================================
+   LAYOUT
+   ============================================================================= */
+
+.hist-layout {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 120px);
+    gap: 16px;
+}
+
+.hist-nav {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--hist-bg-panel);
+    border: 1px solid var(--hist-border);
+    border-radius: 12px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.hist-nav::-webkit-scrollbar {
+    display: none;
+}
+
+.hist-nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--hist-text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--hist-transition-fast);
+    white-space: nowrap;
+    font-family: inherit;
+}
+
+.hist-nav-btn:hover {
+    background: var(--hist-accent-subtle);
+    color: var(--hist-text-primary);
+}
+
+.hist-nav-btn.active {
+    background: var(--hist-accent-glow);
+    border-color: var(--hist-accent);
+    color: var(--hist-accent-light);
+}
+
+.hist-nav-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.hist-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* =============================================================================
+   PANELS
+   ============================================================================= */
+
+.hist-panel {
+    background: var(--hist-bg-panel);
+    border: 1px solid var(--hist-border);
+    border-radius: 12px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    overflow: hidden;
+    transition: border-color var(--hist-transition);
+}
+
+.hist-panel:hover {
+    border-color: var(--hist-border-hover);
+}
+
+.hist-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.hist-panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--hist-text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hist-panel-title .icon {
+    color: var(--hist-accent);
+}
+
+.hist-panel-body {
+    padding: 16px 18px;
+}
+
+/* =============================================================================
+   STAT CARDS — Hero section
+   ============================================================================= */
+
+.hist-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.hist-stat-card {
+    background: var(--hist-bg-card);
+    border: 1px solid var(--hist-border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: var(--hist-transition);
+    animation: hist-fadeInUp 0.4s ease both;
+}
+
+.hist-stat-card:hover {
+    border-color: var(--hist-accent);
+    box-shadow: 0 0 20px var(--hist-accent-glow);
+    transform: translateY(-2px);
+}
+
+.hist-stat-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--hist-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.hist-stat-value {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--hist-text-primary);
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    line-height: 1.1;
+}
+
+.hist-stat-unit {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--hist-text-secondary);
+    margin-left: 4px;
+}
+
+.hist-stat-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.hist-stat-badge.good {
+    background: rgba(34, 197, 94, 0.12);
+    color: #22c55e;
+}
+
+.hist-stat-badge.warning {
+    background: rgba(250, 204, 21, 0.12);
+    color: #facc15;
+}
+
+.hist-stat-badge.poor {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+}
+
+/* =============================================================================
+   TIMELINE STRIP
+   ============================================================================= */
+
+.hist-timeline-strip {
+    width: 100%;
+    height: 28px;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    position: relative;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.hist-timeline-strip canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* =============================================================================
+   TIME RANGE SELECTOR
+   ============================================================================= */
+
+.hist-time-range {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.hist-quick-btns {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.hist-quick-btn {
+    padding: 5px 12px;
+    background: var(--hist-bg-card);
+    border: 1px solid var(--hist-border);
+    border-radius: 6px;
+    color: var(--hist-text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--hist-transition-fast);
+    font-family: inherit;
+}
+
+.hist-quick-btn:hover {
+    border-color: var(--hist-accent);
+    color: var(--hist-accent-light);
+}
+
+.hist-quick-btn.active {
+    background: var(--hist-accent-glow);
+    border-color: var(--hist-accent);
+    color: var(--hist-accent-light);
+}
+
+/* =============================================================================
+   SYNCED CHART STACK
+   ============================================================================= */
+
+.hist-chart-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.hist-chart-wrapper {
+    background: var(--hist-bg-panel);
+    border: 1px solid var(--hist-border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: var(--hist-transition);
+}
+
+.hist-chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.hist-chart-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--hist-text-secondary);
+}
+
+.hist-chart-toggle {
+    background: none;
+    border: none;
+    color: var(--hist-text-muted);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 14px;
+    transition: transform 0.2s ease;
+    font-family: inherit;
+}
+
+.hist-chart-toggle.collapsed {
+    transform: rotate(-90deg);
+}
+
+.hist-chart-body {
+    overflow: hidden;
+    transition: max-height 0.3s ease, opacity 0.3s ease;
+    max-height: 300px;
+    opacity: 1;
+}
+
+.hist-chart-body.collapsed {
+    max-height: 0;
+    opacity: 0;
+}
+
+.hist-chart-container {
+    width: 100%;
+    height: 200px;
+    padding: 4px 8px;
+}
+
+/* =============================================================================
+   SESSION EXPLORER
+   ============================================================================= */
+
+.hist-explorer {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.hist-explorer-header {
+    text-align: center;
+    padding: 32px 16px 16px;
+}
+
+.hist-explorer-title {
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #fff 0%, var(--hist-accent-light) 50%, var(--hist-accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+}
+
+.hist-explorer-subtitle {
+    font-size: 14px;
+    color: var(--hist-text-muted);
+}
+
+.hist-search-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.hist-search-input {
+    flex: 1;
+    padding: 10px 14px;
+    background: var(--hist-bg-card);
+    border: 1px solid var(--hist-border);
+    border-radius: 8px;
+    color: var(--hist-text-primary);
+    font-size: 14px;
+    outline: none;
+    transition: border-color var(--hist-transition-fast);
+    font-family: inherit;
+}
+
+.hist-search-input::placeholder {
+    color: var(--hist-text-muted);
+}
+
+.hist-search-input:focus {
+    border-color: var(--hist-accent);
+}
+
+.hist-sort-btn {
+    padding: 10px 14px;
+    background: var(--hist-bg-card);
+    border: 1px solid var(--hist-border);
+    border-radius: 8px;
+    color: var(--hist-text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: var(--hist-transition-fast);
+    white-space: nowrap;
+    font-family: inherit;
+}
+
+.hist-sort-btn:hover,
+.hist-sort-btn.active {
+    border-color: var(--hist-accent);
+    color: var(--hist-accent-light);
+}
+
+.hist-session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.hist-session-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 14px 18px;
+    background: var(--hist-bg-card);
+    border: 1px solid var(--hist-border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: var(--hist-transition);
+}
+
+.hist-session-card:hover {
+    border-color: var(--hist-accent);
+    background: rgba(6, 182, 212, 0.04);
+    transform: translateX(4px);
+}
+
+.hist-session-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.hist-session-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--hist-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hist-session-meta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--hist-text-muted);
+}
+
+.hist-session-meta span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.hist-session-sparkline {
+    width: 80px;
+    height: 30px;
+    opacity: 0.7;
+}
+
+/* =============================================================================
+   BACK BUTTON
+   ============================================================================= */
+
+.hist-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--hist-bg-card);
+    border: 1px solid var(--hist-border);
+    border-radius: 8px;
+    color: var(--hist-text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--hist-transition-fast);
+    font-family: inherit;
+    align-self: flex-start;
+}
+
+.hist-back-btn:hover {
+    border-color: var(--hist-accent);
+    color: var(--hist-accent-light);
+}
+
+/* =============================================================================
+   COMPARISON TABLE
+   ============================================================================= */
+
+.hist-comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.hist-comparison-table th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--hist-text-muted);
+    border-bottom: 1px solid var(--hist-border);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.hist-comparison-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    color: var(--hist-text-primary);
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+}
+
+.hist-comparison-table tr:hover td {
+    background: var(--hist-accent-subtle);
+}
+
+.hist-delta-positive {
+    color: #22c55e;
+}
+
+.hist-delta-negative {
+    color: #ef4444;
+}
+
+/* =============================================================================
+   EXPORT PANEL
+   ============================================================================= */
+
+.hist-export-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.hist-export-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 20px;
+    background: var(--hist-bg-card);
+    border: 1px solid var(--hist-border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: var(--hist-transition);
+    color: var(--hist-text-secondary);
+    font-family: inherit;
+}
+
+.hist-export-btn:hover:not(:disabled) {
+    border-color: var(--hist-accent);
+    color: var(--hist-accent-light);
+    transform: translateY(-2px);
+}
+
+.hist-export-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.hist-export-icon {
+    font-size: 28px;
+}
+
+.hist-export-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.hist-export-desc {
+    font-size: 11px;
+    color: var(--hist-text-muted);
+    text-align: center;
+}
+
+/* =============================================================================
+   LOADING & EMPTY STATES
+   ============================================================================= */
+
+.hist-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    gap: 16px;
+}
+
+.hist-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.08);
+    border-top-color: var(--hist-accent);
+    border-radius: 50%;
+    animation: hist-spin 0.8s linear infinite;
+}
+
+.hist-loading-text {
+    font-size: 14px;
+    color: var(--hist-text-muted);
+}
+
+.hist-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    text-align: center;
+    gap: 12px;
+}
+
+.hist-empty-icon {
+    font-size: 48px;
+    opacity: 0.5;
+}
+
+.hist-empty-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--hist-text-secondary);
+}
+
+.hist-empty-desc {
+    font-size: 14px;
+    color: var(--hist-text-muted);
+    max-width: 360px;
+}
+
+/* =============================================================================
+   SKELETON LOADING
+   ============================================================================= */
+
+.hist-skeleton {
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0.03) 25%,
+            rgba(255, 255, 255, 0.07) 37%,
+            rgba(255, 255, 255, 0.03) 63%);
+    background-size: 200% 100%;
+    animation: hist-shimmer 1.5s ease-in-out infinite;
+    border-radius: 6px;
+}
+
+.hist-skeleton-card {
+    height: 80px;
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0.03) 25%,
+            rgba(255, 255, 255, 0.07) 37%,
+            rgba(255, 255, 255, 0.03) 63%);
+    background-size: 200% 100%;
+    animation: hist-shimmer 1.5s ease-in-out infinite;
+    border-radius: 10px;
+    border: 1px solid var(--hist-border);
+}
+
+/* =============================================================================
+   MAP / GPS REPLAY
+   ============================================================================= */
+
+.hist-map-container {
+    border-radius: 10px;
+    overflow: hidden;
+    height: 400px;
+    position: relative;
+}
+
+.hist-map-controls {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    z-index: 10;
+    padding: 8px 12px;
+    background: rgba(10, 10, 15, 0.85);
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
+    border: 1px solid var(--hist-border);
+}
+
+.hist-play-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--hist-accent);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+    transition: var(--hist-transition-fast);
+    flex-shrink: 0;
+}
+
+.hist-play-btn:hover {
+    background: var(--hist-accent-light);
+    transform: scale(1.1);
+}
+
+.hist-scrubber {
+    flex: 1;
+    height: 4px;
+    appearance: none;
+    -webkit-appearance: none;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.hist-scrubber::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--hist-accent);
+    border-radius: 50%;
+    cursor: grab;
+    border: 2px solid #fff;
+}
+
+.hist-speed-select {
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--hist-border);
+    border-radius: 6px;
+    color: var(--hist-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.hist-metric-select {
+    padding: 6px 10px;
+    background: var(--hist-bg-card);
+    border: 1px solid var(--hist-border);
+    border-radius: 6px;
+    color: var(--hist-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+/* =============================================================================
+   ANNOTATIONS
+   ============================================================================= */
+
+.hist-annotation-marker {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    transform: translate(-50%, -50%);
+    background: var(--hist-accent);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 5;
+    transition: transform 0.15s ease;
+}
+
+.hist-annotation-marker:hover {
+    transform: translate(-50%, -50%) scale(1.3);
+}
+
+.hist-annotation-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 12px;
+    background: rgba(10, 10, 15, 0.95);
+    border: 1px solid var(--hist-accent);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--hist-text-primary);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 100;
+}
+
+.hist-annotation-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--hist-bg-card);
+    border: 1px solid var(--hist-border);
+    border-radius: 6px;
+    color: var(--hist-text-primary);
+    font-size: 13px;
+    outline: none;
+    font-family: inherit;
+}
+
+.hist-annotation-input:focus {
+    border-color: var(--hist-accent);
+}
+
+/* =============================================================================
+   DRIVER BEHAVIOR / HEATMAP
+   ============================================================================= */
+
+.hist-heatmap-container {
+    width: 100%;
+    height: 60px;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.hist-heatmap-container canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.hist-events-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.hist-event-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--hist-bg-card);
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: var(--hist-transition-fast);
+}
+
+.hist-event-item:hover {
+    background: var(--hist-accent-subtle);
+}
+
+/* =============================================================================
+   ANIMATIONS
+   ============================================================================= */
+
+@keyframes hist-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes hist-shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+@keyframes hist-fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes hist-fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* Staggered animation for stat cards */
+.hist-stat-card:nth-child(1) {
+    animation-delay: 0ms;
+}
+
+.hist-stat-card:nth-child(2) {
+    animation-delay: 50ms;
+}
+
+.hist-stat-card:nth-child(3) {
+    animation-delay: 100ms;
+}
+
+.hist-stat-card:nth-child(4) {
+    animation-delay: 150ms;
+}
+
+.hist-stat-card:nth-child(5) {
+    animation-delay: 200ms;
+}
+
+.hist-stat-card:nth-child(6) {
+    animation-delay: 250ms;
+}
+
+.hist-stat-card:nth-child(7) {
+    animation-delay: 300ms;
+}
+
+/* =============================================================================
+   RESPONSIVE
+   ============================================================================= */
+
+@media (max-width: 1366px) {
+    .hist-stats-grid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
+
+    .hist-stat-value {
+        font-size: 22px;
+    }
+
+    .hist-chart-container {
+        height: 180px;
+    }
+}
+
+@media (max-width: 768px) {
+    .hist-layout {
+        gap: 12px;
+    }
+
+    .hist-nav {
+        padding: 6px 8px;
+    }
+
+    .hist-nav-btn {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+
+    .hist-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+
+    .hist-stat-card {
+        padding: 12px;
+    }
+
+    .hist-stat-value {
+        font-size: 20px;
+    }
+
+    .hist-explorer-title {
+        font-size: 22px;
+    }
+
+    .hist-session-card {
+        grid-template-columns: 1fr;
+    }
+
+    .hist-session-sparkline {
+        display: none;
+    }
+
+    .hist-chart-container {
+        height: 160px;
+    }
+
+    .hist-map-container {
+        height: 300px;
+    }
+
+    .hist-comparison-table {
+        font-size: 12px;
+    }
+
+    .hist-comparison-table th,
+    .hist-comparison-table td {
+        padding: 8px 10px;
+    }
+}
+
+@media (max-width: 375px) {
+    .hist-stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .hist-nav-btn {
+        padding: 5px 8px;
+        font-size: 11px;
+    }
+
+    .hist-nav-btn .hist-nav-label {
+        display: none;
+    }
+
+    .hist-stat-value {
+        font-size: 18px;
+    }
+
+    .hist-quick-btns {
+        flex-direction: column;
+    }
+
+    .hist-map-container {
+        height: 250px;
+    }
+}

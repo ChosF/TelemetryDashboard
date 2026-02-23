@@ -1,0 +1,1064 @@
+Marco Schmid
+CEO and Head of R&D
+Schmid Elektronik
+Data & Telemetry
+BOOTCAMP
+From Data to ActionMarco Schmid
+Schmid Elektronik is Shell Eco-marathon Partner
+Phoenix Bootcamp Level ❶ Aufgabe 3Shell Eco-marathon Telemetry System
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 4Changes in Official Chapter I Rules 2026
+1. Celebration of 40th Anniversary → Refreshed Format now
+2. Moving from Regional Championships to STEM Format 27
+3. Shift Data & Telemetry Responsibility to Teams
+4. Empower Teams to develop their own Data-Systems
+5. Strengthen the Data & Telemetry Off-Track-Award
+In a Nutshell
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 5Prototype Class
+Urban Concept Class
+Competition
+◼ On-Track-Award
+◼ Off-Track-Award
+◼ Championship
+Energy Types
+◼ICE
+◼H2
+◼BE
+Changes of Telemetry Focus: all Teams equal
+Data & Telemetry Bootcamp 2026 6Changes to the Data & Telemetry Off-Track 
+Award: Developing a Strategy that:
+#1 Accounts for the straights, slopes, crests 
+and corners of a track
+#2 Balances maximum energy efficiency 
+with competitive lap times
+#3 Ensures driver safety in all conditions, 
+including rain and wind.
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 7A Six Data & Telemetry OTA-Question
+❶ Data Strategy to Achieve the Three Goals
+❷ Capturing Data with a Telemetry System
+❸ Gaining Knowledge from Race Data
+❹ Data-driven Race Strategy Development
+❺ Driver performance on Track
+❻ Qualitative and Quantitative Results Improvement
+th
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 8New this year and 1st Time in Qatar
+41(!)
+Data & Telemetry OTA Submissions
++80% (!)
+Increase in all OTA Submissions 
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 9Copyright © Schmid Elektronik AG
+Level 
+❶
+ 
+Telemetry: How to create relevant Race Data on Track? 
+Level 
+❷
+ 
+Data Analytics: Recognize Correlations and Patterns
+Level 
+❸
+ 
+Live Data: Send Data from the Track to the IoT
+Level 
+❹
+ 
+Modelling: Maintain physics based Digital Twin
+Level 
+❺
+ 
+Holistic: Advanced Data-Driven Racing
+Data & Telemetry Bootcamp 2026 10
+Changes to the Data & Telemetry Bootcamphttps://schmid-elektronik.ch/bootcamp-sem26/
+Data & Telemetry Bootcamp 2026 11Classic Multigoal-Problem & Global Optimum
+Increase 
+Energy Efficiency
+Competitive 
+Lap-Times (DNF)
+Maintain
+Safety … always!
+Straights
+Corners
+Slopes
+Crests
+Environmental Influence
+Vehicle Characteristics
+Meaning
+Actionable
+Driver Information 
+from Start to
+Finish
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 12Level 
+❶
+ 
+Telemetry
+How to identify and create relevant
+race data on the track?
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 13What is your Data Strategy + relevant Data?
+Goals,
+Problems or
+Requirements
+Human
+Maschine
+Micro-
+Environment
+Macro-
+Environment
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 14What is your Data Strategy + relevant Data?
+Maschine:
+Vehicle
+Goals, Problem, Requirements
+❶
+Qualitative and quantitative
+analysis of energy consumption 
+along the entire track
+Position (GPS-Coordinates) [Lon][Lat]
+Cumulative Consumption [J, ml, l]
+Instantaneous  Consumption [J/s, ml/s, l/s]
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 15What is your Data Strategy + relevant Data?
+Maschine:
+Vehicle
+❶
+Qualitative and quantitative 
+analysis of energy consumption 
+along the entire track
+❷ Analysis of acceleration, gliding 
+and braking dynamics
+Position (GPS-Coordinates) [Lon][Lat]
+Cumulative Consumption [J, ml, l]
+Instantaneous  Consumption [J/s, ml/s, l/s]
+Speed [km/h]
+Acceleration [m/s2]
+Time Stamp (UTC, GPS) [s]
+Goals, Problem, Requirements
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 16What is your Data Strategy + relevant Data?
+Maschine:
+Vehicle
+❶
+Qualitative and quantitative 
+analysis of energy consumption 
+along the entire track
+❷ Analysis of acceleration, gliding 
+and braking dynamics
+❸ Driving dynamics in corners
+Time Stamp (UTC, GPS) [s]
+Position (GPS-Coordinates) [Lon][Lat]
+Cumulative Consumption [J, ml, l]
+Instantaneous  Consumption [J/s, ml/s, l/s]
+Speed [km/h]
+Acceleration [m/s2]
+Goals, Problem, Requirements
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 17GPS Data and it’s Challenge
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 18Headaches in the Canyons of Detroit
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 19Dead Reckoning through IMU
+RTK: 
+R
+eal 
+T
+ime 
+K
+inematics: 
+ 
+   
+Accuracy down to [cm]!
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 20Passive Helix-Antenna and GPS RTK
+Maxtena
+M1621HCT-P-SMA
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 21GPS-Sensor for Position and Speed
+^POSEND: -1,14014
+$GPGSV,3,1,12,02,06,223,20,05,62,267,28,07,42,057,24,08,02,064,20*7A
+$GPGSV,3,2,12,09,11,099,24,13,40,285,23,14,32,146,25,15,03,288,22*79
+$GPGSV,3,3,12,27,02,029,17,28,27,150,38,30,78,078,33,18,05,331,*7E
+$GLGSV,2,1,08,65,25,037,,66,10,216,,71,03,036,,72,57,039,*67
+$GLGSV,2,2,08,79,05,327,,80,07,347,,86,42,154,,88,35,320,*60
+$GPGGA,091807.0, -0853.69975,N,11618.37098,E,1,08,1.1,500.5,M,48.0,M,,*5D
+$GNGNS,091807.0,-0853.69975,N,11618.37098,E,AN,08,1.1,500.5,48.0,,*66
+$GPVTG,144.6,T,144.8,M,0.0,N,0.0,K,A*2D
+$GPRMC,091807.0,A, -0853.69975,N,11618.37098,E,0.0,144.6,110601,0.2,W,A*10
+$GPGSA,A,2,02,05,07,09,13,14,28,30,,,,,1.4,1.1,0.8*39
+$GNGSA,A,2,02,05,07,09,13,14,28,30,,,,,1.4,1.1,0.8*27
+$GNGSA,A,2,,,,,,,,,,,,,1.4,1.1,0.8*20
+$GPHWBIAS,13*3F
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 22Joulemeter for Electrical Energy
+Instantaneous Energy Use
+Cumulative Energy use
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 23Electrical Energy: Sensorfusion
+Current [A]
+Voltage [V]
+1 Joule [J] = 1 Wattsecond [Ws] = 1 VAs = 1 N m = 1 kg m2 s−2
+Measures electrical Energy in Joules [J]
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 24Joulemeter for Electrical Energy
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 25Liquid Flowmeter for Fluids
+Phoenix Bootcamp 2025 26
+Liquids 
+in milli-liters [ml]
+e.g 12.5ml
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 26Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 27Gasflow Meter for Hydrogen
+Hydrogen in 
+normalized Liters [l], e.g 0.534l
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 28WIFI
+SIM
+Card
+CAN
+ 4G/5G
+Modem
+GPS
+Receiver
+9x
+IMU
+Battery
+Mgmt
+Blue
+Tooth
+SD
+Digital
+I/O
+1x Arm Cortex-A7 Cores 
+and 1x Cortex-M4 Core
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 29External Part: Connecting to the IoT
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 30Internal Part: Sensor
+-
+Hub
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 31Motor
+Controller
+Non-pro-
+pulsion
+accessories
+(lights,etc)
+Propulsion
+related
+equipmentMain
+Battery
++
+-
+Fuse
+OBC
+Battery
+Install close
+to the Battery
+H
+Fuse
+CAN
++
+-
++
+-
+Joulemeter
+Example of a Battery Electric Vehicle
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 32Alternatives that I have seen in OTA-Papers
+ESP32
+Raspi
+Arduino
+Your Phone
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 33Main Program with Data Aggregation
+Liquid Flow 
+Meter Service
+Gas Flow 
+Meter Service
+GPS
+Service
+CAN
+Driver
+GPS Sensor
+Driver
+RS485
+Driver
+Joulemeter
+Service
+IoT
+Log 
+File
+Scaleable Microservice SW-Architecture
+TCP-Sockets
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 34Main Program
+#00085Data_pv_ok;;AGPS-MSB;09.18.49;47.485144183;8.990541983;500.5;1;7;1.1000;0.0000;0.0000C4
+TCP Sockets
+GPS Service
+^POSEND: -1,14014
+$GPGSV,3,1,12,02,06,223,20,05,62,267,28,07,42,057,24,08,02,064,20*7A
+$GPGSV,3,2,12,09,11,099,24,13,40,285,23,14,32,146,25,15,03,288,22*79
+$GPGSV,3,3,12,27,02,029,17,28,27,150,38,30,78,078,33,18,05,331,*7E
+$GLGSV,2,1,08,65,25,037,,66,10,216,,71,03,036,,72,57,039,*67
+$GLGSV,2,2,08,79,05,327,,80,07,347,,86,42,154,,88,35,320,*60
+$GPGGA,091807.0,4729.108644,N,00859.432523,E,1,08,1.1,500.5,M,48.0,M,,*5D
+$GNGNS,091807.0,4729.108644,N,00859.432523,E,AN,08,1.1,500.5,48.0,,*66
+$GPVTG,144.6,T,144.8,M,0.0,N,0.0,K,A*2D
+$GPRMC,091807.0,A,4729.108644,N,00859.432523,E,0.0,144.6,110601,0.2,W,A*10
+$GPGSA,A,2,02,05,07,09,13,14,28,30,,,,,1.4,1.1,0.8*39
+$GNGSA,A,2,02,05,07,09,13,14,28,30,,,,,1.4,1.1,0.8*27
+$GNGSA,A,2,,,,,,,,,,,,,1.4,1.1,0.8*20
+$GPHWBIAS,13*3F
+NMEA-Format
+National
+Marine
+Electronics
+Association
+GPS Sensor
+Raw
+GPS
+Signals
+[...];gps_errorState;gps_validity;gps_utc;gps_latitude;gps_longitude;gps_fixQuality;gps_dilution;[...]
+1611567575.62;00000004;0;;ALL;0.000000;0.000000;00080000;ok;09.39.35; 47.485143933;8.990542833;1;1.1000;0.0000;00080000;0;0;0;161:
+22:58;01:22:58;17.01.0001;00:00.0;0;0;00:00:00;0;0;12;4.1570;10;00000080;;;;;;;00000080;;;;00080000;00010100;0;0;0;00080080;; ;;;00080000;4
+36;12133;12054;6931;157;00180000;0.000000;5082;;00080080;;;;;;;506_202101_25_0939_30_000000;00000080;;;v5
+Log File
+CSV Format
+device/mqtt/data/506_data 
+{"d":["1611566394.25","0.000000","0.000000","00080000","09.19.54","47.485144100","8.990542133","1","1.1000","0.0000","00080000","
+0","0","161:03:17","-
+2","11","4.1670","00000080","","","","","00000080","","","","00080000","00012210","00080080","","","","","00080000","12167","00080080"
+,"","","","","506_202101_20_0330_10_4353470","00000080","",""],"dID":"506","m":"data","t":1611566394265,"v":"6"}
+IoT
+JSON = JavaScript Object Notation 
+MQTT = Message Queuing Telemetry Transport
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 35Training Material: Data & Telemetry WIKI 2026
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 36Empowering you to create your own Telemetry
+Joulemeter Liquid Flowmeter Gas Flowmeter
+CAN CAN CAN
+Data-API (Application Programming Interface)
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 37Level 
+❷
+ 
+Data Analytics
+Recognise Correlations
+and Patterns
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 38rec_id,obc_timestamp,lap_obc_timestamp,dist,lap_dist,gps_utctime,gps_latitude,gps_longitude,gps_speed,lfm_temperature,lfm_integratedcorrflow,lfm_instantflow,lap_lfm_integratedcorrflow,gfs_gasflow,gfs_gastemp,gfs_netgasvolume,lap_gfs_netgasvolume,jm3
+_netjoule,lap_jm3_netjoule,jm3_voltage,jm3_current,message_id,volt_voltage,volt_difference,lap_lap,start_lap,finish_lap0,1688631304.8,0.0,0.0,0.0,08.15.02,-
+,0.7,28.7,1.9008,0.0,0.0,,,,,431.649,0.0,12394.0,20170.0,501_202307_06_0812_57_0001271,,,1,1,01,1688631304.9,0.10000014305114746,387.45882611011706,387.45882611011706,08.15.04,
+-8.894995833,116.30618315,26.2,28.7,1.914,7.967,0.013199999999999878,,,,,483.009,51.360000000000014,12358.0,21401.0,501_202307_06_0812_57_0001273,,,1,1,03,1688631305.1,0.2999999523162842,387.45882611011706,387.45882611011706,08.15.04,
+-8.894995833,116.30618315,26.2,28.7,1.9639,29.9008,0.06309999999999993,,,,,485.118,53.468999999999994,12958.0,819.0,501_202307_06_0812_57_0001274,,,1,1,04,1688631305.2,0.40000009536743164,387.45882611011706,387.45882611011706,08.15.04,
+-8.894995833,116.30618315,26.2,28.7,1.9755,6.9835,0.07469999999999999,,,,,485.118,53.468999999999994,12958.0,819.0,501_202307_06_0812_57_0001275,,,1,1,05,1688631305.3,0.5,387.45882611011706,387.45882611011706,08.15.04,
+-8.894995833,116.30618315,26.2,28.7,1.978,1.4754,0.07719999999999994,,,,,487.896,56.247000000000014,12976.0,1069.0,501_202307_06_0812_57_0001276,,,1,1,06,1688631305.4,0.6000001430511475,387.45882611011706,387.45882611011706,08.15.04,
+-8.894995833,116.30618315,26.2,28.7,1.9786,0.3934,0.07779999999999987,,,,,487.896,56.247000000000014,12976.0,1069.0,501_202307_06_0812_57_0001277,,,1,1,07,1688631305.5,0.7000000476837158,387.45882611011706,387.45882611011706,08.15.04,
+-8.894995833,116.30618315,26.2,28.7,1.9786,0.0,0.07779999999999987,,,,,490.751,59.101999999999975,12990.0,1101.0,501_202307_06_0812_57_0001278,,,1,1,08,1688631305.6,0.7999999523162842,387.45882611011706,387.45882611011706,08.15.04,
+-8.894995833,116.30618315,26.2,28.7,1.9788,0.0984,0.07799999999999985,,,,,490.751,59.101999999999975,12990.0,1101.0,501_202307_06_0812_57_0001279,,,1,1,09,1688631305.7,0.9000000953674316,387.45882611011706,387.45882611011706,08.15.04,
+-8.894995833,116.30618315,26.2,28.7,1.9788,0.0,0.07799999999999985,,,,,493.599,61.94999999999999,13005.0,1095.0,501_202307_06_0812_57_0001280,,,1,1,010,1688631305.8,1.0,387.45882611011706,387.45882611011706,08.15.04,
+-8.894995833,116.30618315,26.2,28.7,1.9788,0.0,0.07799999999999985,,,,,493.599,61.94999999999999,13005.0,1095.0,501_202307_06_0812_57_0001281,,,1,1,011,1688631305.9,1.1000001430511475,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.9788,0.0,0.07799999999999985,,,,,496.454,64.805,13013.0,1097.0,501_202307_06_0812_57_0001282,,,1,1,012,1688631306.0,1.2000000476837158,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.9788,0.0,0.07799999999999985,,,,,496.454,64.805,13013.0,1097.0,501_202307_06_0812_57_0001283,,,1,1,013,1688631306.1,1.2999999523162842,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.979,0.0983,0.07820000000000005,,,,,499.298,67.649,13020.0,1093.0,501_202307_06_0812_57_0001284,,,1,1,014,1688631306.2,1.4000000953674316,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.979,0.0,0.07820000000000005,,,,,499.298,67.649,13020.0,1093.0,501_202307_06_0812_57_0001285,,,1,1,015,1688631306.3,1.5,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.979,0.0,0.07820000000000005,,,,,501.29,69.64100000000002,13036.0,762.0,501_202307_06_0812_57_0001286,,,1,1,016,1688631306.4,1.6000001430511475,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.979,0.0,0.07820000000000005,,,,,501.29,69.64100000000002,13036.0,762.0,501_202307_06_0812_57_0001287,,,1,1,017,1688631306.5,1.7000000476837158,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.979,0.0,0.07820000000000005,,,,,503.284,71.63499999999999,13041.0,764.0,501_202307_06_0812_57_0001288,,,1,1,018,1688631306.6,1.7999999523162842,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.9813,1.377,0.08050000000000002,,,,,503.284,71.63499999999999,13041.0,764.0,501_202307_06_0812_57_0001289,,,1,1,019,1688631306.7,1.9000000953674316,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.9827,0.8852,0.08189999999999986,,,,,560.292,128.64300000000003,12367.0,23535.0,501_202307_06_0812_57_0001290,,,1,1,020,1688631306.8,2.0,392.036060806484,392.036060806484,08.15.05,
+-8.89498815,116.306224083,26.0,28.7,1.9831,0.1967,0.08230000000000004,,,,,560.292,128.64300000000003,12367.0,23535.0,501_202307_06_0812_57_0001291,,,1,1,021,1688631306.9,2.1000001430511475,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,1.9834,0.1968,0.0826,,,,,632.68,201.03099999999995,12124.0,29926.0,501_202307_06_0812_57_0001292,,,1,1,022,1688631307.0,2.200000047683716,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,1.987,2.1639,0.08620000000000005,,,,,632.68,201.03099999999995,12124.0,29926.0,501_202307_06_0812_57_0001293,,,1,1,023,1688631307.1,2.299999952316284,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,1.9896,1.5737,0.08879999999999999,,,,,699.772,268.12300000000005,12163.0,27595.0,501_202307_06_0812_57_0001294,,,1,1,024,1688631307.2,2.4000000953674316,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,1.9927,1.8688,0.09189999999999987,,,,,699.772,268.12300000000005,12163.0,27595.0,501_202307_06_0812_57_0001295,,,1,1,025,1688631307.3,2.5,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,1.9952,1.4754,0.09440000000000004,,,,,756.353,324.70399999999995,12278.0,23185.0,501_202307_06_0812_57_0001296,,,1,1,026,1688631307.4,2.6000001430511475,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,2.0008,3.3443,0.09999999999999987,,,,,756.353,324.70399999999995,12278.0,23185.0,501_202307_06_0812_57_0001297,,,1,1,027,1688631307.5,2.700000047683716,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,2.009,4.918,0.10819999999999985,,,,,757.844,326.19500000000005,12927.0,821.0,501_202307_06_0812_57_0001298,,,1,1,028,1688631307.6,2.799999952316284,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,2.0208,7.0817,0.11999999999999988,,,,,757.844,326.19500000000005,12927.0,821.0,501_202307_06_0812_57_0001299,,,1,1,029,1688631307.7,2.9000000953674316,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,2.037,9.7375,0.13619999999999988,,,,,735.678,304.029,13234.0,-8371.0,501_202307_06_0812_57_0001300,,,1,1,030,1688631307.8,3.0,398.3042221244021,398.3042221244021,08.15.06,
+-8.8949748,116.306279517,25.7,28.7,2.0491,7.2784,0.1483000000000001,,,,,735.678,304.029,13234.0,-8371.0,501_202307_06_0812_57_0001301,,,1,1,031,1688631307.9,3.1000001430511475,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.0722,13.8685,0.1714,,,,,709.461,277.812,13326.0,-9850.0,501_202307_06_0812_57_0001302,,,1,1,032,1688631308.0,3.200000047683716,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.0957,14.0652,0.19489999999999985,,,,,709.461,277.812,13326.0,-9850.0,501_202307_06_0812_57_0001303,,,1,1,033,1688631308.1,3.299999952316284,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.1226,16.1307,0.22179999999999978,,,,,683.866,252.21699999999998,13354.0,-9584.0,501_202307_06_0812_57_0001304,,,1,1,034,1688631308.2,3.4000000953674316,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.1465,14.3603,0.24570000000000003,,,,,683.866,252.21699999999998,13354.0,-9584.0,501_202307_06_0812_57_0001305,,,1,1,035,1688631308.3,3.5,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.1737,16.3274,0.27290000000000014,,,,,657.081,225.43200000000002,13368.0,-9955.0,501_202307_06_0812_57_0001306,,,1,1,036,1688631308.4,3.6000001430511475,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.1981,14.6553,0.2973000000000001,,,,,657.081,225.43200000000002,13368.0,-9955.0,501_202307_06_0812_57_0001307,,,1,1,037,1688631308.5,3.700000047683716,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.2265,17.0159,0.3257000000000001,,,,,629.259,197.61,13412.0,-10370.0,501_202307_06_0812_57_0001308,,,1,1,038,1688631308.6,3.799999952316284,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.2531,15.934,0.35229999999999984,,,,,629.259,197.61,13412.0,-10370.0,501_202307_06_0812_57_0001309,,,1,1,039,1688631308.7,3.9000000953674316,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.2798,16.0323,0.3789999999999998,,,,,601.331,169.68200000000002,13441.0,-10385.0,501_202307_06_0812_57_0001310,,,1,1,040,1688631308.8,4.0,406.309533573975,406.309533573975,08.15.07,
+-8.894957033,116.306350133,25.6,28.7,2.3088,17.4095,0.40800000000000014,,,,,601.331,169.68200000000002,13441.0,-10385.0,501_202307_06_0812_57_0001311,,,1,1,041,1688631308.9,4.1000001430511475,413.03460316538917,413.03460316538917,08.15.08,
+-8.894938183,116.3064083,25.5,28.7,2.338,17.5077,0.43720000000000003,,,,,572.191,140.54200000000003,13471.0,-10811.0,501_202307_06_0812_57_0001312,,,1,1,042,1688631309.0,4.200000047683716,413.03460316538917,413.03460316538917,08.15.08,
+-8.894938183,116.3064083,25.5,28.7,2.3673,17.4318,0.46650000000000014,,,,,572.191,140.54200000000003,13471.0,-10811.0,501_202307_06_0812_57_0001313,,,1,1,043,1688631309.1,4.299999952316284,413.03460316538917,413.03460316538917,08.15.08,
+-8.894938183,116.3064083,25.5,28.7,2.3965,17.6846,0.49570000000000003,,,,,542.302,110.65300000000002,13503.0,-11059.0,501_202307_06_0812_57_0001314,,,1,1,044,1688631309.2,4.400000095367432,413.03460316538917,413.03460316538917,08.15.08,
+-8.894938183,116.3064083,25.5,28.7,2.4268,18.1962,0.526,,,,,542.302,110.65300000000002,13503.0,-11059.0,501_202307_06_0812_57_0001315,,,1,1,045,1688631309.3,4.5,413.03460316538917,413.03460316538917,08.15.08,
+-8.894938183,116.3064083,25.5,28.7,2.4575,18.3929,0.5567,,,,,510.904,79.255,13536.0,-11619.0,501_202307_06_0812_57_0001316,,,1,1,046,1688631309.4,4.6000001430511475,413.03460316538917,413.03460316538917,08.15.08,
+-8.894938183,116.3064083,25.5,28.7,2.4878,18.1962,0.587,,,,,510.904,79.255,13536.0,-11619.0,501_202307_06_0812_57_0001317,,,1,1,047,1688631309.5,4.700000047683716,413.03460316538917,413.03460316538917,08.15.08,
+-8.894938183,116.3064083,25.5,28.7,2.5186,18.4914,0.6178000000000001,,,,,477.967,46.317999999999984,13573.0,-12118.0,501_202307_06_0812_57_0001318,,,1,1,048,1688631309.6,4.799999952316284,413.03460316538917,413.03460316538917,08.15.08,-
+8.894938183,116.3064083,25.5,28.7,2.5491,18.2945,0.6483000000000001,,,,,477.967,46.317999999999984,13573.0,-12118.0,501_202307_06_0812_57_0001319,,,1,1,049,1688631309.7,4.900000095367432,413.03460316538917,413.03460316538917,08.15.08,-
+8.894938183,116.3064083,25.5,28.7,2.5803,18.6881,0.6794999999999998,,,,,444.087,12.437999999999988,13603.0,-12462.0,501_202307_06_0812_57_0001320,,,1,1,050,1688631309.8,5.0,413.03460316538917,413.03460316538917,08.15.08,-
+8.894938183,116.3064083,25.5,28.7,2.6114,18.503,0.7106000000000001,,,,,444.087,12.437999999999988,13603.0,-12462.0,501_202307_06_0812_57_0001321,,,1,1,051,1688631309.9,5.1000001430511475,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.6435,19.4729,0.7426999999999999,,,,,409.301,-22.348000000000013,13626.0,-12771.0,501_202307_06_0812_57_0001322,,,1,1,052,1688631310.0,5.200000047683716,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.6752,18.9832,0.7743999999999998,,,,,409.301,-22.348000000000013,13626.0,-12771.0,501_202307_06_0812_57_0001323,,,1,1,053,1688631310.1,5.299999952316284,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.707,19.0814,0.8061999999999998,,,,,372.994,-58.65499999999997,13663.0,-13211.0,501_202307_06_0812_57_0001324,,,1,1,054,1688631310.2,5.400000095367432,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.7404,19.8664,0.8396000000000001,,,,,372.994,-58.65499999999997,13663.0,-13211.0,501_202307_06_0812_57_0001325,,,1,1,055,1688631310.3,5.5,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.7735,20.0691,0.8726999999999998,,,,,336.411,-95.238,13683.0,-13361.0,501_202307_06_0812_57_0001326,,,1,1,056,1688631310.4,5.6000001430511475,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.8058,19.1847,0.905,,,,,336.411,-95.238,13683.0,-13361.0,501_202307_06_0812_57_0001327,,,1,1,057,1688631310.5,5.700000047683716,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.8394,20.3672,0.9385999999999999,,,,,299.18,-132.469,13701.0,-13584.0,501_202307_06_0812_57_0001328,,,1,1,058,1688631310.6,5.799999952316284,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.8719,19.4748,0.9711000000000001,,,,,299.18,-132.469,13701.0,-13584.0,501_202307_06_0812_57_0001329,,,1,1,059,1688631310.7,5.900000095367432,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.9057,20.2618,1.0049,,,,,261.73,-169.91899999999998,13722.0,-13635.0,501_202307_06_0812_57_0001330,,,1,1,060,1688631310.8,6.0,421.2257007312702,421.2257007312702,08.15.09,-
+8.894914883,116.306479033,28.1,28.7,2.9383,19.3795,1.0374999999999999,,,,,261.73,-169.91899999999998,13722.0,-13635.0,501_202307_06_0812_57_0001331,,,1,1,061,1688631310.9,6.1000001430511475,429.84545023736695,429.84545023736695,08.15.10,-
+8.894894017,116.3065546,32.7,28.7,2.9722,20.5658,1.0714,,,,,224.181,-207.468,13737.0,-13663.0,501_202307_06_0812_57_0001332,,,1,1,062,1688631311.0,6.200000047683716,429.84545023736695,429.84545023736695,08.15.10,-
+8.894894017,116.3065546,32.7,28.7,3.0066,20.6552,1.1058000000000001,,,,,224.181,-207.468,13737.0,-13663.0,501_202307_06_0812_57_0001333,,,1,1,063,1688631311.1,6.299999952316284,429.84545023736695,429.84545023736695,08.15.10,-
+8.894894017,116.3065546,32.7,28.7,3.0409,20.3533,1.1401000000000001,,,,,186.518,-245.131,13757.0,-13716.0,501_202307_06_0812_57_0001334,,,1,1,064,1688631311.2,6.400000095367432,429.84545023736695,429.84545023736695,08.15.10,-
+8.894894017,116.3065546,32.7,28.7,3.0766,21.6587,1.1758,,,,,186.518,-245.131,13757.0,-13716.0,501_202307_06_0812_57_0001335,,,1,1,065,1688631311.3,6.5,429.84545023736695,429.84545023736695,08.15.10,-
+8.894894017,116.3065546,32.7,28.7,3.1129,21.7372,1.2120999999999997,,,,,148.834,-282.815,13774.0,-13698.0,501_202307_06_0812_57_0001336,,,1,1,066,1688631311.4,6.6000001430511475,429.84545023736695,429.84545023736695,08.15.10,-
+8.894894017,116.3065546,32.7,28.7,3.128,9.049,1.2272,,,,,148.834,-282.815,13774.0,-13698.0,501_202307_06_0812_57_0001337,,,1,1,067,1688631311.5,6.700000047683716,429.84545023736695,429.84545023736695,08.15.10,-
+8.894894017,116.3065546,32.7,28.7,3.1316,2.1638,1.2308000000000001,,,,,99.392,-332.257,13907.0,-17785.0,501_202307_06_0812_57_0001338,,,1,1,068,1688631311.6,6.799999952316284,429.84545023736695,429.84545023736695,08.15.10,-
+8.894894017,116.3065546,32.7,28.7,3.1325,0.5902,1.2316999999999998,,,,,99.392,-332.257,13907.0,-17785.0,501_202307_06_0812_57_0001339,,,1,1,069,1688631311.7,6.900000095367432,429.84545023736695,429.84545023736695,08.15.10,-
+8.894894017,116.3065546,32.7,28.7,3.1329,0.1967,1.2320999999999998,,,,,54.95,-376.699,13877.0,-16027.0,501_202307_06_0812_57_0001340,,,1,1,0
+-8.894995833,116.3061831
+= are two floating point numbers-8.894995833,116.3061831
+[GPS Lat] [GPS Lon]
+Island Lombok
+IndonesiaMandalika MotoGP-CircuitFrom Pattern to Meaning
+Speed
+Energy Use
+Pattern
+ and Meaning
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 4344
+Lap1 Lap2 Lap3 Lap4 Lap5
+t=0 min
+t=17 min
+Time-Based «Chunk» to distance based Lap-to-Lap Data
+Telemetry Raw Dataen.wikipedia.org/wiki/Haversine_formula
+d
+Earth Radius in [km]
+The Haversine Formula:
+Phoenix Bootcamp Level ❸ Analyse 45
+Time-Based «Chunk» to distance based Lap-to-Lap DataTime-Based «Chunk» to distance based Lap-to-Lap Data
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 46• Efficiently calculate when a vehicle has crossed one of 
+the three lines entered previously: Line-segment 
+intersection
+• Data at beginning and end of logfile is dropped
+Start Line
+GPS Trace
+Formula: WIKIPEDIA „Line-Line-Intersection“ 
+Time-Based «Chunk» to distance based Lap-to-Lap Data
+Data & Telemetry Bootcamp 2026 47Time [s, min]
+Lap1 Lap2 Lap3 Lap4 Lap5 LapN
+Lap1
+Lap2
+Lap3
+Lap4
+Lap5
+LapN
+Distance [m]
+Time-Based «Chunk» to distance based Lap-to-Lap Data
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 48Python Code for this Transformation
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 49Data
+Correlation
+Lap
+Speed
+[km/h]
+Instantaneous 
+Energy Consumption
+[ml/min]
+Cumulative 
+Energy Consumption
+[ml]
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 50Energy Use
+Speed
+Speed
+Energy Use
+Driving Consistency!
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 51Quantitative Analysis: Cumulative Consumption
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 52Quantitative Analysis: Cumulative Consumption
+-14%!
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 53Quantitative Analysis: Instantaneous Consumption
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 54Qualitative Analysis: Burn & Coast Heatmap
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 55Pivot or
+Continue?
+Race StrategyTelemetry Data
+MVP
+Minimum Viable 
+Products
+that produce Data
+Iterative Learning 
+with
+Iterative Learning based on MVP Philosophy
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 56Best Strategy: 3
+Strategy 2
+Learn: Quantitative Analysis of Energy Use
+Distance travelled (m)
+Strategy 3
+Strategy 1
+Energy Use
+Strategy 1 Strategy 3 (better!)
+Learn: Qualitative Analysis of Driving Patterns
+But Why?
+From Quantitative Analysis, we know: 
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 58Driving Dynamics in Corners
+Phoenix Bootcamp 2025
+Driver #1
+Driver #2 Driver #3
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 59Driving Dynamics in Corners
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 61Data as a storyteller
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 62Data as a storyteller
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 63-0.9 m/s2
+Data as a storyteller: e.g. Coastdown-Testing
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 64Python Sandbox #1 to understand Race Data
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 66Level 
+❸
+ 
+Live Data
+ 
+Send Data from the Track
+to the IoT
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 67Energy
+Source
+BackboneBattery
+Energy Sensors
+Shutdown
+-Relay
+Fin
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 68Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 69MQTT
+Broker
+Kinetic
+Service
+Database for
+Static Data (SD-Card)
+Telemetry 
+Monitoring
+Live Data Visualization
+Live Dataflow in the IoT-Server
+Onboard Computers
+use Publish/Subscribe
+Messaging
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 70Level 
+❹
+ 
+System Modelling
+ 
+Maintain physics based
+Digital Twin
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 72Modelling the Track
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 73Modelling the Track
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 74Taking the straights…
+F = m   a
+Newtons Laws of Motion
+*
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 76Managing the slopes …
+Data & Telemetry Bootcamp 2026 77The corners are the holy grail
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 78α
+m
+m*g
+Ftotal = Froll+Fslope+Faccel 
+E = F * s 
+Vehicle Model
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 79Torque τ = Ftotal   radius / gear_ratio
+Rotation speed n = v / radius   gear_ratio 
+Ftotal
+radius
+*        
+*        
+Power calculation for a series wound motor
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 80    
+  
+  
+  
+  
+   
+  
+τ = IA * KT - τLoss
+IA = (τ + τLoss) / KT
+Torque τ depends on the current IA
+Power calculation for a series wound motor
+Motor specific parameters:
+τLoss : Loss torque
+KT    : Torque constant
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 81    
+  
+  
+  
+  
+   
+  
+n = (U – RA * IA) * Kv 
+U = n / Kv + RA * IA
+Rotation speed n depends on the voltage U
+Power calculation for a series wound motor
+Motor specific parameters:
+RA    : Anchor resistance
+KV    : Motor velocity constant
+Emotor  = U * I * time 
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 82Goal: a global Optimum
+❶ Include Telemetry Data to update
+Physical Digital TWIN
+❷
+Take into account all on-track 
+driving scenarios: straights, 
+slopes, crests and corners. 
+❸
+Restrictive Laptimes.
+8% improvement on 
+current performance
+❹
+Maximum energy efficiency. 
+Use of free energy. Improvement
+of 17% compared to now. 
+❺ 100% safety throughout the
+entire attempt at all times. 
+Weight [kg]Driver
+Macro
+Environment:
+Weather
+Temperature [°C]
+Humidity [g/m³]
+Wind Speed [m/s]
+ and Wind Direction[Degree]
+Micro
+Environment
+Race Track
+Center Line of Track [Lon, Lat]
+Track Width [m]
+Track Sections [m]
+Distance [m]
+Gradients [%]
+Curvatures/Bends [1/m]
+Vmin / Vmax [km/h]
+amin / amax [m/s2]
+Vehicle Weight [kg]
+Wheel Diameter [m]
+Driving Resistance [N]
+Rolling Resistance [N]
+Acceleration Resistance [N]
+Slope Resistance [N]
+Corner Resistance [N]
+Wind Resistance [N]
+Maschine
+Vehicle
+Strategies Live Telemetry & Data AnalysisLevel 
+❺
+ 
+Holistic
+ 
+Advanced Data-Driven
+Racing Methods
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 84Classic Multigoal-Problem & Global Optimum
+Increase 
+Energy Efficiency
+Competitive 
+Lap-Times (DNF)
+Maintain
+Safety … always!
+Straights
+Corners
+Slopes
+Crests
+Environmental Influence
+Vehicle Characteristics
+Meaning
+Actionable
+Driver Information 
+from Start to
+Finish
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 85What are Conflicting Goals?
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 86Conflicting Goals in Industrial Projects
+Good
+(Quality)
+Cheap
+(Price)
+Fast
+(Delivery)
+dream
+on!
+Takes 
+Time!
+That’s
+Crap!
+Costs
+Money!
+The Magic Project Triangle:
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 87Conflicting Goals in Shell Eco-marathon
+Low Energy
+use
+Short
+Lap Times100%
+Safety
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 88Example: Lap-Time vs. Energy Use
+TimeLap Time [min] → VALID RUN
+Solution Space 
+= all possible 
+solutions
+EnergyEnergy Use → Competitive RESULTS
+Pareto-Front
+= the «End-States»
+Minimization leads to…
+89
+COMBI
+SPORTECO100% Weight on short Lap-TimesEnergy
+TimeTmin
+COMBI
+SPORTECO
+wt = 1.0
+we = 0.0
+90
+Energy Use → Competitive RESULTS
+Lap Time [min] → VALID RUN100% Weight on Fuel EconomyEnergy
+Time
+Emin
+SPORTECO
+COMBI
+wt = 0.0
+we = 1.0
+91
+Energy Use → Competitive RESULTS
+Lap Time [min] → VALID RUN50% Weight on BothEnergy
+Time
+Eopt  und Topt
+SPORTECO
+COMBI
+wt = 0.5
+we = 0.5
+92
+Energy Use → Competitive RESULTS
+Lap Time [min] → VALID RUNA real Pareto-Front
+Focus: Low Energy
+Focus: Short Laptime
+11 Laps
+Energy 
+Time [s]
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 93A real Pareto-Front
+Time [s]
+Energy 
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 94Traditional
+Way: 
+Motorsport = solving complex 
+physical Problems
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 95Promising and well established Approaches: 
+Dynamic Programming Genetic Programming
+Breaking Complex Problems 
+down into simpler subproblems
+AI technique inspired by
+natural evolution that evolves 
+computer programs to solve 
+complex problems
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 96Overview How to Solve Complex Problems
+Global 
+Approach
+Local 
+Approach
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 97Understanding the «Essence of Things»
+Name: «Elias»
+Born: May 29, 1970
+Twitter: «@elias»
+Person
+Name: «Nala»
+Born: Dec 5, 1975
+Person
+Brand: «Audi»
+Model: «etron»Car
+Since:
+Jan 10, 2021
+[loves]
+[loves]
+[lives with]
+A Knowledge Graph with Nodes and Edges
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 98A Knowledge Graph is able to massively scale
+Social Network
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 99Path
+Transformer
+e.g. Shortest Path 
+(Dijkstra’s)
+Community
+Transformer
+e.g. Strongly 
+Connected 
+Meaning
+Transformer
+e.g. PageRank 
+Algorithm
+Graph
+Transformers
+Transform a Graph into Meaning
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 10
+0You use it every day without even realising it
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 10
+1Path Transformer for our Race Problem
+Dijkstra-Algorithm
+A*-Algorithm
+From a single Neuron….
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 10
+3…to powerful Large Language Models (LLM)…and to our Race Use Case
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 10
+5Time
+Space
+Distance travelled [m]
+Speed [km/h]
+Start Line Finish Line 106
+Define the Nodes (Vehicle States)Time
+Space
+Speed [km/h]
+Distance travelled [m]Start Line Finish Line 107
+Define the Nodes (Vehicle States)Start Line Finish Line
+Time
+SpaceDistance travelled [m]
+Speed [km/h]
+10
+8
+Define the Nodes (Vehicle States)V1
+x1 x2 x3 x4
+V2
+V3
+V4
+V5
+V6
+V7
+V8
+V9
+Heavy Braking
+Acceleration
+too high
+Brake
+Coast
+Burn
+The Graphs Edges
+amin
+amax
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 10
+9∆v
+∆s
+Node n
+Node n+1
+Rebirth of Physicas in Datascience
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 11
+0Each State Change is a Decision with a Cost
+∆v
+∆sNode 1
+Node 2
+Cedge = Ctime* wtime + Cenergy * wenergy → MIN!
+«C»   : Cost
+«w» : Weight
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 11
+1Cedge=
+Ctime = f(∆t) = f(∆s/Øv)
+Ctime = Cost     = {0…1}
+wtime = Weight = {0…1}
+Ctime*wtime
+Cost for time travelled
+Cenergy=f(∆e)=f(Ftotal )
+Cenergy = {0…1}
+wenergy = {0…1}
++ Cenergy*wenergy
+Cost for energy used
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 11
+296
+98
+100
+102
+104
+106
+108
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+100 200 300 400 500 600 700 800 900 1000 1100 1200 1300 1400 1500 1600 1700 1800 1900 2000 2100 2200 2300 2400 2500 2600 2700 2800 2900 3000 3100 3200 3300
+m.ü.M.
+v [km/h]
+s [m]
+Es oszilliert :)
+MüM Min Max
+Knowledge Graph from Start to Finish
+Slope
+Start
+ Line
+Finish 
+Line
+11
+3
+grey = expensive Edges
+red = cheap Edges96
+98
+100
+102
+104
+106
+108
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+100 200 300 400 500 600 700 800 900 1000 1100 1200 1300 1400 1500 1600 1700 1800 1900 2000 2100 2200 2300 2400 2500 2600 2700 2800 2900 3000 3100 3200 3300
+m.ü.M.
+v [km/h]
+s [m]
+Es oszilliert :)
+MüM Min Max 80%
+SPORTECO
+COMBI
+Multigoal: Focus on Laptime
+Start
+ Line
+Finish 
+Line
+11
+496
+98
+100
+102
+104
+106
+108
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+100 200 300 400 500 600 700 800 900 1000 1100 1200 1300 1400 1500 1600 1700 1800 1900 2000 2100 2200 2300 2400 2500 2600 2700 2800 2900 3000 3100 3200 3300
+m.ü.M.
+v [km/h]
+s [m]
+Es oszilliert :)
+MüM Min Max 20%
+SPORTECO
+COMBI
+Multigoal: Focus on Energy Economy
+Start
+ Line
+Finish 
+Line
+11
+596
+98
+100
+102
+104
+106
+108
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+100 200 300 400 500 600 700 800 900 1000 1100 1200 1300 1400 1500 1600 1700 1800 1900 2000 2100 2200 2300 2400 2500 2600 2700 2800 2900 3000 3100 3200 3300
+m.ü.M.
+v [km/h]
+s [m]
+Es oszilliert :)
+MüM Min Max 50%
+COMBI
+SPORTECO
+Multigoal: Focus on Laptime + Energy Economy
+Start
+ Line
+Finish 
+Line
+11
+6The perfect speed profile, balancing
+speed, energy efficiency,
+safety, vehicle characteristics
+and external influences
+Results OTA : 7 - 25% Performance-Improvement
+MeaningReal Speed Profiles from the Field
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 11
+8Include and adjust with
+Telemetry Data
+Dynamically Changed
+Driving Patterns
+Include dynamic
+Wheather Data
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 11
+9The Sky is the Limit…
+Vehicle Health 
+Monitoring
+ADAS
+Collision
+Warning
+Learning 
+from Fuckups
+Driver Assessment
+etc, etc, etc
+Environment
+- Wind
+- RainDriver Parameters 
+(Throttle, Steering Wheel)
+Optimization
+Outlook
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 12
+0Python Sandbox #2 Using Knowledge Graphs
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 12
+1In the Works: neural networks with DL/ML 
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 12
+2Python Sandbox #3 Use AI with real Race Data
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 12
+3Copyright © Schmid Elektronik AG
+Level 
+❶
+ 
+Telemetry: How to create relevant Race Data on Track? 
+Level 
+❷
+ 
+Data Analytics: Recognize Correlations and Patterns
+Level 
+❸
+ 
+Live Data: Send Data from the Track to the IoT
+Level 
+❹
+ 
+Modelling: Maintain physics based Digital Twin
+Level 
+❺
+ 
+Holistic: Advanced Data-Driven Racing
+Data & Telemetry Bootcamp 2026 12
+4schmid-elektronik.ch/phoenixbootcamp
+Q&A
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 12
+5Thank You
+and Good Luck
+On the Track
+Copyright © Schmid Elektronik AG Data & Telemetry Bootcamp 2026 12
+6marco.schmid@schmid-elektronik.ch
+Phone direct +41 (0) 71 969 35 90
+Phone Info +41 (0) 71 969 35 80
+info@schmid-elektronik.ch
+schmid-elektronik.ch
+Schmid Elektronik AG
+Marco Schmid
+Mezikonerstrasse 13
+CH-9542 Münchwilen
+Switzerland
+Contact
+About Marco Schmid
+Business
+• CEO
+• Head of R&D
+• Owner
+Technical Interests
+• Embedded-Systems
+• IoT-Systemes
+• Knowledge Graphs / AI
+• LabVIEW
+• Minimum Viable Products
+• Complexity
+• Networks
+• Shell Eco-marathon Trainer
+Private
+• Married, two kids
+• Year of construction: 1969
+• Cooking, Wines
+• Travelling, Nature, Camping
+• Skiing
+• Rollerblades
+Communities
+► Design
+► Prototyping
+► MVPs
+► Series Products
+► Family SME
+► Elektronic
+one-stop-shop
+► 38 Poeple
+► 50+ Years
+► Shell Partner
+► NI Partner

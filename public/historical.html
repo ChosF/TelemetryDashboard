@@ -1,0 +1,1230 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Historical Analysis — EcoVolt Telemetry</title>
+    <meta name="description" content="Deep post-race telemetry analysis for EcoVolt Shell Eco-marathon vehicle." />
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="historical.css" />
+    <script>
+        window.CONFIG = window.CONFIG || { CONVEX_URL: "https://impartial-walrus-693.convex.cloud" };
+    </script>
+</head>
+
+<body class="hist-page">
+
+    <!-- Auth Gate -->
+    <div id="h-auth-gate" class="h-auth-gate" style="display:none">
+        <div class="h-auth-gate-content">
+            <div class="h-auth-gate-icon">🔒</div>
+            <h2>Access Restricted</h2>
+            <p>Historical analysis requires <b>External</b>, <b>Internal</b>, or <b>Admin</b> access.</p>
+            <a href="dashboard.html" class="ha-btn ha-btn-primary">← Back to Dashboard</a>
+        </div>
+    </div>
+
+    <!-- ── HEADER ── -->
+    <header class="ha-header">
+        <a href="dashboard.html" class="ha-header-logo" title="Dashboard"><span class="ha-logo-icon">⚡</span></a>
+        <div class="ha-header-divider"></div>
+        <button class="ha-header-back" id="h-back-to-sessions" style="display:none">← Sessions</button>
+        <h1 class="ha-header-title">Historical Analysis</h1>
+        <div class="ha-header-session" id="h-active-session-label"></div>
+        <div class="ha-quality-badge" id="h-quality-badge" style="display:none">
+            <span class="ha-quality-dot" id="h-quality-dot"></span>
+            <span id="h-quality-text">—</span>
+        </div>
+        <div class="ha-header-actions">
+            <button class="ha-btn ha-btn-primary ha-btn-sm" id="h-btn-custom-analysis" style="display:none"
+                title="Run Custom Analysis">✨ Custom Analysis</button>
+            <button class="ha-btn ha-btn-ghost ha-btn-icon" id="h-btn-collapse-all" style="display:none"
+                title="Collapse/Expand all sections">⇲ Collapse All</button>
+            <button class="ha-btn ha-btn-ghost ha-btn-icon" id="h-btn-export-quick" style="display:none"
+                title="Quick export CSV">↓ CSV</button>
+            <a href="dashboard.html" class="ha-header-back" style="display:inline-flex;align-items:center;gap:5px;">
+                Dashboard
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="9"></rect>
+                    <rect x="14" y="3" width="7" height="5"></rect>
+                    <rect x="14" y="12" width="7" height="9"></rect>
+                    <rect x="3" y="16" width="7" height="5"></rect>
+                </svg>
+            </a>
+        </div>
+    </header>
+
+    <main class="ha-main">
+
+        <!-- ── EXPLORER VIEW ── -->
+        <div class="ha-view active" id="h-view-explorer">
+            <div class="ha-explorer-hero">
+                <div class="ha-hero-badge">📊 Telemetry Analysis</div>
+                <h1>Historical Sessions</h1>
+                <p>Select a session to unlock synchronized charts, statistical analysis, driver scoring, and data
+                    export.</p>
+            </div>
+
+            <div class="ha-explorer-toolbar">
+                <div class="ha-search-wrap">
+                    <span class="ha-search-icon">🔍</span>
+                    <input type="text" class="ha-input" id="h-search" placeholder="Search sessions…"
+                        autocomplete="off" />
+                    <button class="ha-search-clear" id="h-search-clear" title="Clear">✕</button>
+                </div>
+                <select class="ha-select" id="h-sort">
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="most-records">Most Records</option>
+                    <option value="name-asc">Name A–Z</option>
+                </select>
+                <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-refresh-sessions" title="Refresh session list">↺
+                    Refresh</button>
+            </div>
+
+            <div class="ha-explorer-stats" id="h-explorer-stats"></div>
+            <div id="h-sessions-list" class="ha-sessions-grid">
+                <div class="ha-loading">
+                    <div class="ha-spinner"></div><span>Loading sessions…</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── ANALYSIS VIEW ── -->
+        <div class="ha-view" id="h-view-analysis">
+
+            <!-- ─── Overview KPIs ─── -->
+            <section class="ha-section" id="ha-sec-overview" data-toc="Overview">
+                <div class="ha-kpi-grid" id="h-summary-grid">
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🛣️</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-distance">—</div>
+                            <div class="ha-kpi-label">Distance</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">⚡</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-energy">—</div>
+                            <div class="ha-kpi-label">Energy Used</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">📊</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-efficiency">—</div>
+                            <div class="ha-kpi-label">Efficiency</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🏎️</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-maxspeed">—</div>
+                            <div class="ha-kpi-label">Max Speed</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">⏱️</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-duration">—</div>
+                            <div class="ha-kpi-label">Duration</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🔌</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-avgpower">—</div>
+                            <div class="ha-kpi-label">Avg Power</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">📈</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-avgspeed">—</div>
+                            <div class="ha-kpi-label">Avg Speed</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🎯</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-optimal-speed">—</div>
+                            <div class="ha-kpi-label">Optimal Speed</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">⚡</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-maxpower">—</div>
+                            <div class="ha-kpi-label">Peak Power</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">🔋</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-avgvoltage">—</div>
+                            <div class="ha-kpi-label">Avg Voltage</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">⛰️</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-elevation">—</div>
+                            <div class="ha-kpi-label">Elev. Gain</div>
+                        </div>
+                    </div>
+                    <div class="ha-kpi">
+                        <div class="ha-kpi-icon">📦</div>
+                        <div class="ha-kpi-body">
+                            <div class="ha-kpi-value" id="hs-records">—</div>
+                            <div class="ha-kpi-label">Records</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Time-Series Charts ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-timeseries" data-toc="Time Series">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="ts-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">📈</span> Time Series</h2>
+                        <span class="ha-sec-hint">Brush any chart to zoom all</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ts-reset-zoom"
+                            title="Reset zoom on all charts">↺ Reset Zoom</button>
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ts-save-img"
+                            title="Save speed chart as image">⬇ Save</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="ts-body">
+                    <!-- Metric toggles -->
+                    <div class="ha-metric-toggles" id="h-ts-toggles">
+                        <button class="ha-toggle active" data-chart="hc-speed">Speed</button>
+                        <button class="ha-toggle active" data-chart="hc-power">Power</button>
+                        <button class="ha-toggle active" data-chart="hc-voltage">Voltage/Current</button>
+                        <button class="ha-toggle active" data-chart="hc-throttle">Throttle</button>
+                        <button class="ha-toggle active" data-chart="hc-brake">Brake</button>
+                        <button class="ha-toggle active" data-chart="hc-imu">IMU</button>
+                    </div>
+                    <div class="ha-synced-stack" id="ha-synced-stack">
+                        <div class="ha-chart-card" id="wrap-hc-speed">
+                            <div class="ha-chart-label">Speed (km/h)</div>
+                            <div class="ha-chart-box ha-chart-primary" id="hc-speed"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-power">
+                            <div class="ha-chart-label">Power (W)</div>
+                            <div class="ha-chart-box" id="hc-power"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-voltage">
+                            <div class="ha-chart-label">Voltage (V) / Current (A)</div>
+                            <div class="ha-chart-box" id="hc-voltage"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-throttle">
+                            <div class="ha-chart-label">Throttle (%)</div>
+                            <div class="ha-chart-box" id="hc-throttle"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-brake">
+                            <div class="ha-chart-label">Brake (%)</div>
+                            <div class="ha-chart-box" id="hc-brake"></div>
+                        </div>
+                        <div class="ha-chart-card" id="wrap-hc-imu">
+                            <div class="ha-chart-label">IMU / Acceleration</div>
+                            <div class="ha-chart-box" id="hc-imu"></div>
+                        </div>
+                    </div>
+                    <!-- Sub-interval stats -->
+                    <div class="ha-subinterval-panel" id="ha-subinterval" style="display:none">
+                        <div class="ha-subinterval-head">
+                            <span class="ha-subinterval-title">📐 Selection Stats</span>
+                            <span class="ha-subinterval-range" id="ha-subinterval-range"></span>
+                            <button class="ha-btn ha-btn-ghost ha-btn-xs" id="h-subint-copy"
+                                title="Copy stats to clipboard">Copy</button>
+                        </div>
+                        <div class="ha-subinterval-grid" id="ha-subinterval-grid"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Energy ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-energy" data-toc="Energy">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="energy-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🔋</span> Energy</h2>
+                        <span class="ha-sec-hint">Consumption, efficiency & distribution</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-energy-save" title="Save energy chart">⬇
+                            Save</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="energy-body">
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Cumulative Energy (Wh)</div>
+                            <div class="ha-chart-box" id="hc-energy-cum"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Rolling Efficiency (km/kWh)</div>
+                            <div class="ha-chart-box" id="hc-efficiency"></div>
+                        </div>
+                    </div>
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Energy by Speed Bracket</div>
+                            <div class="ha-chart-box" id="hc-energy-bracket"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Power Distribution</div>
+                            <div class="ha-chart-box" id="hc-power-dist"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Efficiency Analytics ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-efficiency" data-toc="Efficiency">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="efficiency-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🍃</span> Efficiency Analytics</h2>
+                        <span class="ha-sec-hint">Deep dive into eco-driving metrics</span>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="efficiency-body">
+                    <!-- KPI Row for Efficiency -->
+                    <div class="ha-driver-top">
+                        <div class="ha-card ha-driver-score-card">
+                            <div class="ha-card-title">Eco-Score</div>
+                            <div class="ha-score-ring" id="h-eco-ring">
+                                <svg viewBox="0 0 120 120">
+                                    <circle class="ring-bg" cx="60" cy="60" r="50" />
+                                    <circle class="ring-fill" cx="60" cy="60" r="50" stroke-dasharray="314.16"
+                                        stroke-dashoffset="314.16" id="h-eco-arc" />
+                                </svg>
+                                <div class="ha-score-value" id="h-eco-val">—</div>
+                            </div>
+                            <div class="ha-driver-stats" id="h-eco-stats"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Efficiency vs. Speed Mapping</div>
+                            <span class="ha-card-hint">Optimal cruising speed window (km/kWh vs km/h)</span>
+                            <div class="ha-chart-box" id="hc-eff-speed-map"></div>
+                        </div>
+                    </div>
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Regenerative Braking Yield</div>
+                            <span class="ha-card-hint">Energy captured via regen (Wh) over time</span>
+                            <div class="ha-chart-box" id="hc-eff-regen"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Specific Energy Consumption (SEC)</div>
+                            <span class="ha-card-hint">Wh per km over time (lower is better)</span>
+                            <div class="ha-chart-box" id="hc-eff-sec"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Driver Behavior ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-driver" data-toc="Driver">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="driver-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🏎️</span> Driver Behavior</h2>
+                        <span class="ha-sec-hint">Smoothness, G-G diagram, input distributions</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-driver-copy" title="Copy driver stats">Copy
+                            Stats</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="driver-body">
+                    <div class="ha-driver-top">
+                        <div class="ha-card ha-driver-score-card">
+                            <div class="ha-card-title">Driving Smoothness</div>
+                            <div class="ha-score-ring" id="h-smoothness-ring">
+                                <svg viewBox="0 0 120 120">
+                                    <circle class="ring-bg" cx="60" cy="60" r="50" />
+                                    <circle class="ring-fill" cx="60" cy="60" r="50" stroke-dasharray="314.16"
+                                        stroke-dashoffset="314.16" id="h-ring-arc" />
+                                </svg>
+                                <div class="ha-score-value" id="h-smoothness-val">—</div>
+                            </div>
+                            <div class="ha-driver-stats" id="h-driver-stats"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">G-G Diagram</div>
+                            <div class="ha-chart-box ha-chart-tall" id="hc-accel-scatter"></div>
+                        </div>
+                    </div>
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Speed Histogram</div>
+                            <div class="ha-chart-box" id="hc-speed-hist"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Throttle Distribution</div>
+                            <div class="ha-chart-box" id="hc-throttle-dist"></div>
+                        </div>
+                    </div>
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Motion State</div>
+                            <div class="ha-chart-box" id="hc-motion-state"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Driver Mode</div>
+                            <div class="ha-chart-box" id="hc-driver-mode"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Statistics ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-stats" data-toc="Statistics">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="stats-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🧮</span> Statistics</h2>
+                        <span class="ha-sec-hint">Descriptive stats & correlation heatmap</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-stats-copy"
+                            title="Copy stats table as TSV">Copy Table</button>
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-stats-csv" title="Download stats as CSV">⬇
+                            CSV</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="stats-body">
+                    <div class="ha-card">
+                        <div class="ha-stats-table-wrap" id="h-desc-stats"></div>
+                    </div>
+                    <div class="ha-card" style="margin-top:12px">
+                        <div class="ha-card-title">Correlation Heatmap</div>
+                        <div class="ha-chart-box ha-chart-tall" id="hc-correlation"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Anomalies ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-anomalies" data-toc="Anomalies">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="anomaly-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">⚠️</span> Anomalies</h2>
+                        <span class="ha-anomaly-count-badge" id="ha-anomaly-count-badge" style="display:none"></span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-anomaly-export"
+                            title="Export anomaly list as CSV">⬇ Export</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="anomaly-body">
+                    <!-- Always-visible: summary banner + severity chips -->
+                    <div class="ha-anomaly-summary" id="ha-anomaly-summary"></div>
+
+                    <!-- Always-visible: Data Health KPI row -->
+                    <div class="ha-anomaly-kpi-row" id="ha-anomaly-kpi-row"></div>
+
+                    <!-- Toggle button -->
+                    <button class="ha-anomaly-expand-btn" id="ha-anomaly-expand-btn" style="display:none">
+                        <span class="ha-aeb-icon">📊</span>
+                        <span class="ha-aeb-label">Show Analysis</span>
+                        <span class="ha-aeb-arrow">▾</span>
+                    </button>
+
+                    <!-- Collapsible details panel (hidden by default) -->
+                    <div class="ha-anomaly-details" id="ha-anomaly-details">
+                        <!-- Row 1: Quality Score Trend + Anomaly Rate -->
+                        <div class="ha-chart-grid-2">
+                            <div class="ha-card">
+                                <div class="ha-card-title">Quality Score Trend</div>
+                                <span class="ha-card-hint">Per-record quality score from Convex</span>
+                                <div class="ha-chart-box" id="hc-quality-trend"></div>
+                            </div>
+                            <div class="ha-card">
+                                <div class="ha-card-title">Anomaly Rate Over Time</div>
+                                <span class="ha-card-hint">30-second rolling window anomaly %</span>
+                                <div class="ha-chart-box" id="hc-anomaly-rate"></div>
+                            </div>
+                        </div>
+
+                        <!-- Row 2: Full-width Outlier Timeline -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Outlier Timeline</div>
+                            <span class="ha-card-hint">Each dot = one flagged record, coloured by severity</span>
+                            <div class="ha-chart-box" id="hc-anomaly-timeline"></div>
+                        </div>
+
+                        <!-- Row 3: Field Breakdown bar + Motion-State Breakdown -->
+                        <div class="ha-chart-grid-2">
+                            <div class="ha-card">
+                                <div class="ha-card-title">Field Anomaly Breakdown</div>
+                                <span class="ha-card-hint">Which fields are most frequently flagged</span>
+                                <div class="ha-chart-box ha-chart-tall" id="hc-anomaly-radar"></div>
+                            </div>
+                            <div class="ha-card">
+                                <div class="ha-card-title">Anomalies by Motion State</div>
+                                <span class="ha-card-hint">When anomalies occur during each driving phase</span>
+                                <div class="ha-chart-box ha-chart-tall" id="hc-anomaly-motion"></div>
+                            </div>
+                        </div>
+
+                        <!-- Row 4: Voltage vs Current scatter -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Voltage × Current — Anomaly Map</div>
+                            <span class="ha-card-hint">Normal records in blue, anomalies coloured by severity</span>
+                            <div class="ha-chart-box ha-chart-tall" id="hc-anomaly-scatter"></div>
+                        </div>
+
+                        <!-- Row 5: Anomaly events log table -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Anomaly Events Log
+                                <span id="ha-events-count"
+                                    style="font-size:11px;color:rgba(255,255,255,0.35);margin-left:8px"></span>
+                            </div>
+                            <div class="ha-anomaly-table-wrap" id="ha-anomaly-events-table"></div>
+                        </div>
+                    </div><!-- /.ha-anomaly-details -->
+                </div>
+            </section>
+
+            <!-- ─── Regression ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-regression" data-toc="Regression">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="reg-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">📐</span> Regression</h2>
+                        <span class="ha-sec-hint">Linear fits with R², slope & intercept</span>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="reg-body">
+                    <div class="ha-chart-grid-2">
+                        <div class="ha-card">
+                            <div class="ha-card-title">Speed vs Efficiency</div>
+                            <div class="ha-chart-box ha-chart-tall" id="hc-reg-speed-eff"></div>
+                            <div class="ha-regression-info" id="ha-reg-info-1"></div>
+                        </div>
+                        <div class="ha-card">
+                            <div class="ha-card-title">Power vs Speed</div>
+                            <div class="ha-chart-box ha-chart-tall" id="hc-reg-power-speed"></div>
+                            <div class="ha-regression-info" id="ha-reg-info-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Segments ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-segments" data-toc="Segments">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="seg-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🔀</span> Segments</h2>
+                        <span class="ha-sec-hint">Auto-detected by motion state transitions</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-seg-export" title="Export segments as CSV">⬇
+                            Export</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="seg-body">
+                    <div class="ha-card">
+                        <div class="ha-stats-table-wrap" id="ha-segments-table"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── GPS Map ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-map" data-toc="Route Map">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="map-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">🗺️</span> Route Map</h2>
+                        <span class="ha-sec-hint">Speed-colored GPS overlay</span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-map-fit" title="Fit map to route">⊡ Fit
+                            Route</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="map-body">
+                    <div class="ha-card ha-card-flush">
+                        <div class="ha-map-container" id="h-map"></div>
+                    </div>
+                    <div class="ha-card" style="margin-top:12px">
+                        <div class="ha-card-title">Altitude Profile</div>
+                        <div class="ha-chart-box" id="hc-altitude"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Raw Data ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-table" data-toc="Raw Data">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="table-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">📋</span> Raw Data</h2>
+                        <span class="ha-table-count" id="h-table-count"></span>
+                    </div>
+                    <div class="ha-sec-actions">
+                        <input type="text" class="ha-input ha-input-sm" id="h-table-filter" placeholder="Filter rows…"
+                            autocomplete="off" />
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-table-csv"
+                            title="Download filtered data as CSV">⬇ CSV</button>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="table-body">
+                    <div class="ha-card ha-card-flush">
+                        <div class="ha-datatable-scroll" id="h-datatable"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Compare ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-compare" data-toc="Compare">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="compare-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">⚖️</span> Compare</h2>
+                        <span class="ha-sec-hint">Side-by-side session comparison</span>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="compare-body">
+                    <div class="ha-compare-toolbar">
+                        <select class="ha-select" id="h-compare-session" style="min-width:240px">
+                            <option value="">Select session to compare…</option>
+                        </select>
+                        <button class="ha-btn ha-btn-primary ha-btn-sm" id="h-compare-go">Compare ↗</button>
+                        <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-compare-clear" style="display:none">✕
+                            Clear</button>
+                        <span id="h-compare-loading" style="display:none;font-size:12px;color:var(--ha-text3)">⏳
+                            Loading…</span>
+                    </div>
+
+                    <!-- Results root — hidden until compare runs -->
+                    <div id="h-compare-results" style="display:none">
+                        <!-- Scorecard strip -->
+                        <div class="hcmp-scorecard" id="hcmp-scorecard"></div>
+
+                        <!-- Metric comparison table with visual bars -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Metric Breakdown
+                                <span style="font-size:10px;color:var(--ha-text3);margin-left:8px;font-weight:400">green
+                                    = better</span>
+                            </div>
+                            <div class="hcmp-metric-table" id="hcmp-metric-table"></div>
+                        </div>
+
+                        <!-- Two charts side by side: Radar + Time overlay -->
+                        <div class="ha-chart-grid-2">
+                            <div class="ha-card">
+                                <div class="ha-card-title">Performance Radar</div>
+                                <span class="ha-card-hint">Normalised across 7 key metrics (higher = better)</span>
+                                <div class="ha-chart-box ha-chart-tall" id="hcmp-radar"></div>
+                            </div>
+                            <div class="ha-card">
+                                <div class="ha-card-title">Speed Overlay</div>
+                                <span class="ha-card-hint">Speed profile — both sessions normalised to percentage of
+                                    session duration</span>
+                                <div class="ha-chart-box ha-chart-tall" id="hcmp-speed-overlay"></div>
+                            </div>
+                        </div>
+
+                        <!-- Power overlay full-width -->
+                        <div class="ha-card">
+                            <div class="ha-card-title">Power Overlay</div>
+                            <span class="ha-card-hint">Power (W) over normalised session time — blue = current, purple =
+                                compared</span>
+                            <div class="ha-chart-box" id="hcmp-power-overlay"></div>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ─── Export ─── -->
+            <section class="ha-section ha-collapsible" id="ha-sec-export" data-toc="Export">
+                <div class="ha-sec-header">
+                    <div class="ha-sec-header-left">
+                        <button class="ha-collapse-btn" data-target="export-body" title="Collapse">▾</button>
+                        <h2 class="ha-section-title"><span class="ha-section-icon">💾</span> Export</h2>
+                        <span class="ha-sec-hint">Download in multiple formats</span>
+                    </div>
+                </div>
+                <div class="ha-sec-body" id="export-body">
+                    <div class="ha-export-grid">
+                        <button class="ha-export-btn" data-format="csv"><span class="ha-export-icon">📄</span><span
+                                class="ha-export-name">CSV</span><span
+                                class="ha-export-desc">Spreadsheets</span></button>
+                        <button class="ha-export-btn" data-format="json"><span class="ha-export-icon">{ }</span><span
+                                class="ha-export-name">JSON</span><span
+                                class="ha-export-desc">Programmatic</span></button>
+                        <button class="ha-export-btn" data-format="clipboard"><span
+                                class="ha-export-icon">📋</span><span class="ha-export-name">Clipboard</span><span
+                                class="ha-export-desc">TSV copy</span></button>
+                        <button class="ha-export-btn" data-format="matlab"><span class="ha-export-icon">🧪</span><span
+                                class="ha-export-name">MATLAB</span><span class="ha-export-desc">.m file</span></button>
+                        <button class="ha-export-btn" data-format="python"><span class="ha-export-icon">🐍</span><span
+                                class="ha-export-name">Python</span><span class="ha-export-desc">Pandas
+                                script</span></button>
+                    </div>
+                </div>
+            </section>
+
+        </div><!-- ha-view-analysis -->
+
+        <!-- ── CUSTOM ANALYSIS VIEW ── -->
+        <div class="ha-view" id="h-view-custom-analysis">
+            <div class="ha-custom-header">
+                <h2>✨ Custom Analysis</h2>
+                <p>Build custom visualizations using historical session data.</p>
+                <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ca-back" style="margin-top:12px;">← Back to Standard
+                    Analysis</button>
+            </div>
+
+            <div class="ha-ca-lab" id="h-ca-lab">
+                <div class="ha-card ha-ca-lab-card">
+                    <div class="ha-ca-lab-header">
+                        <h3
+                            style="font-size: 16px; margin-bottom: 4px; font-weight: 700; color: var(--ha-text); display: flex; align-items: center; gap: 8px;">
+                            🧪 Variables & Data Lab</h3>
+                        <p style="font-size: 13px; color: var(--ha-text2);">Process specific data points instantly
+                            without code. Created variables are injected into your Chart Y-Axes options.</p>
+                    </div>
+
+                    <div class="ha-ca-lab-grid">
+                        <!-- Derived Variable Builder -->
+                        <div class="ha-ca-lab-section">
+                            <div
+                                style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--ha-accent); margin-bottom: 8px;">
+                                Create Derived Variable</div>
+                            <div class="ha-ca-lab-builder" style="flex-wrap: wrap;">
+                                <input type="text" id="h-ca-lab-var-name" class="ha-input ha-ca-select"
+                                    placeholder="New Var Name" style="width: 140px;">
+                                <select class="ha-select ha-ca-select" id="h-ca-lab-var-type" style="width: 130px;">
+                                    <option value="math">Basic Math</option>
+                                    <option value="func">Math Function (f(x))</option>
+                                    <option value="calculus">Calculus / Advanced</option>
+                                    <option value="smooth">Smoothing (SMA)</option>
+                                </select>
+                            </div>
+
+                            <!-- Math Group -->
+                            <div class="ha-ca-lab-builder" id="h-ca-lab-grp-math" style="display:flex;">
+                                <select class="ha-select ha-ca-select h-ca-vars-dropdown" id="h-ca-lab-var-math-a"
+                                    style="flex:1;"></select>
+                                <select class="ha-select ha-ca-select ha-ca-op" id="h-ca-lab-var-math-op"
+                                    style="flex: 0 0 50px;">
+                                    <option value="+">+</option>
+                                    <option value="-">-</option>
+                                    <option value="*">×</option>
+                                    <option value="/">÷</option>
+                                    <option value="^">^</option>
+                                </select>
+                                <select class="ha-select ha-ca-select h-ca-vars-dropdown" id="h-ca-lab-var-math-b"
+                                    style="flex:1;"></select>
+                            </div>
+
+                            <!-- Function Group -->
+                            <div class="ha-ca-lab-builder" id="h-ca-lab-grp-func" style="display:none;">
+                                <select class="ha-select ha-ca-select ha-ca-op" id="h-ca-lab-var-func-op"
+                                    style="width: 120px;">
+                                    <option value="abs">Absolute (|x|)</option>
+                                    <option value="sqrt">Square Root (√x)</option>
+                                    <option value="sq">Square (x²)</option>
+                                    <option value="log">Logarithm (ln x)</option>
+                                </select>
+                                <select class="ha-select ha-ca-select h-ca-vars-dropdown" id="h-ca-lab-var-func-a"
+                                    style="flex:1;"></select>
+                            </div>
+
+                            <!-- Calculus Group -->
+                            <div class="ha-ca-lab-builder" id="h-ca-lab-grp-calculus" style="display:none;">
+                                <select class="ha-select ha-ca-select ha-ca-op" id="h-ca-lab-var-calc-op"
+                                    style="width: 150px;">
+                                    <option value="deriv">Derivative (rate/sec)</option>
+                                    <option value="integ">Cumulative Area (∑)</option>
+                                </select>
+                                <select class="ha-select ha-ca-select h-ca-vars-dropdown" id="h-ca-lab-var-calc-a"
+                                    style="flex:1;"></select>
+                            </div>
+
+                            <!-- Smooth Group -->
+                            <div class="ha-ca-lab-builder" id="h-ca-lab-grp-smooth" style="display:none;">
+                                <select class="ha-select ha-ca-select ha-ca-op" id="h-ca-lab-var-smooth-op"
+                                    style="width: 80px;">
+                                    <option value="sma">SMA</option>
+                                </select>
+                                <input type="number" id="h-ca-lab-var-smooth-w" class="ha-input ha-ca-select"
+                                    placeholder="Pts" value="10" style="width: 60px;" min="2">
+                                <select class="ha-select ha-ca-select h-ca-vars-dropdown" id="h-ca-lab-var-smooth-a"
+                                    style="flex:1;"></select>
+                            </div>
+
+                            <div style="margin-top: 4px;">
+                                <button class="ha-btn ha-btn-primary ha-btn-sm" id="h-ca-lab-create-var"
+                                    style="padding: 0 24px;">Add Variable</button>
+                            </div>
+                            <div class="ha-ca-lab-pills" id="h-ca-lab-active-vars" style="margin-top: 12px;"></div>
+                        </div>
+
+                        <!-- Instant Numerical Analysis -->
+                        <div class="ha-ca-lab-section"
+                            style="border-left: 1px solid rgba(255,255,255,0.05); padding-left: 20px;">
+                            <div
+                                style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--ha-accent); margin-bottom: 8px;">
+                                Instant Numerical Analysis</div>
+
+                            <div class="ha-ca-lab-builder" style="flex-wrap: wrap;">
+                                <select class="ha-select ha-ca-select" id="h-ca-lab-stat-mode" style="width: 140px;">
+                                    <option value="single">Single Variable</option>
+                                    <option value="rel">Relationship (2 Vars)</option>
+                                </select>
+                            </div>
+
+                            <!-- Single mode -->
+                            <div class="ha-ca-lab-builder" id="h-ca-lab-stat-single-grp" style="display:flex;">
+                                <select class="ha-select ha-ca-select" id="h-ca-lab-stat-op" style="width: 140px;">
+                                    <option value="max">Maximum</option>
+                                    <option value="min">Minimum</option>
+                                    <option value="mean">Average (Mean)</option>
+                                    <option value="median">Median</option>
+                                    <option value="stddev">Std Deviation</option>
+                                    <option value="variance">Variance</option>
+                                    <option value="skewness">Skewness</option>
+                                    <option value="p90">90th Percentile</option>
+                                    <option value="integral">Integral (Area)</option>
+                                </select>
+                                <select class="ha-select ha-ca-select h-ca-vars-dropdown" id="h-ca-lab-stat-var"
+                                    style="flex:1;"></select>
+                            </div>
+
+                            <!-- Relationship mode -->
+                            <div class="ha-ca-lab-builder" id="h-ca-lab-stat-rel-grp"
+                                style="display:none; flex-wrap:wrap; gap:4px;">
+                                <select class="ha-select ha-ca-select" id="h-ca-lab-stat-rel-op"
+                                    style="width: 140px; margin-bottom:4px;">
+                                    <option value="pearson">Pearson Corr (r)</option>
+                                    <option value="linreg">Linear Reg (R²)</option>
+                                </select>
+                                <div style="display:flex; gap:8px; width:100%; align-items:center;">
+                                    <select class="ha-select ha-ca-select h-ca-vars-dropdown" id="h-ca-lab-stat-var1"
+                                        style="flex:1;"></select>
+                                    <span style="color:var(--ha-text2);">vs</span>
+                                    <select class="ha-select ha-ca-select h-ca-vars-dropdown" id="h-ca-lab-stat-var2"
+                                        style="flex:1;"></select>
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 4px;">
+                                <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ca-lab-compute-stat"
+                                    style="padding: 0 24px;">Calculate</button>
+                            </div>
+                            <div class="ha-ca-lab-pills" id="h-ca-lab-stat-results" style="margin-top: 12px; gap:6px;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ha-ca-layout">
+                <!-- Left Sidebar: Controls -->
+                <div class="ha-ca-sidebar">
+                    <div class="ha-ca-group">
+                        <div class="ha-ca-group-title">Data Source</div>
+
+                        <div class="ha-ca-form-group">
+                            <label class="ha-ca-label">Chart Type</label>
+                            <select class="ha-select ha-ca-select" id="h-ca-type">
+                                <option value="scatter">Scatter Plot</option>
+                                <option value="line">Line Chart</option>
+                                <option value="bar">Bar Chart</option>
+                            </select>
+                        </div>
+
+                        <div class="ha-ca-form-group">
+                            <label class="ha-ca-label">X Axis</label>
+                            <select class="ha-select ha-ca-select" id="h-ca-x-axis"></select>
+                        </div>
+
+                        <div class="ha-ca-form-group">
+                            <label class="ha-ca-label">Y Axes</label>
+                            <div id="h-ca-y-axes-container" class="ha-ca-filters">
+                                <!-- Dynamic Selects will go here -->
+                            </div>
+                            <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ca-add-y-axis"
+                                style="width:100%; margin-top:6px; justify-content:center;">+ Add Metric</button>
+                        </div>
+                    </div>
+
+                    <div class="ha-ca-accordion">
+                        <button class="ha-ca-accordion-btn">Filters & Highlights</button>
+                        <div class="ha-ca-accordion-content">
+                            <div class="ha-ca-form-group">
+                                <label class="ha-ca-label">Data Filters</label>
+                                <div id="h-ca-filters" class="ha-ca-filters"></div>
+                                <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ca-add-filter"
+                                    style="width:100%; margin-top:6px; justify-content:center;">+ Add Filter</button>
+                            </div>
+
+                            <div class="ha-ca-form-group" style="margin-top: 16px;">
+                                <label class="ha-ca-label">Highlight Data Points</label>
+                                <div id="h-ca-highlights" class="ha-ca-filters"></div>
+                                <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ca-add-highlight"
+                                    style="width:100%; margin-top:6px; justify-content:center;">+ Add Highlight</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ha-ca-accordion">
+                        <button class="ha-ca-accordion-btn">Transformations</button>
+                        <div class="ha-ca-accordion-content">
+                            <div class="ha-ca-form-group">
+                                <label class="ha-ca-label">Data Smoothing (Window)</label>
+                                <select class="ha-select ha-ca-select" id="h-ca-smoothing">
+                                    <option value="none">None</option>
+                                    <option value="sma">Simple Moving Average (SMA)</option>
+                                </select>
+                            </div>
+                            <div class="ha-ca-form-group" id="h-ca-smooth-window-group" style="display:none;">
+                                <label class="ha-ca-label">Window Size</label>
+                                <input type="number" class="ha-input ha-ca-select" id="h-ca-smooth-window" value="10"
+                                    min="2" max="1000">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ha-ca-accordion">
+                        <button class="ha-ca-accordion-btn">Custom Algorithm <span
+                                class="ha-badge-new">PRO</span></button>
+                        <div class="ha-ca-accordion-content">
+                            <div class="ha-ca-form-group" style="margin-bottom:8px;">
+                                <select class="ha-select ha-ca-select" id="h-ca-algo-snippets"
+                                    style="font-size: 11px; padding: 4px 8px;">
+                                    <option value="">-- Snippets Library --</option>
+                                    <optgroup label="Basic Math">
+                                        <option value="power / speed">Efficiency (W per km/h)</option>
+                                        <option value="multi-return">Return Multiple Metrics (Object)</option>
+                                        <option value="kinetic">Estimated Kinetic Energy (J)</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <p class="ha-ca-hint">Write JS to generate custom Y-values. <code>r</code> is the row
+                                payload.
+                            </p>
+                            <div class="ha-ca-form-group">
+                                <textarea class="ha-ca-textarea" id="h-ca-algo" rows="4"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ha-ca-actions" style="margin-top:auto;">
+                        <button class="ha-btn ha-btn-primary" id="h-ca-generate">Generate Chart</button>
+                        <button class="ha-btn ha-btn-ghost" id="h-ca-clear">Clear</button>
+                    </div>
+                </div>
+
+                <!-- Right Area: Results -->
+                <div class="ha-ca-main">
+                    <!-- Actions -->
+                    <div class="ha-ca-toolbar">
+                        <div class="ha-ca-toolbar-left">
+                            <span class="ha-ca-status" id="h-ca-status">Ready</span>
+                        </div>
+                        <div class="ha-ca-toolbar-right">
+                            <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ca-export-png">🖼️ Save PNG</button>
+                            <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ca-export-csv">📄 Export CSV</button>
+                        </div>
+                    </div>
+
+                    <!-- Chart -->
+                    <div class="ha-card ha-ca-chart-card">
+                        <div class="ha-chart-box ha-chart-tall" id="hc-custom"></div>
+                    </div>
+
+                    <!-- Stats summary -->
+                    <div class="ha-card ha-ca-stats-card" style="margin-top:12px;">
+                        <div class="ha-card-title">Analysis Summary</div>
+                        <div class="ha-ca-stats-grid" id="h-ca-stats-grid">
+                            <!-- Populated dynamically -->
+                            <div class="ha-ca-stat-empty">Generate a chart to view statistics.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced ML Section (Distinct from basic Lab) -->
+            <div class="ha-ml-engine-box">
+                <div class="ha-ml-engine-header">
+                    <span class="ha-ml-engine-title">🔬 Advanced Data Science & Simulation</span>
+                    <span class="ha-badge-new" style="background:var(--ha-purple); color:#fff;">PRO</span>
+                </div>
+
+                <div class="ha-ml-engine-grid" style="grid-template-columns: 240px 1fr 200px 200px;">
+                    <!-- Left: Control Panel -->
+                    <div class="ha-ml-panel">
+                        <label class="ha-ml-label" style="margin-bottom:12px; display:block;">SIMULATION MODEL</label>
+                        <select class="ha-select ha-ml-select" id="h-ml-model-select" style="margin-bottom: 20px;">
+                            <option value="">-- Select Model --</option>
+                            <option value="physics-digital-twin"
+                                title="Digital twin model that calculates dynamic load forces (aero, roll, slope) against raw telemetry.">
+                                Physics Digital Twin</option>
+                            <option value="optimal-astar"
+                                title="Simulates Pareto-optimal speed trajectory for optimal energy consumption using A* graph search.">
+                                A* Graph Optimizer</option>
+                            <option value="random-forest"
+                                title="Trains a Decision Tree Ensemble to predict a target variable taking complex non-linear combinations into account.">
+                                Random Forest Ensemble (ML)</option>
+                            <option value="gb-regressor"
+                                title="Sequentially trains weaker decision trees to minimize residual errors. Extremely powerful for telemetry.">
+                                Gradient Boosting Regressor</option>
+                            <option value="lstm-rnn"
+                                title="Deep Artificial Neural Network (MLP/RNN) that backpropagates time-series gradients to predict advanced variables.">
+                                Deep Neural Network</option>
+                            <option value="poly-regression"
+                                title="Fits an N-degree polynomial curve explicitly mathematically allowing for robust and continuous extrapolation logic.">
+                                Polynomial Extrapolator</option>
+                            <option value="automatic-lap-detection"
+                                title="Uses spatial boundaries and heuristics to automatically extract distinct laps from continuous telemetry.">
+                                Automatic Lap Detection</option>
+                        </select>
+
+                        <div id="h-ml-hyperparams"
+                            style="display:none; flex-direction:column; gap:8px; margin-bottom: 16px;">
+                            <div
+                                style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <label class="ha-ml-label">MODEL PARAMETERS</label>
+                                <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ml-autotune"
+                                    title="Automatically estimate robust hyperparameters for this model."
+                                    style="padding:2px 6px; font-size:10px; height:auto; color:var(--ha-accent); border:1px solid rgba(0,212,190,0.3); background:var(--ha-bg2); display:none;">AutoTune
+                                    ⚡</button>
+                            </div>
+
+                            <div class="ha-ml-param-row" id="p-ml-target" style="display:none;"
+                                title="Select the specific telemetry variable you want the AI model to learn and predict.">
+                                <span class="ha-ml-param-lbl">Predict Target</span>
+                                <select class="ha-select ha-ml-input" id="h-ml-target-var"
+                                    style="width:110px; padding:2px 4px; font-size:11px;">
+                                    <option value="power_w">Power (W)</option>
+                                    <option value="speed_kmh">Speed (km/h)</option>
+                                    <option value="efficiency">Efficiency</option>
+                                    <option value="voltage_v">Voltage (V)</option>
+                                    <option value="throttle_pct">Throttle (%)</option>
+                                    <option value="g_force">G-Force</option>
+                                </select>
+                            </div>
+
+                            <div class="ha-ml-param-row" id="p-ml-features"
+                                style="display:none; align-items:flex-start;"
+                                title="Multi-select independent arrays used to backpropagate/split against your target.">
+                                <span class="ha-ml-param-lbl" style="margin-top:4px;">Input Features</span>
+                                <div id="h-ml-feature-vars-container" class="ha-ml-input"
+                                    style="width:130px; max-height:80px; overflow-y:auto; background:rgba(0,0,0,0.2); border:1px solid var(--ha-border); border-radius:4px; padding:4px;">
+                                    <label
+                                        style="display:flex; align-items:center; gap:6px; font-size:10px; margin-bottom:4px; cursor:pointer;"><input
+                                            type="checkbox" value="power_w" class="ha-ml-feature-cb" /> Power
+                                        (W)</label>
+                                    <label
+                                        style="display:flex; align-items:center; gap:6px; font-size:10px; margin-bottom:4px; cursor:pointer;"><input
+                                            type="checkbox" value="speed_kmh" class="ha-ml-feature-cb" checked /> Speed
+                                        (km/h)</label>
+                                    <label
+                                        style="display:flex; align-items:center; gap:6px; font-size:10px; margin-bottom:4px; cursor:pointer;"><input
+                                            type="checkbox" value="voltage_v" class="ha-ml-feature-cb" /> Voltage
+                                        (V)</label>
+                                    <label
+                                        style="display:flex; align-items:center; gap:6px; font-size:10px; margin-bottom:4px; cursor:pointer;"><input
+                                            type="checkbox" value="current_a" class="ha-ml-feature-cb" /> Current
+                                        (A)</label>
+                                    <label
+                                        style="display:flex; align-items:center; gap:6px; font-size:10px; margin-bottom:4px; cursor:pointer;"><input
+                                            type="checkbox" value="efficiency" class="ha-ml-feature-cb" />
+                                        Efficiency</label>
+                                    <label
+                                        style="display:flex; align-items:center; gap:6px; font-size:10px; margin-bottom:4px; cursor:pointer;"><input
+                                            type="checkbox" value="throttle_pct" class="ha-ml-feature-cb" /> Throttle
+                                        (%)</label>
+                                    <label
+                                        style="display:flex; align-items:center; gap:6px; font-size:10px; margin-bottom:4px; cursor:pointer;"><input
+                                            type="checkbox" value="g_force" class="ha-ml-feature-cb" /> G-Force</label>
+                                    <label
+                                        style="display:flex; align-items:center; gap:6px; font-size:10px; cursor:pointer;"><input
+                                            type="checkbox" value="distance_m" class="ha-ml-feature-cb" /> Distance
+                                        (m)</label>
+                                </div>
+                            </div>
+
+                            <div class="ha-ml-param-row" id="p-ml-lr" style="display:none;"
+                                title="Learning rate determines the step size for gradient descent optimization.">
+                                <span class="ha-ml-param-lbl">Learning Rate</span>
+                                <input type="number" class="ha-input ha-ml-input" id="h-ml-lr" value="0.01"
+                                    step="0.01" />
+                            </div>
+
+                            <div class="ha-ml-param-row" id="p-ml-epochs" style="display:none;"
+                                title="Number of complete passes through the training dataset.">
+                                <span class="ha-ml-param-lbl">Epochs</span>
+                                <input type="number" class="ha-input ha-ml-input" id="h-ml-epochs" value="100" />
+                            </div>
+
+                            <div class="ha-ml-param-row" id="p-ml-trees" style="display:none;"
+                                title="Number of decision trees to bag/boost inside the ensemble forest.">
+                                <span class="ha-ml-param-lbl">Target Trees</span>
+                                <input type="number" class="ha-input ha-ml-input" id="h-ml-trees" value="10" />
+                            </div>
+
+                            <div class="ha-ml-param-row" id="p-ml-depth" style="display:none;"
+                                title="Maximum recursive depth split limit per tree to prevent overfitting.">
+                                <span class="ha-ml-param-lbl">Max Depth</span>
+                                <input type="number" class="ha-input ha-ml-input" id="h-ml-depth" value="5" />
+                            </div>
+
+                            <div class="ha-ml-param-row" id="p-ml-degree" style="display:none;"
+                                title="Polynomial degree (1=Linear, 2=Quadratic, 3=Cubic) for curve fitting.">
+                                <span class="ha-ml-param-lbl">Features Poly Degree</span>
+                                <input type="number" class="ha-input ha-ml-input" id="h-ml-degree" value="3" />
+                            </div>
+
+                            <div class="ha-ml-param-row" id="p-ml-window" style="display:none;"
+                                title="Data horizon: number of trailing historical samples to provide to the model for training. Limits computation cost and forces adaptability.">
+                                <span class="ha-ml-param-lbl">Training Window (N)</span>
+                                <input type="number" class="ha-input ha-ml-input" id="h-ml-window" value="1000" />
+                            </div>
+
+                            <div class="ha-ml-param-row" id="p-ml-extrap"
+                                style="display:flex; justify-content:space-between; margin-top: 4px;"
+                                title="Allow the model to forecast data beyond the current timeline (Extrapolation).">
+                                <span class="ha-ml-param-lbl">Next Lap Forecast</span>
+                                <input type="checkbox" id="h-ml-extrapolate" checked />
+                            </div>
+                        </div>
+
+                        <button class="ha-btn ha-btn-primary ha-ml-btn-run" id="h-ml-run">Initialize Model</button>
+                    </div>
+
+                    <!-- Middle: Terminal / Formula Output -->
+                    <div class="ha-ml-panel ha-ml-terminal">
+                        <div class="ha-ml-terminal-header">
+                            <div class="ha-ml-dot" style="background:var(--ha-red);"></div>
+                            <div class="ha-ml-dot" style="background:var(--ha-amber);"></div>
+                            <div class="ha-ml-dot" style="background:var(--ha-green);"></div>
+                            <span class="ha-ml-terminal-title">Model Architecture //</span>
+                        </div>
+                        <div class="ha-ml-terminal-body" id="h-ml-formula-view">
+                            <span style="color:var(--ha-text3);">Awaiting model selection...</span>
+                        </div>
+                    </div>
+
+                    <!-- Right: Execution Progress & Stats -->
+                    <div class="ha-ml-panel">
+                        <label class="ha-ml-label" style="display:block; margin-bottom:12px;">EXECUTION METRICS</label>
+                        <div class="ha-ml-progress-box">
+                            <div class="ha-ml-progress-track">
+                                <div class="ha-ml-progress-fill" id="h-ml-progress-bar"></div>
+                            </div>
+                            <div class="ha-ml-progress-text" id="h-ml-status-text">OFFLINE</div>
+                        </div>
+
+                        <div class="ha-ml-stat-row" style="margin-top:20px;"
+                            title="Total individual vectors processed by the background compute thread.">
+                            <span class="ha-ml-stat-lbl">Processed Vectors</span>
+                            <span class="ha-ml-stat-val" id="h-ml-stat-nodes">--</span>
+                        </div>
+                        <div class="ha-ml-stat-row" title="Hardware instruction execution length spanning gradients.">
+                            <span class="ha-ml-stat-lbl">Compute Time</span>
+                            <span class="ha-ml-stat-val" id="h-ml-stat-time">-- ms</span>
+                        </div>
+                        <div class="ha-ml-stat-row"
+                            title="Mathematical internal tensor depth structure dimensionality.">
+                            <span class="ha-ml-stat-lbl">Feature Dims (N)</span>
+                            <span class="ha-ml-stat-val" id="h-ml-stat-dim" style="color:var(--ha-amber);">--</span>
+                        </div>
+                    </div>
+
+                    <!-- Far Right: Model Diagnostics -->
+                    <div class="ha-ml-panel">
+                        <label class="ha-ml-label" style="display:block; margin-bottom:12px;">MODEL DIAGNOSTICS</label>
+
+                        <div class="ha-ml-stat-row"
+                            title="Coefficient of Determination. 1.0 indicates perfect model mapping/variance coverage.">
+                            <span class="ha-ml-stat-lbl">R² Score</span>
+                            <span class="ha-ml-stat-val" id="h-ml-out-r2" style="color:var(--ha-green);">--</span>
+                        </div>
+                        <div class="ha-ml-stat-row"
+                            title="Mean Squared Error. Tracks global variance from the pseudo-residuals.">
+                            <span class="ha-ml-stat-lbl">MSE (L2 Loss)</span>
+                            <span class="ha-ml-stat-val" id="h-ml-out-loss" style="color:var(--ha-red);">--</span>
+                        </div>
+                        <div class="ha-ml-stat-row"
+                            title="Mean Absolute Error across validation set targets compared against actual telemetry.">
+                            <span class="ha-ml-stat-lbl">MAE (L1 Err)</span>
+                            <span class="ha-ml-stat-val" id="h-ml-out-mae" style="color:var(--ha-purple);">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom: Modular Outputs Area (Chart + Text) -->
+                <div class="ha-ml-outputs-area" style="position:relative;">
+                    <div class="ha-ml-chart-container" id="h-ml-chart-wrapper">
+                        <div class="ha-chart-box ha-chart-tall" id="hc-ml-engine-chart"></div>
+                    </div>
+                    <div class="ha-ml-text-container" id="h-ml-text-wrapper"
+                        style="display:none; padding: 20px; background: rgba(0,0,0,0.2); border-top: 1px solid rgba(255,255,255,0.05); margin-top: 10px;">
+                        <h3
+                            style="color:var(--ha-text); margin-bottom: 10px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                            <span style="color:var(--ha-purple);">❯</span> Non-Graph Analysis Output
+                        </h3>
+                        <div id="h-ml-text-content"
+                            style="font-family: var(--ha-mono); color: var(--ha-text2); font-size: 13px; white-space: pre-wrap; max-height: 250px; overflow-y: auto; line-height: 1.5;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Floating TOC -->
+    <nav class="ha-toc" id="ha-toc">
+        <div class="ha-toc-toggle" id="ha-toc-toggle"><span class="ha-toc-icon">☰</span></div>
+        <div class="ha-toc-list" id="ha-toc-list"></div>
+    </nav>
+
+    <!-- Mobile bottom nav -->
+    <nav class="ha-mobile-nav" id="ha-mobile-nav">
+        <button class="ha-mob-btn" data-scroll="ha-sec-overview" title="Overview">📊</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-timeseries" title="Charts">📈</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-energy" title="Energy">🔋</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-driver" title="Driver">🏎️</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-stats" title="Stats">🧮</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-map" title="Map">🗺️</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-compare" title="Compare">⚖️</button>
+        <button class="ha-mob-btn" data-scroll="ha-sec-export" title="Export">💾</button>
+    </nav>
+
+    <!-- Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/convex@1.17.4/dist/browser.bundle.js"></script>
+    <script src="lib/convex-bridge.js"></script>
+    <script src="auth.js"></script>
+    <script src="auth-ui.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+    <script src="historical-engine.js"></script>
+    <script src="historical.js"></script>
+</body>
+
+</html>

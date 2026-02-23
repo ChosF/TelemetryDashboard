@@ -4,7 +4,7 @@
    - User profile management
 */
 
-(function() {
+(function () {
   "use strict";
 
   let convexClient = null;
@@ -76,7 +76,7 @@
       if (window.ConvexBridge && window.ConvexBridge.isConnected()) {
         console.log('✅ Using existing ConvexBridge client for auth');
         convexClient = window.ConvexBridge._getClient?.() || null;
-        
+
         // If ConvexBridge doesn't expose the client, create our own
         if (!convexClient) {
           convexClient = new convex.ConvexClient(convexUrl);
@@ -137,7 +137,7 @@
       { token },
       (profile) => {
         currentProfile = profile;
-        
+
         // Dispatch auth state change event
         window.dispatchEvent(new CustomEvent('auth-state-changed', {
           detail: { user: currentUser, profile: currentProfile }
@@ -216,8 +216,9 @@
       // Map form values to schema-compatible roles
       // Form uses "internal_user" but schema expects "internal"
       const isInternalRequest = requestedRole === 'internal_user' || requestedRole === USER_ROLES.INTERNAL;
-      const normalizedRole = isInternalRequest ? 'external' : (requestedRole === 'external' ? 'external' : 'guest');
-      
+      const isExternalRequest = requestedRole === 'external_user' || requestedRole === 'external' || requestedRole === USER_ROLES.EXTERNAL;
+      const normalizedRole = isInternalRequest ? 'external' : (isExternalRequest ? 'external' : 'guest');
+
       await convexClient.mutation('users:upsertProfile', {
         userId: result.userId,  // Pass userId directly from signIn result
         email,
@@ -234,10 +235,10 @@
         detail: { user: currentUser, profile: currentProfile }
       }));
 
-      return { 
-        success: true, 
-        data: result, 
-        needsApproval: isInternalRequest 
+      return {
+        success: true,
+        data: result,
+        needsApproval: isInternalRequest
       };
     } catch (error) {
       console.error('❌ Sign up error:', error);
@@ -310,7 +311,7 @@
     } catch (error) {
       console.log('Sign out action error (may be expected):', error.message);
     }
-    
+
     // Clear local state
     currentUser = null;
     currentProfile = null;
@@ -366,6 +367,25 @@
     const role = getUserRole();
     const permissions = ROLE_PERMISSIONS[role];
     return permissions?.[permission];
+  }
+
+  /**
+   * Get full permission object for current user role
+   */
+  async function getPermissions() {
+    // Historical page can call this before profile is hydrated.
+    // Try to load it from stored token first so valid users are not treated as guests.
+    if (!currentProfile && convexClient && getAuthToken()) {
+      try {
+        await loadUserProfile();
+      } catch (error) {
+        console.warn('Could not refresh profile for permissions check:', error);
+      }
+    }
+
+    const role = getUserRole();
+    const permissions = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS[USER_ROLES.GUEST];
+    return { ...permissions, role };
   }
 
   /**
@@ -504,6 +524,7 @@
     getUserRole,
     hasPermission,
     getPermissionValue,
+    getPermissions,
     isAuthenticated,
     needsApproval,
     getPendingUsers,

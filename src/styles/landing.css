@@ -1,0 +1,430 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════
+   EcoVolt CCM — Grid System Design Language
+   Swiss-inspired, data-driven, precision engineering aesthetic
+   ═══════════════════════════════════════════════════════════ */
+
+/* Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+/* EcoVolt Brand Colors */
+@theme {
+    --color-ecovolt-orange: #FF6B35;
+    --color-ecovolt-orange-light: #FF8F5C;
+    --color-ecovolt-orange-dark: #E55A2B;
+    --color-ecovolt-ember: #FF4500;
+    --color-ecovolt-sunset: #FF7849;
+
+    --color-ecovolt-black: #0A0A0A;
+    --color-ecovolt-charcoal: #141414;
+    --color-ecovolt-graphite: #1E1E1E;
+    --color-ecovolt-slate: #2A2A2A;
+    --color-ecovolt-white: #FAFAFA;
+    --color-ecovolt-cream: #F5F5F0;
+
+    --color-ecovolt-gold: #D4A574;
+    --color-ecovolt-copper: #B87333;
+    --color-ecovolt-bronze: #CD7F32;
+
+    --color-energy-green: #22C55E;
+    --color-energy-teal: #14B8A6;
+    --color-energy-cyan: #06B6D4;
+
+    --font-display: 'Plus Jakarta Sans', sans-serif;
+    --font-mono: 'Space Grotesk', monospace;
+}
+
+/* ── Base ─────────────────────────────────────────────────── */
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: var(--font-display);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--color-ecovolt-black);
+    color: var(--color-ecovolt-white);
+}
+
+/* ── Swiss Grid Background ───────────────────────────────── */
+.swiss-grid {
+    background-image:
+        linear-gradient(to right, rgba(255, 107, 53, 0.025) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 107, 53, 0.025) 1px, transparent 1px);
+    background-size: 80px 80px;
+}
+
+/* ── Typography Scale ────────────────────────────────────── */
+.text-display {
+    font-size: clamp(3rem, 11vw, 9rem);
+    line-height: 0.85;
+    letter-spacing: -0.03em;
+}
+
+.text-headline {
+    font-size: clamp(2rem, 6vw, 4.8rem);
+    line-height: 0.9;
+    letter-spacing: -0.02em;
+}
+
+.text-title {
+    font-size: clamp(1.4rem, 3vw, 2.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+}
+
+.text-body-lg {
+    font-size: clamp(1.05rem, 1.4vw, 1.35rem);
+    line-height: 1.65;
+}
+
+.mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+}
+
+/* ── Gradient Utilities ──────────────────────────────────── */
+.text-gradient-orange {
+    background: linear-gradient(135deg, var(--color-ecovolt-orange), var(--color-ecovolt-ember));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.text-gradient-gold {
+    background: linear-gradient(135deg, var(--color-ecovolt-gold), var(--color-ecovolt-copper));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* ── Section Label ───────────────────────────────────────── */
+.section-label {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.3em;
+    color: var(--color-ecovolt-orange);
+    margin-bottom: 1rem;
+}
+
+.section-label .line {
+    width: 3rem;
+    height: 1px;
+    background: currentColor;
+}
+
+/* ── Data Card ───────────────────────────────────────────── */
+.data-card {
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.data-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background: linear-gradient(135deg, rgba(255, 107, 53, 0.04), transparent 60%);
+    transition: opacity 0.35s ease;
+}
+
+.data-card:hover {
+    border-color: rgba(255, 107, 53, 0.4);
+    transform: translateY(-2px);
+}
+
+.data-card:hover::after {
+    opacity: 1;
+}
+
+/* ── Hover Underline ─────────────────────────────────────── */
+.hover-line {
+    position: relative;
+}
+
+.hover-line::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: var(--color-ecovolt-orange);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-line:hover::after {
+    width: 100%;
+}
+
+/* ── Corner Brackets ─────────────────────────────────────── */
+.corner-brackets {
+    position: relative;
+}
+
+.corner-brackets::before,
+.corner-brackets::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-color: var(--color-ecovolt-orange);
+}
+
+.corner-brackets::before {
+    top: -4px;
+    left: -4px;
+    border-top: 2px solid;
+    border-left: 2px solid;
+}
+
+.corner-brackets::after {
+    bottom: -4px;
+    right: -4px;
+    border-bottom: 2px solid;
+    border-right: 2px solid;
+}
+
+/* ── Reveal Animations ───────────────────────────────────── */
+.reveal-up {
+    clip-path: inset(100% 0 0 0);
+    animation: revealUp 0.9s cubic-bezier(0.77, 0, 0.175, 1) forwards;
+}
+
+@keyframes revealUp {
+    to {
+        clip-path: inset(0 0 0 0);
+    }
+}
+
+.reveal-right {
+    clip-path: inset(0 100% 0 0);
+    animation: revealRight 0.9s cubic-bezier(0.77, 0, 0.175, 1) forwards;
+}
+
+@keyframes revealRight {
+    to {
+        clip-path: inset(0 0 0 0);
+    }
+}
+
+/* ── Stagger Children ────────────────────────────────────── */
+.stagger>* {
+    opacity: 0;
+    animation: staggerIn 0.7s ease-out forwards;
+}
+
+.stagger>*:nth-child(1) {
+    animation-delay: 0.1s;
+}
+
+.stagger>*:nth-child(2) {
+    animation-delay: 0.25s;
+}
+
+.stagger>*:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+.stagger>*:nth-child(4) {
+    animation-delay: 0.55s;
+}
+
+.stagger>*:nth-child(5) {
+    animation-delay: 0.7s;
+}
+
+.stagger>*:nth-child(6) {
+    animation-delay: 0.85s;
+}
+
+@keyframes staggerIn {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Scroll-triggered animations ─────────────────────────── */
+[data-animate] {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1), transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-animate].animated {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* ── Button styles ───────────────────────────────────────── */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--color-ecovolt-orange);
+    color: var(--color-ecovolt-black);
+    padding: 1rem 2rem;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-primary::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.5s ease;
+}
+
+.btn-primary:hover {
+    background: var(--color-ecovolt-ember);
+}
+
+.btn-primary:hover::before {
+    transform: translateX(100%);
+}
+
+.btn-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 1rem 2rem;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.3s ease;
+}
+
+.btn-outline:hover {
+    border-color: var(--color-ecovolt-white);
+    background: var(--color-ecovolt-white);
+    color: var(--color-ecovolt-black);
+}
+
+/* ── Sponsor Logo ────────────────────────────────────────── */
+.sponsor-card {
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.35s ease;
+    background: var(--color-ecovolt-black);
+}
+
+.sponsor-card:hover {
+    border-color: rgba(255, 107, 53, 0.3);
+    background: rgba(255, 107, 53, 0.03);
+}
+
+.sponsor-card img {
+    max-height: 48px;
+    max-width: 140px;
+    object-fit: contain;
+    filter: grayscale(100%) brightness(2);
+    opacity: 0.5;
+    transition: all 0.35s ease;
+}
+
+.sponsor-card:hover img {
+    filter: grayscale(0%) brightness(1);
+    opacity: 1;
+}
+
+/* ── Mobile Menu ─────────────────────────────────────────── */
+.mobile-menu {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(10, 10, 10, 0.98);
+    backdrop-filter: blur(24px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.mobile-menu.open {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.mobile-menu a {
+    font-size: 1.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(250, 250, 250, 0.6);
+    transition: color 0.3s ease;
+}
+
+.mobile-menu a:hover {
+    color: var(--color-ecovolt-orange);
+}
+
+/* ── Custom scrollbar ────────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--color-ecovolt-charcoal);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-ecovolt-orange);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ecovolt-orange-light);
+}
+
+/* ── Selection & Focus ───────────────────────────────────── */
+::selection {
+    background: var(--color-ecovolt-orange);
+    color: var(--color-ecovolt-white);
+}
+
+:focus-visible {
+    outline: 2px solid var(--color-ecovolt-orange);
+    outline-offset: 2px;
+}
+
+/* ── Reduced motion ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}

@@ -163,6 +163,8 @@
     },
 
     // Filter rows by time range for a specific tab
+    // FIXED: Uses the data's own latest timestamp as reference, not Date.now()
+    // This ensures historical data is filtered correctly relative to itself
     filterData(rows, tabId) {
       if (!rows || rows.length === 0) return rows;
 
@@ -170,8 +172,12 @@
       if (range === 'all') return rows;
 
       const rangeMs = this.ranges[range];
-      const now = Date.now();
-      const cutoff = now - rangeMs;
+
+      // Use the latest row's timestamp as reference (not Date.now())
+      // This makes time filtering work correctly for historical sessions
+      const latestRow = rows[rows.length - 1];
+      const latestTs = new Date(latestRow.timestamp).getTime();
+      const cutoff = latestTs - rangeMs;
 
       return rows.filter(row => {
         const ts = new Date(row.timestamp).getTime();
@@ -412,6 +418,7 @@
     gps: el("panel-gps"),
     custom: el("panel-custom"),
     data: el("panel-data"),
+    historical: el("panel-historical"),
   };
 
   // Charts
@@ -616,7 +623,7 @@
     return rows;
   }
 
-  // KPIs
+  // KPIs - Uses server-calculated values from TelemetryCalculator
   function computeKPIs(rows) {
     const out = {
       current_speed_ms: 0,
@@ -639,29 +646,14 @@
     if (!rows.length) return out;
 
     const LR = last(rows);
-    const s = rows.map((r) => toNum(r.speed_ms, 0)).filter(Number.isFinite);
-    const p = rows.map((r) => toNum(r.power_w, null)).filter((x) => x != null);
-    const c = rows
-      .map((r) => toNum(r.current_a, null))
-      .filter((x) => x != null);
 
-    const nz = (a) => a.filter((v) => v !== 0);
-    const mean = (a) =>
-      a.length ? a.reduce((acc, v) => acc + v, 0) / a.length : 0;
+    // Raw current values (always from latest row)
+    out.current_speed_ms = Math.max(0, toNum(LR.speed_ms, 0));
+    out.current_speed_kmh = out.current_speed_ms * 3.6;
+    out.current_power_w = toNum(LR.power_w, 0);
+    out.c_current_a = toNum(LR.current_a, 0);
 
-    const distM = toNum(LR.distance_m, 0);
-    const energyJ = toNum(LR.energy_j, 0);
-    out.total_distance_km = Math.max(0, distM / 1000);
-    out.total_energy_kwh = Math.max(0, energyJ / 3_600_000);
-
-    if (s.length) {
-      out.current_speed_ms = Math.max(0, toNum(LR.speed_ms, 0));
-      out.max_speed_ms = Math.max(0, Math.max(...s));
-      out.avg_speed_ms = nz(s).length ? mean(nz(s)) : 0;
-      out.current_speed_kmh = out.current_speed_ms * 3.6;
-      out.max_speed_kmh = out.max_speed_ms * 3.6;
-      out.avg_speed_kmh = out.avg_speed_ms * 3.6;
-    }
+    // Voltage and battery percentage
     const V = toNum(LR.voltage_v, null);
     if (V !== null) {
       out.battery_voltage_v = Math.max(0, V);
@@ -673,19 +665,26 @@
       else pct = ((V - minV) / (fullV - minV)) * 100;
       out.battery_percentage = clamp(pct, 0, 100);
     }
-    if (p.length) {
-      out.current_power_w = toNum(LR.power_w, 0);
-      out.max_power_w = Math.max(...p);
-      out.avg_power_w = nz(p).length ? mean(nz(p)) : 0;
-    }
-    if (c.length) {
-      out.c_current_a = toNum(LR.current_a, 0);
-      out.avg_current_a = nz(c).length ? mean(nz(c)) : 0;
-    }
-    if (out.total_energy_kwh > 0) {
-      out.efficiency_km_per_kwh =
-        out.total_distance_km / out.total_energy_kwh;
-    }
+
+    // Server-calculated values (from TelemetryCalculator via Convex)
+    // Distance and energy
+    out.total_distance_km = toNum(LR.route_distance_km, toNum(LR.distance_m, 0) / 1000);
+    out.total_energy_kwh = toNum(LR.cumulative_energy_kwh, toNum(LR.energy_j, 0) / 3_600_000);
+
+    // Speed stats
+    out.max_speed_kmh = toNum(LR.max_speed_kmh, 0);
+    out.max_speed_ms = out.max_speed_kmh / 3.6;
+    out.avg_speed_kmh = toNum(LR.avg_speed_kmh, 0);
+    out.avg_speed_ms = out.avg_speed_kmh / 3.6;
+
+    // Power stats
+    out.avg_power_w = toNum(LR.avg_power, 0);
+    out.max_power_w = toNum(LR.max_power_w, 0);
+    out.avg_current_a = toNum(LR.avg_current, 0);
+
+    // Efficiency
+    out.efficiency_km_per_kwh = toNum(LR.current_efficiency_km_kwh, 0);
+
     return out;
   }
 
@@ -1900,33 +1899,34 @@
     updateSpeedRangeBars(filtered);
   }
 
-  // Update speed stat cards
+  // Update speed stat cards (uses server-calculated values ONLY)
   function updateSpeedStats(rows) {
-    if (!rows || rows.length === 0) {
-      el('speed-current')?.textContent && (el('speed-current').textContent = '0.0');
-      el('speed-avg')?.textContent && (el('speed-avg').textContent = '0.0');
-      el('speed-max')?.textContent && (el('speed-max').textContent = '0.0');
-      el('speed-min')?.textContent && (el('speed-min').textContent = '0.0');
-      return;
-    }
-
-    const speeds = rows.map(r => toNum(r.speed_ms, null)).filter(v => v !== null);
-    if (speeds.length === 0) return;
-
-    const current = speeds[speeds.length - 1] * 3.6; // m/s to km/h
-    const avg = (speeds.reduce((a, b) => a + b, 0) / speeds.length) * 3.6;
-    const max = Math.max(...speeds) * 3.6;
-    const min = Math.min(...speeds) * 3.6;
-
     const setTxt = (id, v) => {
       const e = el(id);
       if (e) e.textContent = v;
     };
 
-    setTxt('speed-current', current.toFixed(1));
-    setTxt('speed-avg', avg.toFixed(1));
-    setTxt('speed-max', max.toFixed(1));
-    setTxt('speed-min', min.toFixed(1));
+    if (!rows || rows.length === 0) {
+      setTxt('speed-current', '0.0');
+      setTxt('speed-avg', '0.0');
+      setTxt('speed-max', '0.0');
+      setTxt('speed-min', '—');
+      return;
+    }
+
+    const lastRow = rows[rows.length - 1];
+
+    // Current speed (raw latest value)
+    const currentSpeed = toNum(lastRow.speed_ms, 0) * 3.6; // m/s to km/h
+
+    // Server-provided values (from TelemetryCalculator)
+    const avgSpeed = toNum(lastRow.avg_speed_kmh, null);
+    const maxSpeed = toNum(lastRow.max_speed_kmh, null);
+
+    setTxt('speed-current', currentSpeed.toFixed(1));
+    setTxt('speed-avg', avgSpeed !== null ? avgSpeed.toFixed(1) : '—');
+    setTxt('speed-max', maxSpeed !== null ? maxSpeed.toFixed(1) : '—');
+    setTxt('speed-min', '—'); // Min speed not stored on server
   }
 
   // Calculate and render acceleration chart
@@ -2775,7 +2775,7 @@
     renderAngularHistogram(filtered);
   }
 
-  // Update IMU stat cards
+  // Update IMU stat cards (uses server-calculated values ONLY)
   function updateIMUStats(rows) {
     const setTxt = (id, v) => {
       const e = el(id);
@@ -2784,45 +2784,23 @@
 
     if (!rows || rows.length === 0) {
       setTxt('imu-stability', '—');
-      setTxt('imu-max-g', '0.0');
-      setTxt('imu-pitch', '0.0');
-      setTxt('imu-roll', '0.0');
+      setTxt('imu-max-g', '—');
+      setTxt('imu-pitch', '—');
+      setTxt('imu-roll', '—');
       return;
     }
 
-    // Calculate stability from gyro variance
-    const gyroX = rows.map(r => toNum(r.gyro_x, null)).filter(v => v !== null);
-    const gyroY = rows.map(r => toNum(r.gyro_y, null)).filter(v => v !== null);
-    const gyroZ = rows.map(r => toNum(r.gyro_z, null)).filter(v => v !== null);
-
-    let stability = 100;
-    if (gyroX.length > 0) {
-      const meanX = gyroX.reduce((a, b) => a + b, 0) / gyroX.length;
-      const varianceX = gyroX.reduce((sum, v) => sum + Math.pow(v - meanX, 2), 0) / gyroX.length;
-      stability = Math.max(0, 100 - Math.sqrt(varianceX) * 5);
-    }
-
-    // Max G-force
-    const accelX = rows.map(r => toNum(r.accel_x, 0));
-    const accelY = rows.map(r => toNum(r.accel_y, 0));
-    const accelZ = rows.map(r => toNum(r.accel_z, 0));
-
-    let maxG = 0;
-    for (let i = 0; i < rows.length; i++) {
-      const totalAccel = Math.sqrt(accelX[i] ** 2 + accelY[i] ** 2 + accelZ[i] ** 2);
-      const g = totalAccel / 9.81;
-      if (g > maxG) maxG = g;
-    }
-
-    // Current pitch and roll
     const lastRow = rows[rows.length - 1];
-    const pitch = toNum(lastRow.pitch_deg, 0);
-    const roll = toNum(lastRow.roll_deg, 0);
 
-    setTxt('imu-stability', `${stability.toFixed(0)}%`);
-    setTxt('imu-max-g', maxG.toFixed(2));
-    setTxt('imu-pitch', pitch.toFixed(1));
-    setTxt('imu-roll', roll.toFixed(1));
+    // Server-provided values from TelemetryCalculator
+    const maxGForce = toNum(lastRow.max_g_force, null);
+    const currentGForce = toNum(lastRow.current_g_force, null);
+
+    // Display server values only (no client-side calculations)
+    setTxt('imu-stability', '—'); // Not stored on server
+    setTxt('imu-max-g', maxGForce !== null ? maxGForce.toFixed(2) : (currentGForce !== null ? currentGForce.toFixed(2) : '—'));
+    setTxt('imu-pitch', '—'); // Not stored on server
+    setTxt('imu-roll', '—'); // Not stored on server
   }
 
   // Update IMU Detail stat cards
@@ -2836,13 +2814,13 @@
 
     const lastRow = rows[rows.length - 1];
 
-    // Gyro values
+    // Gyro values (raw sensor data)
     const gx = toNum(lastRow.gyro_x, 0);
     const gy = toNum(lastRow.gyro_y, 0);
     const gz = toNum(lastRow.gyro_z, 0);
     const angularTotal = Math.sqrt(gx ** 2 + gy ** 2 + gz ** 2);
 
-    // Accel values
+    // Accel values (raw sensor data)
     const ax = toNum(lastRow.accel_x, 0);
     const ay = toNum(lastRow.accel_y, 0);
     const az = toNum(lastRow.accel_z, 0);
@@ -3257,58 +3235,20 @@
       return;
     }
 
-    // Calculate efficiency: km/kWh = distance / energy
-    let totalDistance = 0; // km
-    let totalEnergy = 0; // kWh
-    const efficiencies = [];
-
-    for (let i = 1; i < rows.length; i++) {
-      const t1 = new Date(rows[i - 1].timestamp).getTime();
-      const t2 = new Date(rows[i].timestamp).getTime();
-      const dt = (t2 - t1) / 1000; // seconds
-
-      if (dt > 0 && dt < 10) {
-        const speed = toNum(rows[i].speed_ms, 0); // m/s
-        const power = toNum(rows[i].power_w, toNum(rows[i].voltage_v, 0) * toNum(rows[i].current_a, 0));
-
-        const distanceSegment = (speed * dt) / 1000; // km
-        const energySegment = (power * dt) / 3600000; // kWh
-
-        totalDistance += distanceSegment;
-        totalEnergy += energySegment;
-
-        if (energySegment > 0.00001) {
-          const segmentEff = distanceSegment / energySegment;
-          if (segmentEff > 0 && segmentEff < 1000) {
-            efficiencies.push(segmentEff);
-          }
-        }
-      }
-    }
-
-    // Current efficiency (last 10 samples)
-    const recentEff = efficiencies.slice(-10);
-    const currentEff = recentEff.length > 0
-      ? recentEff.reduce((a, b) => a + b, 0) / recentEff.length
-      : 0;
-
-    // Average efficiency
-    const avgEff = totalEnergy > 0.00001 ? totalDistance / totalEnergy : 0;
-
-    setTxt('eff-current', currentEff > 0 && currentEff < 1000 ? currentEff.toFixed(1) : '—');
-    setTxt('eff-avg', avgEff > 0 && avgEff < 1000 ? avgEff.toFixed(1) : '—');
-    setTxt('eff-distance', totalDistance.toFixed(3));
-
-    // Use server-provided optimal speed if available
     const lastRow = rows[rows.length - 1];
+
+    // Use server-provided efficiency values ONLY (no client-side calculations)
+    const currentEfficiency = toNum(lastRow.current_efficiency_km_kwh, null);
+    const routeDistance = toNum(lastRow.route_distance_km, null);
     const optimalSpeedKmh = toNum(lastRow.optimal_speed_kmh, null);
     const optimalConfidence = toNum(lastRow.optimal_speed_confidence, 0);
 
-    if (optimalSpeedKmh !== null && optimalConfidence >= 0.3) {
-      setTxt('eff-optimal-speed', optimalSpeedKmh.toFixed(1));
-    } else {
-      setTxt('eff-optimal-speed', '—');
-    }
+    setTxt('eff-current', currentEfficiency !== null && currentEfficiency > 0 && currentEfficiency < 1000
+      ? currentEfficiency.toFixed(1) : '—');
+    setTxt('eff-avg', '—'); // Average efficiency not stored on server
+    setTxt('eff-distance', routeDistance !== null ? routeDistance.toFixed(3) : '—');
+    setTxt('eff-optimal-speed', optimalSpeedKmh !== null && optimalConfidence >= 0.3
+      ? optimalSpeedKmh.toFixed(1) : '—');
   }
 
   // Render efficiency trend chart (rolling efficiency over time)
@@ -3609,13 +3549,109 @@
 
   // Map + altitude
   function initMap() {
-    map = L.map("map");
-    const tiles = L.tileLayer(
-      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>' }
-    );
-    tiles.addTo(map);
-    map.setView([20, 0], 2);
+    // CARTO Voyager - Beautiful map with streets, buildings, and labels
+    const MAP_STYLE = {
+      version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources: {
+        'carto-voyager': {
+          type: 'raster',
+          tiles: [
+            'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+            'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+            'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+          ],
+          tileSize: 256,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          maxzoom: 20,
+        },
+      },
+      layers: [
+        {
+          id: 'carto-voyager-layer',
+          type: 'raster',
+          source: 'carto-voyager',
+          minzoom: 0,
+          maxzoom: 20,
+        },
+      ],
+    };
+
+    map = new maplibregl.Map({
+      container: 'map',
+      style: MAP_STYLE,
+      center: [0, 20], // [lng, lat]
+      zoom: 2,
+    });
+
+    // Add navigation controls
+    map.addControl(new maplibregl.NavigationControl(), 'top-left');
+    map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
+
+    // Add track source and layer when map loads
+    map.on('load', () => {
+      map.addSource('track', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
+      map.addLayer({
+        id: 'track-line',
+        type: 'line',
+        source: 'track',
+        layout: {
+          'line-join': 'round',
+          'line-cap': 'round',
+        },
+        paint: {
+          'line-color': '#3b82f6',
+          'line-width': 4,
+          'line-opacity': 0.8,
+        },
+      });
+
+      map.addSource('markers', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
+      map.addLayer({
+        id: 'markers-layer',
+        type: 'circle',
+        source: 'markers',
+        paint: {
+          'circle-radius': 5,
+          'circle-color': ['get', 'color'],
+          'circle-opacity': 0.85,
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#ffffff',
+        },
+      });
+
+      // Add popup on hover
+      const popup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+      });
+
+      map.on('mouseenter', 'markers-layer', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        const props = e.features[0].properties;
+        popup.setLngLat(e.lngLat)
+          .setHTML(`
+            <b>Timestamp:</b> ${props.timestamp}<br>
+            <b>Speed:</b> ${props.speed} km/h<br>
+            <b>Current:</b> ${props.current} A<br>
+            <b>Power:</b> ${props.power} W
+          `)
+          .addTo(map);
+      });
+
+      map.on('mouseleave', 'markers-layer', () => {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
+      });
+    });
   }
   function computeBounds(latlons) {
     let minLat = 90,
@@ -3644,68 +3680,89 @@
     return `rgb(${r},${g},${b})`;
   }
   function renderMapAndAltitude(rows) {
-    const ll = rows
-      .map((r) => [toNum(r.latitude, null), toNum(r.longitude, null)])
-      .filter((x) => x[0] != null && x[1] != null);
-    const valid = ll.filter(
-      ([lat, lon]) =>
-        Math.abs(lat) <= 90 &&
-        Math.abs(lon) <= 180 &&
-        !(Math.abs(lat) < 1e-6 && Math.abs(lon) < 1e-6)
-    );
+    // Skip if map not loaded yet
+    if (!map || !map.getSource) return;
 
-    if (trackPolyline) {
-      map.removeLayer(trackPolyline);
-      trackPolyline = null;
-    }
-    for (const m of trackMarkers) map.removeLayer(m);
-    trackMarkers = [];
-
-    if (valid.length) {
-      trackPolyline = L.polyline(valid, { color: "#1f77b4", weight: 3 });
-      trackPolyline.addTo(map);
-      const bounds = computeBounds(valid);
-      if (bounds) map.fitBounds(bounds, { padding: [20, 20] });
-    }
-
-    const step = Math.max(1, Math.floor(valid.length / 500));
-    for (let i = 0; i < rows.length; i += step) {
-      const r = rows[i];
+    const validRows = rows.filter((r) => {
       const lat = toNum(r.latitude, null);
       const lon = toNum(r.longitude, null);
-      if (lat == null || lon == null) continue;
+      return lat != null && lon != null &&
+        Math.abs(lat) <= 90 && Math.abs(lon) <= 180 &&
+        !(Math.abs(lat) < 1e-6 && Math.abs(lon) < 1e-6);
+    });
+
+    // Build track GeoJSON
+    const coordinates = validRows.map((r) => [r.longitude, r.latitude]);
+    const trackGeoJSON = {
+      type: 'FeatureCollection',
+      features: coordinates.length > 1 ? [{
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates,
+        },
+        properties: {},
+      }] : [],
+    };
+
+    // Build markers GeoJSON
+    const step = Math.max(1, Math.floor(validRows.length / 500));
+    const markerFeatures = [];
+    for (let i = 0; i < validRows.length; i += step) {
+      const r = validRows[i];
       const p = toNum(r.power_w, null);
       const color = powerColor(p);
-      const mk = L.circleMarker([lat, lon], {
-        radius: 4,
-        color,
-        fillColor: color,
-        fillOpacity: 0.85,
-      });
-
-      // Add tooltip with timestamp, speed, current, brake, and throttle
-      const timestamp = r.timestamp ? new Date(r.timestamp).toLocaleString() : 'N/A';
       const speed = toNum(r.speed_ms, null);
       const speedKmh = speed != null ? (speed * 3.6).toFixed(1) : 'N/A';
       const current = toNum(r.current_a, null);
       const currentStr = current != null ? current.toFixed(2) : 'N/A';
-      const brakePct = toNum(r.brake_pct, null);
-      const brakeStr = brakePct != null ? brakePct.toFixed(1) : 'N/A';
-      const throttlePct = toNum(r.throttle_pct, null);
-      const throttleStr = throttlePct != null ? throttlePct.toFixed(1) : 'N/A';
-      const powerStr = p != null ? p.toFixed(0) : 'N/A';
 
-      mk.bindTooltip(`
-        <b>Timestamp:</b> ${timestamp}<br>
-        <b>Speed:</b> ${speedKmh} km/h<br>
-        <b>Current:</b> ${currentStr} A<br>
-        <b>Brake:</b> ${brakeStr}%<br>
-        <b>Throttle:</b> ${throttleStr}%<br>
-        <b>Power:</b> ${powerStr} W
-      `);
+      markerFeatures.push({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [r.longitude, r.latitude],
+        },
+        properties: {
+          color,
+          timestamp: r.timestamp ? new Date(r.timestamp).toLocaleString() : 'N/A',
+          speed: speedKmh,
+          current: currentStr,
+          power: p != null ? p.toFixed(0) : 'N/A',
+        },
+      });
+    }
 
-      mk.addTo(map);
-      trackMarkers.push(mk);
+    const markersGeoJSON = {
+      type: 'FeatureCollection',
+      features: markerFeatures,
+    };
+
+    // Update map sources
+    try {
+      const trackSource = map.getSource('track');
+      const markersSource = map.getSource('markers');
+
+      if (trackSource) {
+        trackSource.setData(trackGeoJSON);
+      }
+      if (markersSource) {
+        markersSource.setData(markersGeoJSON);
+      }
+
+      // Fit bounds if we have valid coordinates
+      if (coordinates.length > 1) {
+        const bounds = computeBounds(validRows.map(r => [r.latitude, r.longitude]));
+        if (bounds) {
+          map.fitBounds([
+            [bounds[0][1], bounds[0][0]], // [lng, lat] SW
+            [bounds[1][1], bounds[1][0]], // [lng, lat] NE
+          ], { padding: 50 });
+        }
+      }
+    } catch (e) {
+      // Map may not be fully loaded yet
+      console.debug('[Map] Source update deferred:', e.message);
     }
 
     // Altitude chart - use uPlot if enabled
@@ -3886,9 +3943,8 @@
     const routeDistance = toNum(lastRow.route_distance_km, 0);
     const elevationGain = toNum(lastRow.elevation_gain_m, 0);
 
-    // Average speed along route (still calculated client-side - simple average)
-    const speeds = rows.map(r => toNum(r.speed_ms, null) * 3.6).filter(v => v !== null);
-    const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+    // Use server-calculated average speed
+    const avgSpeed = toNum(lastRow.avg_speed_kmh, null);
 
     // GPS accuracy (if available)
     const accuracies = rows.map(r => toNum(r.gps_accuracy, null)).filter(v => v !== null);
@@ -3898,7 +3954,7 @@
 
     setTxt('gps-distance', routeDistance.toFixed(3));
     setTxt('gps-elevation-gain', Math.round(elevationGain));
-    setTxt('gps-avg-speed', avgSpeed.toFixed(1));
+    setTxt('gps-avg-speed', avgSpeed !== null ? avgSpeed.toFixed(1) : '0.0');
     setTxt('gps-accuracy', avgAccuracy !== null ? avgAccuracy.toFixed(1) : '—');
   }
 
@@ -3907,8 +3963,8 @@
     if (!rows || rows.length === 0) return;
 
     const lastRow = rows[rows.length - 1];
-    const lat = toNum(lastRow.lat, null);
-    const lon = toNum(lastRow.lon, null);
+    const lat = toNum(lastRow.latitude, null);
+    const lon = toNum(lastRow.longitude, null);
 
     const latEl = el('gps-lat');
     const lonEl = el('gps-lon');
@@ -3926,10 +3982,10 @@
     let cumDistance = 0;
 
     for (let i = 1; i < rows.length; i++) {
-      const lat1 = toNum(rows[i - 1].lat, null);
-      const lon1 = toNum(rows[i - 1].lon, null);
-      const lat2 = toNum(rows[i].lat, null);
-      const lon2 = toNum(rows[i].lon, null);
+      const lat1 = toNum(rows[i - 1].latitude, null);
+      const lon1 = toNum(rows[i - 1].longitude, null);
+      const lat2 = toNum(rows[i].latitude, null);
+      const lon2 = toNum(rows[i].longitude, null);
 
       if (lat1 !== null && lon1 !== null && lat2 !== null && lon2 !== null) {
         const R = 6371;
@@ -6344,6 +6400,14 @@
       fabMenu.classList.remove("active");
     });
 
+    // Header Connection Status click - Manual connect trigger
+    headerConnStatus?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!state.isConnected && state.mode === "realtime") {
+        await connectRealtime();
+      }
+    });
+
     // FAB Mode button removed - Toggle Mode functionality is not needed
 
     // FAB Export button - Show export menu
@@ -6470,6 +6534,12 @@
     initEvents();
     initCustomCharts();
     initDataWorker(); // Initialize Web Worker for data processing
+
+    // Automate real-time connection on load
+    if (state.mode === "realtime") {
+      console.log("🚀 Auto-connecting to realtime...");
+      connectRealtime();
+    }
 
     // Mock data integration for testing (no Ably required)
     if (window.MockDataGenerator) {
@@ -6635,9 +6705,561 @@
     }
 
     // Start on Overview
-    Object.values(panels).forEach((p) => (p.style.display = "none"));
+    Object.values(panels).forEach((p) => {
+      if (p) p.style.display = "none";
+    });
     panels.overview.classList.add("active");
     panels.overview.style.display = "block";
+
+    // Initialize Historical Mode
+    initHistoricalMode();
+  }
+
+  // =========================================================================
+  // HISTORICAL MODE
+  // =========================================================================
+  function initHistoricalMode() {
+    const explorer = document.getElementById('hist-explorer');
+    const analysis = document.getElementById('hist-analysis');
+    const sessionList = document.getElementById('hist-session-list');
+    const searchInput = document.getElementById('hist-search');
+    const sortSelect = document.getElementById('hist-sort');
+    const backBtn = document.getElementById('hist-back-btn');
+    const exportBtn = document.getElementById('hist-export-btn');
+
+    if (!explorer || !analysis) return;
+
+    let allSessions = [];
+    let histData = [];
+    let histCharts = {};
+    let histMap = null;
+    let histSessionsLoaded = false;
+
+    // Sub-section tab navigation
+    const sectionBtns = document.querySelectorAll('.hist-section-btn');
+    sectionBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sectionName = btn.dataset.section;
+        sectionBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.hist-section').forEach(s => {
+          s.classList.toggle('active', s.id === `hist-sec-${sectionName}`);
+          s.style.display = s.id === `hist-sec-${sectionName}` ? 'block' : 'none';
+        });
+        // Resize charts when section becomes visible
+        setTimeout(() => {
+          Object.values(histCharts).forEach(c => { try { c.resize(); } catch (e) { } });
+          if (sectionName === 'map' && histMap) histMap.resize();
+        }, 100);
+      });
+    });
+
+    // Init section visibility
+    document.querySelectorAll('.hist-section').forEach(s => {
+      s.style.display = s.classList.contains('active') ? 'block' : 'none';
+    });
+
+    // Back button
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        analysis.style.display = 'none';
+        explorer.style.display = 'block';
+        histData = [];
+        // Destroy charts
+        Object.values(histCharts).forEach(c => { try { c.dispose(); } catch (e) { } });
+        histCharts = {};
+        if (histMap) { try { histMap.remove(); } catch (e) { } histMap = null; }
+      });
+    }
+
+    // Export CSV
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        if (!histData.length) return;
+        const keys = Object.keys(histData[0]);
+        const csv = [keys.join(',')].concat(
+          histData.map(r => keys.map(k => {
+            const v = r[k];
+            return typeof v === 'string' && v.includes(',') ? `"${v}"` : (v ?? '');
+          }).join(','))
+        ).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `session_${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    // Search and sort
+    if (searchInput) {
+      searchInput.addEventListener('input', () => renderSessionList());
+    }
+    if (sortSelect) {
+      sortSelect.addEventListener('change', () => renderSessionList());
+    }
+
+    // Load sessions when Historical tab is activated
+    const histTab = document.querySelector('.tab[data-panel="historical"]');
+    if (histTab) {
+      histTab.addEventListener('click', () => {
+        if (!histSessionsLoaded) {
+          loadHistSessions();
+        }
+      });
+    }
+
+    async function loadHistSessions() {
+      sessionList.innerHTML = '<div class="hist-loading"><div class="hist-spinner"></div><span>Loading sessions...</span></div>';
+      try {
+        if (window.AuthModule && !window.AuthModule.hasPermission('canViewHistorical')) {
+          sessionList.innerHTML = '<div class="hist-empty"><span class="hist-empty-icon">🔒</span><span>Sign in to access historical sessions.</span></div>';
+          return;
+        }
+
+        if (window.ConvexBridge) {
+          const result = await ConvexBridge.listSessions();
+          allSessions = (result && result.sessions) ? result.sessions : (Array.isArray(result) ? result : []);
+        } else {
+          // Fallback: use state.sessions if available
+          allSessions = state.sessions || [];
+        }
+        histSessionsLoaded = true;
+        renderSessionList();
+      } catch (err) {
+        console.error('[Historical] Failed to load sessions:', err);
+        sessionList.innerHTML = '<div class="hist-empty"><span class="hist-empty-icon">⚠️</span><span>Failed to load sessions. Check your connection.</span></div>';
+      }
+    }
+
+    function renderSessionList() {
+      const query = (searchInput?.value || '').toLowerCase();
+      const sort = sortSelect?.value || 'newest';
+
+      let filtered = allSessions.filter(s => {
+        const name = (s.session_name || s.session_id || '').toLowerCase();
+        const id = (s.session_id || '').toLowerCase();
+        return name.includes(query) || id.includes(query);
+      });
+
+      // Sort
+      if (sort === 'newest') {
+        filtered.sort((a, b) => new Date(b.start_time || 0) - new Date(a.start_time || 0));
+      } else if (sort === 'oldest') {
+        filtered.sort((a, b) => new Date(a.start_time || 0) - new Date(b.start_time || 0));
+      } else if (sort === 'longest') {
+        filtered.sort((a, b) => (b.record_count || 0) - (a.record_count || 0));
+      }
+
+      if (!filtered.length) {
+        sessionList.innerHTML = '<div class="hist-empty"><span class="hist-empty-icon">📭</span><span>No sessions found</span></div>';
+        return;
+      }
+
+      sessionList.innerHTML = filtered.map(s => {
+        const name = s.session_name || 'Unnamed Session';
+        const date = s.start_time ? new Date(s.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unknown date';
+        const count = s.record_count || 0;
+        const id = s.session_id || '';
+        return `
+          <div class="hist-session-card glass-panel" data-session-id="${id}">
+            <div class="hist-card-header">
+              <div class="hist-card-name">${name}</div>
+              <div class="hist-card-date">${date}</div>
+            </div>
+            <div class="hist-card-footer">
+              <span class="hist-card-id">${id.slice(0, 8)}...</span>
+              <span class="hist-card-count">${count.toLocaleString()} records</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Add click handlers
+      sessionList.querySelectorAll('.hist-session-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const sid = card.dataset.sessionId;
+          const session = allSessions.find(s => s.session_id === sid);
+          loadHistSession(sid, session);
+        });
+      });
+    }
+
+    async function loadHistSession(sessionId, sessionMeta) {
+      explorer.style.display = 'none';
+      analysis.style.display = 'block';
+
+      // Show loading state
+      const nameEl = document.getElementById('hist-session-name');
+      const metaEl = document.getElementById('hist-session-meta');
+      if (nameEl) nameEl.textContent = sessionMeta?.session_name || 'Loading...';
+      if (metaEl) metaEl.textContent = `${sessionId.slice(0, 8)} · Loading data...`;
+
+      try {
+        let data = [];
+        if (window.ConvexBridge) {
+          data = await ConvexBridge.getSessionRecords(sessionId);
+        }
+        if (!Array.isArray(data)) data = [];
+
+        // Normalize and add derived fields
+        histData = data.map(d => {
+          const norm = { ...d };
+          if (!norm.power_w && norm.voltage_v && norm.current_a) {
+            norm.power_w = norm.voltage_v * norm.current_a;
+          }
+          if (!norm.speed_kmh && norm.speed_ms) {
+            norm.speed_kmh = norm.speed_ms * 3.6;
+          }
+          if (!norm.speed_ms && norm.speed_kmh) {
+            norm.speed_ms = norm.speed_kmh / 3.6;
+          }
+          return norm;
+        });
+
+        if (metaEl) metaEl.textContent = `${sessionId.slice(0, 8)} · ${histData.length.toLocaleString()} records`;
+
+        renderHistSummary();
+        renderHistCharts();
+        renderHistDriverStats();
+      } catch (err) {
+        console.error('[Historical] Failed to load session:', err);
+        if (metaEl) metaEl.textContent = `Error loading session`;
+      }
+    }
+
+    function renderHistSummary() {
+      const rows = histData;
+      if (!rows.length) return;
+
+      const speeds = rows.map(r => r.speed_kmh || (r.speed_ms || 0) * 3.6).filter(v => v > 0);
+      const avgSpeed = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+      const maxSpeed = speeds.length ? Math.max(...speeds) : 0;
+
+      // Distance
+      let totalDist = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const t1 = new Date(rows[i - 1].timestamp).getTime();
+        const t2 = new Date(rows[i].timestamp).getTime();
+        const dt = (t2 - t1) / 1000;
+        const spd = (rows[i].speed_ms || (rows[i].speed_kmh || 0) / 3.6);
+        if (dt > 0 && dt < 60) totalDist += spd * dt;
+      }
+      const distKm = totalDist / 1000;
+
+      // Energy
+      let totalEnergy = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const t1 = new Date(rows[i - 1].timestamp).getTime();
+        const t2 = new Date(rows[i].timestamp).getTime();
+        const dt = (t2 - t1) / 3600000; // hours
+        const p = rows[i].power_w || ((rows[i].voltage_v || 0) * (rows[i].current_a || 0));
+        if (dt > 0 && dt < 0.02) totalEnergy += Math.abs(p) * dt;
+      }
+      const energyKwh = totalEnergy / 1000;
+
+      // Duration
+      const firstTs = new Date(rows[0].timestamp).getTime();
+      const lastTs = new Date(rows[rows.length - 1].timestamp).getTime();
+      const durationMs = lastTs - firstTs;
+      const minutes = Math.floor(durationMs / 60000);
+      const seconds = Math.floor((durationMs % 60000) / 1000);
+
+      // Efficiency
+      const efficiency = energyKwh > 0 ? distKm / energyKwh : 0;
+
+      // Update DOM
+      const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setText('hist-distance', `${distKm.toFixed(2)} km`);
+      setText('hist-avg-speed', `${avgSpeed.toFixed(1)} km/h`);
+      setText('hist-max-speed', `${maxSpeed.toFixed(1)} km/h`);
+      setText('hist-energy', `${(energyKwh * 1000).toFixed(1)} Wh`);
+      setText('hist-efficiency', efficiency > 0 ? `${efficiency.toFixed(1)} km/kWh` : '—');
+      setText('hist-duration', `${minutes}m ${seconds}s`);
+    }
+
+    function renderHistCharts() {
+      const rows = histData;
+      if (!rows.length) return;
+
+      // Destroy old charts
+      Object.values(histCharts).forEach(c => { try { c.dispose(); } catch (e) { } });
+      histCharts = {};
+
+      const ts = rows.map(r => new Date(r.timestamp));
+      const speeds = rows.map(r => r.speed_kmh || (r.speed_ms || 0) * 3.6);
+      const powers = rows.map(r => r.power_w || ((r.voltage_v || 0) * (r.current_a || 0)));
+      const voltages = rows.map(r => r.voltage_v || 0);
+      const currents = rows.map(r => r.current_a || 0);
+
+      const chartOpts = {
+        backgroundColor: 'transparent',
+        textStyle: { color: 'rgba(255,255,255,0.7)' },
+        grid: { left: 50, right: 20, top: 30, bottom: 40 },
+        tooltip: { trigger: 'axis', backgroundColor: 'rgba(20,20,25,0.95)', borderColor: 'rgba(0,210,190,0.3)', textStyle: { color: '#fff' } },
+        xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, splitLine: { show: false } },
+        yAxis: { type: 'value', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 5 }],
+      };
+
+      // Speed chart
+      const speedEl = document.getElementById('hist-chart-speed');
+      if (speedEl) {
+        histCharts.speed = echarts.init(speedEl);
+        histCharts.speed.setOption({
+          ...chartOpts,
+          series: [{ type: 'line', data: ts.map((t, i) => [t, speeds[i]]), smooth: true, lineStyle: { color: '#00d2be', width: 2 }, itemStyle: { color: '#00d2be' }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(0,210,190,0.3)' }, { offset: 1, color: 'rgba(0,210,190,0)' }] } } }]
+        });
+      }
+
+      // Power chart
+      const powerEl = document.getElementById('hist-chart-power');
+      if (powerEl) {
+        histCharts.power = echarts.init(powerEl);
+        histCharts.power.setOption({
+          ...chartOpts,
+          series: [{ type: 'line', data: ts.map((t, i) => [t, powers[i]]), smooth: true, lineStyle: { color: '#ff6b35', width: 2 }, itemStyle: { color: '#ff6b35' }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(255,107,53,0.3)' }, { offset: 1, color: 'rgba(255,107,53,0)' }] } } }]
+        });
+      }
+
+      // Voltage & Current chart
+      const voltEl = document.getElementById('hist-chart-voltage');
+      if (voltEl) {
+        histCharts.voltage = echarts.init(voltEl);
+        histCharts.voltage.setOption({
+          ...chartOpts,
+          legend: { data: ['Voltage', 'Current'], textStyle: { color: 'rgba(255,255,255,0.6)' }, top: 0 },
+          yAxis: [
+            { type: 'value', name: 'V', axisLine: { lineStyle: { color: '#22c55e' } }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+            { type: 'value', name: 'A', axisLine: { lineStyle: { color: '#f59e0b' } }, splitLine: { show: false } }
+          ],
+          series: [
+            { name: 'Voltage', type: 'line', data: ts.map((t, i) => [t, voltages[i]]), smooth: true, lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' }, showSymbol: false },
+            { name: 'Current', type: 'line', data: ts.map((t, i) => [t, currents[i]]), smooth: true, lineStyle: { color: '#f59e0b', width: 2 }, itemStyle: { color: '#f59e0b' }, showSymbol: false, yAxisIndex: 1 }
+          ]
+        });
+      }
+
+      // IMU chart
+      const imuEl = document.getElementById('hist-chart-imu');
+      if (imuEl) {
+        const ax = rows.map(r => r.accel_x || 0);
+        const ay = rows.map(r => r.accel_y || 0);
+        const totalG = rows.map(r => {
+          const x = r.accel_x || 0, y = r.accel_y || 0, z = r.accel_z || 0;
+          return Math.sqrt(x * x + y * y + z * z) / 9.81;
+        });
+        histCharts.imu = echarts.init(imuEl);
+        histCharts.imu.setOption({
+          ...chartOpts,
+          legend: { data: ['Accel X', 'Accel Y', 'Total G'], textStyle: { color: 'rgba(255,255,255,0.6)' }, top: 0 },
+          series: [
+            { name: 'Accel X', type: 'line', data: ts.map((t, i) => [t, ax[i]]), smooth: true, lineStyle: { color: '#ef4444', width: 1.5 }, itemStyle: { color: '#ef4444' }, showSymbol: false },
+            { name: 'Accel Y', type: 'line', data: ts.map((t, i) => [t, ay[i]]), smooth: true, lineStyle: { color: '#3b82f6', width: 1.5 }, itemStyle: { color: '#3b82f6' }, showSymbol: false },
+            { name: 'Total G', type: 'line', data: ts.map((t, i) => [t, totalG[i]]), smooth: true, lineStyle: { color: '#a855f7', width: 2 }, itemStyle: { color: '#a855f7' }, showSymbol: false }
+          ]
+        });
+      }
+
+      // Energy section charts
+      // Cumulative energy
+      const energyCumEl = document.getElementById('hist-chart-energy-cum');
+      if (energyCumEl) {
+        let cum = 0;
+        const cumData = [];
+        for (let i = 0; i < rows.length; i++) {
+          if (i > 0) {
+            const dt = (new Date(rows[i].timestamp) - new Date(rows[i - 1].timestamp)) / 3600000;
+            const p = Math.abs(powers[i]);
+            if (dt > 0 && dt < 0.02) cum += p * dt;
+          }
+          cumData.push([ts[i], cum]);
+        }
+        histCharts.energyCum = echarts.init(energyCumEl);
+        histCharts.energyCum.setOption({
+          ...chartOpts,
+          series: [{ type: 'line', data: cumData, smooth: true, lineStyle: { color: '#06b6d4', width: 2 }, itemStyle: { color: '#06b6d4' }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(6,182,212,0.25)' }, { offset: 1, color: 'rgba(6,182,212,0)' }] } } }]
+        });
+      }
+
+      // Rolling efficiency
+      const effEl = document.getElementById('hist-chart-efficiency');
+      if (effEl) {
+        const window = 30;
+        const effData = [];
+        for (let i = window; i < rows.length; i++) {
+          let dist = 0, energy = 0;
+          for (let j = i - window + 1; j <= i; j++) {
+            const dt = (new Date(rows[j].timestamp) - new Date(rows[j - 1].timestamp)) / 1000;
+            const spd = rows[j].speed_ms || (rows[j].speed_kmh || 0) / 3.6;
+            const p = Math.abs(powers[j]);
+            if (dt > 0 && dt < 60) {
+              dist += spd * dt / 1000;
+              energy += p * dt / 3600000;
+            }
+          }
+          const eff = energy > 0 ? dist / energy : 0;
+          if (eff < 500) effData.push([ts[i], eff]);
+        }
+        histCharts.efficiency = echarts.init(effEl);
+        histCharts.efficiency.setOption({
+          ...chartOpts,
+          series: [{ type: 'line', data: effData, smooth: true, lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' }, showSymbol: false }]
+        });
+      }
+
+      // Speed vs Power scatter
+      const spEl = document.getElementById('hist-chart-speed-power');
+      if (spEl) {
+        const scatterData = speeds.map((s, i) => [s, powers[i]]).filter(([s, p]) => s > 0);
+        histCharts.speedPower = echarts.init(spEl);
+        histCharts.speedPower.setOption({
+          ...chartOpts,
+          xAxis: { type: 'value', name: 'Speed (km/h)', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+          series: [{ type: 'scatter', data: scatterData, symbolSize: 4, itemStyle: { color: 'rgba(0,210,190,0.5)' } }]
+        });
+      }
+
+      // Speed histogram
+      const shEl = document.getElementById('hist-chart-speed-hist');
+      if (shEl) {
+        const validSpeeds = speeds.filter(s => s > 0);
+        const bins = 20;
+        const max = Math.max(...validSpeeds, 1);
+        const binWidth = max / bins;
+        const hist = new Array(bins).fill(0);
+        validSpeeds.forEach(s => {
+          const idx = Math.min(bins - 1, Math.floor(s / binWidth));
+          hist[idx]++;
+        });
+        histCharts.speedHist = echarts.init(shEl);
+        histCharts.speedHist.setOption({
+          ...chartOpts,
+          xAxis: { type: 'category', data: hist.map((_, i) => `${(i * binWidth).toFixed(0)}-${((i + 1) * binWidth).toFixed(0)}`), axisLabel: { rotate: 45, fontSize: 10 } },
+          series: [{ type: 'bar', data: hist, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#00d2be' }, { offset: 1, color: '#0891b2' }] } }, barWidth: '70%' }]
+        });
+      }
+
+      // Throttle distribution (if available)
+      const thEl = document.getElementById('hist-chart-throttle');
+      if (thEl) {
+        const throttle = rows.map(r => r.throttle_pct || 0);
+        const tBins = 10;
+        const tHist = new Array(tBins).fill(0);
+        throttle.forEach(t => {
+          const idx = Math.min(tBins - 1, Math.floor(t / 10));
+          tHist[idx]++;
+        });
+        histCharts.throttle = echarts.init(thEl);
+        histCharts.throttle.setOption({
+          ...chartOpts,
+          xAxis: { type: 'category', data: tHist.map((_, i) => `${i * 10}-${(i + 1) * 10}%`), axisLabel: { fontSize: 10 } },
+          series: [{ type: 'bar', data: tHist, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#f59e0b' }, { offset: 1, color: '#d97706' }] } }, barWidth: '70%' }]
+        });
+      }
+
+      // Map
+      renderHistMap();
+
+      // Resize all on window resize
+      window.addEventListener('resize', () => {
+        Object.values(histCharts).forEach(c => { try { c.resize(); } catch (e) { } });
+      }, { passive: true });
+    }
+
+    function renderHistDriverStats() {
+      const rows = histData;
+      if (!rows.length) return;
+
+      // Smoothness: based on acceleration variance
+      const accels = [];
+      for (let i = 1; i < rows.length; i++) {
+        const dt = (new Date(rows[i].timestamp) - new Date(rows[i - 1].timestamp)) / 1000;
+        const s1 = rows[i - 1].speed_ms || (rows[i - 1].speed_kmh || 0) / 3.6;
+        const s2 = rows[i].speed_ms || (rows[i].speed_kmh || 0) / 3.6;
+        if (dt > 0 && dt < 10) accels.push((s2 - s1) / dt);
+      }
+      const avgAccel = accels.length ? accels.reduce((a, b) => a + Math.abs(b), 0) / accels.length : 0;
+      const smoothness = Math.max(0, Math.min(100, 100 - avgAccel * 50));
+
+      // Brake events (deceleration > 1 m/s²)
+      const brakes = accels.filter(a => a < -1).length;
+
+      // Hard accels (acceleration > 1.5 m/s²)
+      const hardAccels = accels.filter(a => a > 1.5).length;
+
+      const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setText('hist-smoothness', `${smoothness.toFixed(0)}%`);
+      setText('hist-brakes', brakes.toString());
+      setText('hist-hard-accels', hardAccels.toString());
+    }
+
+    function renderHistMap() {
+      const rows = histData;
+      if (!rows.length) return;
+
+      const gpsPoints = rows.filter(r => r.latitude && r.longitude && r.latitude !== 0 && r.longitude !== 0);
+      if (!gpsPoints.length) return;
+
+      const mapEl = document.getElementById('hist-map');
+      if (!mapEl || !window.maplibregl) return;
+
+      try {
+        if (histMap) { histMap.remove(); histMap = null; }
+
+        const center = [gpsPoints[Math.floor(gpsPoints.length / 2)].longitude, gpsPoints[Math.floor(gpsPoints.length / 2)].latitude];
+        histMap = new maplibregl.Map({
+          container: 'hist-map',
+          style: { version: 8, sources: { 'osm-tiles': { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap' } }, layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm-tiles' }] },
+          center: center,
+          zoom: 15,
+        });
+
+        histMap.on('load', () => {
+          const coords = gpsPoints.map(r => [r.longitude, r.latitude]);
+          histMap.addSource('route', {
+            type: 'geojson',
+            data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+          });
+          histMap.addLayer({
+            id: 'route-line',
+            type: 'line',
+            source: 'route',
+            paint: { 'line-color': '#00d2be', 'line-width': 3, 'line-opacity': 0.8 }
+          });
+
+          // Fit bounds
+          const lngs = coords.map(c => c[0]);
+          const lats = coords.map(c => c[1]);
+          histMap.fitBounds(
+            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+            { padding: 40 }
+          );
+        });
+
+        // Altitude chart
+        const altEl = document.getElementById('hist-chart-altitude');
+        if (altEl) {
+          const alts = gpsPoints.map(r => r.altitude || 0);
+          const altTs = gpsPoints.map(r => new Date(r.timestamp));
+          if (histCharts.altitude) { try { histCharts.altitude.dispose(); } catch (e) { } }
+          histCharts.altitude = echarts.init(altEl);
+          histCharts.altitude.setOption({
+            backgroundColor: 'transparent',
+            textStyle: { color: 'rgba(255,255,255,0.7)' },
+            grid: { left: 50, right: 20, top: 20, bottom: 40 },
+            tooltip: { trigger: 'axis' },
+            xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } } },
+            yAxis: { type: 'value', name: 'Altitude (m)', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } } },
+            series: [{ type: 'line', data: altTs.map((t, i) => [t, alts[i]]), smooth: true, lineStyle: { color: '#a855f7', width: 2 }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(168,85,247,0.25)' }, { offset: 1, color: 'rgba(168,85,247,0)' }] } } }]
+          });
+        }
+      } catch (err) {
+        console.error('[Historical] Map error:', err);
+      }
+    }
   }
 
   // Responsive Header Text Handler
