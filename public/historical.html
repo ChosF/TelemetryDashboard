@@ -666,20 +666,56 @@
                 </div>
                 <div class="ha-sec-body" id="export-body">
                     <div class="ha-export-grid">
-                        <button class="ha-export-btn" data-format="csv"><span class="ha-export-icon">📄</span><span
-                                class="ha-export-name">CSV</span><span
-                                class="ha-export-desc">Spreadsheets</span></button>
-                        <button class="ha-export-btn" data-format="json"><span class="ha-export-icon">{ }</span><span
-                                class="ha-export-name">JSON</span><span
-                                class="ha-export-desc">Programmatic</span></button>
-                        <button class="ha-export-btn" data-format="clipboard"><span
-                                class="ha-export-icon">📋</span><span class="ha-export-name">Clipboard</span><span
-                                class="ha-export-desc">TSV copy</span></button>
-                        <button class="ha-export-btn" data-format="matlab"><span class="ha-export-icon">🧪</span><span
-                                class="ha-export-name">MATLAB</span><span class="ha-export-desc">.m file</span></button>
-                        <button class="ha-export-btn" data-format="python"><span class="ha-export-icon">🐍</span><span
-                                class="ha-export-name">Python</span><span class="ha-export-desc">Pandas
-                                script</span></button>
+                        <button class="ha-export-btn" data-format="csv" style="--c: #10b981;">
+                            <div class="ha-export-icon-wrap">
+                                <span class="ha-export-icon">📄</span>
+                            </div>
+                            <div class="ha-export-info">
+                                <span class="ha-export-name">CSV Worksheet</span>
+                                <span class="ha-export-desc">Standard spreadsheet</span>
+                            </div>
+                            <div class="ha-export-arrow">→</div>
+                        </button>
+                        <button class="ha-export-btn" data-format="json" style="--c: #f59e0b;">
+                            <div class="ha-export-icon-wrap">
+                                <span class="ha-export-icon">{ }</span>
+                            </div>
+                            <div class="ha-export-info">
+                                <span class="ha-export-name">JSON Data</span>
+                                <span class="ha-export-desc">Raw object structure</span>
+                            </div>
+                            <div class="ha-export-arrow">→</div>
+                        </button>
+                        <button class="ha-export-btn" data-format="clipboard" style="--c: #3b82f6;">
+                            <div class="ha-export-icon-wrap">
+                                <span class="ha-export-icon">📋</span>
+                            </div>
+                            <div class="ha-export-info">
+                                <span class="ha-export-name">Copy Clipboard</span>
+                                <span class="ha-export-desc">TSV formatted text</span>
+                            </div>
+                            <div class="ha-export-arrow">→</div>
+                        </button>
+                        <button class="ha-export-btn" data-format="matlab" style="--c: #ec4899;">
+                            <div class="ha-export-icon-wrap">
+                                <span class="ha-export-icon">🧪</span>
+                            </div>
+                            <div class="ha-export-info">
+                                <span class="ha-export-name">MATLAB Script</span>
+                                <span class="ha-export-desc">Native .m generation</span>
+                            </div>
+                            <div class="ha-export-arrow">→</div>
+                        </button>
+                        <button class="ha-export-btn" data-format="python" style="--c: #eab308;">
+                            <div class="ha-export-icon-wrap">
+                                <span class="ha-export-icon">🐍</span>
+                            </div>
+                            <div class="ha-export-info">
+                                <span class="ha-export-name">Python Pandas</span>
+                                <span class="ha-export-desc">DataFrame script</span>
+                            </div>
+                            <div class="ha-export-arrow">→</div>
+                        </button>
                     </div>
                 </div>
             </section>
@@ -1118,9 +1154,6 @@
                     <!-- Middle: Terminal / Formula Output -->
                     <div class="ha-ml-panel ha-ml-terminal">
                         <div class="ha-ml-terminal-header">
-                            <div class="ha-ml-dot" style="background:var(--ha-red);"></div>
-                            <div class="ha-ml-dot" style="background:var(--ha-amber);"></div>
-                            <div class="ha-ml-dot" style="background:var(--ha-green);"></div>
                             <span class="ha-ml-terminal-title">Model Architecture //</span>
                         </div>
                         <div class="ha-ml-terminal-body" id="h-ml-formula-view">

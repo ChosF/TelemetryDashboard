@@ -1846,53 +1846,154 @@ body.hist-page {
    ========================================================================== */
 
 .ha-export-grid {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+    padding: 10px 0;
 }
 
 .ha-export-btn {
+    position: relative;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 4px;
-    padding: 14px 20px;
-    border-radius: var(--ha-radius-sm);
-    border: 1px solid var(--ha-border);
-    background: var(--ha-surface);
+    gap: 14px;
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     color: var(--ha-text);
     cursor: pointer;
-    transition: all 0.22s;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
     font-family: var(--ha-sans);
-    min-width: 90px;
-    flex: 1;
-    max-width: 160px;
+    text-align: left;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.ha-export-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(400px circle at right center, var(--c, rgba(255, 255, 255, 0.1)), transparent 60%);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    pointer-events: none;
+    z-index: 0;
+    mix-blend-mode: screen;
+}
+
+.ha-export-btn:hover::before {
+    opacity: 0.12;
 }
 
 .ha-export-btn:hover {
-    border-color: var(--ha-accent-glow);
-    background: var(--ha-bg3);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(0, 212, 190, 0.06);
+    transform: translateY(-4px);
+    border-color: var(--c, rgba(255, 255, 255, 0.2));
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.25), 0 0 20px rgba(0, 0, 0, 0.1);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
 }
 
 .ha-export-btn:active {
-    transform: translateY(0);
+    transform: translateY(0) scale(0.98);
+}
+
+.ha-export-icon-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+    z-index: 1;
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.ha-export-icon-wrap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--c, rgba(255, 255, 255, 0.1));
+    opacity: 0.1;
+    transition: opacity 0.3s ease;
+}
+
+.ha-export-btn:hover .ha-export-icon-wrap {
+    border-color: var(--c, rgba(255, 255, 255, 0.3));
+    transform: scale(1.05);
+}
+
+.ha-export-btn:hover .ha-export-icon-wrap::after {
+    opacity: 0.25;
 }
 
 .ha-export-icon {
     font-size: 22px;
     line-height: 1;
+    position: relative;
+    z-index: 2;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.ha-export-btn:hover .ha-export-icon {
+    transform: scale(1.15);
+}
+
+.ha-export-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 1;
+    flex: 1;
 }
 
 .ha-export-name {
-    font-weight: 600;
-    font-size: 12px;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.5px;
+    color: var(--ha-text);
+    transition: color 0.3s ease;
+}
+
+.ha-export-btn:hover .ha-export-name {
+    color: #ffffff;
 }
 
 .ha-export-desc {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--ha-text3);
+    font-weight: 500;
+    line-height: 1.3;
+    transition: color 0.3s ease;
+}
+
+.ha-export-btn:hover .ha-export-desc {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.ha-export-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ha-text3);
+    font-size: 18px;
+    opacity: 0;
+    transform: translateX(-15px);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 1;
+}
+
+.ha-export-btn:hover .ha-export-arrow {
+    opacity: 1;
+    transform: translateX(0);
+    color: var(--c, var(--ha-text));
 }
 
 /* ==========================================================================
