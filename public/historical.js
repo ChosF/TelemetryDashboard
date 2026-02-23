@@ -39,7 +39,7 @@
     }
 
     // ── Web Worker Config ──
-    const histWorker = new Worker('workers/historical-worker.js');
+    const histWorker = new Worker('/workers/historical-worker.js');
     let workerMsgId = 0;
     function runHistoricalWorkerTask(type, payload) {
         return new Promise((resolve, reject) => {
