@@ -1,5 +1,5 @@
 import { query, mutation } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 /**
  * Helper to get current user from session token
@@ -22,6 +22,24 @@ async function getCurrentUserId(ctx: any, token?: string) {
     }
     
     return session.userId;
+}
+
+async function requireAdminProfile(ctx: any, token?: string) {
+    const userId = await getCurrentUserId(ctx, token);
+    if (!userId) {
+        throw new ConvexError({ code: "UNAUTHENTICATED", message: "Not authenticated" });
+    }
+
+    const currentProfile = await ctx.db
+        .query("user_profiles")
+        .withIndex("by_userId", (q: any) => q.eq("userId", userId))
+        .first();
+
+    if (currentProfile?.role !== "admin") {
+        throw new ConvexError({ code: "UNAUTHORIZED", message: "Admin access required" });
+    }
+
+    return { userId, profile: currentProfile };
 }
 
 /**
@@ -199,21 +217,9 @@ export const updateUserRole = mutation({
             v.literal("admin")
         ),
     },
+    returns: v.object({ success: v.boolean() }),
     handler: async (ctx, args) => {
-        // Check if current user is admin
-        const userId = await getCurrentUserId(ctx, args.token);
-        if (!userId) {
-            throw new Error("Not authenticated");
-        }
-
-        const currentProfile = await ctx.db
-            .query("user_profiles")
-            .withIndex("by_userId", (q) => q.eq("userId", userId))
-            .first();
-
-        if (currentProfile?.role !== "admin") {
-            throw new Error("Unauthorized - admin access required");
-        }
+        await requireAdminProfile(ctx, args.token);
 
         const profile = await ctx.db
             .query("user_profiles")
@@ -221,7 +227,7 @@ export const updateUserRole = mutation({
             .first();
 
         if (!profile) {
-            throw new Error("User not found");
+            throw new ConvexError({ code: "NOT_FOUND", message: "User profile not found" });
         }
 
         await ctx.db.patch(profile._id, {
@@ -242,20 +248,11 @@ export const rejectUser = mutation({
         token: v.optional(v.string()),
         targetUserId: v.id("authUsers") 
     },
+    returns: v.object({ success: v.boolean() }),
     handler: async (ctx, args) => {
-        // Check if current user is admin
-        const userId = await getCurrentUserId(ctx, args.token);
-        if (!userId) {
-            throw new Error("Not authenticated");
-        }
-
-        const currentProfile = await ctx.db
-            .query("user_profiles")
-            .withIndex("by_userId", (q) => q.eq("userId", userId))
-            .first();
-
-        if (currentProfile?.role !== "admin") {
-            throw new Error("Unauthorized - admin access required");
+        const { userId: actingUserId } = await requireAdminProfile(ctx, args.token);
+        if (actingUserId === args.targetUserId) {
+            throw new ConvexError({ code: "INVALID_OPERATION", message: "You cannot reject yourself" });
         }
 
         const profile = await ctx.db
@@ -264,13 +261,96 @@ export const rejectUser = mutation({
             .first();
 
         if (!profile) {
-            throw new Error("User not found");
+            throw new ConvexError({ code: "NOT_FOUND", message: "User profile not found" });
+        }
+
+        // Idempotent: if already rejected with no pending request, treat as success.
+        if (profile.approval_status === "rejected" && !profile.requested_role) {
+            return { success: true };
         }
 
         await ctx.db.patch(profile._id, {
             approval_status: "rejected",
             requested_role: undefined,
         });
+
+        return { success: true };
+    },
+});
+
+/**
+ * Ban user (admin only)
+ * Banned users are demoted to guest and marked rejected.
+ */
+export const banUser = mutation({
+    args: {
+        token: v.optional(v.string()),
+        targetUserId: v.id("authUsers"),
+    },
+    returns: v.object({ success: v.boolean() }),
+    handler: async (ctx, args) => {
+        const { userId: actingUserId } = await requireAdminProfile(ctx, args.token);
+        if (actingUserId === args.targetUserId) {
+            throw new ConvexError({ code: "INVALID_OPERATION", message: "You cannot ban yourself" });
+        }
+
+        const profile = await ctx.db
+            .query("user_profiles")
+            .withIndex("by_userId", (q) => q.eq("userId", args.targetUserId))
+            .first();
+
+        if (!profile) {
+            throw new ConvexError({ code: "NOT_FOUND", message: "User profile not found" });
+        }
+
+        if (profile.role === "guest" && profile.approval_status === "rejected" && !profile.requested_role) {
+            return { success: true };
+        }
+
+        await ctx.db.patch(profile._id, {
+            role: "guest",
+            approval_status: "rejected",
+            requested_role: undefined,
+        });
+
+        return { success: true };
+    },
+});
+
+/**
+ * Delete user account (admin only)
+ */
+export const deleteUser = mutation({
+    args: {
+        token: v.optional(v.string()),
+        targetUserId: v.id("authUsers"),
+    },
+    returns: v.object({ success: v.boolean() }),
+    handler: async (ctx, args) => {
+        const { userId: actingUserId } = await requireAdminProfile(ctx, args.token);
+        if (actingUserId === args.targetUserId) {
+            throw new ConvexError({ code: "INVALID_OPERATION", message: "You cannot delete yourself" });
+        }
+
+        const profile = await ctx.db
+            .query("user_profiles")
+            .withIndex("by_userId", (q) => q.eq("userId", args.targetUserId))
+            .first();
+
+        if (profile) {
+            await ctx.db.delete(profile._id);
+        }
+
+        const sessions = await ctx.db
+            .query("authSessions")
+            .withIndex("by_userId", (q) => q.eq("userId", args.targetUserId))
+            .collect();
+        await Promise.all(sessions.map((session: any) => ctx.db.delete(session._id)));
+
+        const authUser = await ctx.db.get(args.targetUserId);
+        if (authUser) {
+            await ctx.db.delete(args.targetUserId);
+        }
 
         return { success: true };
     },

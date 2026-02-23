@@ -503,14 +503,14 @@
         btn.addEventListener('click', async () => {
           const userId = btn.dataset.userId;
           const role = btn.dataset.role;
-          await approveUser(userId, role, modal);
+          await approveUser(userId, role, modal, btn);
         });
       });
 
       container.querySelectorAll('.admin-user-reject').forEach(btn => {
         btn.addEventListener('click', async () => {
           const userId = btn.dataset.userId;
-          await rejectUser(userId, modal);
+          await rejectUser(userId, modal, btn);
         });
       });
     } catch (error) {
@@ -529,6 +529,8 @@
 
     try {
       const users = await window.AuthModule.getAllUsers();
+      const previousQuery = modal.dataset.allUsersQuery || '';
+      const currentUserId = window.AuthModule.getCurrentProfile?.()?.userId;
 
       if (users.length === 0) {
         container.innerHTML = `
@@ -541,19 +543,31 @@
       }
 
       container.innerHTML = `
-        <div class="admin-users-list">
-          ${users.map(user => createUserCard(user, false)).join('')}
+        <div class="admin-all-toolbar">
+          <div class="admin-search-wrap">
+            <span class="admin-search-icon" aria-hidden="true">🔎</span>
+            <input
+              type="search"
+              class="admin-search-input"
+              id="admin-all-search"
+              placeholder="Search by name, email, role, or status..."
+              value="${escapeHtml(previousQuery)}"
+            />
+          </div>
+        </div>
+        <div class="admin-users-list admin-all-users-list" id="admin-all-list">
         </div>
       `;
 
-      // Add event listeners for role change
-      container.querySelectorAll('.admin-user-role-select').forEach(select => {
-        select.addEventListener('change', async (e) => {
-          const userId = e.target.dataset.userId;
-          const newRole = e.target.value;
-          await changeUserRole(userId, newRole, modal);
-        });
+      const searchInput = container.querySelector('#admin-all-search');
+      const render = () => renderAllUsersList(modal, users, currentUserId, searchInput.value);
+
+      searchInput.addEventListener('input', () => {
+        modal.dataset.allUsersQuery = searchInput.value;
+        render();
       });
+
+      render();
     } catch (error) {
       console.error('Error loading all users:', error);
       container.innerHTML = `
@@ -564,8 +578,63 @@
     }
   }
 
+  function renderAllUsersList(modal, users, currentUserId, searchQuery) {
+    const list = modal.querySelector('#admin-all-list');
+    if (!list) return;
+
+    const normalizedQuery = (searchQuery || '').trim().toLowerCase();
+    const filtered = normalizedQuery
+      ? users.filter((user) => {
+        const name = (user.name || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        const role = (getRoleLabel(user.role) || '').toLowerCase();
+        const status = (user.approval_status || '').toLowerCase();
+        return name.includes(normalizedQuery)
+          || email.includes(normalizedQuery)
+          || role.includes(normalizedQuery)
+          || status.includes(normalizedQuery);
+      })
+      : users;
+
+    if (filtered.length === 0) {
+      list.innerHTML = `
+        <div class="admin-empty">
+          <span class="admin-empty-icon">🔍</span>
+          <p class="admin-empty-text">No users match your search</p>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = filtered
+      .map(user => createUserCard(user, false, { currentUserId }))
+      .join('');
+
+    list.querySelectorAll('.admin-user-role-select').forEach(select => {
+      select.addEventListener('change', async (e) => {
+        const userId = e.target.dataset.userId;
+        const newRole = e.target.value;
+        await changeUserRole(userId, newRole, modal, e.target);
+      });
+    });
+
+    list.querySelectorAll('.admin-user-ban').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const userId = btn.dataset.userId;
+        await banUser(userId, modal, btn);
+      });
+    });
+
+    list.querySelectorAll('.admin-user-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const userId = btn.dataset.userId;
+        await deleteUser(userId, modal, btn);
+      });
+    });
+  }
+
   // Create user card HTML
-  function createUserCard(user, isPending) {
+  function createUserCard(user, isPending, options = {}) {
     // Role labels - matching database values (external, internal, etc.)
     const roleLabels = {
       'guest': 'Guest',
@@ -584,6 +653,7 @@
     const userIdForActions = user.userId; // This is the authUsers ID reference
     const creationDate = user._creationTime; // Convex automatic timestamp
     const displayName = user.name || user.email.split('@')[0];
+    const isCurrentUser = options.currentUserId && userIdForActions === options.currentUserId;
 
     if (isPending) {
       return `
@@ -630,13 +700,31 @@
               </div>
             </div>
           </div>
-          <div class="admin-user-role">
-            <select class="admin-user-role-select form-select" data-user-id="${userIdForActions}">
-              <option value="guest" ${user.role === 'guest' ? 'selected' : ''}>Guest</option>
-              <option value="external" ${user.role === 'external' ? 'selected' : ''}>External User</option>
-              <option value="internal" ${user.role === 'internal' ? 'selected' : ''}>Internal User</option>
-              <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
-            </select>
+          <div class="admin-user-controls">
+            <div class="admin-user-role">
+              <select class="admin-user-role-select form-select" data-user-id="${userIdForActions}" ${isCurrentUser ? 'disabled' : ''}>
+                <option value="guest" ${user.role === 'guest' ? 'selected' : ''}>Guest</option>
+                <option value="external" ${user.role === 'external' ? 'selected' : ''}>External User</option>
+                <option value="internal" ${user.role === 'internal' ? 'selected' : ''}>Internal User</option>
+                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+              </select>
+            </div>
+            <div class="admin-user-actions admin-user-actions-secondary">
+              <button
+                class="admin-user-ban liquid-hover"
+                data-user-id="${userIdForActions}"
+                ${isCurrentUser ? 'disabled title="You cannot ban yourself"' : ''}
+              >
+                Ban
+              </button>
+              <button
+                class="admin-user-delete liquid-hover"
+                data-user-id="${userIdForActions}"
+                ${isCurrentUser ? 'disabled title="You cannot delete yourself"' : ''}
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       `;
@@ -644,7 +732,8 @@
   }
 
   // Approve user
-  async function approveUser(userId, role, modal) {
+  async function approveUser(userId, role, modal, triggerEl) {
+    const restore = setControlBusy(triggerEl, 'Approving...');
     try {
       await window.AuthModule.updateUserRole(userId, role);
       // Reload both panels
@@ -654,14 +743,18 @@
     } catch (error) {
       console.error('Error approving user:', error);
       showNotification('Failed to approve user: ' + error.message, 'error');
+    } finally {
+      restore();
     }
   }
 
   // Reject user
-  async function rejectUser(userId, modal) {
+  async function rejectUser(userId, modal, triggerEl) {
     showConfirm('Are you sure you want to reject this user request?', async () => {
+      const restore = setControlBusy(triggerEl, 'Rejecting...');
       try {
         await window.AuthModule.rejectUser(userId);
+        await animateCardRemoval(triggerEl);
         // Reload both panels
         loadPendingUsers(modal);
         loadAllUsers(modal);
@@ -669,12 +762,15 @@
       } catch (error) {
         console.error('Error rejecting user:', error);
         showNotification('Failed to reject user: ' + error.message, 'error');
+      } finally {
+        restore();
       }
     });
   }
 
   // Change user role
-  async function changeUserRole(userId, newRole, modal) {
+  async function changeUserRole(userId, newRole, modal, triggerEl) {
+    const restore = setControlBusy(triggerEl);
     try {
       await window.AuthModule.updateUserRole(userId, newRole);
       // Reload all users panel
@@ -685,7 +781,97 @@
       showNotification('Failed to change user role: ' + error.message, 'error');
       // Reload to reset select
       loadAllUsers(modal);
+    } finally {
+      restore();
     }
+  }
+
+  // Ban user
+  async function banUser(userId, modal, triggerEl) {
+    showConfirm(
+      'Ban this user? They will be demoted to Guest and their approval will be set to Rejected.',
+      async () => {
+        const restore = setControlBusy(triggerEl, 'Banning...');
+        try {
+          await window.AuthModule.banUser(userId);
+          await animateCardRemoval(triggerEl);
+          loadPendingUsers(modal);
+          loadAllUsers(modal);
+          showNotification('User has been banned.', 'warning');
+        } catch (error) {
+          console.error('Error banning user:', error);
+          showNotification('Failed to ban user: ' + error.message, 'error');
+        } finally {
+          restore();
+        }
+      }
+    );
+  }
+
+  // Delete user
+  async function deleteUser(userId, modal, triggerEl) {
+    showConfirm(
+      'Delete this user permanently? This will remove their profile and active sessions.',
+      async () => {
+        const restore = setControlBusy(triggerEl, 'Deleting...');
+        try {
+          await window.AuthModule.deleteUser(userId);
+          await animateCardRemoval(triggerEl);
+          loadPendingUsers(modal);
+          loadAllUsers(modal);
+          showNotification('User deleted successfully.', 'success');
+        } catch (error) {
+          console.error('Error deleting user:', error);
+          showNotification('Failed to delete user: ' + error.message, 'error');
+        } finally {
+          restore();
+        }
+      }
+    );
+  }
+
+  function setControlBusy(control, buttonBusyLabel) {
+    if (!control) return () => { };
+    const card = control.closest('.admin-user-card');
+    if (card) card.classList.add('is-processing');
+
+    const tagName = control.tagName ? control.tagName.toUpperCase() : '';
+    if (tagName === 'BUTTON') {
+      control.dataset.originalLabel = control.textContent || '';
+      if (buttonBusyLabel) {
+        control.textContent = buttonBusyLabel;
+      }
+    }
+
+    control.disabled = true;
+    return () => {
+      if (card) card.classList.remove('is-processing');
+      const resetTag = control.tagName ? control.tagName.toUpperCase() : '';
+      if (resetTag === 'BUTTON' && control.dataset.originalLabel) {
+        control.textContent = control.dataset.originalLabel;
+      }
+      control.disabled = false;
+    };
+  }
+
+  async function animateCardRemoval(control) {
+    const card = control?.closest?.('.admin-user-card');
+    if (!card) return;
+    card.classList.add('removing');
+    await wait(220);
+  }
+
+  function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   // Format date
