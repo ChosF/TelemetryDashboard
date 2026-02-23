@@ -1018,6 +1018,12 @@ body.hist-page {
     border: 1px solid var(--ha-border);
 }
 
+/* Segments table: scrollable when many rows */
+.ha-segments-table-scroll {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
 .ha-stats-table {
     width: 100%;
     border-collapse: collapse;
