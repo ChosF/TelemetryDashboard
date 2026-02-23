@@ -22,8 +22,8 @@ interface ChartConfig {
     metric: ChartMetric;
     title: string;
     icon: string;
-    buildOptions: () => any;
-    buildData: (data: TelemetryRow[]) => AlignedData;
+    options: any;
+    buildSeriesData: (data: TelemetryRow[]) => (number | null)[][];
 }
 
 const DOWNSAMPLE_TARGET = 2000;
@@ -42,8 +42,11 @@ const CHART_CONFIGS: ChartConfig[] = [
         metric: 'speed',
         title: 'Speed',
         icon: '🏎️',
-        buildOptions: () => ({
-            cursor: { sync: { key: SYNC_KEY } },
+        options: {
+            cursor: {
+                sync: { key: SYNC_KEY },
+                drag: { x: false, y: false, setScale: false },
+            },
             series: [
                 {},
                 createSeries('Speed', '#06b6d4', { fill: 'rgba(6, 182, 212, 0.06)' }),
@@ -53,18 +56,18 @@ const CHART_CONFIGS: ChartConfig[] = [
                 createYAxis('km/h', '#06b6d4'),
             ],
             scales: { x: { time: false } },
-        }),
-        buildData: (data) => {
-            const ds = downsampleIfNeeded(data);
-            return [buildTimestamps(ds), ds.map(r => (r.speed_ms ?? 0) * 3.6)];
         },
+        buildSeriesData: data => [data.map(r => (r.speed_ms ?? 0) * 3.6)],
     },
     {
         metric: 'power',
         title: 'Power',
         icon: '⚡',
-        buildOptions: () => ({
-            cursor: { sync: { key: SYNC_KEY } },
+        options: {
+            cursor: {
+                sync: { key: SYNC_KEY },
+                drag: { x: false, y: false, setScale: false },
+            },
             series: [
                 {},
                 createSeries('Power', '#ff7f0e', { fill: 'rgba(255, 127, 14, 0.06)' }),
@@ -74,18 +77,18 @@ const CHART_CONFIGS: ChartConfig[] = [
                 createYAxis('Watts', '#ff7f0e'),
             ],
             scales: { x: { time: false } },
-        }),
-        buildData: (data) => {
-            const ds = downsampleIfNeeded(data);
-            return [buildTimestamps(ds), ds.map(r => r.power_w ?? 0)];
         },
+        buildSeriesData: data => [data.map(r => r.power_w ?? 0)],
     },
     {
         metric: 'voltage_current',
         title: 'Voltage & Current',
         icon: '🔋',
-        buildOptions: () => ({
-            cursor: { sync: { key: SYNC_KEY } },
+        options: {
+            cursor: {
+                sync: { key: SYNC_KEY },
+                drag: { x: false, y: false, setScale: false },
+            },
             series: [
                 {},
                 createSeries('Voltage', '#2ca02c'),
@@ -97,18 +100,18 @@ const CHART_CONFIGS: ChartConfig[] = [
                 { ...createYAxis('Amps', '#d62728'), side: 1 },
             ],
             scales: { x: { time: false } },
-        }),
-        buildData: (data) => {
-            const ds = downsampleIfNeeded(data);
-            return [buildTimestamps(ds), ds.map(r => r.voltage_v ?? 0), ds.map(r => r.current_a ?? 0)];
         },
+        buildSeriesData: data => [data.map(r => r.voltage_v ?? 0), data.map(r => r.current_a ?? 0)],
     },
     {
         metric: 'efficiency',
         title: 'Efficiency',
         icon: '📊',
-        buildOptions: () => ({
-            cursor: { sync: { key: SYNC_KEY } },
+        options: {
+            cursor: {
+                sync: { key: SYNC_KEY },
+                drag: { x: false, y: false, setScale: false },
+            },
             series: [
                 {},
                 createSeries('Efficiency', '#9467bd', { fill: 'rgba(148, 103, 189, 0.06)' }),
@@ -118,18 +121,18 @@ const CHART_CONFIGS: ChartConfig[] = [
                 createYAxis('km/kWh', '#9467bd'),
             ],
             scales: { x: { time: false } },
-        }),
-        buildData: (data) => {
-            const ds = downsampleIfNeeded(data);
-            return [buildTimestamps(ds), ds.map(r => r.current_efficiency_km_kwh ?? 0)];
         },
+        buildSeriesData: data => [data.map(r => r.current_efficiency_km_kwh ?? 0)],
     },
     {
         metric: 'throttle_brake',
         title: 'Throttle & Brake',
         icon: '🎮',
-        buildOptions: () => ({
-            cursor: { sync: { key: SYNC_KEY } },
+        options: {
+            cursor: {
+                sync: { key: SYNC_KEY },
+                drag: { x: false, y: false, setScale: false },
+            },
             series: [
                 {},
                 createSeries('Throttle', '#22c55e', { fill: 'rgba(34, 197, 94, 0.06)' }),
@@ -140,22 +143,18 @@ const CHART_CONFIGS: ChartConfig[] = [
                 createYAxis('%', '#22c55e'),
             ],
             scales: { x: { time: false } },
-        }),
-        buildData: (data) => {
-            const ds = downsampleIfNeeded(data);
-            return [
-                buildTimestamps(ds),
-                ds.map(r => r.throttle_pct ?? 0),
-                ds.map(r => r.brake_pct ?? 0),
-            ];
         },
+        buildSeriesData: data => [data.map(r => r.throttle_pct ?? 0), data.map(r => r.brake_pct ?? 0)],
     },
     {
         metric: 'gforce',
         title: 'G-Force',
         icon: '🎯',
-        buildOptions: () => ({
-            cursor: { sync: { key: SYNC_KEY } },
+        options: {
+            cursor: {
+                sync: { key: SYNC_KEY },
+                drag: { x: false, y: false, setScale: false },
+            },
             series: [
                 {},
                 createSeries('G-Force', '#ff6348', { fill: 'rgba(255, 99, 72, 0.06)' }),
@@ -165,11 +164,8 @@ const CHART_CONFIGS: ChartConfig[] = [
                 createYAxis('G', '#ff6348'),
             ],
             scales: { x: { time: false } },
-        }),
-        buildData: (data) => {
-            const ds = downsampleIfNeeded(data);
-            return [buildTimestamps(ds), ds.map(r => r.current_g_force ?? r.g_total ?? 0)];
         },
+        buildSeriesData: data => [data.map(r => r.current_g_force ?? r.g_total ?? 0)],
     },
 ];
 
@@ -184,6 +180,8 @@ function timeAxisFormatter(_self: any, splits: number[]): string[] {
 const SyncedChartStack: Component<SyncedChartStackProps> = (props) => {
     const visibility = createMemo(() => historicalStore.chartVisibility());
     const order = createMemo(() => historicalStore.chartOrder().metrics);
+    const downsampledData = createMemo(() => downsampleIfNeeded(props.data));
+    const downsampledTimestamps = createMemo(() => buildTimestamps(downsampledData()));
 
     const orderedConfigs = createMemo(() => {
         const vis = visibility();
@@ -196,7 +194,10 @@ const SyncedChartStack: Component<SyncedChartStackProps> = (props) => {
         <div class="hist-chart-stack">
             <For each={orderedConfigs()}>
                 {(config) => {
-                    const chartData = createMemo(() => config.buildData(props.data));
+                    const chartData = createMemo<AlignedData>(() => [
+                        downsampledTimestamps(),
+                        ...config.buildSeriesData(downsampledData()),
+                    ]);
                     const isCollapsed = createMemo(() => !visibility()[config.metric]);
 
                     return (
@@ -217,8 +218,12 @@ const SyncedChartStack: Component<SyncedChartStackProps> = (props) => {
                                 <div class="hist-chart-body">
                                     <div class="hist-chart-container">
                                         <UPlotChart
-                                            options={config.buildOptions()}
+                                            options={config.options}
                                             data={chartData()}
+                                            onWheel={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                            }}
                                         />
                                     </div>
                                 </div>

@@ -43,17 +43,30 @@ const TimeRangeSelector: Component<TimeRangeSelectorProps> = (props) => {
             height: 0,
         },
         hooks: {
-            setSelect: [(self: any) => {
-                const sel = self.select;
-                if (sel.width > 0) {
+            ready: [(self: any) => {
+                const applySelection = () => {
+                    const sel = self.select;
+                    if (!sel || sel.width <= 2) return;
+
                     const left = sel.left;
                     const right = left + sel.width;
                     const minTs = self.posToVal(left, 'x') * 1000;
                     const maxTs = self.posToVal(right, 'x') * 1000;
-                    historicalStore.setTimeRange([minTs, maxTs]);
-                    // Clear the selection rectangle
+
+                    if (!Number.isFinite(minTs) || !Number.isFinite(maxTs) || minTs >= maxTs) {
+                        return;
+                    }
+
+                    const ext = historicalStore.sessionTimeExtent();
+                    const start = ext ? Math.max(ext[0], minTs) : minTs;
+                    const end = ext ? Math.min(ext[1], maxTs) : maxTs;
+
+                    historicalStore.setTimeRange([start, end]);
                     self.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false);
-                }
+                };
+
+                self.root.addEventListener('mouseup', applySelection);
+                self.root.addEventListener('touchend', applySelection);
             }],
         },
         series: [
