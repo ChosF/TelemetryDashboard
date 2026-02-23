@@ -189,7 +189,7 @@ flowchart TD
 
 1. **Role restrictions**
    - `guest` role can't view historical sessions
-   - `external` role can only view last session
+   - `external` role can only view last session and can download up to 1000 data points
    - Upgrade to `internal` or `admin` for full access
 
 2. **Session doesn't exist**

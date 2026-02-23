@@ -9,10 +9,25 @@ import type { TelemetryRow } from '@/types/telemetry';
 import { withDerived } from '@/lib/utils';
 import { historicalStore } from '@/stores/historical';
 
+interface AccessPermissions {
+    role: 'guest' | 'external' | 'internal' | 'admin';
+    canViewHistorical: boolean;
+    downloadLimit: number;
+    historicalLimit: number;
+}
+
+const DEFAULT_PERMISSIONS: AccessPermissions = {
+    role: 'guest',
+    canViewHistorical: false,
+    downloadLimit: 0,
+    historicalLimit: 0,
+};
+
 const HistoricalRoute: Component = () => {
     const [booting, setBooting] = createSignal(true);
     const [bootError, setBootError] = createSignal<string | null>(null);
     const [loadError, setLoadError] = createSignal<string | null>(null);
+    const [permissions, setPermissions] = createSignal<AccessPermissions>(DEFAULT_PERMISSIONS);
     const params = useParams<{ sessionId?: string }>();
     const location = useLocation();
     const navigate = useNavigate();
@@ -20,9 +35,15 @@ const HistoricalRoute: Component = () => {
 
     const [sessions] = createResource<TelemetrySession[]>(async () => {
         if (booting()) return [];
+        if (!permissions().canViewHistorical) return [];
         try {
             const result = await convexClient.listSessions();
-            return result.sessions ?? [];
+            const list = result.sessions ?? [];
+            const historicalLimit = permissions().historicalLimit;
+            if (historicalLimit && Number.isFinite(historicalLimit) && historicalLimit > 0) {
+                return list.slice(0, historicalLimit);
+            }
+            return list;
         } catch (error) {
             setLoadError(error instanceof Error ? error.message : 'Failed to load sessions');
             return [];
@@ -65,7 +86,10 @@ const HistoricalRoute: Component = () => {
         }
 
         const authModule = (window as unknown as {
-            AuthModule?: { initAuth?: (url: string) => Promise<boolean> };
+            AuthModule?: {
+                initAuth?: (url: string) => Promise<boolean>;
+                getPermissions?: () => Promise<Partial<AccessPermissions>>;
+            };
             AuthUI?: { initAuthUI?: () => void; updateHeaderUI?: () => void };
         });
         authModule.AuthUI?.initAuthUI?.();
@@ -73,6 +97,13 @@ const HistoricalRoute: Component = () => {
             try {
                 const authReady = await authModule.AuthModule.initAuth(convexUrl);
                 if (authReady) authModule.AuthUI?.updateHeaderUI?.();
+                if (authModule.AuthModule?.getPermissions) {
+                    const perms = await authModule.AuthModule.getPermissions();
+                    setPermissions({
+                        ...DEFAULT_PERMISSIONS,
+                        ...perms,
+                    });
+                }
             } catch {
                 // Keep historical routes usable even if auth UI bootstrap fails.
             }
@@ -109,7 +140,15 @@ const HistoricalRoute: Component = () => {
     return (
         <Show when={!booting()} fallback={<div style={{ padding: '24px' }}>Loading historical services...</div>}>
             <Show when={!bootError()} fallback={<div style={{ padding: '24px' }}>{bootError()}</div>}>
-                <Show when={!loadError()} fallback={<div style={{ padding: '24px' }}>{loadError()}</div>}>
+            <Show when={!loadError()} fallback={<div style={{ padding: '24px' }}>{loadError()}</div>}>
+                <Show
+                    when={permissions().canViewHistorical}
+                    fallback={
+                        <div style={{ padding: '24px' }}>
+                            Access restricted. Sign in with an external, internal, or admin account to view historical sessions.
+                        </div>
+                    }
+                >
             <Show
                 when={!isCustomRoute()}
                 fallback={
@@ -156,10 +195,14 @@ const HistoricalRoute: Component = () => {
                 <HistoricalMode
                     sessions={sessions() ?? []}
                     loading={sessions.loading}
+                    accessLevel={permissions().role === 'external' ? 'limited' : 'full'}
+                    historicalLimitSessions={permissions().historicalLimit}
+                    downloadLimit={permissions().downloadLimit}
                     onSelectSession={(session) => navigate(`/historical/${encodeURIComponent(session.session_id)}`)}
                     onBackToSessions={() => navigate('/dashboard/sessions')}
                 />
             </Show>
+                </Show>
                 </Show>
             </Show>
         </Show>

@@ -34,7 +34,7 @@
       canDownloadCSV: true,
       canViewHistorical: true,
       canAccessAdmin: false,
-      downloadLimit: 400,
+      downloadLimit: 1000,
       historicalLimit: 1
     },
     [USER_ROLES.INTERNAL]: {

@@ -10,15 +10,31 @@ import { formatNumber, formatDuration, computeStatistics } from '@/lib/historica
 export interface ExportPanelProps {
     data: TelemetryRow[];
     allData: TelemetryRow[];
+    downloadLimit?: number;
 }
 
 const ExportPanel: Component<ExportPanelProps> = (props) => {
     const isRangeSelected = createMemo(() => historicalStore.timeRange() !== null);
     const meta = createMemo(() => historicalStore.sessionMeta());
+    const effectiveDownloadLimit = createMemo(() => {
+        const limit = props.downloadLimit;
+        if (!limit || !Number.isFinite(limit) || limit <= 0) return Infinity;
+        return Math.floor(limit);
+    });
+    const isLimitedUser = createMemo(() => Number.isFinite(effectiveDownloadLimit()));
+
+    const limitRows = (rows: TelemetryRow[]): TelemetryRow[] => {
+        const limit = effectiveDownloadLimit();
+        if (!Number.isFinite(limit)) return rows;
+        if (rows.length <= limit) return rows;
+        // Keep the most recent rows for restricted exports.
+        return rows.slice(rows.length - limit);
+    };
 
     // CSV Export
     const exportCSV = (useFilteredRange: boolean) => {
-        const data = useFilteredRange ? props.data : props.allData;
+        const source = useFilteredRange ? props.data : props.allData;
+        const data = limitRows(source);
         if (data.length === 0) return;
 
         const headers = [
@@ -141,7 +157,10 @@ const ExportPanel: Component<ExportPanelProps> = (props) => {
                         <span class="hist-export-icon">📄</span>
                         <span class="hist-export-label">Full Session CSV</span>
                         <span class="hist-export-desc">
-                            Export all {props.allData.length.toLocaleString()} records
+                            {isLimitedUser()
+                                ? `Export up to ${effectiveDownloadLimit().toLocaleString()} most recent records`
+                                : `Export all ${props.allData.length.toLocaleString()} records`
+                            }
                         </span>
                     </button>
 
@@ -155,7 +174,11 @@ const ExportPanel: Component<ExportPanelProps> = (props) => {
                         <span class="hist-export-label">Selected Range CSV</span>
                         <span class="hist-export-desc">
                             {isRangeSelected()
-                                ? `Export ${props.data.length.toLocaleString()} records in range`
+                                ? (
+                                    isLimitedUser()
+                                        ? `Export up to ${effectiveDownloadLimit().toLocaleString()} records in range`
+                                        : `Export ${props.data.length.toLocaleString()} records in range`
+                                )
                                 : 'Select a time range first'
                             }
                         </span>
