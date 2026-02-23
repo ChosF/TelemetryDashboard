@@ -713,6 +713,11 @@
   background: var(--surface-tertiary);
 }
 
+.admin-user-card {
+  position: relative;
+  overflow: hidden;
+}
+
 .admin-user-card.is-processing {
   opacity: 0.75;
   transform: scale(0.995);
@@ -721,6 +726,92 @@
 
 .admin-user-card.removing {
   animation: adminCardOut 0.22s var(--ease-out) forwards;
+}
+
+/* ── Inline Card Confirmation ── */
+
+.icc-strip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 2;
+  border-radius: inherit;
+  background: rgba(17, 20, 28, 0.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  transform: scale(0.97);
+  transition:
+    opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.icc-strip.icc-visible {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.icc-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: -0.01em;
+}
+
+.icc-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.icc-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+  outline: none;
+}
+
+.icc-btn:focus-visible {
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.5);
+}
+
+.icc-cancel {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.icc-cancel:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.icc-cancel:active {
+  transform: scale(0.96);
+}
+
+.icc-yes {
+  background: rgba(239, 68, 68, 0.85);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(239, 68, 68, 0.2);
+}
+
+.icc-yes:hover {
+  background: rgba(239, 68, 68, 1);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  transform: translateY(-1px);
+}
+
+.icc-yes:active {
+  transform: translateY(0) scale(0.96);
 }
 
 .admin-user-info {
