@@ -793,7 +793,7 @@
       async () => {
         const restore = setControlBusy(triggerEl, 'Banning...');
         try {
-          const result = await window.AuthModule.banUser(userId);
+          const result = await executeBanUser(userId);
           await animateCardRemoval(triggerEl);
           loadPendingUsers(modal);
           loadAllUsers(modal);
@@ -819,7 +819,7 @@
       async () => {
         const restore = setControlBusy(triggerEl, 'Deleting...');
         try {
-          const result = await window.AuthModule.deleteUser(userId);
+          const result = await executeDeleteUser(userId);
           await animateCardRemoval(triggerEl);
           loadPendingUsers(modal);
           loadAllUsers(modal);
@@ -860,6 +860,55 @@
       }
       control.disabled = false;
     };
+  }
+
+  async function executeBanUser(userId) {
+    const auth = window.AuthModule;
+    if (!auth) {
+      throw new Error('Auth module is not loaded.');
+    }
+
+    if (typeof auth.banUser === 'function') {
+      try {
+        return await auth.banUser(userId);
+      } catch (error) {
+        // Continue to fallback path below.
+        console.warn('banUser failed, trying fallback path:', error);
+      }
+    }
+
+    if (typeof auth.updateUserRole !== 'function' || typeof auth.rejectUser !== 'function') {
+      throw new Error('Required admin actions are unavailable in this client session.');
+    }
+
+    await auth.updateUserRole(userId, 'guest');
+    await auth.rejectUser(userId);
+    return { success: true, softBanned: true };
+  }
+
+  async function executeDeleteUser(userId) {
+    const auth = window.AuthModule;
+    if (!auth) {
+      throw new Error('Auth module is not loaded.');
+    }
+
+    if (typeof auth.deleteUser === 'function') {
+      try {
+        return await auth.deleteUser(userId);
+      } catch (error) {
+        // Continue to fallback path below.
+        console.warn('deleteUser failed, trying fallback path:', error);
+      }
+    }
+
+    if (typeof auth.updateUserRole !== 'function' || typeof auth.rejectUser !== 'function') {
+      throw new Error('Required admin actions are unavailable in this client session.');
+    }
+
+    // Soft-delete fallback if hard-delete is unavailable in current frontend/runtime.
+    await auth.updateUserRole(userId, 'guest');
+    await auth.rejectUser(userId);
+    return { success: true, softDeleted: true };
   }
 
   async function animateCardRemoval(control) {
