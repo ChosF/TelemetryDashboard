@@ -41,18 +41,33 @@ const SessionSummary: Component<SessionSummaryProps> = (props) => {
         const speeds = data.map(r => (r.speed_ms ?? 0) * 3.6).filter(s => s > 0);
         const speedStats = computeStatistics(speeds);
 
-        // Energy
+        // Energy: prefer backend cumulative field; fallback to power integration.
         let totalEnergyKwh = 0;
-        for (let i = 1; i < data.length; i++) {
-            const dt = (new Date(data[i].timestamp).getTime() - new Date(data[i - 1].timestamp).getTime()) / 1000;
-            if (dt > 0 && dt < 30) {
-                const avgPower = Math.abs((data[i].power_w ?? 0) + (data[i - 1].power_w ?? 0)) / 2;
-                totalEnergyKwh += avgPower * dt / 3_600_000;
+        const firstCum = data[0].cumulative_energy_kwh;
+        const lastCum = data[data.length - 1].cumulative_energy_kwh;
+        if (
+            firstCum != null && lastCum != null &&
+            Number.isFinite(firstCum) && Number.isFinite(lastCum) &&
+            lastCum >= firstCum
+        ) {
+            totalEnergyKwh = Math.max(0, lastCum - firstCum);
+        } else {
+            for (let i = 1; i < data.length; i++) {
+                const dt = (new Date(data[i].timestamp).getTime() - new Date(data[i - 1].timestamp).getTime()) / 1000;
+                if (dt > 0 && dt < 30) {
+                    const p1 = data[i].power_w ?? ((data[i].voltage_v ?? 0) * (data[i].current_a ?? 0));
+                    const p0 = data[i - 1].power_w ?? ((data[i - 1].voltage_v ?? 0) * (data[i - 1].current_a ?? 0));
+                    const avgPower = Math.abs(p1 + p0) / 2;
+                    totalEnergyKwh += avgPower * dt / 3_600_000;
+                }
             }
         }
 
         // Efficiency
-        const efficiency = totalEnergyKwh > 0 ? distKm / totalEnergyKwh : 0;
+        const rawEfficiency = totalEnergyKwh > 0 ? distKm / totalEnergyKwh : 0;
+        const efficiency = Number.isFinite(rawEfficiency)
+            ? Math.max(0, Math.min(rawEfficiency, 200))
+            : 0;
 
         // Quality score
         const qualityScores = data.map(r => r.quality_score).filter((q): q is number => q != null);

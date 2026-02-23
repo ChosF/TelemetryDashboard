@@ -99,6 +99,25 @@ export function throttle<T extends (...args: unknown[]) => void>(
 export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
     const normalized = { ...row } as TelemetryRow;
 
+    const voltage = toNum(normalized.voltage_v, null);
+    const current = toNum(normalized.current_a, null);
+    const power = toNum(normalized.power_w, null);
+
+    if (voltage !== null) normalized.voltage_v = voltage;
+    if (current !== null) normalized.current_a = current;
+    if (power !== null) {
+        normalized.power_w = power;
+    } else if (voltage !== null && current !== null) {
+        // Some historical records omit power; recover it from V * A.
+        normalized.power_w = voltage * current;
+    }
+
+    const efficiency = toNum(normalized.current_efficiency_km_kwh, null);
+    if (efficiency !== null) {
+        // Guard against invalid spikes from tiny instantaneous energy.
+        normalized.current_efficiency_km_kwh = clamp(efficiency, 0, 200);
+    }
+
     // Map altitude field variations
     if (!('altitude' in normalized) || normalized.altitude === undefined) {
         const altitudeFields = ['altitude_m', 'gps_altitude', 'elevation', 'alt'] as const;
