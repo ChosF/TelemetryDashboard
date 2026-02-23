@@ -93,6 +93,14 @@
 
   // Custom confirmation dialog
   function showConfirm(message, onConfirm, onCancel) {
+    // Guaranteed fallback if modal UI cannot be rendered.
+    if (!document?.body) {
+      const confirmed = window.confirm(message);
+      if (confirmed && onConfirm) onConfirm();
+      if (!confirmed && onCancel) onCancel();
+      return null;
+    }
+
     const modal = document.createElement('div');
     modal.className = 'confirm-modal';
     modal.innerHTML = `
@@ -107,14 +115,23 @@
       </div>
     `;
 
+    applyConfirmInlineStyles(modal);
     document.body.appendChild(modal);
 
     const overlay = modal.querySelector('.confirm-modal-overlay');
     const cancelBtn = modal.querySelector('.confirm-cancel');
     const okBtn = modal.querySelector('.confirm-ok');
 
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        close(false);
+      }
+    };
+
     const close = (confirmed) => {
+      document.removeEventListener('keydown', escHandler);
       modal.classList.add('closing');
+      modal.style.opacity = '0';
       setTimeout(() => {
         modal.remove();
         if (confirmed && onConfirm) {
@@ -130,15 +147,83 @@
     okBtn.addEventListener('click', () => close(true));
 
     // ESC key support
-    const escHandler = (e) => {
-      if (e.key === 'Escape') {
-        close(false);
-        document.removeEventListener('keydown', escHandler);
-      }
-    };
     document.addEventListener('keydown', escHandler);
 
     return modal;
+  }
+
+  function applyConfirmInlineStyles(modal) {
+    modal.style.position = 'fixed';
+    modal.style.inset = '0';
+    modal.style.zIndex = '12000';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.padding = '16px';
+    modal.style.opacity = '1';
+    modal.style.transition = 'opacity 0.22s ease';
+
+    const overlay = modal.querySelector('.confirm-modal-overlay');
+    if (overlay) {
+      overlay.style.position = 'absolute';
+      overlay.style.inset = '0';
+      overlay.style.background = 'rgba(0, 0, 0, 0.6)';
+      overlay.style.backdropFilter = 'blur(4px)';
+    }
+
+    const content = modal.querySelector('.confirm-modal-content');
+    if (content) {
+      content.style.position = 'relative';
+      content.style.width = 'min(92vw, 420px)';
+      content.style.padding = '22px';
+      content.style.borderRadius = '14px';
+      content.style.background = 'rgba(22, 27, 34, 0.96)';
+      content.style.border = '1px solid rgba(255, 255, 255, 0.14)';
+      content.style.boxShadow = '0 18px 44px rgba(0,0,0,0.36)';
+      content.style.color = 'white';
+      content.style.zIndex = '1';
+    }
+
+    const icon = modal.querySelector('.confirm-modal-icon');
+    if (icon) {
+      icon.style.fontSize = '28px';
+      icon.style.marginBottom = '10px';
+      icon.style.textAlign = 'center';
+    }
+
+    const message = modal.querySelector('.confirm-modal-message');
+    if (message) {
+      message.style.textAlign = 'center';
+      message.style.lineHeight = '1.45';
+      message.style.marginBottom = '16px';
+    }
+
+    const actions = modal.querySelector('.confirm-modal-actions');
+    if (actions) {
+      actions.style.display = 'flex';
+      actions.style.justifyContent = 'center';
+      actions.style.gap = '10px';
+    }
+
+    const cancelBtn = modal.querySelector('.confirm-cancel');
+    if (cancelBtn) {
+      cancelBtn.style.padding = '8px 14px';
+      cancelBtn.style.borderRadius = '8px';
+      cancelBtn.style.border = '1px solid rgba(255,255,255,0.2)';
+      cancelBtn.style.background = 'rgba(255,255,255,0.08)';
+      cancelBtn.style.color = 'white';
+      cancelBtn.style.cursor = 'pointer';
+    }
+
+    const okBtn = modal.querySelector('.confirm-ok');
+    if (okBtn) {
+      okBtn.style.padding = '8px 14px';
+      okBtn.style.borderRadius = '8px';
+      okBtn.style.border = 'none';
+      okBtn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+      okBtn.style.color = 'white';
+      okBtn.style.cursor = 'pointer';
+    }
   }
 
   // Create and show login modal
