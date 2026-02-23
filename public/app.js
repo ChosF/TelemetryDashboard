@@ -547,15 +547,19 @@
     state.activePanel = panelFromUrl;
   }
 
+  function closeFabMenu() {
+    fabMenu?.classList.remove("active");
+  }
+
   // FAB Menu Toggle
   fabToggle?.addEventListener("click", () => {
-    fabMenu.classList.toggle("active");
+    fabMenu?.classList.toggle("active");
   });
 
   // Close FAB menu when clicking outside
   document.addEventListener("click", (e) => {
-    if (!fabMenu.contains(e.target)) {
-      fabMenu.classList.remove("active");
+    if (fabMenu && !fabMenu.contains(e.target)) {
+      closeFabMenu();
     }
   });
 
@@ -6520,7 +6524,7 @@
           } catch { }
         }, 200);
         // Close both modal and FAB menu
-        fabMenu.classList.remove("active");
+        closeFabMenu();
         setTimeout(close, 1500);
       } catch (e) {
         sessionInfo.textContent = `Error: ${e.message}`;
@@ -6639,7 +6643,7 @@
         if (state.mode === "realtime") await connectRealtime();
         else await refreshSessionsUI();
       }
-      fabMenu.classList.remove("active");
+      closeFabMenu();
     });
 
     // Header Connection Status click - Manual connect trigger
@@ -6656,14 +6660,14 @@
     fabExport?.addEventListener("click", (e) => {
       e.stopPropagation();
       showExportModal();
-      fabMenu.classList.remove("active");
+      closeFabMenu();
     });
 
     // FAB Sessions button - Show sessions list
     fabSessions?.addEventListener("click", async (e) => {
       e.stopPropagation();
       await showSessionsModal();
-      fabMenu.classList.remove("active");
+      closeFabMenu();
     });
 
     // Theme Toggle
