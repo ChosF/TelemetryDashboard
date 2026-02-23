@@ -118,6 +118,23 @@
         return sampleRowsEvenly(rows, externalDataPointLimit);
     }
 
+    function getSessionsSortedByNewest() {
+        return [...S.sessions].sort((a, b) => new Date(b.start_time || 0) - new Date(a.start_time || 0));
+    }
+
+    function getAllowedSessions() {
+        const newestFirst = getSessionsSortedByNewest();
+        if (Number.isFinite(historicalLimit) && historicalLimit > 0) {
+            return newestFirst.slice(0, historicalLimit);
+        }
+        return newestFirst;
+    }
+
+    function isAllowedSessionId(sessionId) {
+        if (!sessionId) return false;
+        return getAllowedSessions().some(s => s.session_id === sessionId);
+    }
+
     // ── Sessions ──
     async function loadSessions() {
         const el = $('h-sessions-list');
@@ -153,14 +170,14 @@
     function renderSessions() {
         const q = ($('h-search')?.value || '').toLowerCase();
         const sort = $('h-sort')?.value || 'newest';
-        let list = S.sessions.filter(s => (s.session_name || s.session_id || '').toLowerCase().includes(q));
+        const scopedSessions = getAllowedSessions();
+        let list = scopedSessions.filter(s => (s.session_name || s.session_id || '').toLowerCase().includes(q));
         if (sort === 'newest') list.sort((a, b) => new Date(b.start_time || 0) - new Date(a.start_time || 0));
         else if (sort === 'oldest') list.sort((a, b) => new Date(a.start_time || 0) - new Date(b.start_time || 0));
         else if (sort === 'most-records') list.sort((a, b) => (b.record_count || 0) - (a.record_count || 0));
         else if (sort === 'name-asc') list.sort((a, b) => (a.session_name || '').localeCompare(b.session_name || ''));
-        if (isFinite(historicalLimit) && historicalLimit > 0) list = list.slice(0, historicalLimit);
-        const tot = S.sessions.reduce((s, x) => s + (x.record_count || 0), 0);
-        $('h-explorer-stats').innerHTML = `<span>${S.sessions.length}</span> sessions · <span>${tot.toLocaleString()}</span> total records · <span>${list.length}</span> shown`;
+        const tot = scopedSessions.reduce((s, x) => s + (x.record_count || 0), 0);
+        $('h-explorer-stats').innerHTML = `<span>${scopedSessions.length}</span> sessions · <span>${tot.toLocaleString()}</span> total records · <span>${list.length}</span> shown`;
         if (!list.length) { $('h-sessions-list').innerHTML = '<div class="ha-empty"><div class="ha-empty-icon">📭</div>No sessions found</div>'; return }
         $('h-sessions-list').innerHTML = list.map(s => {
             const nm = s.session_name || 'Unnamed', id = s.session_id || '', dt = s.start_time ? new Date(s.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '', ct = s.record_count || 0, dur = s.duration_s ? fmtTime(s.duration_s * 1000) : '';
@@ -192,6 +209,22 @@
     }
 
     async function openSession(sid, options = {}) {
+        if (!options.forceAllow && !isAllowedSessionId(sid)) {
+            const fallback = getAllowedSessions()[0];
+            toast('This session is outside your historical access range.');
+            if (fallback?.session_id) {
+                return openSession(fallback.session_id, {
+                    ...options,
+                    forceAllow: true,
+                    skipHistory: false,
+                    replaceHistory: true,
+                });
+            }
+            backToSessions({ skipHistory: true });
+            updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, true);
+            return;
+        }
+
         S.activeSessionId = sid;
         S.activeSessionMeta = S.sessions.find(s => s.session_id === sid);
         const label = $('h-active-session-label');
@@ -1015,7 +1048,7 @@
     function populateCompareSelect() {
         const sel = $('h-compare-session'); if (!sel) return;
         sel.innerHTML = '<option value="">Select a session to compare…</option>' +
-            S.sessions
+            getAllowedSessions()
                 .filter(s => s.session_id !== S.activeSessionId)
                 .map(s => {
                     const name = esc(s.session_name || s.session_id.slice(0, 12));
