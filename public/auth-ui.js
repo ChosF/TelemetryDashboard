@@ -888,12 +888,11 @@
 
   // Reject user
   async function rejectUser(userId, modal, triggerEl) {
-    showConfirm('Are you sure you want to reject this user request?', async () => {
+    showCardConfirm(triggerEl, 'Reject this request?', async (card) => {
       const restore = setControlBusy(triggerEl, 'Rejecting...');
       try {
         await window.AuthModule.rejectUser(userId);
         await animateCardRemoval(triggerEl);
-        // Reload both panels
         loadPendingUsers(modal);
         loadAllUsers(modal);
         showNotification('User request rejected.', 'success');
@@ -911,13 +910,11 @@
     const restore = setControlBusy(triggerEl);
     try {
       await window.AuthModule.updateUserRole(userId, newRole);
-      // Reload all users panel
       loadAllUsers(modal);
       showNotification('User role updated successfully!', 'success');
     } catch (error) {
       console.error('Error changing user role:', error);
       showNotification('Failed to change user role: ' + error.message, 'error');
-      // Reload to reset select
       loadAllUsers(modal);
     } finally {
       restore();
@@ -926,54 +923,98 @@
 
   // Ban user
   async function banUser(userId, modal, triggerEl) {
-    showConfirm(
-      'Ban this user? They will be demoted to Guest and their approval will be set to Rejected.',
-      async () => {
-        const restore = setControlBusy(triggerEl, 'Banning...');
-        try {
-          const result = await executeBanUser(userId);
-          await animateCardRemoval(triggerEl);
-          loadPendingUsers(modal);
-          loadAllUsers(modal);
-          if (result?.softBanned) {
-            showNotification('User has been banned (fallback mode).', 'warning');
-          } else {
-            showNotification('User has been banned.', 'warning');
-          }
-        } catch (error) {
-          console.error('Error banning user:', error);
-          showNotification('Failed to ban user: ' + error.message, 'error');
-        } finally {
-          restore();
-        }
+    showCardConfirm(triggerEl, 'Ban this user?', async (card) => {
+      const restore = setControlBusy(triggerEl, 'Banning...');
+      try {
+        const result = await executeBanUser(userId);
+        await animateCardRemoval(triggerEl);
+        loadPendingUsers(modal);
+        loadAllUsers(modal);
+        showNotification('User has been banned.', 'warning');
+      } catch (error) {
+        console.error('Error banning user:', error);
+        showNotification('Failed to ban user: ' + error.message, 'error');
+      } finally {
+        restore();
       }
-    );
+    });
   }
 
   // Delete user
   async function deleteUser(userId, modal, triggerEl) {
-    showConfirm(
-      'Delete this user permanently? This will remove their profile and active sessions.',
-      async () => {
-        const restore = setControlBusy(triggerEl, 'Deleting...');
-        try {
-          const result = await executeDeleteUser(userId);
-          await animateCardRemoval(triggerEl);
-          loadPendingUsers(modal);
-          loadAllUsers(modal);
-          if (result?.softDeleted) {
-            showNotification('User archived (soft delete fallback).', 'warning');
-          } else {
-            showNotification('User deleted successfully.', 'success');
-          }
-        } catch (error) {
-          console.error('Error deleting user:', error);
-          showNotification('Failed to delete user: ' + error.message, 'error');
-        } finally {
-          restore();
-        }
+    showCardConfirm(triggerEl, 'Delete permanently?', async (card) => {
+      const restore = setControlBusy(triggerEl, 'Deleting...');
+      try {
+        const result = await executeDeleteUser(userId);
+        await animateCardRemoval(triggerEl);
+        loadPendingUsers(modal);
+        loadAllUsers(modal);
+        showNotification('User deleted.', 'success');
+      } catch (error) {
+        console.error('Error deleting user:', error);
+        showNotification('Failed to delete user: ' + error.message, 'error');
+      } finally {
+        restore();
       }
-    );
+    });
+  }
+
+  function showCardConfirm(triggerEl, promptText, onConfirm) {
+    const card = triggerEl?.closest('.admin-user-card');
+    if (!card) {
+      showConfirm(promptText, () => onConfirm(null));
+      return;
+    }
+
+    if (card.querySelector('.icc-strip')) return;
+
+    const cardContent = card.querySelector('.admin-user-info');
+    const cardControls = card.querySelector('.admin-user-controls') || card.querySelector('.admin-user-actions');
+
+    if (cardContent) cardContent.style.transition = 'opacity 0.18s ease, filter 0.18s ease';
+    if (cardControls) cardControls.style.transition = 'opacity 0.18s ease, filter 0.18s ease';
+
+    requestAnimationFrame(() => {
+      if (cardContent) { cardContent.style.opacity = '0.25'; cardContent.style.filter = 'blur(2px)'; }
+      if (cardControls) { cardControls.style.opacity = '0'; cardControls.style.filter = 'blur(2px)'; }
+    });
+
+    card.style.borderColor = 'rgba(239, 68, 68, 0.35)';
+
+    const strip = document.createElement('div');
+    strip.className = 'icc-strip';
+    strip.innerHTML = `
+      <span class="icc-text">${promptText}</span>
+      <div class="icc-btns">
+        <button class="icc-btn icc-cancel">Cancel</button>
+        <button class="icc-btn icc-yes">Yes</button>
+      </div>
+    `;
+    card.appendChild(strip);
+
+    requestAnimationFrame(() => strip.classList.add('icc-visible'));
+
+    const cancelBtn = strip.querySelector('.icc-cancel');
+    const yesBtn = strip.querySelector('.icc-yes');
+
+    const dismiss = () => {
+      strip.classList.remove('icc-visible');
+      if (cardContent) { cardContent.style.opacity = ''; cardContent.style.filter = ''; }
+      if (cardControls) { cardControls.style.opacity = ''; cardControls.style.filter = ''; }
+      card.style.borderColor = '';
+      setTimeout(() => strip.remove(), 200);
+    };
+
+    cancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dismiss();
+    });
+
+    yesBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dismiss();
+      onConfirm(card);
+    });
   }
 
   function setControlBusy(control, buttonBusyLabel) {
