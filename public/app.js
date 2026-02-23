@@ -41,12 +41,16 @@
   const ABLY_AUTH_URL = cfg.ABLY_AUTH_URL || "/api/ably/token";
   const ABLY_API_KEY = cfg.ABLY_API_KEY || null;
   const CONVEX_URL = cfg.CONVEX_URL || window.CONFIG?.CONVEX_URL || "";
+  const getRuntimeCompat = () => window.SolidInternals?.Runtime || null;
+  const getConvexBridge = () =>
+    window.SolidInternals?.ConvexBridge || window.ConvexBridge || null;
 
   // Initialize Convex client if available
   let convexEnabled = false;
-  if (CONVEX_URL && window.ConvexBridge) {
+  const convexBridge = getConvexBridge();
+  if (CONVEX_URL && convexBridge) {
     try {
-      convexEnabled = await ConvexBridge.init(CONVEX_URL);
+      convexEnabled = await convexBridge.init(CONVEX_URL);
       if (convexEnabled) {
         console.log("✅ Convex client initialized");
       }
@@ -418,7 +422,6 @@
     gps: el("panel-gps"),
     custom: el("panel-custom"),
     data: el("panel-data"),
-    historical: el("panel-historical"),
   };
 
   // Charts
@@ -501,8 +504,48 @@
     // Gap-aware sync tracking
     channelAttachTime: null,      // Timestamp when we attached to Ably channel
     convexLatestTimestamp: null,  // Latest timestamp from Convex (for gap detection)
-    lastMergeStats: null          // Statistics from last merge operation
+    lastMergeStats: null,         // Statistics from last merge operation
+    lastQualityAnalysisAt: 0,
+    lastDataTableRenderAt: 0,
+    lastRealtimeControlsTelemetryLen: 0,
+    lastControlValues: { throttlePct: null, brakePct: null, gLat: null, gLong: null },
+    inboundQueue: [],
+    inboundFlushTimer: null
   };
+
+  // Keep dashboard context in URL so browser back restores exact panel state.
+  const VALID_PANEL_NAMES = new Set(Object.keys(panels));
+
+  function getPanelFromUrl() {
+    try {
+      const panel = new URL(window.location.href).searchParams.get("panel");
+      if (panel && VALID_PANEL_NAMES.has(panel)) return panel;
+    } catch { }
+    return null;
+  }
+
+  function syncDashboardRouteState() {
+    try {
+      if (!state.activePanel || !VALID_PANEL_NAMES.has(state.activePanel)) return;
+      const url = new URL(window.location.href);
+      url.pathname = "/dashboard";
+      url.searchParams.set("panel", state.activePanel);
+      const next = `${url.pathname}${url.search}`;
+      const current = `${window.location.pathname}${window.location.search}`;
+      if (next !== current) {
+        window.history.replaceState(
+          { ...(window.history.state || {}), panel: state.activePanel },
+          "",
+          next
+        );
+      }
+    } catch { }
+  }
+
+  const panelFromUrl = getPanelFromUrl();
+  if (panelFromUrl) {
+    state.activePanel = panelFromUrl;
+  }
 
   // FAB Menu Toggle
   fabToggle?.addEventListener("click", () => {
@@ -518,18 +561,18 @@
 
   // Merge & dedupe for incremental real-time messages
   // Uses timestamp + message_id as unique key to prevent duplicates
-  function mergeTelemetry(existing, incoming) {
-    // Create unique key combining timestamp (ms precision) and message_id
-    const keyOf = (r) => {
-      const ts = new Date(r.timestamp).getTime();
-      const msgId = r.message_id ?? '';
-      return `${ts}::${msgId}`;
-    };
+  function telemetryKey(r) {
+    const ts = new Date(r.timestamp).getTime();
+    const msgId = r.message_id ?? '';
+    return `${ts}::${msgId}`;
+  }
 
+  function fullMergeTelemetry(existing, incoming) {
+    // Create unique key combining timestamp (ms precision) and message_id
     // Build map from existing, then add/update with incoming
-    const seen = new Map(existing.map((r) => [keyOf(r), r]));
+    const seen = new Map(existing.map((r) => [telemetryKey(r), r]));
     for (const r of incoming) {
-      const key = keyOf(r);
+      const key = telemetryKey(r);
       // Prefer real data over interpolated
       if (!seen.has(key) || (seen.get(key)._interpolated && !r._interpolated)) {
         seen.set(key, r);
@@ -550,6 +593,40 @@
     }
 
     return out;
+  }
+
+  function mergeTelemetry(existing, incoming) {
+    if (!incoming || incoming.length === 0) return existing;
+    if (incoming.length === 1) {
+      const next = incoming[0];
+      const lastRow = existing[existing.length - 1];
+      if (!lastRow) return [next];
+
+      const nextTs = new Date(next.timestamp).getTime();
+      const lastTs = new Date(lastRow.timestamp).getTime();
+      const nextKey = telemetryKey(next);
+      const lastKey = telemetryKey(lastRow);
+
+      // Fast path for strictly ordered realtime ingestion.
+      if (nextTs >= lastTs) {
+        if (nextKey === lastKey) {
+          if (lastRow._interpolated && !next._interpolated) {
+            const out = existing.slice();
+            out[out.length - 1] = next;
+            return out;
+          }
+          return existing;
+        }
+
+        const out = existing.length >= state.maxPoints
+          ? existing.slice(existing.length - state.maxPoints + 1)
+          : existing.slice();
+        out.push(next);
+        return out;
+      }
+    }
+
+    return fullMergeTelemetry(existing, incoming);
   }
 
   // Derived (roll/pitch and g-forces)
@@ -1687,6 +1764,15 @@
     } catch { }
   }
 
+  const G_FORCE_RING_POINTS = (() => {
+    const d = [];
+    for (let a = 0; a <= 360; a += 3) {
+      const rad = (a * Math.PI) / 180;
+      d.push([Math.cos(rad) * 1.0, Math.sin(rad) * 1.0]);
+    }
+    return d;
+  })();
+
   // Minimal Friction Circle in last gauge tile
   function optionGForcesMini(rows) {
     const pts = rows.slice(-240).map((r) => [toNum(r.g_lat, 0), toNum(r.g_long, 0)]);
@@ -1732,14 +1818,7 @@
         },
         {
           type: "line",
-          data: (() => {
-            const d = [];
-            for (let a = 0; a <= 360; a += 3) {
-              const rad = (a * Math.PI) / 180;
-              d.push([Math.cos(rad) * 1.0, Math.sin(rad) * 1.0]);
-            }
-            return d;
-          })(),
+          data: G_FORCE_RING_POINTS,
           showSymbol: false,
           lineStyle: { color: "rgba(0,0,0,0.2)", width: 1, type: "dashed" },
           z: 0,
@@ -1748,6 +1827,43 @@
       animation: false, // Disable for performance in real-time
       useDirtyRect: true,
     };
+  }
+
+  function getDriverInputs(cur) {
+    // Priority: throttle_pct / brake_pct (0-100), else throttle/brake (0..1 or 0..100)
+    let throttlePct = toNum(cur.throttle_pct, null);
+    let brakePct = toNum(cur.brake_pct, null);
+
+    if (throttlePct == null) {
+      const t = toNum(cur.throttle, null);
+      if (t != null) throttlePct = t > 1 ? clamp(t, 0, 100) : clamp(t * 100, 0, 100);
+      else throttlePct = 0;
+    }
+    if (brakePct == null) {
+      const b = toNum(cur.brake, null);
+      if (b != null) brakePct = b > 1 ? clamp(b, 0, 100) : clamp(b * 100, 0, 100);
+      else brakePct = 0;
+    }
+    return { throttlePct, brakePct };
+  }
+
+  function renderGForceMini(rows, force = false) {
+    if (!chartGGMini || !rows.length) return;
+    const cur = last(rows) || {};
+    const gLat = toNum(cur.g_lat, 0);
+    const gLong = toNum(cur.g_long, 0);
+    const lv = state.lastControlValues;
+    const changed = force
+      || lv.gLat == null
+      || lv.gLong == null
+      || Math.abs(gLat - lv.gLat) >= 0.01
+      || Math.abs(gLong - lv.gLong) >= 0.01
+      || rows.length !== state.lastRealtimeControlsTelemetryLen;
+    if (!changed) return;
+    lv.gLat = gLat;
+    lv.gLong = gLong;
+    state.lastRealtimeControlsTelemetryLen = rows.length;
+    chartGGMini.setOption(optionGForcesMini(rows), { notMerge: false, lazyUpdate: true });
   }
 
   // Charts base
@@ -3510,22 +3626,18 @@
   }
 
   // Driver Inputs: horizontal bar (values from publisher)
-  function renderPedals(rows) {
+  function renderPedals(rows, force = false) {
     const cur = last(rows) || {};
-    // Priority: throttle_pct / brake_pct (0–100), else throttle/brake (0..1 or 0..100)
-    let throttlePct = toNum(cur.throttle_pct, null);
-    let brakePct = toNum(cur.brake_pct, null);
-
-    if (throttlePct == null) {
-      const t = toNum(cur.throttle, null);
-      if (t != null) throttlePct = t > 1 ? clamp(t, 0, 100) : clamp(t * 100, 0, 100);
-      else throttlePct = 0;
-    }
-    if (brakePct == null) {
-      const b = toNum(cur.brake, null);
-      if (b != null) brakePct = b > 1 ? clamp(b, 0, 100) : clamp(b * 100, 0, 100);
-      else brakePct = 0;
-    }
+    const { throttlePct, brakePct } = getDriverInputs(cur);
+    const lv = state.lastControlValues;
+    const changed = force
+      || lv.throttlePct == null
+      || lv.brakePct == null
+      || Math.abs(throttlePct - lv.throttlePct) >= 0.5
+      || Math.abs(brakePct - lv.brakePct) >= 0.5;
+    if (!changed || !chartPedals) return;
+    lv.throttlePct = throttlePct;
+    lv.brakePct = brakePct;
 
     const opt = {
       title: { text: "Driver Inputs", left: "center", top: 6 },
@@ -3544,7 +3656,7 @@
       animation: false, // Disabled for better performance in real-time mode
       useDirtyRect: true,
     };
-    chartPedals.setOption(opt);
+    chartPedals.setOption(opt, { notMerge: false, lazyUpdate: true });
   }
 
   // Map + altitude
@@ -4250,9 +4362,10 @@
   // Sessions - use Convex when available, fallback to Express API
   async function fetchSessions() {
     // Try Convex first
-    if (convexEnabled && window.ConvexBridge) {
+    const bridge = getConvexBridge();
+    if (convexEnabled && bridge) {
       try {
-        const result = await ConvexBridge.listSessions();
+        const result = await bridge.listSessions();
         return result; // Returns { sessions: [...], scanned_rows: N }
       } catch (e) {
         console.warn("Convex fetchSessions failed, falling back to Express:", e);
@@ -4276,10 +4389,11 @@
 
   async function loadFullSession(sessionId) {
     // Try Convex first - it loads all records at once (reactive query)
-    if (convexEnabled && window.ConvexBridge) {
+    const bridge = getConvexBridge();
+    if (convexEnabled && bridge) {
       try {
         console.log(`📡 Loading session ${sessionId.slice(0, 8)}... via Convex`);
-        const records = await ConvexBridge.getSessionRecords(sessionId);
+        const records = await bridge.getSessionRecords(sessionId);
         if (records && records.length > 0) {
           const processed = withDerived(records);
           console.log(`✅ Loaded ${processed.length} records from Convex`);
@@ -4306,6 +4420,10 @@
 
   // Dynamic Ably loader
   function ensureAblyLoaded() {
+    const runtime = getRuntimeCompat();
+    if (runtime?.ensureAblyLoaded) {
+      return runtime.ensureAblyLoaded();
+    }
     return new Promise((resolve, reject) => {
       if (window.Ably && window.Ably.Realtime) return resolve();
       const s = document.createElement("script");
@@ -4330,6 +4448,11 @@
     state.currentSessionId = null;
     state.msgCount = 0;
     state.waitingForSession = true;
+    state.inboundQueue = [];
+    if (state.inboundFlushTimer) {
+      clearTimeout(state.inboundFlushTimer);
+      state.inboundFlushTimer = null;
+    }
     historyLoaded = false;
     historyLoadPromise = null;
     if (statMsg) statMsg.textContent = "0";
@@ -4347,7 +4470,10 @@
     if (ABLY_API_KEY) options.key = ABLY_API_KEY;
     else options.authUrl = ABLY_AUTH_URL;
 
-    const realtime = new Ably.Realtime(options);
+    const runtime = getRuntimeCompat();
+    const realtime = runtime?.createRealtime
+      ? runtime.createRealtime(options)
+      : new Ably.Realtime(options);
     state.ablyRealtime = realtime;
 
     realtime.connection.on((change) => {
@@ -4489,15 +4615,16 @@
         let convexData = [];
         let convexLatestTs = null;
 
-        if (convexEnabled && window.ConvexBridge) {
+        const bridge = getConvexBridge();
+        if (convexEnabled && bridge) {
           try {
             // First, get session records (this is the critical data)
-            convexData = await ConvexBridge.getSessionRecords(sessionId) || [];
+            convexData = await bridge.getSessionRecords(sessionId) || [];
 
             // Try to get latest timestamp if the function exists (for gap coordination)
-            if (typeof ConvexBridge.getLatestSessionTimestamp === 'function') {
+            if (typeof bridge.getLatestSessionTimestamp === 'function') {
               try {
-                const timestampInfo = await ConvexBridge.getLatestSessionTimestamp(sessionId);
+                const timestampInfo = await bridge.getLatestSessionTimestamp(sessionId);
                 convexLatestTs = timestampInfo?.timestamp;
               } catch (e) {
                 // Function exists but failed - extract from data instead
@@ -4620,14 +4747,15 @@
    * Falls back gracefully if Convex is not available
    */
   async function fetchConvexHistoryFast(sessionId) {
-    if (!convexEnabled || !window.ConvexBridge) {
+    const bridge = getConvexBridge();
+    if (!convexEnabled || !bridge) {
       console.log('📡 Convex not available, using Ably-only history');
       return [];
     }
 
     try {
       const startFetch = performance.now();
-      const records = await ConvexBridge.getSessionRecords(sessionId);
+      const records = await bridge.getSessionRecords(sessionId);
       const fetchTime = performance.now() - startFetch;
 
       console.log(`📡 Convex fetch: ${records?.length || 0} records in ${fetchTime.toFixed(0)}ms`);
@@ -5087,9 +5215,10 @@
    */
   async function fetchConvexSessionData(sessionId) {
     // Try Convex first
-    if (convexEnabled && window.ConvexBridge) {
+    const bridge = getConvexBridge();
+    if (convexEnabled && bridge) {
       try {
-        const records = await ConvexBridge.getSessionRecords(sessionId);
+        const records = await bridge.getSessionRecords(sessionId);
         return records || [];
       } catch (e) {
         console.warn("Convex fetch failed, falling back to Express:", e);
@@ -5366,9 +5495,10 @@
 
       // Update stats (non-blocking)
       state.msgCount += 1;
-      state.lastMsgTs = new Date();
+      state.lastMsgTs = Date.now();
       statMsg.textContent = String(state.msgCount);
       statLast.textContent = "0s ago";
+      scheduleRealtimeControlsRender();
 
       // Schedule render (throttled)
       throttledRender();
@@ -5401,6 +5531,32 @@
     computeKPIs
   };
 
+  function flushWorkerQueue() {
+    if (!state.inboundQueue.length || !window.DataWorkerBridge || !DataWorkerBridge.isReady()) return;
+    const batch = state.inboundQueue.splice(0, state.inboundQueue.length);
+    state.inboundFlushTimer = null;
+    if (batch.length === 1) {
+      DataWorkerBridge.sendData(batch[0]);
+    } else {
+      DataWorkerBridge.sendBatch(batch);
+    }
+  }
+
+  function enqueueWorkerData(data) {
+    state.inboundQueue.push(data);
+    if (state.inboundQueue.length >= 32) {
+      if (state.inboundFlushTimer) {
+        clearTimeout(state.inboundFlushTimer);
+        state.inboundFlushTimer = null;
+      }
+      flushWorkerQueue();
+      return;
+    }
+    if (!state.inboundFlushTimer) {
+      state.inboundFlushTimer = setTimeout(flushWorkerQueue, 8);
+    }
+  }
+
   async function onTelemetryMessage(msg) {
     const startTime = performance.now();
 
@@ -5428,6 +5584,11 @@
         state.currentSessionId = incomingSessionId;
         // Reset for new session
         state.telemetry = [];
+        state.inboundQueue = [];
+        if (state.inboundFlushTimer) {
+          clearTimeout(state.inboundFlushTimer);
+          state.inboundFlushTimer = null;
+        }
         historyLoaded = false;
         historyLoadPromise = null;
         if (state.ablyChannel) {
@@ -5439,8 +5600,8 @@
 
       // HYBRID ROUTING: Worker for heavy processing, main thread for UI
       if (state.useWorker && window.DataWorkerBridge && DataWorkerBridge.isReady()) {
-        // Send to worker - returns immediately (<1ms)
-        DataWorkerBridge.sendData(data);
+        // Micro-batch to lower postMessage overhead under high throughput.
+        enqueueWorkerData(data);
 
         // Check latency
         const elapsed = performance.now() - startTime;
@@ -5458,10 +5619,11 @@
       state.telemetry = mergeTelemetry(state.telemetry, rows);
 
       state.msgCount += 1;
-      state.lastMsgTs = new Date();
+      state.lastMsgTs = Date.now();
 
       statMsg.textContent = String(state.msgCount);
       statLast.textContent = "0s ago";
+      scheduleRealtimeControlsRender();
 
       throttledRender();
 
@@ -5502,6 +5664,7 @@
   // Performance configuration
   const PERF_CONFIG = {
     gaugeIntervalMs: 100,   // Gauges update at 10 Hz (100ms)
+    controlsIntervalMs: 50, // Driver inputs + G-force mini at 20 Hz
     chartIntervalMs: 250,   // Charts update at 4 Hz (250ms)
     frameBudgetMs: 16,      // Target 60 FPS (16ms per frame)
     maxRenderTimeMs: 10     // Max time for a single render pass
@@ -5509,8 +5672,10 @@
 
   // Separate render timers for tiered updates
   let lastGaugeRender = 0;
+  let lastControlsRender = 0;
   let lastChartRender = 0;
   let pendingGaugeRender = false;
+  let pendingControlsRender = false;
   let pendingChartRender = false;
 
   function scheduleRender() {
@@ -5536,6 +5701,31 @@
     }
     lastGaugeRender = now;
     requestAnimationFrame(doGaugeRender);
+  }
+
+  // Realtime controls updates (50ms / 20 Hz)
+  function scheduleRealtimeControlsRender(force = false) {
+    const now = performance.now();
+    if (!force && now - lastControlsRender < PERF_CONFIG.controlsIntervalMs) {
+      if (!pendingControlsRender) {
+        pendingControlsRender = true;
+        setTimeout(() => {
+          pendingControlsRender = false;
+          doRealtimeControlsRender();
+        }, PERF_CONFIG.controlsIntervalMs - (now - lastControlsRender));
+      }
+      return;
+    }
+    lastControlsRender = now;
+    requestAnimationFrame(() => doRealtimeControlsRender(force));
+  }
+
+  function doRealtimeControlsRender(force = false) {
+    const rows = state.telemetry;
+    if (!rows.length) return;
+    if (state.activePanel !== 'overview') return;
+    renderGForceMini(rows, force);
+    renderPedals(rows, force);
   }
 
   // Full chart updates (250ms / 4 Hz)
@@ -5594,18 +5784,20 @@
   // Optimized throttled render with separate paths for gauges and charts
   const throttledRender = throttle(() => {
     scheduleGaugeRender();  // Fast path for gauges (100ms)
+    scheduleRealtimeControlsRender(); // Fast path for driver + G-force mini (50ms)
     scheduleChartRender();  // Slower path for charts (250ms)
     scheduleRender();       // Full render for KPIs etc (RAF)
   }, 100); // Base throttle at 100ms (10 Hz max)
 
   function doRender() {
     if (state.lastMsgTs) {
-      const age = ((new Date() - state.lastMsgTs) / 1000) | 0;
+      const age = ((Date.now() - state.lastMsgTs) / 1000) | 0;
       statLast.textContent = `${age}s ago`;
     }
 
     const rows = state.telemetry;
-    const k = computeKPIs(rows);
+    const k = state.workerKPIs || computeKPIs(rows);
+    const now = performance.now();
 
     // KPIs - update DOM in batch for better performance
     requestAnimationFrame(() => {
@@ -5619,45 +5811,58 @@
       kpiAvgCurrent.textContent = `${k.avg_current_a.toFixed(2)} A`;
     });
 
-    renderGauges(k);
+    if (now - lastGaugeRender >= PERF_CONFIG.gaugeIntervalMs) {
+      lastGaugeRender = now;
+      renderGauges(k);
+    }
 
     if (rows.length) {
       // Only render charts for active panel to improve performance (use cached state)
       const activePanelName = state.activePanel;
+      const shouldRenderCharts = (now - lastChartRender) >= PERF_CONFIG.chartIntervalMs;
 
-      // Always render overview charts if on overview
-      if (activePanelName === 'overview') {
-        renderSpeedChart(rows);
-        renderPowerChart(rows);
-        renderIMUChart(rows);
-        renderIMUDetailChart(rows);
-        renderEfficiency(rows);
-        chartGGMini.setOption(optionGForcesMini(rows));
-        renderPedals(rows);
-        renderMapAndAltitude(rows);
-        updateOverviewSummary(rows);
-      } else if (activePanelName === 'speed') {
-        renderSpeedTabFull(rows);
-      } else if (activePanelName === 'power') {
-        renderPowerTabFull(rows);
-      } else if (activePanelName === 'imu') {
-        renderIMUTabFull(rows);
-      } else if (activePanelName === 'imu-detail') {
-        renderIMUDetailTabFull(rows);
-      } else if (activePanelName === 'efficiency') {
-        renderEfficiencyTabFull(rows);
-      } else if (activePanelName === 'gps') {
-        renderGPSTabFull(rows);
+      if (shouldRenderCharts) {
+        lastChartRender = now;
+
+        // Always render overview charts if on overview
+        if (activePanelName === 'overview') {
+          renderSpeedChart(rows);
+          renderPowerChart(rows);
+          renderIMUChart(rows);
+          renderIMUDetailChart(rows);
+          renderEfficiency(rows);
+          doRealtimeControlsRender();
+          renderMapAndAltitude(rows);
+          updateOverviewSummary(rows);
+        } else if (activePanelName === 'speed') {
+          renderSpeedTabFull(rows);
+        } else if (activePanelName === 'power') {
+          renderPowerTabFull(rows);
+        } else if (activePanelName === 'imu') {
+          renderIMUTabFull(rows);
+        } else if (activePanelName === 'imu-detail') {
+          renderIMUDetailTabFull(rows);
+        } else if (activePanelName === 'efficiency') {
+          renderEfficiencyTabFull(rows);
+        } else if (activePanelName === 'gps') {
+          renderGPSTabFull(rows);
+        }
       }
 
       // IMPORTANT: Always analyze data quality for notifications regardless of active panel
       // This ensures data stall and sensor anomaly notifications appear on any tab (only for real-time)
-      analyzeDataQuality(rows, state.isConnected);
+      if ((now - state.lastQualityAnalysisAt) >= 500) {
+        analyzeDataQuality(rows, state.isConnected);
+        state.lastQualityAnalysisAt = now;
+      }
 
       if (panels.data.classList.contains("active")) {
-        updateDataQualityUI(rows);
-        ensureDataTable(rows);
-        dtNeedsRefresh = false;
+        if ((now - state.lastDataTableRenderAt) >= 750 || dtNeedsRefresh) {
+          updateDataQualityUI(rows);
+          ensureDataTable(rows);
+          state.lastDataTableRenderAt = now;
+          dtNeedsRefresh = false;
+        }
       } else {
         dtNeedsRefresh = true;
       }
@@ -5681,6 +5886,14 @@
         }
       });
     });
+
+    // Restore active tab from URL for route-level parity.
+    const initialPanel = getPanelFromUrl();
+    if (!initialPanel) return;
+    const initialBtn = document.querySelector(`.tab[data-panel="${initialPanel}"]`);
+    if (initialBtn) {
+      switchPanel(initialPanel, buttons, initialBtn);
+    }
   }
 
   function switchPanel(name, buttons, activeBtn) {
@@ -5689,6 +5902,7 @@
 
     // Update active panel in state for performance
     state.activePanel = name;
+    syncDashboardRouteState();
 
     Object.entries(panels).forEach(([key, node]) => {
       const active = key === name;
@@ -5707,8 +5921,7 @@
             renderIMUChart(rows);
             renderIMUDetailChart(rows);
             renderEfficiency(rows);
-            chartGGMini.setOption(optionGForcesMini(rows));
-            renderPedals(rows);
+            doRealtimeControlsRender(true);
             renderMapAndAltitude(rows);
           } else if (name === 'speed') {
             renderSpeedChart(rows);
@@ -6100,9 +6313,8 @@
       chartQualityScore = echarts.init(qsEl);
     }
 
-    window.addEventListener(
-      "resize",
-      () => {
+    const resizeCoreCharts = debounce(() => {
+      requestAnimationFrame(() => {
         try {
           chartSpeed.resize();
           chartPower.resize();
@@ -6118,9 +6330,9 @@
           gaugeEfficiency.resize();
           if (chartQualityScore) chartQualityScore.resize();
         } catch { }
-      },
-      { passive: true }
-    );
+      });
+    }, 100);
+    window.addEventListener("resize", resizeCoreCharts, { passive: true });
 
     // Setup uPlot resize handler
     if (window.ChartManager) {
@@ -6462,9 +6674,19 @@
       });
     }
 
+    // Historical navigation uses a route so browser history works naturally.
+    const historicalLink = document.querySelector(".header-historical-link");
+    if (historicalLink) {
+      historicalLink.setAttribute("href", "/dashboard/sessions");
+      historicalLink.addEventListener("click", () => {
+        syncDashboardRouteState();
+      });
+    }
+
     // Tabs scroll indicators
     const tabsNav = document.querySelector(".tabs-nav");
     if (tabsNav) {
+      let scrollRaf = null;
       const updateScrollIndicators = () => {
         const wrapper = tabsNav.parentElement;
         if (!wrapper || !wrapper.classList.contains("tabs-nav-wrapper")) return;
@@ -6475,8 +6697,15 @@
         wrapper.classList.toggle("can-scroll-left", canScrollLeft);
         wrapper.classList.toggle("can-scroll-right", canScrollRight);
       };
+      const onTabsScroll = () => {
+        if (scrollRaf !== null) return;
+        scrollRaf = requestAnimationFrame(() => {
+          scrollRaf = null;
+          updateScrollIndicators();
+        });
+      };
 
-      tabsNav.addEventListener("scroll", updateScrollIndicators);
+      tabsNav.addEventListener("scroll", onTabsScroll, { passive: true });
       // Initial check after DOM ready
       requestAnimationFrame(updateScrollIndicators);
     }
@@ -6558,7 +6787,7 @@
               const rows = withDerived([norm]);
               state.telemetry = mergeTelemetry(state.telemetry, rows);
               state.msgCount += 1;
-              state.lastMsgTs = new Date();
+              state.lastMsgTs = Date.now();
               statMsg.textContent = String(state.msgCount);
               statLast.textContent = "0s ago";
               throttledRender();
@@ -6708,559 +6937,23 @@
     Object.values(panels).forEach((p) => {
       if (p) p.style.display = "none";
     });
-    panels.overview.classList.add("active");
-    panels.overview.style.display = "block";
+    const startPanel = state.activePanel && panels[state.activePanel] ? state.activePanel : "overview";
+    const startPanelNode = panels[startPanel];
+    if (startPanelNode) {
+      startPanelNode.classList.add("active");
+      startPanelNode.style.display = "block";
+    }
+    document.querySelectorAll(".tab").forEach((btn) => {
+      const isActive = btn.getAttribute("data-panel") === startPanel;
+      btn.classList.toggle("active", isActive);
+    });
+    state.activePanel = startPanel;
+    syncDashboardRouteState();
 
-    // Initialize Historical Mode
-    initHistoricalMode();
   }
 
-  // =========================================================================
-  // HISTORICAL MODE
-  // =========================================================================
-  function initHistoricalMode() {
-    const explorer = document.getElementById('hist-explorer');
-    const analysis = document.getElementById('hist-analysis');
-    const sessionList = document.getElementById('hist-session-list');
-    const searchInput = document.getElementById('hist-search');
-    const sortSelect = document.getElementById('hist-sort');
-    const backBtn = document.getElementById('hist-back-btn');
-    const exportBtn = document.getElementById('hist-export-btn');
-
-    if (!explorer || !analysis) return;
-
-    let allSessions = [];
-    let histData = [];
-    let histCharts = {};
-    let histMap = null;
-    let histSessionsLoaded = false;
-
-    // Sub-section tab navigation
-    const sectionBtns = document.querySelectorAll('.hist-section-btn');
-    sectionBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const sectionName = btn.dataset.section;
-        sectionBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        document.querySelectorAll('.hist-section').forEach(s => {
-          s.classList.toggle('active', s.id === `hist-sec-${sectionName}`);
-          s.style.display = s.id === `hist-sec-${sectionName}` ? 'block' : 'none';
-        });
-        // Resize charts when section becomes visible
-        setTimeout(() => {
-          Object.values(histCharts).forEach(c => { try { c.resize(); } catch (e) { } });
-          if (sectionName === 'map' && histMap) histMap.resize();
-        }, 100);
-      });
-    });
-
-    // Init section visibility
-    document.querySelectorAll('.hist-section').forEach(s => {
-      s.style.display = s.classList.contains('active') ? 'block' : 'none';
-    });
-
-    // Back button
-    if (backBtn) {
-      backBtn.addEventListener('click', () => {
-        analysis.style.display = 'none';
-        explorer.style.display = 'block';
-        histData = [];
-        // Destroy charts
-        Object.values(histCharts).forEach(c => { try { c.dispose(); } catch (e) { } });
-        histCharts = {};
-        if (histMap) { try { histMap.remove(); } catch (e) { } histMap = null; }
-      });
-    }
-
-    // Export CSV
-    if (exportBtn) {
-      exportBtn.addEventListener('click', () => {
-        if (!histData.length) return;
-        const keys = Object.keys(histData[0]);
-        const csv = [keys.join(',')].concat(
-          histData.map(r => keys.map(k => {
-            const v = r[k];
-            return typeof v === 'string' && v.includes(',') ? `"${v}"` : (v ?? '');
-          }).join(','))
-        ).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `session_${Date.now()}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
-      });
-    }
-
-    // Search and sort
-    if (searchInput) {
-      searchInput.addEventListener('input', () => renderSessionList());
-    }
-    if (sortSelect) {
-      sortSelect.addEventListener('change', () => renderSessionList());
-    }
-
-    // Load sessions when Historical tab is activated
-    const histTab = document.querySelector('.tab[data-panel="historical"]');
-    if (histTab) {
-      histTab.addEventListener('click', () => {
-        if (!histSessionsLoaded) {
-          loadHistSessions();
-        }
-      });
-    }
-
-    async function loadHistSessions() {
-      sessionList.innerHTML = '<div class="hist-loading"><div class="hist-spinner"></div><span>Loading sessions...</span></div>';
-      try {
-        if (window.AuthModule && !window.AuthModule.hasPermission('canViewHistorical')) {
-          sessionList.innerHTML = '<div class="hist-empty"><span class="hist-empty-icon">🔒</span><span>Sign in to access historical sessions.</span></div>';
-          return;
-        }
-
-        if (window.ConvexBridge) {
-          const result = await ConvexBridge.listSessions();
-          allSessions = (result && result.sessions) ? result.sessions : (Array.isArray(result) ? result : []);
-        } else {
-          // Fallback: use state.sessions if available
-          allSessions = state.sessions || [];
-        }
-        histSessionsLoaded = true;
-        renderSessionList();
-      } catch (err) {
-        console.error('[Historical] Failed to load sessions:', err);
-        sessionList.innerHTML = '<div class="hist-empty"><span class="hist-empty-icon">⚠️</span><span>Failed to load sessions. Check your connection.</span></div>';
-      }
-    }
-
-    function renderSessionList() {
-      const query = (searchInput?.value || '').toLowerCase();
-      const sort = sortSelect?.value || 'newest';
-
-      let filtered = allSessions.filter(s => {
-        const name = (s.session_name || s.session_id || '').toLowerCase();
-        const id = (s.session_id || '').toLowerCase();
-        return name.includes(query) || id.includes(query);
-      });
-
-      // Sort
-      if (sort === 'newest') {
-        filtered.sort((a, b) => new Date(b.start_time || 0) - new Date(a.start_time || 0));
-      } else if (sort === 'oldest') {
-        filtered.sort((a, b) => new Date(a.start_time || 0) - new Date(b.start_time || 0));
-      } else if (sort === 'longest') {
-        filtered.sort((a, b) => (b.record_count || 0) - (a.record_count || 0));
-      }
-
-      if (!filtered.length) {
-        sessionList.innerHTML = '<div class="hist-empty"><span class="hist-empty-icon">📭</span><span>No sessions found</span></div>';
-        return;
-      }
-
-      sessionList.innerHTML = filtered.map(s => {
-        const name = s.session_name || 'Unnamed Session';
-        const date = s.start_time ? new Date(s.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unknown date';
-        const count = s.record_count || 0;
-        const id = s.session_id || '';
-        return `
-          <div class="hist-session-card glass-panel" data-session-id="${id}">
-            <div class="hist-card-header">
-              <div class="hist-card-name">${name}</div>
-              <div class="hist-card-date">${date}</div>
-            </div>
-            <div class="hist-card-footer">
-              <span class="hist-card-id">${id.slice(0, 8)}...</span>
-              <span class="hist-card-count">${count.toLocaleString()} records</span>
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      // Add click handlers
-      sessionList.querySelectorAll('.hist-session-card').forEach(card => {
-        card.addEventListener('click', () => {
-          const sid = card.dataset.sessionId;
-          const session = allSessions.find(s => s.session_id === sid);
-          loadHistSession(sid, session);
-        });
-      });
-    }
-
-    async function loadHistSession(sessionId, sessionMeta) {
-      explorer.style.display = 'none';
-      analysis.style.display = 'block';
-
-      // Show loading state
-      const nameEl = document.getElementById('hist-session-name');
-      const metaEl = document.getElementById('hist-session-meta');
-      if (nameEl) nameEl.textContent = sessionMeta?.session_name || 'Loading...';
-      if (metaEl) metaEl.textContent = `${sessionId.slice(0, 8)} · Loading data...`;
-
-      try {
-        let data = [];
-        if (window.ConvexBridge) {
-          data = await ConvexBridge.getSessionRecords(sessionId);
-        }
-        if (!Array.isArray(data)) data = [];
-
-        // Normalize and add derived fields
-        histData = data.map(d => {
-          const norm = { ...d };
-          if (!norm.power_w && norm.voltage_v && norm.current_a) {
-            norm.power_w = norm.voltage_v * norm.current_a;
-          }
-          if (!norm.speed_kmh && norm.speed_ms) {
-            norm.speed_kmh = norm.speed_ms * 3.6;
-          }
-          if (!norm.speed_ms && norm.speed_kmh) {
-            norm.speed_ms = norm.speed_kmh / 3.6;
-          }
-          return norm;
-        });
-
-        if (metaEl) metaEl.textContent = `${sessionId.slice(0, 8)} · ${histData.length.toLocaleString()} records`;
-
-        renderHistSummary();
-        renderHistCharts();
-        renderHistDriverStats();
-      } catch (err) {
-        console.error('[Historical] Failed to load session:', err);
-        if (metaEl) metaEl.textContent = `Error loading session`;
-      }
-    }
-
-    function renderHistSummary() {
-      const rows = histData;
-      if (!rows.length) return;
-
-      const speeds = rows.map(r => r.speed_kmh || (r.speed_ms || 0) * 3.6).filter(v => v > 0);
-      const avgSpeed = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
-      const maxSpeed = speeds.length ? Math.max(...speeds) : 0;
-
-      // Distance
-      let totalDist = 0;
-      for (let i = 1; i < rows.length; i++) {
-        const t1 = new Date(rows[i - 1].timestamp).getTime();
-        const t2 = new Date(rows[i].timestamp).getTime();
-        const dt = (t2 - t1) / 1000;
-        const spd = (rows[i].speed_ms || (rows[i].speed_kmh || 0) / 3.6);
-        if (dt > 0 && dt < 60) totalDist += spd * dt;
-      }
-      const distKm = totalDist / 1000;
-
-      // Energy
-      let totalEnergy = 0;
-      for (let i = 1; i < rows.length; i++) {
-        const t1 = new Date(rows[i - 1].timestamp).getTime();
-        const t2 = new Date(rows[i].timestamp).getTime();
-        const dt = (t2 - t1) / 3600000; // hours
-        const p = rows[i].power_w || ((rows[i].voltage_v || 0) * (rows[i].current_a || 0));
-        if (dt > 0 && dt < 0.02) totalEnergy += Math.abs(p) * dt;
-      }
-      const energyKwh = totalEnergy / 1000;
-
-      // Duration
-      const firstTs = new Date(rows[0].timestamp).getTime();
-      const lastTs = new Date(rows[rows.length - 1].timestamp).getTime();
-      const durationMs = lastTs - firstTs;
-      const minutes = Math.floor(durationMs / 60000);
-      const seconds = Math.floor((durationMs % 60000) / 1000);
-
-      // Efficiency
-      const efficiency = energyKwh > 0 ? distKm / energyKwh : 0;
-
-      // Update DOM
-      const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      setText('hist-distance', `${distKm.toFixed(2)} km`);
-      setText('hist-avg-speed', `${avgSpeed.toFixed(1)} km/h`);
-      setText('hist-max-speed', `${maxSpeed.toFixed(1)} km/h`);
-      setText('hist-energy', `${(energyKwh * 1000).toFixed(1)} Wh`);
-      setText('hist-efficiency', efficiency > 0 ? `${efficiency.toFixed(1)} km/kWh` : '—');
-      setText('hist-duration', `${minutes}m ${seconds}s`);
-    }
-
-    function renderHistCharts() {
-      const rows = histData;
-      if (!rows.length) return;
-
-      // Destroy old charts
-      Object.values(histCharts).forEach(c => { try { c.dispose(); } catch (e) { } });
-      histCharts = {};
-
-      const ts = rows.map(r => new Date(r.timestamp));
-      const speeds = rows.map(r => r.speed_kmh || (r.speed_ms || 0) * 3.6);
-      const powers = rows.map(r => r.power_w || ((r.voltage_v || 0) * (r.current_a || 0)));
-      const voltages = rows.map(r => r.voltage_v || 0);
-      const currents = rows.map(r => r.current_a || 0);
-
-      const chartOpts = {
-        backgroundColor: 'transparent',
-        textStyle: { color: 'rgba(255,255,255,0.7)' },
-        grid: { left: 50, right: 20, top: 30, bottom: 40 },
-        tooltip: { trigger: 'axis', backgroundColor: 'rgba(20,20,25,0.95)', borderColor: 'rgba(0,210,190,0.3)', textStyle: { color: '#fff' } },
-        xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, splitLine: { show: false } },
-        yAxis: { type: 'value', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
-        dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 5 }],
-      };
-
-      // Speed chart
-      const speedEl = document.getElementById('hist-chart-speed');
-      if (speedEl) {
-        histCharts.speed = echarts.init(speedEl);
-        histCharts.speed.setOption({
-          ...chartOpts,
-          series: [{ type: 'line', data: ts.map((t, i) => [t, speeds[i]]), smooth: true, lineStyle: { color: '#00d2be', width: 2 }, itemStyle: { color: '#00d2be' }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(0,210,190,0.3)' }, { offset: 1, color: 'rgba(0,210,190,0)' }] } } }]
-        });
-      }
-
-      // Power chart
-      const powerEl = document.getElementById('hist-chart-power');
-      if (powerEl) {
-        histCharts.power = echarts.init(powerEl);
-        histCharts.power.setOption({
-          ...chartOpts,
-          series: [{ type: 'line', data: ts.map((t, i) => [t, powers[i]]), smooth: true, lineStyle: { color: '#ff6b35', width: 2 }, itemStyle: { color: '#ff6b35' }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(255,107,53,0.3)' }, { offset: 1, color: 'rgba(255,107,53,0)' }] } } }]
-        });
-      }
-
-      // Voltage & Current chart
-      const voltEl = document.getElementById('hist-chart-voltage');
-      if (voltEl) {
-        histCharts.voltage = echarts.init(voltEl);
-        histCharts.voltage.setOption({
-          ...chartOpts,
-          legend: { data: ['Voltage', 'Current'], textStyle: { color: 'rgba(255,255,255,0.6)' }, top: 0 },
-          yAxis: [
-            { type: 'value', name: 'V', axisLine: { lineStyle: { color: '#22c55e' } }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
-            { type: 'value', name: 'A', axisLine: { lineStyle: { color: '#f59e0b' } }, splitLine: { show: false } }
-          ],
-          series: [
-            { name: 'Voltage', type: 'line', data: ts.map((t, i) => [t, voltages[i]]), smooth: true, lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' }, showSymbol: false },
-            { name: 'Current', type: 'line', data: ts.map((t, i) => [t, currents[i]]), smooth: true, lineStyle: { color: '#f59e0b', width: 2 }, itemStyle: { color: '#f59e0b' }, showSymbol: false, yAxisIndex: 1 }
-          ]
-        });
-      }
-
-      // IMU chart
-      const imuEl = document.getElementById('hist-chart-imu');
-      if (imuEl) {
-        const ax = rows.map(r => r.accel_x || 0);
-        const ay = rows.map(r => r.accel_y || 0);
-        const totalG = rows.map(r => {
-          const x = r.accel_x || 0, y = r.accel_y || 0, z = r.accel_z || 0;
-          return Math.sqrt(x * x + y * y + z * z) / 9.81;
-        });
-        histCharts.imu = echarts.init(imuEl);
-        histCharts.imu.setOption({
-          ...chartOpts,
-          legend: { data: ['Accel X', 'Accel Y', 'Total G'], textStyle: { color: 'rgba(255,255,255,0.6)' }, top: 0 },
-          series: [
-            { name: 'Accel X', type: 'line', data: ts.map((t, i) => [t, ax[i]]), smooth: true, lineStyle: { color: '#ef4444', width: 1.5 }, itemStyle: { color: '#ef4444' }, showSymbol: false },
-            { name: 'Accel Y', type: 'line', data: ts.map((t, i) => [t, ay[i]]), smooth: true, lineStyle: { color: '#3b82f6', width: 1.5 }, itemStyle: { color: '#3b82f6' }, showSymbol: false },
-            { name: 'Total G', type: 'line', data: ts.map((t, i) => [t, totalG[i]]), smooth: true, lineStyle: { color: '#a855f7', width: 2 }, itemStyle: { color: '#a855f7' }, showSymbol: false }
-          ]
-        });
-      }
-
-      // Energy section charts
-      // Cumulative energy
-      const energyCumEl = document.getElementById('hist-chart-energy-cum');
-      if (energyCumEl) {
-        let cum = 0;
-        const cumData = [];
-        for (let i = 0; i < rows.length; i++) {
-          if (i > 0) {
-            const dt = (new Date(rows[i].timestamp) - new Date(rows[i - 1].timestamp)) / 3600000;
-            const p = Math.abs(powers[i]);
-            if (dt > 0 && dt < 0.02) cum += p * dt;
-          }
-          cumData.push([ts[i], cum]);
-        }
-        histCharts.energyCum = echarts.init(energyCumEl);
-        histCharts.energyCum.setOption({
-          ...chartOpts,
-          series: [{ type: 'line', data: cumData, smooth: true, lineStyle: { color: '#06b6d4', width: 2 }, itemStyle: { color: '#06b6d4' }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(6,182,212,0.25)' }, { offset: 1, color: 'rgba(6,182,212,0)' }] } } }]
-        });
-      }
-
-      // Rolling efficiency
-      const effEl = document.getElementById('hist-chart-efficiency');
-      if (effEl) {
-        const window = 30;
-        const effData = [];
-        for (let i = window; i < rows.length; i++) {
-          let dist = 0, energy = 0;
-          for (let j = i - window + 1; j <= i; j++) {
-            const dt = (new Date(rows[j].timestamp) - new Date(rows[j - 1].timestamp)) / 1000;
-            const spd = rows[j].speed_ms || (rows[j].speed_kmh || 0) / 3.6;
-            const p = Math.abs(powers[j]);
-            if (dt > 0 && dt < 60) {
-              dist += spd * dt / 1000;
-              energy += p * dt / 3600000;
-            }
-          }
-          const eff = energy > 0 ? dist / energy : 0;
-          if (eff < 500) effData.push([ts[i], eff]);
-        }
-        histCharts.efficiency = echarts.init(effEl);
-        histCharts.efficiency.setOption({
-          ...chartOpts,
-          series: [{ type: 'line', data: effData, smooth: true, lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' }, showSymbol: false }]
-        });
-      }
-
-      // Speed vs Power scatter
-      const spEl = document.getElementById('hist-chart-speed-power');
-      if (spEl) {
-        const scatterData = speeds.map((s, i) => [s, powers[i]]).filter(([s, p]) => s > 0);
-        histCharts.speedPower = echarts.init(spEl);
-        histCharts.speedPower.setOption({
-          ...chartOpts,
-          xAxis: { type: 'value', name: 'Speed (km/h)', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
-          series: [{ type: 'scatter', data: scatterData, symbolSize: 4, itemStyle: { color: 'rgba(0,210,190,0.5)' } }]
-        });
-      }
-
-      // Speed histogram
-      const shEl = document.getElementById('hist-chart-speed-hist');
-      if (shEl) {
-        const validSpeeds = speeds.filter(s => s > 0);
-        const bins = 20;
-        const max = Math.max(...validSpeeds, 1);
-        const binWidth = max / bins;
-        const hist = new Array(bins).fill(0);
-        validSpeeds.forEach(s => {
-          const idx = Math.min(bins - 1, Math.floor(s / binWidth));
-          hist[idx]++;
-        });
-        histCharts.speedHist = echarts.init(shEl);
-        histCharts.speedHist.setOption({
-          ...chartOpts,
-          xAxis: { type: 'category', data: hist.map((_, i) => `${(i * binWidth).toFixed(0)}-${((i + 1) * binWidth).toFixed(0)}`), axisLabel: { rotate: 45, fontSize: 10 } },
-          series: [{ type: 'bar', data: hist, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#00d2be' }, { offset: 1, color: '#0891b2' }] } }, barWidth: '70%' }]
-        });
-      }
-
-      // Throttle distribution (if available)
-      const thEl = document.getElementById('hist-chart-throttle');
-      if (thEl) {
-        const throttle = rows.map(r => r.throttle_pct || 0);
-        const tBins = 10;
-        const tHist = new Array(tBins).fill(0);
-        throttle.forEach(t => {
-          const idx = Math.min(tBins - 1, Math.floor(t / 10));
-          tHist[idx]++;
-        });
-        histCharts.throttle = echarts.init(thEl);
-        histCharts.throttle.setOption({
-          ...chartOpts,
-          xAxis: { type: 'category', data: tHist.map((_, i) => `${i * 10}-${(i + 1) * 10}%`), axisLabel: { fontSize: 10 } },
-          series: [{ type: 'bar', data: tHist, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#f59e0b' }, { offset: 1, color: '#d97706' }] } }, barWidth: '70%' }]
-        });
-      }
-
-      // Map
-      renderHistMap();
-
-      // Resize all on window resize
-      window.addEventListener('resize', () => {
-        Object.values(histCharts).forEach(c => { try { c.resize(); } catch (e) { } });
-      }, { passive: true });
-    }
-
-    function renderHistDriverStats() {
-      const rows = histData;
-      if (!rows.length) return;
-
-      // Smoothness: based on acceleration variance
-      const accels = [];
-      for (let i = 1; i < rows.length; i++) {
-        const dt = (new Date(rows[i].timestamp) - new Date(rows[i - 1].timestamp)) / 1000;
-        const s1 = rows[i - 1].speed_ms || (rows[i - 1].speed_kmh || 0) / 3.6;
-        const s2 = rows[i].speed_ms || (rows[i].speed_kmh || 0) / 3.6;
-        if (dt > 0 && dt < 10) accels.push((s2 - s1) / dt);
-      }
-      const avgAccel = accels.length ? accels.reduce((a, b) => a + Math.abs(b), 0) / accels.length : 0;
-      const smoothness = Math.max(0, Math.min(100, 100 - avgAccel * 50));
-
-      // Brake events (deceleration > 1 m/s²)
-      const brakes = accels.filter(a => a < -1).length;
-
-      // Hard accels (acceleration > 1.5 m/s²)
-      const hardAccels = accels.filter(a => a > 1.5).length;
-
-      const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      setText('hist-smoothness', `${smoothness.toFixed(0)}%`);
-      setText('hist-brakes', brakes.toString());
-      setText('hist-hard-accels', hardAccels.toString());
-    }
-
-    function renderHistMap() {
-      const rows = histData;
-      if (!rows.length) return;
-
-      const gpsPoints = rows.filter(r => r.latitude && r.longitude && r.latitude !== 0 && r.longitude !== 0);
-      if (!gpsPoints.length) return;
-
-      const mapEl = document.getElementById('hist-map');
-      if (!mapEl || !window.maplibregl) return;
-
-      try {
-        if (histMap) { histMap.remove(); histMap = null; }
-
-        const center = [gpsPoints[Math.floor(gpsPoints.length / 2)].longitude, gpsPoints[Math.floor(gpsPoints.length / 2)].latitude];
-        histMap = new maplibregl.Map({
-          container: 'hist-map',
-          style: { version: 8, sources: { 'osm-tiles': { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap' } }, layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm-tiles' }] },
-          center: center,
-          zoom: 15,
-        });
-
-        histMap.on('load', () => {
-          const coords = gpsPoints.map(r => [r.longitude, r.latitude]);
-          histMap.addSource('route', {
-            type: 'geojson',
-            data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
-          });
-          histMap.addLayer({
-            id: 'route-line',
-            type: 'line',
-            source: 'route',
-            paint: { 'line-color': '#00d2be', 'line-width': 3, 'line-opacity': 0.8 }
-          });
-
-          // Fit bounds
-          const lngs = coords.map(c => c[0]);
-          const lats = coords.map(c => c[1]);
-          histMap.fitBounds(
-            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-            { padding: 40 }
-          );
-        });
-
-        // Altitude chart
-        const altEl = document.getElementById('hist-chart-altitude');
-        if (altEl) {
-          const alts = gpsPoints.map(r => r.altitude || 0);
-          const altTs = gpsPoints.map(r => new Date(r.timestamp));
-          if (histCharts.altitude) { try { histCharts.altitude.dispose(); } catch (e) { } }
-          histCharts.altitude = echarts.init(altEl);
-          histCharts.altitude.setOption({
-            backgroundColor: 'transparent',
-            textStyle: { color: 'rgba(255,255,255,0.7)' },
-            grid: { left: 50, right: 20, top: 20, bottom: 40 },
-            tooltip: { trigger: 'axis' },
-            xAxis: { type: 'time', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } } },
-            yAxis: { type: 'value', name: 'Altitude (m)', axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } } },
-            series: [{ type: 'line', data: altTs.map((t, i) => [t, alts[i]]), smooth: true, lineStyle: { color: '#a855f7', width: 2 }, showSymbol: false, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(168,85,247,0.25)' }, { offset: 1, color: 'rgba(168,85,247,0)' }] } } }]
-          });
-        }
-      } catch (err) {
-        console.error('[Historical] Map error:', err);
-      }
-    }
-  }
+  // Embedded historical fallback removed:
+  // historical analysis now lives on dedicated routed pages.
 
   // Responsive Header Text Handler
   function initResponsiveHeader() {

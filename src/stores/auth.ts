@@ -32,7 +32,7 @@ export const ROLE_PERMISSIONS = {
         canViewHistorical: true,
         canAccessAdmin: false,
         downloadLimit: 1000,
-        historicalLimit: 7, // days
+        historicalLimit: 1, // last session
     },
     internal: {
         canViewRealTime: true,

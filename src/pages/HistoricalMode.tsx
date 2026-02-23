@@ -32,7 +32,10 @@ export interface HistoricalModeProps {
     sessions: TelemetrySession[];
     loading?: boolean;
     accessLevel?: 'full' | 'limited';
-    historicalLimitDays?: number;
+    historicalLimitSessions?: number;
+    downloadLimit?: number;
+    onSelectSession?: (session: TelemetrySession) => void;
+    onBackToSessions?: () => void;
 }
 
 // =============================================================================
@@ -68,9 +71,9 @@ const HistoricalMode: Component<HistoricalModeProps> = (props) => {
     const loadError = createMemo(() => historicalStore.loadError());
     const isLimitedAccess = createMemo(() => props.accessLevel === 'limited');
     const limitLabel = createMemo(() => {
-        const days = props.historicalLimitDays;
-        if (!days || !Number.isFinite(days) || days <= 0) return 'a limited window';
-        return `the last ${days} day${days === 1 ? '' : 's'}`;
+        const sessions = props.historicalLimitSessions;
+        if (!sessions || !Number.isFinite(sessions) || sessions <= 0) return 'a limited set of sessions';
+        return `the last ${sessions} session${sessions === 1 ? '' : 's'}`;
     });
 
     /**
@@ -86,6 +89,7 @@ const HistoricalMode: Component<HistoricalModeProps> = (props) => {
      */
     const handleSelectSession = (session: TelemetrySession) => {
         historicalStore.loadSession(session, fetchRecords);
+        props.onSelectSession?.(session);
     };
 
     /**
@@ -93,6 +97,7 @@ const HistoricalMode: Component<HistoricalModeProps> = (props) => {
      */
     const handleBack = () => {
         historicalStore.unloadSession();
+        props.onBackToSessions?.();
     };
 
     /**
@@ -138,7 +143,7 @@ const HistoricalMode: Component<HistoricalModeProps> = (props) => {
                     />
                 );
             case 'export':
-                return <ExportPanel data={data} allData={allData} />;
+                return <ExportPanel data={data} allData={allData} downloadLimit={props.downloadLimit} />;
             default:
                 return <SessionSummary data={allData} />;
         }

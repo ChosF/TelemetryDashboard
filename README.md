@@ -118,7 +118,7 @@ convex/
 | Role | Real-time | Historical | CSV | Admin |
 |------|-----------|------------|-----|-------|
 | Guest | ✅ | ❌ | ❌ | ❌ |
-| External | ✅ | 7 days | 1k | ❌ |
+| External | ✅ | Last session | 1000 points | ❌ |
 | Internal | ✅ | ∞ | ∞ | ❌ |
 | Admin | ✅ | ∞ | ∞ | ✅ |
 

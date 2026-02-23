@@ -168,7 +168,7 @@ await ConvexBridge.getCurrentProfile(token);
 | Feature | Guest | External | Internal | Admin |
 |---------|:-----:|:--------:|:--------:|:-----:|
 | Live telemetry | ✅ | ✅ | ✅ | ✅ |
-| CSV export | ❌ | ≤400 | Unlimited | Unlimited |
+| CSV export | ❌ | ≤1000 | Unlimited | Unlimited |
 | Historical sessions | ❌ | Last only | All | All |
 | Admin panel | ❌ | ❌ | ❌ | ✅ |
 

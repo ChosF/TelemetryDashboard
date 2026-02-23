@@ -42,6 +42,11 @@ export default defineConfig(({ mode }) => {
       cssCodeSplit: true,
 
       rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          dashboardSolid: resolve(__dirname, 'dashboard-solid.html'),
+          legacyCompat: resolve(__dirname, 'src/legacy/legacyCompat.ts'),
+        },
         output: {
           // Optimal chunk splitting for caching
           manualChunks: {
@@ -53,7 +58,10 @@ export default defineConfig(({ mode }) => {
           // Asset file naming for cache busting
           assetFileNames: 'assets/[name]-[hash][extname]',
           chunkFileNames: 'chunks/[name]-[hash].js',
-          entryFileNames: 'js/[name]-[hash].js',
+          entryFileNames: (chunkInfo) =>
+            chunkInfo.name === 'legacyCompat'
+              ? 'js/legacyCompat.js'
+              : 'js/[name]-[hash].js',
         },
       },
 

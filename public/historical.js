@@ -9,6 +9,32 @@
 
     const S = { sessions: [], activeSessionId: null, activeSessionMeta: null, data: [], compareData: [], map: null, stats: null };
     let historicalLimit = Infinity;
+    const HIST_ROUTE_BASE = '/historical';
+    const HIST_CUSTOM_ROUTE = '/historical/custom';
+    const HIST_SESSIONS_ROUTE = '/dashboard/sessions';
+
+    function parseHistoricalRoute() {
+        const rawPath = window.location.pathname || '';
+        const pathname = rawPath.endsWith('/') && rawPath.length > 1 ? rawPath.slice(0, -1) : rawPath;
+        if (pathname === HIST_CUSTOM_ROUTE) {
+            const sid = new URL(window.location.href).searchParams.get('sessionId');
+            return { view: 'custom', sessionId: sid || null };
+        }
+        if (pathname.startsWith(`${HIST_ROUTE_BASE}/`) && pathname !== HIST_CUSTOM_ROUTE) {
+            const sessionId = decodeURIComponent(pathname.slice((`${HIST_ROUTE_BASE}/`).length));
+            if (sessionId) return { view: 'analysis', sessionId };
+        }
+        return { view: 'sessions', sessionId: null };
+    }
+
+    function updateRoute(pathname, state, replace = false, params = null) {
+        const query = params instanceof URLSearchParams ? params.toString() : '';
+        const next = query ? `${pathname}?${query}` : pathname;
+        const current = `${window.location.pathname}${window.location.search || ''}`;
+        if (next === current) return;
+        const method = replace ? 'replaceState' : 'pushState';
+        window.history[method](state, '', next);
+    }
 
     // ── Web Worker Config ──
     const histWorker = new Worker('workers/historical-worker.js');
@@ -119,15 +145,38 @@
     $('h-sort')?.addEventListener('change', renderSessions);
 
     // ── Open Session ──
-    async function openSession(sid) {
+    function showAnalysisView() {
+        $('h-view-explorer').classList.remove('active');
+        $('h-view-custom-analysis').classList.remove('active');
+        $('h-view-analysis').classList.add('active');
+        $('h-back-to-sessions').style.display = '';
+        showTOC(true);
+        showAnalysisActions(true);
+        $('h-btn-custom-analysis').style.display = '';
+        $('h-btn-collapse-all').style.display = '';
+    }
+
+    function showCustomAnalysisView() {
+        $('h-view-analysis').classList.remove('active');
+        $('h-view-custom-analysis').classList.add('active');
+        $('h-btn-custom-analysis').style.display = 'none';
+        $('h-btn-collapse-all').style.display = 'none';
+        showTOC(false);
+    }
+
+    async function openSession(sid, options = {}) {
         S.activeSessionId = sid;
         S.activeSessionMeta = S.sessions.find(s => s.session_id === sid);
         const label = $('h-active-session-label');
         if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
-        $('h-back-to-sessions').style.display = '';
-        $('h-view-explorer').classList.remove('active');
-        $('h-view-analysis').classList.add('active');
-        showTOC(true);
+        showAnalysisView();
+        if (!options.skipHistory) {
+            updateRoute(
+                `${HIST_ROUTE_BASE}/${encodeURIComponent(sid)}`,
+                { view: 'analysis', sessionId: sid },
+                !!options.replaceHistory
+            );
+        }
 
         // Loading state
         const grid = $('h-summary-grid');
@@ -168,10 +217,22 @@
         }
         populateCompareSelect();
         showAnalysisActions(true);
+        if (options.openCustomAfterLoad) {
+            showCustomAnalysisView();
+            if (!options.skipHistory) {
+                updateRoute(
+                    HIST_CUSTOM_ROUTE,
+                    { view: 'custom', sessionId: sid },
+                    false,
+                    new URLSearchParams({ sessionId: sid })
+                );
+            }
+            initCustomAnalysis();
+        }
     }
 
 
-    function backToSessions() {
+    function backToSessions(options = {}) {
         $('h-view-analysis').classList.remove('active');
         $('h-view-custom-analysis').classList.remove('active');
         $('h-view-explorer').classList.add('active');
@@ -183,16 +244,23 @@
         disposeCharts();
         if (S.map) { try { S.map.remove() } catch (e) { } } S.map = null;
         S.data = []; S.activeSessionId = null;
+        if (!options.skipHistory) {
+            updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, !!options.replaceHistory);
+        }
     }
     $('h-back-to-sessions')?.addEventListener('click', backToSessions);
 
     // ── Custom Analysis Routing ──
     $('h-btn-custom-analysis')?.addEventListener('click', () => {
-        $('h-view-analysis').classList.remove('active');
-        $('h-view-custom-analysis').classList.add('active');
-        $('h-btn-custom-analysis').style.display = 'none';
-        $('h-btn-collapse-all').style.display = 'none';
-        showTOC(false); // TOC is scoped to standard analysis
+        showCustomAnalysisView();
+        if (S.activeSessionId) {
+            updateRoute(
+                HIST_CUSTOM_ROUTE,
+                { view: 'custom', sessionId: S.activeSessionId },
+                false,
+                new URLSearchParams({ sessionId: S.activeSessionId })
+            );
+        }
         initCustomAnalysis();
     });
 
@@ -202,6 +270,9 @@
         $('h-btn-custom-analysis').style.display = '';
         $('h-btn-collapse-all').style.display = '';
         showTOC(true);
+        if (S.activeSessionId) {
+            updateRoute(`${HIST_ROUTE_BASE}/${encodeURIComponent(S.activeSessionId)}`, { view: 'analysis', sessionId: S.activeSessionId }, false);
+        }
         // Resize standard charts when returning
         setTimeout(() => Object.values(HA.charts).forEach(c => { try { c.resize() } catch (e) { } }), 50);
     });
@@ -2823,7 +2894,47 @@
         initMLEngine();
         if (convexReady) await loadSessions();
         else $('h-sessions-list').innerHTML = '<div class="ha-empty"><div class="ha-empty-icon">⚡</div>Convex not connected.</div>';
+
+        // Restore view/session from real routes on initial load.
+        const initialRoute = parseHistoricalRoute();
+        if (initialRoute.view === 'analysis' && initialRoute.sessionId) {
+            await openSession(initialRoute.sessionId, { skipHistory: true, replaceHistory: true });
+        } else if (initialRoute.view === 'custom' && initialRoute.sessionId) {
+            await openSession(initialRoute.sessionId, { skipHistory: true, replaceHistory: true, openCustomAfterLoad: true });
+        } else {
+            updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, true);
+        }
     }
+
+    window.addEventListener('popstate', async () => {
+        const route = parseHistoricalRoute();
+        if (route.view === 'sessions') {
+            backToSessions({ skipHistory: true });
+            return;
+        }
+
+        if (route.view === 'analysis' && route.sessionId) {
+            if (S.activeSessionId !== route.sessionId || !S.data?.length) {
+                await openSession(route.sessionId, { skipHistory: true, replaceHistory: true });
+            } else {
+                showAnalysisView();
+            }
+            return;
+        }
+
+        if (route.view === 'custom') {
+            if (route.sessionId && (S.activeSessionId !== route.sessionId || !S.data?.length)) {
+                await openSession(route.sessionId, { skipHistory: true, replaceHistory: true, openCustomAfterLoad: true });
+                return;
+            }
+            if (S.activeSessionId && S.data?.length) {
+                showCustomAnalysisView();
+                initCustomAnalysis();
+            } else {
+                backToSessions({ skipHistory: true });
+            }
+        }
+    });
 
     boot();
 
