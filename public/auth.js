@@ -497,6 +497,15 @@
     }
   }
 
+  function isMissingFunctionError(error, functionName) {
+    const message = String(error?.message || '').toLowerCase();
+    return (
+      message.includes('could not find') ||
+      message.includes('not found') ||
+      message.includes(`users:${functionName}`.toLowerCase())
+    );
+  }
+
   /**
    * Ban user (admin only)
    */
@@ -517,6 +526,17 @@
       });
       return result;
     } catch (error) {
+      // Fallback for deployments where users:banUser is not yet available.
+      if (isMissingFunctionError(error, 'banUser')) {
+        try {
+          await updateUserRole(targetUserId, USER_ROLES.GUEST);
+          await rejectUser(targetUserId);
+          return { success: true, softBanned: true };
+        } catch (fallbackError) {
+          console.error('Error in ban fallback:', fallbackError);
+          throw fallbackError;
+        }
+      }
       console.error('Error banning user:', error);
       throw error;
     }
@@ -542,6 +562,17 @@
       });
       return result;
     } catch (error) {
+      // Fallback when hard-delete mutation is unavailable: soft-delete.
+      if (isMissingFunctionError(error, 'deleteUser')) {
+        try {
+          await updateUserRole(targetUserId, USER_ROLES.GUEST);
+          await rejectUser(targetUserId);
+          return { success: true, softDeleted: true };
+        } catch (fallbackError) {
+          console.error('Error in delete fallback:', fallbackError);
+          throw fallbackError;
+        }
+      }
       console.error('Error deleting user:', error);
       throw error;
     }

@@ -793,11 +793,15 @@
       async () => {
         const restore = setControlBusy(triggerEl, 'Banning...');
         try {
-          await window.AuthModule.banUser(userId);
+          const result = await window.AuthModule.banUser(userId);
           await animateCardRemoval(triggerEl);
           loadPendingUsers(modal);
           loadAllUsers(modal);
-          showNotification('User has been banned.', 'warning');
+          if (result?.softBanned) {
+            showNotification('User has been banned (fallback mode).', 'warning');
+          } else {
+            showNotification('User has been banned.', 'warning');
+          }
         } catch (error) {
           console.error('Error banning user:', error);
           showNotification('Failed to ban user: ' + error.message, 'error');
@@ -815,11 +819,15 @@
       async () => {
         const restore = setControlBusy(triggerEl, 'Deleting...');
         try {
-          await window.AuthModule.deleteUser(userId);
+          const result = await window.AuthModule.deleteUser(userId);
           await animateCardRemoval(triggerEl);
           loadPendingUsers(modal);
           loadAllUsers(modal);
-          showNotification('User deleted successfully.', 'success');
+          if (result?.softDeleted) {
+            showNotification('User archived (soft delete fallback).', 'warning');
+          } else {
+            showNotification('User deleted successfully.', 'success');
+          }
         } catch (error) {
           console.error('Error deleting user:', error);
           showNotification('Failed to delete user: ' + error.message, 'error');
