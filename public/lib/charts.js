@@ -159,13 +159,25 @@ const ChartManager = (function () {
 
     // Convert telemetry rows to uPlot data format
     function rowsToUPlotData(rows, fields) {
-        if (!rows || rows.length === 0) return [[]];
+        const safeFields = Array.isArray(fields) ? fields : [];
+        const emptyData = [[], ...safeFields.map(() => [])];
+        if (!rows || rows.length === 0) return emptyData;
 
-        const timestamps = rows.map(r => new Date(r.timestamp).getTime() / 1000);
+        // Keep only rows with valid timestamps so all series stay aligned.
+        const validRows = [];
+        const timestamps = [];
+        for (const r of rows) {
+            const tsMs = new Date(r.timestamp).getTime();
+            if (!Number.isFinite(tsMs)) continue;
+            validRows.push(r);
+            timestamps.push(tsMs / 1000);
+        }
+
+        if (validRows.length === 0) return emptyData;
+
         const data = [timestamps];
-
-        for (const field of fields) {
-            data.push(rows.map(r => {
+        for (const field of safeFields) {
+            data.push(validRows.map(r => {
                 const v = r[field];
                 return v === null || v === undefined ? null : Number(v);
             }));
