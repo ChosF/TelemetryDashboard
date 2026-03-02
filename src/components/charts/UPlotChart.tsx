@@ -18,6 +18,8 @@ export interface UPlotChartProps {
     style?: JSX.CSSProperties;
     /** Callback when chart is created */
     onCreate?: (chart: uPlot) => void;
+    /** Optional wheel handler for interaction control */
+    onWheel?: JSX.EventHandlerUnion<HTMLDivElement, WheelEvent>;
 }
 
 /**
@@ -36,6 +38,7 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
     let container: HTMLDivElement | undefined;
     let chart: uPlot | undefined;
     let resizeObserver: ResizeObserver | undefined;
+    let optionsInitialized = false;
 
     // Get container dimensions
     const getSize = (): { width: number; height: number } => {
@@ -92,7 +95,7 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
     // Reactive data updates - only update data, not entire chart
     createEffect(() => {
         const data = props.data;
-        if (chart && data && data[0]?.length > 0) {
+        if (chart && data) {
             chart.setData(data);
         }
     });
@@ -101,6 +104,10 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
     createEffect(() => {
         // Track options for reactivity but don't need the value
         void props.options;
+        if (!optionsInitialized) {
+            optionsInitialized = true;
+            return;
+        }
         if (chart && container) {
             // Options changed, need to recreate chart
             createChart();
@@ -116,6 +123,7 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
         <div
             ref={container}
             class={props.class}
+            onWheel={props.onWheel}
             style={{
                 width: '100%',
                 height: '100%',
