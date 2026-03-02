@@ -43,7 +43,7 @@ export function EfficiencyPanel(props: EfficiencyPanelProps): JSX.Element {
         props.data.forEach((row) => {
             timestamps.push(new Date(row.timestamp).getTime() / 1000);
             efficiency.push(row.current_efficiency_km_kwh ?? null);
-            speed.push(row.speed_kmh ?? null);
+            speed.push(row.speed_kmh ?? (row.speed_ms != null ? row.speed_ms * 3.6 : null));
         });
 
         return [timestamps, efficiency, speed];

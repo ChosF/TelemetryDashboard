@@ -40,6 +40,39 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
     let resizeObserver: ResizeObserver | undefined;
     let optionsInitialized = false;
 
+    const sanitizeAlignedData = (input: AlignedData): AlignedData => {
+        if (!Array.isArray(input) || input.length === 0) {
+            return [[], []];
+        }
+
+        const rawX = Array.isArray(input[0]) ? input[0] : [];
+        const rawSeriesCount = Math.max(1, input.length - 1);
+        const rawSeries = Array.from({ length: rawSeriesCount }, (_, idx) =>
+            Array.isArray(input[idx + 1]) ? input[idx + 1] : []
+        );
+
+        const x: number[] = [];
+        const series = rawSeries.map(() => [] as (number | null)[]);
+
+        for (let i = 0; i < rawX.length; i++) {
+            const ts = Number(rawX[i]);
+            if (!Number.isFinite(ts)) continue;
+
+            x.push(ts);
+            for (let s = 0; s < rawSeries.length; s++) {
+                const value = rawSeries[s][i];
+                if (value === null || value === undefined) {
+                    series[s].push(null);
+                    continue;
+                }
+                const numeric = Number(value);
+                series[s].push(Number.isFinite(numeric) ? numeric : null);
+            }
+        }
+
+        return [x, ...series] as AlignedData;
+    };
+
     // Get container dimensions
     const getSize = (): { width: number; height: number } => {
         if (!container) return { width: 400, height: 300 };
@@ -67,7 +100,7 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
             height: size.height,
         };
 
-        chart = new uPlot(fullOptions, props.data, container);
+        chart = new uPlot(fullOptions, sanitizeAlignedData(props.data), container);
         props.onCreate?.(chart);
     };
 
@@ -96,7 +129,7 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
     createEffect(() => {
         const data = props.data;
         if (chart && data) {
-            chart.setData(data);
+            chart.setData(sanitizeAlignedData(data));
         }
     });
 

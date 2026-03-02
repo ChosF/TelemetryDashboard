@@ -22,13 +22,18 @@ export function GPSPanel(props: GPSPanelProps): JSX.Element {
     // Convert to GPS points for map
     const gpsPoints = createMemo((): GPSPoint[] => {
         return props.data
-            .filter((r) => r.latitude && r.longitude)
+            .filter((r) =>
+                typeof r.latitude === 'number' &&
+                Number.isFinite(r.latitude) &&
+                typeof r.longitude === 'number' &&
+                Number.isFinite(r.longitude)
+            )
             .map((r) => ({
                 latitude: r.latitude!,
                 longitude: r.longitude!,
                 timestamp: r.timestamp,
-                speed_ms: r.speed_ms ?? r.speed_kmh,
-                altitude: r.altitude_m,
+                speed_ms: r.speed_ms ?? ((r.speed_kmh ?? 0) / 3.6),
+                altitude: r.altitude_m ?? r.altitude,
             }));
     });
 
@@ -41,7 +46,7 @@ export function GPSPanel(props: GPSPanelProps): JSX.Element {
 
         props.data.forEach((row) => {
             timestamps.push(new Date(row.timestamp).getTime() / 1000);
-            altitude.push(row.altitude_m ?? null);
+            altitude.push(row.altitude_m ?? row.altitude ?? null);
         });
 
         return [timestamps, altitude];
