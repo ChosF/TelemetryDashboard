@@ -51,7 +51,10 @@ const ChartManager = (function () {
     function baseOpts(title, width, height) {
         const themeColors = getThemeColors();
         return {
-            title: title,
+            // title is intentionally omitted – the HTML title element uPlot
+            // injects above the canvas was consuming container height and
+            // making the plot area appear blank. Panel titles are shown via
+            // the glass-panel h3 headers in the HTML instead.
             width: width,
             height: height,
             tzDate: ts => new Date(ts * 1000), // Convert seconds to milliseconds for Date constructor
@@ -232,7 +235,7 @@ const ChartManager = (function () {
         createSpeedChart(container, rows = []) {
             const data = rowsToUPlotData(rows, ['speed_ms']);
             const opts = {
-                ...baseOpts('🚗 Vehicle Speed Over Time', 800, 300),
+                ...baseOpts(null, 800, 300),
                 series: [
                     {},
                     {
@@ -252,7 +255,7 @@ const ChartManager = (function () {
             const themeColors = getThemeColors();
             const data = rowsToUPlotData(rows, ['voltage_v', 'current_a']);
             const opts = {
-                ...baseOpts('⚡ Electrical System', 800, 400),
+                ...baseOpts(null, 800, 400),
                 scales: {
                     x: { time: true },
                     y: {},
@@ -284,7 +287,7 @@ const ChartManager = (function () {
         createIMUChart(container, rows = []) {
             const data = rowsToUPlotData(rows, ['gyro_x', 'gyro_y', 'gyro_z', 'accel_x', 'accel_y', 'accel_z']);
             const opts = {
-                ...baseOpts('🧭 IMU Sensors', 800, 400),
+                ...baseOpts(null, 800, 400),
                 series: [
                     {},
                     { label: 'Gyro X', stroke: COLORS.gyroX, width: 1.5 },
@@ -303,7 +306,7 @@ const ChartManager = (function () {
         createAltitudeChart(container, rows = []) {
             const data = rowsToUPlotData(rows, ['altitude']);
             const opts = {
-                ...baseOpts('🏔️ Altitude', 400, 200),
+                ...baseOpts(null, 400, 200),
                 series: [
                     {},
                     { label: 'Altitude (m)', stroke: COLORS.altitude, width: 2, fill: 'rgba(0, 212, 255, 0.1)' }
@@ -326,7 +329,7 @@ const ChartManager = (function () {
             const pointColor = '#d97706'; // Darker amber/orange for better visibility
 
             const opts = {
-                ...baseOpts('📈 Efficiency: Speed vs Power', 800, 400),
+                ...baseOpts(null, 800, 400),
                 scales: { x: { time: false } },
                 axes: [
                     {

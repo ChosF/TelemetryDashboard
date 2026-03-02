@@ -725,6 +725,42 @@ a:hover {
   height: 200px;
 }
 
+/* ===== uPlot Override: force charts to fill their container ===== */
+/* uplot.min.css sets `.uplot { width: min-content }` which collapses
+   the chart wrapper. Override so the chart fills the .chart div fully. */
+
+/* Make the top-level uPlot container fill the chart wrapper */
+.chart .uplot {
+  width: 100% !important;
+}
+
+/* The u-wrap is position:relative and wraps the canvas + overlays.
+   Give it full width so child positioned elements size correctly. */
+.chart .u-wrap {
+  width: 100% !important;
+}
+
+/* Ensure the chart container is a positioned block */
+.chart {
+  position: relative;
+  overflow: hidden;
+}
+
+/* uPlot injects an HTML <div class="u-title"> above the canvas when a title
+   option is set. Since we removed title from opts, this is just a safeguard. */
+.chart .u-title {
+  display: none;
+}
+
+/* uPlot legend – keep visible for series labels */
+.chart .u-legend {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ===== End uPlot overrides ===== */
+
+
 /* Driver Box */
 .driver-box {
   padding: var(--space-4);
@@ -2572,7 +2608,8 @@ body {
 }
 
 .outlier-timeline-items {
-  max-height: 140px; /* Shows max 2 items by default */
+  max-height: 140px;
+  /* Shows max 2 items by default */
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -2582,7 +2619,8 @@ body {
 }
 
 .outlier-timeline-items.single-item {
-  max-height: 70px; /* Shows only 1 item when fields have 2 rows */
+  max-height: 70px;
+  /* Shows only 1 item when fields have 2 rows */
 }
 
 /* Custom scrollbar styling for webkit browsers */
@@ -2899,6 +2937,7 @@ body {
   .bridge-metric-value {
     font-size: var(--text-sm);
   }
+
   .bridge-metric-icon {
     font-size: var(--text-lg);
   }
