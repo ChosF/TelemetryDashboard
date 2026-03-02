@@ -15,7 +15,7 @@ const G = 9.80665;
 const REQUIRED_FIELDS = [
     'speed_ms', 'voltage_v', 'current_a', 'power_w', 'energy_j', 'distance_m',
     'gyro_x', 'gyro_y', 'gyro_z', 'accel_x', 'accel_y', 'accel_z',
-    'latitude', 'longitude', 'altitude', 'throttle_percent', 'brake_percent'
+    'latitude', 'longitude', 'altitude', 'throttle_pct', 'brake_pct'
 ];
 
 // State
@@ -80,6 +80,36 @@ function clamp(v, a, b) {
 
 // Normalize field names for common variations
 function normalizeFieldNames(row) {
+    const hasNumeric = (key) => {
+        if (!(key in row)) return false;
+        const n = toNum(row[key], null);
+        return n !== null && Number.isFinite(n);
+    };
+    const setFromAlias = (target, aliases, transform = (v) => v) => {
+        if (hasNumeric(target) && Math.abs(toNum(row[target], 0)) > 1e-9) return;
+        for (const alias of aliases) {
+            if (!hasNumeric(alias)) continue;
+            row[target] = transform(toNum(row[alias], 0));
+            return;
+        }
+    };
+
+    setFromAlias('speed_ms', ['speed', 'speed_mps', 'current_speed_ms']);
+    setFromAlias('speed_ms', ['speed_kmh', 'current_speed_kmh', 'gps_speed_kmh'], (v) => v / 3.6);
+    setFromAlias('voltage_v', ['voltage', 'battery_voltage', 'battery_voltage_v']);
+    setFromAlias('current_a', ['current', 'amps', 'c_current_a', 'max_current_a']);
+    setFromAlias('power_w', ['power', 'current_power_w']);
+    setFromAlias('latitude', ['lat']);
+    setFromAlias('longitude', ['lon', 'lng']);
+    setFromAlias('gyro_x', ['gx', 'gyroX']);
+    setFromAlias('gyro_y', ['gy', 'gyroY']);
+    setFromAlias('gyro_z', ['gz', 'gyroZ']);
+    setFromAlias('accel_x', ['ax', 'accelX']);
+    setFromAlias('accel_y', ['ay', 'accelY']);
+    setFromAlias('accel_z', ['az', 'accelZ']);
+    setFromAlias('throttle_pct', ['throttle_percent', 'throttlePercentage']);
+    setFromAlias('brake_pct', ['brake_percent', 'brakePercentage']);
+
     if (!('altitude' in row)) {
         const altitudeFields = ['altitude_m', 'gps_altitude', 'elevation', 'alt'];
         for (const field of altitudeFields) {
@@ -89,6 +119,7 @@ function normalizeFieldNames(row) {
             }
         }
     }
+
     for (const k of REQUIRED_FIELDS) {
         if (!(k in row)) row[k] = 0;
     }
@@ -105,6 +136,9 @@ function normalizeData(d) {
         t = isNaN(dt.getTime()) ? new Date().toISOString() : dt.toISOString();
     }
     out.timestamp = t;
+
+    // Normalize aliases before adding zero defaults so canonical fields can be mapped.
+    normalizeFieldNames(out);
 
     for (const k of REQUIRED_FIELDS) if (!(k in out)) out[k] = 0;
 
