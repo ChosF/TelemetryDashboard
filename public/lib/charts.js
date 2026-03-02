@@ -99,9 +99,7 @@ const ChartManager = (function () {
                 }
             ],
             legend: {
-                show: true,
-                stroke: themeColors.axis,
-                fill: 'transparent'
+                show: false
             }
         };
     }
@@ -499,9 +497,7 @@ const ChartManager = (function () {
                 ],
                 series: series,
                 legend: {
-                    show: config.showLegend !== false,
-                    stroke: themeColors.axis,
-                    fill: 'transparent'
+                    show: false
                 },
                 cursor: {
                     sync: { key: 'custom' },

@@ -698,7 +698,13 @@ a:hover {
 }
 
 .chart.tall {
-  height: 400px;
+  height: 260px;
+}
+
+@media (min-width: 480px) {
+  .chart.tall {
+    height: 340px;
+  }
 }
 
 @media (min-width: 768px) {
@@ -732,6 +738,15 @@ a:hover {
 
 .driver-box .chart {
   height: 180px;
+}
+
+/* uPlot canvas containment: the canvas must never exceed the chart div's bounds */
+.chart>.uplot,
+.chart>.uplot>.u-wrap {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 /* Split Layout - GPS Panel */
@@ -3692,6 +3707,13 @@ body {
   gap: var(--space-4);
 }
 
+/* Prevent grid children from overflowing grid column bounds */
+.chart-grid-2col>*,
+.chart-grid-3col>* {
+  min-width: 0;
+  overflow: hidden;
+}
+
 @media (min-width: 768px) {
   .chart-grid-2col {
     grid-template-columns: repeat(2, 1fr);
@@ -4377,27 +4399,25 @@ body {
 }
 
 /* ==========================================================================
-   CHART CONTAINER FIXES - Ensure labels are visible
+   CHART CONTAINER FIXES - Contain charts properly
    ========================================================================== */
 
-.glass-panel .chart {
-  overflow: visible !important;
+/* Chart divs must clip their uPlot canvas children to avoid overflow */
+.chart {
+  overflow: hidden;
+  position: relative;
 }
 
+/* Glass panels holding charts: contain overflow but allow tooltips via z-index layers */
+.glass-panel .chart {
+  overflow: hidden;
+}
+
+/* The glass panel itself should clip content */
 .glass-panel.mb-4 {
-  overflow: visible;
+  overflow: hidden;
   position: relative;
   z-index: 1;
-}
-
-/* Add bottom padding to chart containers to ensure dataZoom and legends are visible */
-.chart.tall {
-  height: 380px !important;
-  padding-bottom: 60px;
-}
-
-.chart.xxl {
-  padding-bottom: 80px;
 }
 
 /* Increase spacing between chart sections */
@@ -4410,7 +4430,7 @@ body {
    ========================================================================== */
 
 #chart-imu-detail {
-  min-height: 600px !important;
+  min-height: 600px;
 }
 
 /* ==========================================================================
@@ -4476,20 +4496,31 @@ body {
    ADDITIONAL CHART FIXES
    ========================================================================== */
 
-/* Ensure chart containers have enough padding for dataZoom */
+/* Ensure chart containers have appropriate spacing */
 .glass-panel>.chart {
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-4);
 }
 
 /* Keep sections from overlapping */
 .glass-panel {
   position: relative;
   z-index: auto;
+  overflow: hidden;
 }
 
-/* Fix chart visibility */
+/* Panels contain all their children */
 .panel {
   overflow: visible;
+}
+
+/* uPlot specific: ensure canvas fills exactly the chart div, no more */
+.u-wrap {
+  overflow: hidden !important;
+}
+
+.u-over,
+.u-under {
+  overflow: hidden;
 }
 
 /* ==========================================================================
@@ -5046,22 +5077,8 @@ body {
   display: block;
 }
 
-/* ---------- Chart Helpers ---------- */
-.chart-grid-2col {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-4);
-}
-
-@media (min-width: 768px) {
-  .chart-grid-2col {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-.chart.tall {
-  height: 300px;
-}
+/* ---------- Chart Helpers (historical section only) ---------- */
+/* Note: .chart-grid-2col and .chart.tall are defined globally above */
 
 .mb-4 {
   margin-bottom: var(--space-4);
@@ -5096,10 +5113,6 @@ body {
 
   .hist-section-nav {
     flex-wrap: wrap;
-  }
-
-  .chart.tall {
-    height: 220px;
   }
 }
 
