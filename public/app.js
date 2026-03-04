@@ -364,15 +364,7 @@
         );
       }
 
-      // Initialize zoom controls if specified
-      if (config.zoomControlsContainer) {
-        ZoomController.createControls(
-          config.zoomControlsContainer,
-          tabId,
-          config.onZoom
-        );
-      }
-
+      // Removed zoom controls as per user request
       module.initialized = true;
     },
 
@@ -479,11 +471,13 @@
     expectedRate: 0, // Expected message rate from server (Hz) based on timestamp intervals
     // uPlot migration flags - enable incrementally
     useUPlot: {
-      speed: true,      // Speed chart migrated to uPlot
-      power: true,      // Power chart migrated to uPlot  
-      imu: true,        // IMU chart migrated to uPlot
-      altitude: true,   // Altitude chart migrated to uPlot
-      efficiency: true, // Efficiency chart migrated to uPlot
+      // Default to ECharts for production reliability in realtime mode.
+      // uPlot can be re-enabled explicitly through config after validation.
+      speed: false,
+      power: false,
+      imu: false,
+      altitude: false,
+      efficiency: false,
       gauges: true      // Gauges migrated to Canvas
     },
     mockDataGen: null, // Mock data generator for testing
@@ -545,6 +539,22 @@
   const panelFromUrl = getPanelFromUrl();
   if (panelFromUrl) {
     state.activePanel = panelFromUrl;
+  }
+
+  // Optional feature flag to re-enable uPlot in environments where it is verified stable.
+  // Accepts true, "true", 1, "1".
+  const uPlotFlag = cfg.ENABLE_UPLOT;
+  const enableUPlot =
+    uPlotFlag === true ||
+    uPlotFlag === 1 ||
+    uPlotFlag === "1" ||
+    uPlotFlag === "true";
+  if (enableUPlot) {
+    state.useUPlot.speed = true;
+    state.useUPlot.power = true;
+    state.useUPlot.imu = true;
+    state.useUPlot.altitude = true;
+    state.useUPlot.efficiency = true;
   }
 
   function closeFabMenu() {
@@ -1976,44 +1986,7 @@
       }
     });
 
-    // Create zoom controls
-    ZoomController.createControls('speed-zoom-controls', 'speed', (action) => {
-      // Handle zoom for uPlot or ECharts
-      if (chartSpeed) {
-        if (action === 'reset') {
-          chartSpeed.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
-        } else if (action === 'zoom-in') {
-          const opt = chartSpeed.getOption();
-          if (opt.dataZoom && opt.dataZoom[0]) {
-            const start = opt.dataZoom[0].start || 0;
-            const end = opt.dataZoom[0].end || 100;
-            const range = end - start;
-            const newRange = Math.max(10, range * 0.5);
-            const center = (start + end) / 2;
-            chartSpeed.dispatchAction({
-              type: 'dataZoom',
-              start: Math.max(0, center - newRange / 2),
-              end: Math.min(100, center + newRange / 2)
-            });
-          }
-        } else if (action === 'zoom-out') {
-          const opt = chartSpeed.getOption();
-          if (opt.dataZoom && opt.dataZoom[0]) {
-            const start = opt.dataZoom[0].start || 0;
-            const end = opt.dataZoom[0].end || 100;
-            const range = end - start;
-            const newRange = Math.min(100, range * 2);
-            const center = (start + end) / 2;
-            chartSpeed.dispatchAction({
-              type: 'dataZoom',
-              start: Math.max(0, center - newRange / 2),
-              end: Math.min(100, center + newRange / 2)
-            });
-          }
-        }
-      }
-    });
-
+    // Removed zoom controls as per user request
     // Initialize secondary chart containers
     const accelContainer = el('chart-speed-accel');
     const histContainer = el('chart-speed-histogram');
@@ -2262,8 +2235,8 @@
       tooltip: { trigger: "axis" },
       legend: { top: 28 },
       grid: [
-        { left: "6%", right: "4%", top: 60, height: 200, containLabel: true },
-        { left: "6%", right: "4%", top: 300, height: 200, containLabel: true },
+        { left: "6%", right: "4%", top: 60, bottom: "55%", containLabel: true },
+        { left: "6%", right: "4%", top: "55%", bottom: 60, containLabel: true },
       ],
       xAxis: [{ type: "time", gridIndex: 0 }, { type: "time", gridIndex: 1 }],
       yAxis: [{ type: "value", gridIndex: 0, name: "Voltage (V)" }, { type: "value", gridIndex: 1, name: "Current (A)" }],
@@ -2317,43 +2290,7 @@
       }
     );
 
-    // Create zoom controls
-    ZoomController.createControls('power-zoom-controls', 'power', (action) => {
-      if (chartPower) {
-        if (action === 'reset') {
-          chartPower.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
-        } else if (action === 'zoom-in') {
-          const opt = chartPower.getOption();
-          if (opt.dataZoom && opt.dataZoom[0]) {
-            const start = opt.dataZoom[0].start || 0;
-            const end = opt.dataZoom[0].end || 100;
-            const range = end - start;
-            const newRange = Math.max(10, range * 0.5);
-            const center = (start + end) / 2;
-            chartPower.dispatchAction({
-              type: 'dataZoom',
-              start: Math.max(0, center - newRange / 2),
-              end: Math.min(100, center + newRange / 2)
-            });
-          }
-        } else if (action === 'zoom-out') {
-          const opt = chartPower.getOption();
-          if (opt.dataZoom && opt.dataZoom[0]) {
-            const start = opt.dataZoom[0].start || 0;
-            const end = opt.dataZoom[0].end || 100;
-            const range = end - start;
-            const newRange = Math.min(100, range * 2);
-            const center = (start + end) / 2;
-            chartPower.dispatchAction({
-              type: 'dataZoom',
-              start: Math.max(0, center - newRange / 2),
-              end: Math.min(100, center + newRange / 2)
-            });
-          }
-        }
-      }
-    });
-
+    // Removed zoom controls as per user request
     // Initialize secondary chart containers
     const voltStabContainer = el('chart-voltage-stability');
     const currentPeaksContainer = el('chart-current-peaks');
@@ -2720,9 +2657,9 @@
       tooltip: { trigger: "axis" },
       legend: { top: 28 },
       grid: [
-        { left: "6%", right: "4%", top: 60, height: 140, containLabel: true },
-        { left: "6%", right: "4%", top: 220, height: 140, containLabel: true },
-        { left: "6%", right: "4%", top: 380, height: 140, containLabel: true },
+        { left: "6%", right: "4%", top: 50, bottom: "68%", containLabel: true },
+        { left: "6%", right: "4%", top: "37%", bottom: "37%", containLabel: true },
+        { left: "6%", right: "4%", top: "68%", bottom: 60, containLabel: true },
       ],
       xAxis: [{ type: "time", gridIndex: 0 }, { type: "time", gridIndex: 1 }, { type: "time", gridIndex: 2 }],
       yAxis: [{ type: "value", gridIndex: 0, name: "Gyro (deg/s)" }, { type: "value", gridIndex: 1, name: "Accel (m/s²)" }, { type: "value", gridIndex: 2, name: "Orientation (deg)" }],
@@ -2832,43 +2769,7 @@
       }
     });
 
-    // Create zoom controls
-    ZoomController.createControls('imu-zoom-controls', 'imu', (action) => {
-      if (chartIMU) {
-        if (action === 'reset') {
-          chartIMU.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
-        } else if (action === 'zoom-in') {
-          const opt = chartIMU.getOption();
-          if (opt.dataZoom && opt.dataZoom[0]) {
-            const start = opt.dataZoom[0].start || 0;
-            const end = opt.dataZoom[0].end || 100;
-            const range = end - start;
-            const newRange = Math.max(10, range * 0.5);
-            const center = (start + end) / 2;
-            chartIMU.dispatchAction({
-              type: 'dataZoom',
-              start: Math.max(0, center - newRange / 2),
-              end: Math.min(100, center + newRange / 2)
-            });
-          }
-        } else if (action === 'zoom-out') {
-          const opt = chartIMU.getOption();
-          if (opt.dataZoom && opt.dataZoom[0]) {
-            const start = opt.dataZoom[0].start || 0;
-            const end = opt.dataZoom[0].end || 100;
-            const range = end - start;
-            const newRange = Math.min(100, range * 2);
-            const center = (start + end) / 2;
-            chartIMU.dispatchAction({
-              type: 'dataZoom',
-              start: Math.max(0, center - newRange / 2),
-              end: Math.min(100, center + newRange / 2)
-            });
-          }
-        }
-      }
-    });
-
+    // Removed zoom controls as per user request
     // Initialize secondary chart containers
     const orientContainer = el('chart-imu-orientation');
     const vibrationContainer = el('chart-imu-vibration');
@@ -3319,31 +3220,7 @@
       }
     });
 
-    // Create zoom controls
-    ZoomController.createControls('efficiency-zoom-controls', 'efficiency', (action) => {
-      if (chartEfficiency) {
-        if (action === 'reset') {
-          chartEfficiency.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
-        } else if (action === 'zoom-in') {
-          const opt = chartEfficiency.getOption();
-          if (opt.dataZoom && opt.dataZoom[0]) {
-            const start = opt.dataZoom[0].start || 0;
-            const end = opt.dataZoom[0].end || 100;
-            const range = end - start;
-            const newRange = Math.max(10, range * 0.5);
-            const center = (start + end) / 2;
-            chartEfficiency.dispatchAction({
-              type: 'dataZoom',
-              start: Math.max(0, center - newRange / 2),
-              end: Math.min(100, center + newRange / 2)
-            });
-          }
-        } else if (action === 'zoom-out') {
-          chartEfficiency.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
-        }
-      }
-    });
-
+    // Removed zoom controls as per user request
     // Initialize secondary chart containers
     const trendContainer = el('chart-eff-trend');
     const bySpeedContainer = el('chart-eff-by-speed');
