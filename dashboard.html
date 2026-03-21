@@ -1,3 +1,30 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EcoVolt Telemetry Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet" />
+  <script>
+    window.CONFIG = window.CONFIG || {
+      ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
+      ABLY_API_KEY: "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ",
+      CONVEX_URL: "https://impartial-walrus-693.convex.cloud",
+    };
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <script type="module" src="/src/index.tsx"></script>
+</body>
+
+</html>
 <!DOCTYPE html>
 <html lang="en">
 

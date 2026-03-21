@@ -10,6 +10,8 @@ export interface EfficiencyGaugeProps {
     value: number;
     /** Maximum efficiency for scale */
     max?: number;
+    /** Whether the gauge is currently visible */
+    active?: boolean;
     /** Container class */
     class?: string;
     /** Container style */
@@ -33,10 +35,10 @@ export function EfficiencyGauge(props: EfficiencyGaugeProps): JSX.Element {
             max={getMax()}
             color="#6a51a3"
             unit="km/kWh"
-            label="Efficiency"
             decimals={1}
             class={props.class}
             style={props.style}
+            active={props.active}
         />
     );
 }

@@ -1258,6 +1258,42 @@
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
     <script src="/historical-engine.js"></script>
     <script src="/historical.js"></script>
+    <script>
+        (() => {
+            let dashboardPrewarmPromise = null;
+
+            const prefetchAsset = (url) => {
+                if (!url || !url.startsWith('/')) return Promise.resolve();
+                return fetch(url, { cache: 'force-cache', credentials: 'same-origin' }).catch(() => null);
+            };
+
+            const prewarmDashboard = () => {
+                if (dashboardPrewarmPromise) return dashboardPrewarmPromise;
+                dashboardPrewarmPromise = (async () => {
+                    const html = await fetch('/dashboard.html', { cache: 'force-cache', credentials: 'same-origin' }).then(r => r.text());
+                    const doc = new DOMParser().parseFromString(html, 'text/html');
+                    const assets = [...doc.querySelectorAll('script[src], link[href]')]
+                        .map((node) => node.getAttribute('src') || node.getAttribute('href'))
+                        .filter((value) => typeof value === 'string' && value.startsWith('/'));
+
+                    await Promise.allSettled([
+                        fetch('/api/config', { cache: 'force-cache', credentials: 'same-origin' }).catch(() => null),
+                        ...assets.map(prefetchAsset),
+                    ]);
+                })().catch(() => {
+                    dashboardPrewarmPromise = null;
+                });
+                return dashboardPrewarmPromise;
+            };
+
+            document.querySelectorAll('a[href="/dashboard"]').forEach((link) => {
+                link.addEventListener('mouseenter', prewarmDashboard, { passive: true });
+                link.addEventListener('focus', prewarmDashboard, { passive: true });
+                link.addEventListener('touchstart', prewarmDashboard, { passive: true });
+                link.addEventListener('mousedown', prewarmDashboard, { passive: true });
+            });
+        })();
+    </script>
 </body>
 
 </html>

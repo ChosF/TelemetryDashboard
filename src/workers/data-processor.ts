@@ -60,14 +60,24 @@ function last<T>(arr: T[]): T | undefined {
 function normalizeFieldNames(row: TelemetryRecord): ProcessedRow {
     const normalized = { ...row } as ProcessedRow;
 
-    // Map altitude variations
+    const altFields = ['altitude_m', 'altitude', 'gps_altitude', 'elevation', 'alt'];
+    if (!('altitude_m' in normalized)) {
+        for (const field of altFields) {
+            if (field in row) {
+                (normalized as Record<string, unknown>).altitude_m = row[field];
+                break;
+            }
+        }
+    }
     if (!('altitude' in normalized)) {
-        const altFields = ['altitude_m', 'gps_altitude', 'elevation', 'alt'];
         for (const field of altFields) {
             if (field in row) {
                 (normalized as Record<string, unknown>).altitude = row[field];
                 break;
             }
+        }
+        if ((normalized as Record<string, unknown>).altitude === undefined) {
+            (normalized as Record<string, unknown>).altitude = (normalized as Record<string, unknown>).altitude_m;
         }
     }
 

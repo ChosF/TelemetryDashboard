@@ -11,7 +11,7 @@ import { CHART_COLORS, DEFAULT_TIME_AXIS, createYAxis, createSeries } from '../U
  */
 export function createSpeedChartOptions(): Omit<Options, 'width' | 'height'> {
     return {
-        title: '🚗 Vehicle Speed Over Time',
+        title: '🚗 Speed Over Time',
         cursor: {
             sync: { key: 'telemetry' },
             drag: { x: true, y: false },
@@ -25,7 +25,7 @@ export function createSpeedChartOptions(): Omit<Options, 'width' | 'height'> {
                 ...DEFAULT_TIME_AXIS,
                 label: 'Time',
             },
-            createYAxis('Speed (m/s)', CHART_COLORS.speed),
+            createYAxis('Speed (km/h)', CHART_COLORS.speed),
         ],
         series: [
             {}, // x-axis (time)

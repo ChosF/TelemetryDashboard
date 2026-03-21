@@ -1,12 +1,18 @@
 /**
- * SpeedPanel - Speed analysis with charts
+ * SpeedPanel - Legacy-aligned speed analysis view
  */
 
-import { JSX, createMemo } from 'solid-js';
-import { Panel, PanelGrid } from '@/components/layout';
-import { UPlotChart, createSpeedChartOptions, createSpeedAccelChartOptions } from '@/components/charts';
+import { For, JSX, createMemo } from 'solid-js';
+import {
+    CHART_COLORS,
+    DEFAULT_TIME_AXIS,
+    UPlotChart,
+    createSeries,
+    createSpeedChartOptions,
+    createYAxis,
+} from '@/components/charts';
 import type { TelemetryRow } from '@/types/telemetry';
-import type { AlignedData } from 'uplot';
+import type { AlignedData, Options } from 'uplot';
 
 export interface SpeedPanelProps {
     /** Telemetry data */
@@ -15,127 +21,276 @@ export interface SpeedPanelProps {
     loading?: boolean;
 }
 
+interface SpeedBucket {
+    label: string;
+    count: number;
+    pct: number;
+}
+
+interface SpeedRange {
+    label: string;
+    pct: number;
+}
+
+function toKmh(row: TelemetryRow): number | null {
+    if (typeof row.speed_kmh === 'number') return row.speed_kmh;
+    if (typeof row.speed_ms === 'number') return row.speed_ms * 3.6;
+    return null;
+}
+
+function formatStatNumber(value: number | null | undefined, digits = 1): string {
+    return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
+}
+
 /**
  * Speed analysis panel
  */
 export function SpeedPanel(props: SpeedPanelProps): JSX.Element {
-    // Transform data for speed chart
-    const speedData = createMemo((): AlignedData => {
-        if (props.data.length === 0) return [[], []];
+    const speedRows = createMemo(() =>
+        props.data
+            .map((row) => ({ ts: new Date(row.timestamp).getTime() / 1000, speed: toKmh(row), row }))
+            .filter((entry) => Number.isFinite(entry.ts)),
+    );
+
+    const speedData = createMemo((): AlignedData => [
+        speedRows().map((entry) => entry.ts),
+        speedRows().map((entry) => entry.speed),
+    ]);
+
+    const accelerationData = createMemo((): AlignedData => {
+        if (props.data.length < 2) return [[], []];
 
         const timestamps: number[] = [];
-        const speeds: (number | null)[] = [];
+        const accelerations: number[] = [];
 
-        props.data.forEach((row) => {
-            const ts = new Date(row.timestamp).getTime() / 1000;
-            timestamps.push(ts);
-            speeds.push(row.speed_ms ?? row.speed_kmh ?? null);
-        });
+        for (let index = 1; index < props.data.length; index += 1) {
+            const prev = props.data[index - 1];
+            const current = props.data[index];
+            const prevSpeedMs = typeof prev.speed_ms === 'number'
+                ? prev.speed_ms
+                : typeof prev.speed_kmh === 'number'
+                    ? prev.speed_kmh / 3.6
+                    : null;
+            const currentSpeedMs = typeof current.speed_ms === 'number'
+                ? current.speed_ms
+                : typeof current.speed_kmh === 'number'
+                    ? current.speed_kmh / 3.6
+                    : null;
 
-        return [timestamps, speeds];
-    });
+            if (prevSpeedMs === null || currentSpeedMs === null) continue;
 
-    // Transform data for speed + acceleration chart
-    const speedAccelData = createMemo((): AlignedData => {
-        if (props.data.length === 0) return [[], [], []];
+            const prevTs = new Date(prev.timestamp).getTime();
+            const currentTs = new Date(current.timestamp).getTime();
+            const deltaSeconds = (currentTs - prevTs) / 1000;
 
-        const timestamps: number[] = [];
-        const speeds: (number | null)[] = [];
-        const accels: (number | null)[] = [];
+            if (deltaSeconds <= 0 || deltaSeconds >= 10) continue;
 
-        props.data.forEach((row) => {
-            const ts = new Date(row.timestamp).getTime() / 1000;
-            timestamps.push(ts);
-            speeds.push(row.speed_ms ?? row.speed_kmh ?? null);
-            accels.push(row.avg_acceleration ?? null);
-        });
+            const accel = (currentSpeedMs - prevSpeedMs) / deltaSeconds;
+            if (Math.abs(accel) >= 20) continue;
 
-        return [timestamps, speeds, accels];
-    });
-
-    // Stats
-    const stats = createMemo(() => {
-        if (props.data.length === 0) {
-            return { max: 0, avg: 0, current: 0 };
+            timestamps.push(currentTs / 1000);
+            accelerations.push(accel);
         }
 
-        let max = 0;
-        let total = 0;
+        return [timestamps, accelerations];
+    });
 
-        props.data.forEach((row) => {
-            const speed = row.speed_ms ?? row.speed_kmh ?? 0;
-            max = Math.max(max, speed);
-            total += speed;
-        });
-
-        const current = props.data[props.data.length - 1]?.speed_ms ??
-            props.data[props.data.length - 1]?.speed_kmh ?? 0;
+    const stats = createMemo(() => {
+        const speeds = speedRows()
+            .map((entry) => entry.speed)
+            .filter((value): value is number => typeof value === 'number');
+        const lastRow = props.data[props.data.length - 1];
+        const current = speeds.at(-1) ?? null;
+        const avg = typeof lastRow?.avg_speed_kmh === 'number'
+            ? lastRow.avg_speed_kmh
+            : speeds.length > 0
+                ? speeds.reduce((sum, speed) => sum + speed, 0) / speeds.length
+                : null;
+        const max = typeof lastRow?.max_speed_kmh === 'number'
+            ? lastRow.max_speed_kmh
+            : speeds.length > 0
+                ? Math.max(...speeds)
+                : null;
 
         return {
-            max,
-            avg: total / props.data.length,
             current,
+            avg,
+            max,
+            min: null,
         };
     });
 
+    const speedDistribution = createMemo<SpeedBucket[]>(() => {
+        const speeds = speedRows()
+            .map((entry) => entry.speed)
+            .filter((value): value is number => typeof value === 'number' && value >= 0);
+
+        if (speeds.length === 0) {
+            return [{ label: '0-5', count: 0, pct: 0 }];
+        }
+
+        const maxBins = 12;
+        const rawMaxSpeed = Math.max(...speeds);
+        const bucketSize = Math.max(5, Math.ceil((rawMaxSpeed / maxBins) / 5) * 5);
+        const maxSpeed = Math.max(bucketSize, Math.ceil(rawMaxSpeed / bucketSize) * bucketSize);
+        const counts: number[] = [];
+        const labels: string[] = [];
+
+        for (let start = 0; start <= maxSpeed; start += bucketSize) {
+            counts.push(0);
+            labels.push(`${start}-${start + bucketSize}`);
+        }
+
+        speeds.forEach((speed) => {
+            const bucketIndex = Math.min(Math.floor(speed / bucketSize), counts.length - 1);
+            counts[bucketIndex] += 1;
+        });
+
+        const highestCount = Math.max(...counts, 1);
+        return labels.map((label, index) => ({
+            label,
+            count: counts[index],
+            pct: (counts[index] / highestCount) * 100,
+        }));
+    });
+
+    const speedRanges = createMemo<SpeedRange[]>(() => {
+        const speeds = speedRows()
+            .map((entry) => entry.speed)
+            .filter((value): value is number => typeof value === 'number' && value >= 0);
+
+        if (speeds.length === 0) {
+            return [
+                { label: '0-10 km/h', pct: 0 },
+                { label: '10-20 km/h', pct: 0 },
+                { label: '20-30 km/h', pct: 0 },
+                { label: '30-40 km/h', pct: 0 },
+                { label: '40+ km/h', pct: 0 },
+            ];
+        }
+
+        const total = speeds.length;
+        const counts = [
+            speeds.filter((speed) => speed >= 0 && speed < 10).length,
+            speeds.filter((speed) => speed >= 10 && speed < 20).length,
+            speeds.filter((speed) => speed >= 20 && speed < 30).length,
+            speeds.filter((speed) => speed >= 30 && speed < 40).length,
+            speeds.filter((speed) => speed >= 40).length,
+        ];
+
+        return [
+            { label: '0-10 km/h', pct: (counts[0] / total) * 100 },
+            { label: '10-20 km/h', pct: (counts[1] / total) * 100 },
+            { label: '20-30 km/h', pct: (counts[2] / total) * 100 },
+            { label: '30-40 km/h', pct: (counts[3] / total) * 100 },
+            { label: '40+ km/h', pct: (counts[4] / total) * 100 },
+        ];
+    });
+
+    const accelerationChartOptions = createMemo((): Omit<Options, 'width' | 'height'> => ({
+        title: '📈 Acceleration Rate',
+        cursor: {
+            sync: { key: 'telemetry' },
+            drag: { x: true, y: false },
+        },
+        scales: {
+            x: { time: true },
+            y: { auto: true },
+        },
+        axes: [
+            {
+                ...DEFAULT_TIME_AXIS,
+                label: 'Time',
+            },
+            createYAxis('Accel (m/s²)', CHART_COLORS.current),
+        ],
+        series: [
+            {},
+            createSeries('Acceleration', CHART_COLORS.current, { fill: 'rgba(34, 197, 94, 0.12)' }),
+        ],
+        legend: { show: true },
+    }));
+
     return (
         <div style={{ display: 'flex', 'flex-direction': 'column', gap: '20px' }}>
-            {/* Speed over time */}
-            <Panel title="Speed Over Time" loading={props.loading}>
-                <div style={{ height: '300px' }}>
-                    <UPlotChart
-                        options={createSpeedChartOptions()}
-                        data={speedData()}
-                    />
-                </div>
-            </Panel>
+            <div class="stat-card-grid mb-4">
+                <StatCard label="Current" value={formatStatNumber(stats().current)} unit="km/h" accent="accent-blue" />
+                <StatCard label="Average" value={formatStatNumber(stats().avg)} unit="km/h" />
+                <StatCard label="Maximum" value={formatStatNumber(stats().max)} unit="km/h" accent="accent-green" />
+                <StatCard label="Minimum" value={formatStatNumber(stats().min)} unit="km/h" accent="accent-amber" />
+            </div>
 
-            {/* Speed + Acceleration */}
-            <Panel title="Speed & Acceleration" loading={props.loading}>
-                <div style={{ height: '300px' }}>
-                    <UPlotChart
-                        options={createSpeedAccelChartOptions()}
-                        data={speedAccelData()}
-                    />
+            <div class="glass-panel mb-4">
+                <div class="chart-header">
+                    <h3>🚗 Speed Over Time</h3>
                 </div>
-            </Panel>
+                <div class="chart tall" style={{ height: '320px' }}>
+                    <UPlotChart options={createSpeedChartOptions()} data={speedData()} />
+                </div>
+            </div>
 
-            {/* Stats row */}
-            <PanelGrid columns={3} gap={16}>
-                <Panel>
-                    <StatBlock label="Current" value={stats().current.toFixed(1)} unit="km/h" />
-                </Panel>
-                <Panel>
-                    <StatBlock label="Maximum" value={stats().max.toFixed(1)} unit="km/h" color="#ef4444" />
-                </Panel>
-                <Panel>
-                    <StatBlock label="Average" value={stats().avg.toFixed(1)} unit="km/h" color="#3b82f6" />
-                </Panel>
-            </PanelGrid>
+            <div class="chart-grid-2col mb-4">
+                <div class="glass-panel">
+                    <div class="chart-header">
+                        <h4>📈 Acceleration Rate</h4>
+                    </div>
+                    <div class="chart" style={{ height: '280px', 'margin-top': '12px' }}>
+                        <UPlotChart options={accelerationChartOptions()} data={accelerationData()} />
+                    </div>
+                </div>
+                <div class="glass-panel">
+                    <div class="chart-header">
+                        <h4>📊 Speed Distribution</h4>
+                    </div>
+                    <div class="speed-histogram">
+                        <For each={speedDistribution()}>
+                            {(bucket) => (
+                                <div class="speed-histogram-bin">
+                                    <span class="speed-histogram-count">{bucket.count > 0 ? bucket.count : ''}</span>
+                                    <div class="speed-histogram-track">
+                                        <div class="speed-histogram-fill" style={{ height: `${bucket.pct}%` }} />
+                                    </div>
+                                    <span class="speed-histogram-label">{bucket.label}</span>
+                                </div>
+                            )}
+                        </For>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-panel">
+                <div class="chart-header">
+                    <h4>⏱️ Time in Speed Ranges</h4>
+                </div>
+                <div class="speed-range-bars">
+                    <For each={speedRanges()}>
+                        {(range) => (
+                            <div class="speed-range-item">
+                                <span class="speed-range-label">{range.label}</span>
+                                <div class="speed-range-bar-container">
+                                    <div class="speed-range-bar-fill" style={{ width: `${range.pct}%` }} />
+                                </div>
+                                <span class="speed-range-value">{range.pct.toFixed(1)}%</span>
+                            </div>
+                        )}
+                    </For>
+                </div>
+            </div>
         </div>
     );
 }
 
-/**
- * Stat block sub-component
- */
-function StatBlock(props: {
+function StatCard(props: {
     label: string;
     value: string;
     unit: string;
-    color?: string;
+    accent?: string;
 }): JSX.Element {
     return (
-        <div style={{ 'text-align': 'center', padding: '8px' }}>
-            <div style={{ 'font-size': '12px', color: 'rgba(255, 255, 255, 0.5)', 'margin-bottom': '8px' }}>
-                {props.label}
-            </div>
-            <div style={{ 'font-size': '32px', 'font-weight': 700, color: props.color ?? 'white' }}>
-                {props.value}
-            </div>
-            <div style={{ 'font-size': '13px', color: 'rgba(255, 255, 255, 0.6)' }}>
-                {props.unit}
-            </div>
+        <div class={`stat-card-mini glass-panel ${props.accent ?? ''}`.trim()}>
+            <span class="stat-label">{props.label}</span>
+            <span class="stat-value">{props.value}</span>
+            <span class="stat-unit">{props.unit}</span>
         </div>
     );
 }

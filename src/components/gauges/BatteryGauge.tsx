@@ -8,6 +8,8 @@ import { CanvasGauge } from './CanvasGauge';
 export interface BatteryGaugeProps {
     /** Battery percentage (0-100) */
     value: number;
+    /** Whether the gauge is currently visible */
+    active?: boolean;
     /** Container class */
     class?: string;
     /** Container style */
@@ -32,10 +34,10 @@ export function BatteryGauge(props: BatteryGaugeProps): JSX.Element {
             max={100}
             color={getColor()}
             unit="%"
-            label="Battery"
             decimals={0}
             class={props.class}
             style={props.style}
+            active={props.active}
         />
     );
 }

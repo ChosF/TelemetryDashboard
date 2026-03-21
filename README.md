@@ -67,6 +67,33 @@ vercel --prod
 
 ---
 
+## 🏛️ Architecture
+
+```mermaid
+flowchart LR
+    classDef node fill:#34495E,stroke:#2C3E50,stroke-width:2px,color:#fff;
+    classDef db fill:#8E44AD,stroke:#2C3E50,stroke-width:2px,color:#fff;
+    classDef pubsub fill:#2980B9,stroke:#2C3E50,stroke-width:2px,color:#fff;
+
+    ESP32[Hardware/Car Sensors]:::node --> |Raw Signal| AblyIn((Ably Ingest)):::pubsub
+    AblyIn --> Bridge[Python Gateway]:::node
+    
+    Bridge --> |Permanent Records| Convex[(Convex Database)]:::db
+    Bridge --> |Live Streaming| AblyOut((Ably Egress)):::pubsub
+    
+    AblyOut --> GenUI[General Dashboard]:::node
+    AblyIn --> DrvUI[Driver Dashboard]:::node
+    Convex --> HistUI[Historical Dashboard]:::node
+    
+    %% Session Context
+    Convex -.-> GenUI
+    %% Driver Notifications
+    Convex -.-> DrvUI
+```
+For a comprehensive deep-dive on the architecture and data flow, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -128,6 +155,7 @@ External users do not have access to the Custom Analysis view.
 
 ## 📚 Documentation
 
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture and full stack data flow
 - [CONVEX_SETUP.md](./CONVEX_SETUP.md) - Backend configuration
 - [DEPLOYMENT.md](./DEPLOYMENT.md) - Production deployment
 - [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - Common issues

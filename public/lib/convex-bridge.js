@@ -173,34 +173,111 @@ const ConvexBridge = (function () {
 
         const BATCH_SIZE = 3000;   // must match server BATCH_SIZE
         const COLLECT_CAP = 16000; // if collect() returns ≥ this, assume it was capped
+        const LARGE_SESSION_THRESHOLD = 8000;
+
+        let latestInfo = null;
+        try {
+            latestInfo = await getLatestSessionTimestamp(sessionId);
+        } catch (error) {
+            console.warn('[ConvexBridge] getLatestSessionTimestamp failed before historical load:', error);
+        }
+        const expectedTotal = Number.isFinite(latestInfo?.recordCount) ? latestInfo.recordCount : null;
+        const preferPaginated = expectedTotal !== null && expectedTotal >= LARGE_SESSION_THRESHOLD;
+
+        if (onProgress && expectedTotal && expectedTotal > 0) {
+            onProgress(0, expectedTotal);
+        }
 
         // ── Fast path: single collect() ──────────────────────────────────────
         let singleResult = null;
-        try {
-            singleResult = await client.query('telemetry:getSessionRecords', {
-                sessionId,
-                token: token || undefined,
-            });
-        } catch (error) {
+        if (!preferPaginated) {
             try {
-                singleResult = await client.query('telemetry:getSessionRecords', { sessionId });
-            } catch (legacyError) {
-                if (token && shouldRetryWithoutToken(error)) {
-                    console.warn('[ConvexBridge] getSessionRecords compatibility retry failed:', legacyError);
+                singleResult = await client.query('telemetry:getSessionRecords', {
+                    sessionId,
+                    token: token || undefined,
+                });
+            } catch (error) {
+                try {
+                    singleResult = await client.query('telemetry:getSessionRecords', { sessionId });
+                } catch (legacyError) {
+                    if (token && shouldRetryWithoutToken(error)) {
+                        console.warn('[ConvexBridge] getSessionRecords compatibility retry failed:', legacyError);
+                    }
+                    // collect() hard cap exceeded OR incompatible signature — fall through to paginated path
+                    singleResult = null;
                 }
-                // collect() hard cap exceeded OR incompatible signature — fall through to batch path
-                singleResult = null;
             }
         }
 
         if (singleResult !== null && singleResult.length < COLLECT_CAP) {
-            // Got a clean result — no truncation
-            return singleResult;
+            if (singleResult.length === 0 && (expectedTotal ?? 0) > 0) {
+                console.warn('[ConvexBridge] Fast path returned 0 rows but metadata reports records. Falling back.');
+            } else {
+                if (onProgress) onProgress(singleResult.length, expectedTotal ?? singleResult.length);
+                return singleResult;
+            }
         }
 
-        // ── Batch path: timestamp-cursor loop ────────────────────────────────
-        const approxTotal = singleResult ? singleResult.length : null;
-        console.log(`[ConvexBridge] 📄 Session needs batch fetch (collect returned ${approxTotal ?? 'error'}).`);
+        // ── Primary fallback: Convex pagination cursor ───────────────────────
+        const paginatedRecords = [];
+        let cursor = null;
+        let pageNum = 0;
+        let usedPaginatedPath = false;
+
+        try {
+            while (true) {
+                const args = {
+                    sessionId,
+                    paginationOpts: { numItems: BATCH_SIZE, cursor },
+                    token: token || undefined,
+                };
+
+                let result;
+                try {
+                    result = await client.query('telemetry:getSessionRecordsPage', args);
+                } catch (error) {
+                    const legacyArgs = {
+                        sessionId,
+                        paginationOpts: { numItems: BATCH_SIZE, cursor },
+                    };
+                    try {
+                        result = await client.query('telemetry:getSessionRecordsPage', legacyArgs);
+                    } catch (legacyError) {
+                        if (token && shouldRetryWithoutToken(error)) {
+                            console.warn('[ConvexBridge] getSessionRecordsPage compatibility retry failed:', legacyError);
+                        }
+                        throw error;
+                    }
+                }
+
+                usedPaginatedPath = true;
+                if (!result || !Array.isArray(result.page)) {
+                    console.error('[ConvexBridge] ⚠️ Unexpected paginated response:', result);
+                    break;
+                }
+
+                paginatedRecords.push(...result.page);
+                pageNum++;
+                if (onProgress) onProgress(paginatedRecords.length, expectedTotal ?? paginatedRecords.length);
+
+                if (result.isDone) {
+                    console.log(`[ConvexBridge] ✅ Paginated fetch complete: ${paginatedRecords.length} records in ${pageNum} pages`);
+                    return paginatedRecords;
+                }
+
+                cursor = result.continueCursor ?? null;
+                if (!cursor) {
+                    console.warn('[ConvexBridge] ⚠️ continueCursor missing — stopping paginated fetch');
+                    break;
+                }
+            }
+        } catch (paginationError) {
+            console.warn('[ConvexBridge] Paginated session fetch unavailable, falling back to legacy batch path:', paginationError);
+        }
+
+        // ── Legacy batch path: timestamp-cursor loop ─────────────────────────
+        const approxTotal = expectedTotal ?? (singleResult ? singleResult.length : null);
+        console.log(`[ConvexBridge] 📄 Session needs batch fetch (collect returned ${singleResult?.length ?? 'error'}).`);
 
         const allRecords = [];
         let afterTimestamp = undefined; // first call: no filter
@@ -249,7 +326,10 @@ const ConvexBridge = (function () {
         }
 
         console.log(`[ConvexBridge] ✅ Batch fetch complete: ${allRecords.length} records in ${batchNum} batches`);
-        return allRecords;
+        if (allRecords.length > 0 || usedPaginatedPath) {
+            return allRecords;
+        }
+        return singleResult ?? [];
     }
 
 

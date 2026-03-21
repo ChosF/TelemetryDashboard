@@ -116,4 +116,26 @@ export default defineSchema({
     .index("by_userId", ["userId"])
     .index("by_email", ["email"])
     .index("by_approval_status", ["approval_status"]),
+
+  // Driver notifications — driving recommendations, efficiency hints, optimal speed
+  driver_notifications: defineTable({
+    session_id: v.string(),
+    severity: v.union(
+      v.literal("info"),
+      v.literal("warn"),
+      v.literal("critical")
+    ),
+    title: v.string(),
+    message: v.string(),
+    category: v.optional(v.union(
+      v.literal("efficiency"),
+      v.literal("speed"),
+      v.literal("style"),
+      v.literal("system")
+    )),
+    ttl: v.optional(v.number()), // display duration in ms
+    created_at: v.string(), // ISO 8601
+  })
+    .index("by_session", ["session_id"])
+    .index("by_session_time", ["session_id", "created_at"]),
 });

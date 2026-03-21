@@ -1008,6 +1008,15 @@
   color: var(--error-text);
 }
 
+.admin-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
 /* Empty and Error states */
 .admin-empty,
 .admin-error {

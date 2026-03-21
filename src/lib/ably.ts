@@ -2,14 +2,11 @@
  * Ably Integration - Real-time telemetry streaming
  */
 
+import Ably from 'ably';
 import type { TelemetryRecord } from '@/types/telemetry';
 import { setConnectionStatus, addData, incrementErrors } from '@/stores/telemetry';
+import { debugRewind } from '@/lib/rewindDebug';
 
-// =============================================================================
-// TYPES
-// =============================================================================
-
-/** Ably connection state */
 export type AblyConnectionState =
     | 'initialized'
     | 'connecting'
@@ -20,30 +17,72 @@ export type AblyConnectionState =
     | 'closed'
     | 'failed';
 
-/** Ably client configuration */
 interface AblyConfig {
     apiKey?: string;
     authUrl?: string;
     clientId?: string;
 }
 
-/** Message callback */
-type MessageCallback = (data: TelemetryRecord) => void;
+interface SubscribeOptions {
+    eventName?: string;
+    rewind?: string;
+    autoAddToStore?: boolean;
+    onMessage?: (data: TelemetryRecord, meta: { timestamp?: number }) => void;
+    onDiscontinuity?: () => void;
+}
 
-// =============================================================================
-// STATE
-// =============================================================================
+interface HistoryOptions {
+    sessionId?: string;
+    start?: number;
+    end?: number;
+    limit?: number;
+    eventName?: string;
+    direction?: 'backwards' | 'forwards';
+    untilAttach?: boolean;
+}
 
-let ablyRealtime: unknown = null;
-let ablyChannel: unknown = null;
-let messageCallback: MessageCallback | null = null;
+interface AblyMessage {
+    name?: string;
+    data: unknown;
+    timestamp?: number;
+}
+
+interface AblyHistoryPage {
+    items: AblyMessage[];
+    hasNext?: boolean | (() => boolean);
+    next?: () => Promise<AblyHistoryPage>;
+}
+
+interface AblyChannelHandle {
+    state?: string;
+    subscribe: (eventName: string, callback: (message: AblyMessage) => void) => Promise<void> | void;
+    unsubscribe: (eventName?: string, callback?: (message: AblyMessage) => void) => void;
+    detach: () => void;
+    attach: () => Promise<void>;
+    history: (options: Record<string, unknown>) => Promise<AblyHistoryPage>;
+    on?: (eventName: string, callback: (stateChange: { resumed?: boolean }) => void) => void;
+    off?: (eventName: string, callback: (stateChange: { resumed?: boolean }) => void) => void;
+}
+
+interface AblyRealtimeHandle {
+    channels: {
+        get: (name: string, options?: Record<string, unknown>) => AblyChannelHandle;
+    };
+    connection: {
+        state: AblyConnectionState;
+        on: (callback: (stateChange: { current: AblyConnectionState }) => void) => void;
+        once: (eventName: string, callback: () => void) => void;
+        connect: () => void;
+    };
+    close: () => void;
+}
+
+let ablyRealtime: AblyRealtimeHandle | null = null;
+let ablyChannel: AblyChannelHandle | null = null;
+let currentChannelName: string | null = null;
+let activeSubscription: { eventName: string; callback: (message: AblyMessage) => void } | null = null;
 let connectionStateCallback: ((state: AblyConnectionState) => void) | null = null;
 
-// =============================================================================
-// HELPERS
-// =============================================================================
-
-/** Map Ably connection state to our ConnectionStatus */
 function mapConnectionState(state: AblyConnectionState): 'connected' | 'connecting' | 'disconnected' | 'suspended' | 'failed' {
     switch (state) {
         case 'connected':
@@ -60,24 +99,60 @@ function mapConnectionState(state: AblyConnectionState): 'connected' | 'connecti
     }
 }
 
-// =============================================================================
-// PUBLIC API
-// =============================================================================
+function parseTelemetryMessage(message: AblyMessage): TelemetryRecord | null {
+    try {
+        const data = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+        return (data && typeof data === 'object') ? data as TelemetryRecord : null;
+    } catch (error) {
+        console.error('[Ably] Message parse error:', error);
+        incrementErrors();
+        return null;
+    }
+}
 
-/**
- * Initialize Ably client
- */
-export async function initAbly(config: AblyConfig): Promise<boolean> {
-    // Check if Ably is available (loaded via CDN)
-    if (typeof window === 'undefined' || !(window as unknown as { Ably?: unknown }).Ably) {
-        console.error('[Ably] Ably library not loaded');
-        return false;
+function pageHasNext(page: AblyHistoryPage | null | undefined): boolean {
+    if (!page?.hasNext) return false;
+    return typeof page.hasNext === 'function' ? page.hasNext() : page.hasNext;
+}
+
+function getChannel(channelName: string, rewind?: string): AblyChannelHandle {
+    if (!ablyRealtime) {
+        throw new Error('Ably client not initialized');
     }
 
-    const Ably = (window as unknown as { Ably: { Realtime: new (opts: unknown) => unknown } }).Ably;
+    if (ablyChannel && currentChannelName === channelName) {
+        return ablyChannel;
+    }
 
+    const options = rewind ? { params: { rewind } } : undefined;
+    ablyChannel = ablyRealtime.channels.get(channelName, options);
+    currentChannelName = channelName;
+    return ablyChannel;
+}
+
+async function ensureChannelAttached(channel: AblyChannelHandle): Promise<void> {
+    if (channel.state === 'attached') return;
+    await channel.attach();
+}
+
+async function waitForConnected(connection: AblyRealtimeHandle['connection']): Promise<void> {
+    if (connection.state === 'connected') return;
+
+    await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error('Timed out waiting for Ably connection')), 10000);
+        connection.once('connected', () => {
+            window.clearTimeout(timeout);
+            resolve();
+        });
+        connection.connect();
+    });
+}
+
+export async function initAbly(config: AblyConfig): Promise<boolean> {
     try {
-        const options: Record<string, unknown> = {};
+        const options: Record<string, unknown> = {
+            clientId: config.clientId ?? 'dashboard-web',
+        };
 
         if (config.apiKey) {
             options.key = config.apiKey;
@@ -88,23 +163,18 @@ export async function initAbly(config: AblyConfig): Promise<boolean> {
             return false;
         }
 
-        if (config.clientId) {
-            options.clientId = config.clientId;
-        }
+        setConnectionStatus('connecting');
+        ablyRealtime = new Ably.Realtime(options as never) as unknown as AblyRealtimeHandle;
 
-        ablyRealtime = new Ably.Realtime(options);
-
-        // Listen for connection state changes
-        const connection = (ablyRealtime as { connection: { on: (callback: (stateChange: { current: AblyConnectionState }) => void) => void } }).connection;
-        connection.on((stateChange) => {
+        ablyRealtime.connection.on((stateChange) => {
             const state = stateChange.current as AblyConnectionState;
-            console.log('[Ably] Connection state:', state);
-
             setConnectionStatus(mapConnectionState(state));
             connectionStateCallback?.(state);
         });
 
-        console.log('[Ably] ✅ Client initialized');
+        await waitForConnected(ablyRealtime.connection);
+        setConnectionStatus('connected');
+        console.log('[Ably] ✅ Client initialized and connected');
         return true;
     } catch (error) {
         console.error('[Ably] ❌ Initialization failed:', error);
@@ -113,138 +183,261 @@ export async function initAbly(config: AblyConfig): Promise<boolean> {
     }
 }
 
-/**
- * Subscribe to telemetry channel
- */
-export function subscribeToChannel(
+export async function subscribeToChannel(
     channelName: string,
-    onMessage?: MessageCallback
-): () => void {
+    options: SubscribeOptions = {}
+): Promise<() => void> {
     if (!ablyRealtime) {
         console.error('[Ably] Client not initialized');
         return () => { };
     }
 
-    messageCallback = onMessage ?? null;
+    const eventName = options.eventName ?? 'telemetry_update';
+    const autoAddToStore = options.autoAddToStore ?? true;
+    debugRewind('ably.subscribe.start', {
+        channelName,
+        eventName,
+        rewind: options.rewind ?? null,
+        autoAddToStore,
+    });
 
     try {
-        const channels = (ablyRealtime as { channels: { get: (name: string) => unknown } }).channels;
-        ablyChannel = channels.get(channelName);
+        const channel = getChannel(channelName, options.rewind);
 
-        // Subscribe to messages
-        const channel = ablyChannel as {
-            subscribe: (callback: (message: { data: unknown }) => void) => void;
-            unsubscribe: () => void;
-            detach: () => void;
+        if (activeSubscription) {
+            try {
+                channel.unsubscribe(activeSubscription.eventName, activeSubscription.callback);
+            } catch {
+                // Ignore stale subscription cleanup failures.
+            }
+        }
+
+        const callback = (message: AblyMessage) => {
+            const record = parseTelemetryMessage(message);
+            if (!record) return;
+
+            if (autoAddToStore) {
+                addData(record);
+            }
+
+            options.onMessage?.(record, { timestamp: message.timestamp });
         };
 
-        channel.subscribe((message) => {
-            try {
-                // Parse message data
-                const data = typeof message.data === 'string'
-                    ? JSON.parse(message.data)
-                    : message.data;
-
-                // Add to telemetry store
-                addData(data as TelemetryRecord);
-
-                // Call external callback if provided
-                messageCallback?.(data as TelemetryRecord);
-            } catch (error) {
-                console.error('[Ably] Message parse error:', error);
-                incrementErrors();
-            }
+        await Promise.resolve(channel.subscribe(eventName, callback));
+        debugRewind('ably.subscribe.ready', {
+            channelName,
+            eventName,
+            channelState: channel.state ?? 'unknown',
         });
+        const attachedListener = (stateChange: { resumed?: boolean }) => {
+            if (stateChange?.resumed === false) {
+                debugRewind('ably.channel.discontinuity.attached', {
+                    channelName,
+                    eventName,
+                });
+                options.onDiscontinuity?.();
+            }
+        };
+        const updateListener = (stateChange: { resumed?: boolean }) => {
+            if (stateChange?.resumed === false) {
+                debugRewind('ably.channel.discontinuity.update', {
+                    channelName,
+                    eventName,
+                });
+                options.onDiscontinuity?.();
+            }
+        };
 
-        console.log('[Ably] 📡 Subscribed to channel:', channelName);
+        channel.on?.('attached', attachedListener);
+        channel.on?.('update', updateListener);
+        activeSubscription = { eventName, callback };
 
-        // Return unsubscribe function
         return () => {
             try {
-                channel.unsubscribe();
+                channel.unsubscribe(eventName, callback);
+                channel.off?.('attached', attachedListener);
+                channel.off?.('update', updateListener);
                 channel.detach();
+                activeSubscription = null;
                 ablyChannel = null;
-                console.log('[Ably] 🔌 Unsubscribed from channel');
+                currentChannelName = null;
             } catch (error) {
                 console.error('[Ably] Unsubscribe error:', error);
             }
         };
     } catch (error) {
         console.error('[Ably] Subscribe error:', error);
+        incrementErrors();
         return () => { };
     }
 }
 
-/**
- * Set connection state callback
- */
+export async function getLatestHistoryMessage(
+    channelName: string,
+    eventName = 'telemetry_update'
+): Promise<{ record: TelemetryRecord; timestamp?: number } | null> {
+    try {
+        debugRewind('ably.latestHistory.start', { channelName, eventName });
+        const channel = getChannel(channelName);
+        await ensureChannelAttached(channel);
+        const page = await channel.history({ limit: 1, direction: 'backwards' });
+        const message = page?.items?.find((item) => item.name === eventName);
+        if (!message) {
+            debugRewind('ably.latestHistory.empty', { channelName, eventName });
+            return null;
+        }
+        const record = parseTelemetryMessage(message);
+        if (!record) {
+            debugRewind('ably.latestHistory.parseFailed', { channelName, eventName });
+            return null;
+        }
+        debugRewind('ably.latestHistory.result', {
+            channelName,
+            eventName,
+            sessionId: record.session_id ?? null,
+            timestamp: record.timestamp ?? null,
+            ablyTimestamp: message.timestamp ?? null,
+        });
+        return { record, timestamp: message.timestamp };
+    } catch (error) {
+        debugRewind('ably.latestHistory.error', {
+            channelName,
+            eventName,
+            error: String(error instanceof Error ? error.message : error),
+        });
+        console.warn('[Ably] Latest history lookup failed:', error);
+        return null;
+    }
+}
+
+export async function fetchHistory(
+    channelName: string,
+    options: HistoryOptions
+): Promise<TelemetryRecord[]> {
+    const eventName = options.eventName ?? 'telemetry_update';
+    const start = options.start ?? (Date.now() - 120000);
+    const end = options.end ?? Date.now();
+    const limit = Math.max(1, options.limit ?? 1000);
+    const direction = options.direction ?? 'backwards';
+
+    try {
+        debugRewind('ably.history.start', {
+            channelName,
+            sessionId: options.sessionId ?? null,
+            start,
+            end,
+            limit,
+            direction,
+            untilAttach: options.untilAttach ?? false,
+        });
+        const channel = getChannel(channelName);
+        await ensureChannelAttached(channel);
+
+        const pageLimit = Math.min(1000, limit);
+        const historyArgs: Record<string, unknown> = {
+            start,
+            direction,
+            limit: pageLimit,
+            ...(options.untilAttach ? { untilAttach: true } : {}),
+        };
+        if (!options.untilAttach) {
+            historyArgs.end = end;
+        }
+
+        let history = await channel.history(historyArgs);
+
+        const records: TelemetryRecord[] = [];
+        const seen = new Set<string>();
+        let pagesLoaded = 0;
+        const maxPages = Math.ceil(limit / 1000);
+
+        while (history && pagesLoaded < maxPages) {
+            pagesLoaded += 1;
+
+            for (const item of history.items ?? []) {
+                if (item.name !== eventName) continue;
+                const record = parseTelemetryMessage(item);
+                if (!record) continue;
+                if (options.sessionId && record.session_id !== options.sessionId) continue;
+                if (!record.timestamp && item.timestamp) {
+                    record.timestamp = new Date(item.timestamp).toISOString();
+                }
+
+                const key = `${new Date(record.timestamp).getTime()}::${record.message_id ?? item.timestamp ?? ''}`;
+                if (seen.has(key)) continue;
+
+                seen.add(key);
+                records.push(record);
+            }
+
+            if (!pageHasNext(history) || records.length >= limit || !history.next) break;
+            history = await history.next();
+        }
+
+        records.sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
+        const result = records.slice(0, limit);
+        debugRewind('ably.history.result', {
+            channelName,
+            sessionId: options.sessionId ?? null,
+            pagesLoaded,
+            records: result.length,
+            firstTimestamp: result[0]?.timestamp ?? null,
+            lastTimestamp: result[result.length - 1]?.timestamp ?? null,
+        });
+        return result;
+    } catch (error) {
+        debugRewind('ably.history.error', {
+            channelName,
+            sessionId: options.sessionId ?? null,
+            error: String(error instanceof Error ? error.message : error),
+        });
+        console.warn('[Ably] History fetch failed:', error);
+        return [];
+    }
+}
+
 export function onConnectionStateChange(
     callback: (state: AblyConnectionState) => void
 ): void {
     connectionStateCallback = callback;
 }
 
-/**
- * Get current connection state
- */
 export function getConnectionState(): AblyConnectionState | null {
-    if (!ablyRealtime) return null;
-
-    const connection = (ablyRealtime as { connection: { state: AblyConnectionState } }).connection;
-    return connection.state;
+    return ablyRealtime?.connection.state ?? null;
 }
 
-/**
- * Connect to Ably
- */
 export function connect(): void {
-    if (!ablyRealtime) return;
-
-    const connection = (ablyRealtime as { connection: { connect: () => void } }).connection;
-    connection.connect();
+    ablyRealtime?.connection.connect();
 }
 
-/**
- * Disconnect from Ably
- */
 export function disconnect(): void {
     if (!ablyRealtime) return;
 
     try {
-        // Unsubscribe from channel first
-        if (ablyChannel) {
-            const channel = ablyChannel as { unsubscribe: () => void; detach: () => void };
-            channel.unsubscribe();
-            channel.detach();
-            ablyChannel = null;
+        if (ablyChannel && activeSubscription) {
+            ablyChannel.unsubscribe(activeSubscription.eventName, activeSubscription.callback);
         }
-
-        // Close connection
-        const client = ablyRealtime as { close: () => void };
-        client.close();
+        ablyChannel?.detach();
+        activeSubscription = null;
+        ablyChannel = null;
+        currentChannelName = null;
+        ablyRealtime.close();
         ablyRealtime = null;
-
         setConnectionStatus('disconnected');
-        console.log('[Ably] 🔌 Disconnected');
     } catch (error) {
         console.error('[Ably] Disconnect error:', error);
     }
 }
 
-/**
- * Check if Ably is connected
- */
 export function isAblyConnected(): boolean {
     return getConnectionState() === 'connected';
 }
 
-// =============================================================================
-// EXPORT
-// =============================================================================
-
 export const ablyClient = {
     init: initAbly,
     subscribe: subscribeToChannel,
+    getLatestHistoryMessage,
+    fetchHistory,
     onStateChange: onConnectionStateChange,
     getState: getConnectionState,
     connect,

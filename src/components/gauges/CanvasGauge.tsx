@@ -14,6 +14,10 @@ export interface CanvasGaugeProps {
     max: number;
     /** Arc color */
     color: string;
+    /** Background arc color */
+    bgColor?: string;
+    /** Text color */
+    textColor?: string;
     /** Number of decimal places (default: 1) */
     decimals?: number;
     /** Unit suffix (e.g., "km/h", "%") */
@@ -26,12 +30,13 @@ export interface CanvasGaugeProps {
     class?: string;
     /** Container style */
     style?: JSX.CSSProperties;
+    /** Whether the gauge is currently visible and should animate */
+    active?: boolean;
 }
 
 // Gauge arc geometry
 const START_ANGLE = (220 * Math.PI) / 180; // 220 degrees
 const END_ANGLE = (-40 * Math.PI) / 180; // -40 degrees
-const ARC_WIDTH = 10;
 
 /**
  * Canvas-based gauge component
@@ -46,12 +51,35 @@ export function CanvasGauge(props: CanvasGaugeProps): JSX.Element {
 
     const min = () => props.min ?? 0;
     const decimals = () => props.decimals ?? 1;
-    const showPointer = () => props.showPointer ?? true;
+    const showPointer = () => props.showPointer ?? false;
+    const bgColor = () => props.bgColor ?? 'rgba(255,255,255,0.1)';
+    const textColor = () => props.textColor ?? '#ffffff';
+    const isActive = () => props.active ?? true;
+
+    const adjustColor = (hex: string, percent: number): string => {
+        const normalized = hex.replace('#', '');
+        const num = Number.parseInt(normalized, 16);
+        const amt = Math.round(2.55 * percent);
+        const red = Math.min(255, Math.max(0, (num >> 16) + amt));
+        const green = Math.min(255, Math.max(0, ((num >> 8) & 0x00ff) + amt));
+        const blue = Math.min(255, Math.max(0, (num & 0x0000ff) + amt));
+        return `#${(0x1000000 + red * 0x10000 + green * 0x100 + blue).toString(16).slice(1)}`;
+    };
 
     // Animate value changes
     createEffect(() => {
         const targetValue = props.value;
         const currentValue = displayValue();
+
+        if (animationFrame) {
+            cancelAnimationFrame(animationFrame);
+            animationFrame = undefined;
+        }
+
+        if (!isActive()) {
+            setDisplayValue(targetValue);
+            return;
+        }
 
         if (Math.abs(targetValue - currentValue) < 0.01) {
             setDisplayValue(targetValue);
@@ -85,6 +113,7 @@ export function CanvasGauge(props: CanvasGaugeProps): JSX.Element {
         // Get dimensions
         const rect = container.getBoundingClientRect();
         const size = Math.min(rect.width, rect.height);
+        if (!Number.isFinite(size) || size <= 0) return;
         const scale = window.devicePixelRatio || 1;
 
         // Set canvas size
@@ -96,7 +125,8 @@ export function CanvasGauge(props: CanvasGaugeProps): JSX.Element {
 
         const centerX = size / 2;
         const centerY = size / 2;
-        const radius = (size / 2) - ARC_WIDTH - 5;
+        const radius = size * 0.425;
+        const lineWidth = radius * 0.15;
 
         // Clear
         ctx.clearRect(0, 0, size, size);
@@ -109,18 +139,23 @@ export function CanvasGauge(props: CanvasGaugeProps): JSX.Element {
 
         // Draw background arc
         ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, START_ANGLE, END_ANGLE, true);
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
-        ctx.lineWidth = ARC_WIDTH;
+        ctx.arc(centerX, centerY, radius, 0.75 * Math.PI, 2.25 * Math.PI);
+        ctx.strokeStyle = bgColor();
+        ctx.lineWidth = lineWidth;
         ctx.lineCap = 'round';
         ctx.stroke();
 
         // Draw progress arc
         if (progress > 0) {
+            const gaugeStart = 0.75 * Math.PI;
+            const gaugeEnd = gaugeStart + progress * (1.5 * Math.PI);
             ctx.beginPath();
-            ctx.arc(centerX, centerY, radius, START_ANGLE, progressAngle, true);
-            ctx.strokeStyle = props.color;
-            ctx.lineWidth = ARC_WIDTH;
+            ctx.arc(centerX, centerY, radius, gaugeStart, gaugeEnd);
+            const gradient = ctx.createLinearGradient(centerX - radius, centerY, centerX + radius, centerY);
+            gradient.addColorStop(0, props.color);
+            gradient.addColorStop(1, adjustColor(props.color, 30));
+            ctx.strokeStyle = gradient;
+            ctx.lineWidth = lineWidth;
             ctx.lineCap = 'round';
             ctx.stroke();
         }
@@ -158,22 +193,22 @@ export function CanvasGauge(props: CanvasGaugeProps): JSX.Element {
 
         // Draw value text
         const formattedValue = value.toFixed(decimals());
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.font = `bold ${size * 0.15}px system-ui`;
+        ctx.fillStyle = textColor();
+        ctx.font = `bold ${radius * 0.4}px Inter, system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(formattedValue, centerX, centerY + radius * 0.35);
+        ctx.fillText(formattedValue, centerX, centerY - radius * 0.05);
 
         // Draw unit
         if (props.unit) {
-            ctx.font = `${size * 0.08}px system-ui`;
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-            ctx.fillText(props.unit, centerX, centerY + radius * 0.55);
+            ctx.font = `${radius * 0.18}px Inter, system-ui, sans-serif`;
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            ctx.fillText(props.unit, centerX, centerY + radius * 0.25);
         }
 
         // Draw label
         if (props.label) {
-            ctx.font = `${size * 0.07}px system-ui`;
+            ctx.font = `${radius * 0.07}px Inter, system-ui, sans-serif`;
             ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
             ctx.fillText(props.label, centerX, centerY - radius * 0.4);
         }
@@ -181,6 +216,7 @@ export function CanvasGauge(props: CanvasGaugeProps): JSX.Element {
 
     // Schedule render
     const scheduleRender = () => {
+        if (!isActive()) return;
         requestAnimationFrame(render);
     };
 
@@ -200,6 +236,7 @@ export function CanvasGauge(props: CanvasGaugeProps): JSX.Element {
         void displayValue();
         void props.max;
         void props.color;
+        void isActive();
         scheduleRender();
     });
 

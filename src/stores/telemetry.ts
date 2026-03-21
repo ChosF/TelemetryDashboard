@@ -113,8 +113,8 @@ function addData(incoming: TelemetryRow | TelemetryRow[]): void {
         // Merge with existing data
         const current = telemetryData();
         const merged = mergeTelemetry(current, processed, MAX_TELEMETRY_POINTS);
-
         setTelemetryData(merged);
+
         setMessageCount(prev => prev + incomingArray.length);
         setLastMessageTime(Date.now());
     });
@@ -154,11 +154,12 @@ function clearData(): void {
  * Set current session
  */
 function setSession(sessionId: string | null, sessionName?: string | null): void {
+    const didChange = sessionId !== currentSessionId();
     batch(() => {
         setCurrentSessionId(sessionId);
         setCurrentSessionName(sessionName ?? null);
         // Clear data when switching sessions
-        if (sessionId !== currentSessionId()) {
+        if (didChange) {
             clearData();
         }
     });

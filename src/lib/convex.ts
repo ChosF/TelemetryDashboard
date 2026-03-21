@@ -4,6 +4,7 @@
  */
 
 import type { TelemetryRecord, TelemetrySession } from '@/types/telemetry';
+import { debugRewind } from '@/lib/rewindDebug';
 
 // =============================================================================
 // TYPES
@@ -13,11 +14,13 @@ import type { TelemetryRecord, TelemetrySession } from '@/types/telemetry';
 interface ConvexClient {
     query: (name: string, args: Record<string, unknown>) => Promise<unknown>;
     mutation: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+    action: (name: string, args: Record<string, unknown>) => Promise<unknown>;
     onUpdate: (
         name: string,
         args: Record<string, unknown>,
         callback: (result: unknown) => void
     ) => () => void;
+    setAuth?: (fetchToken: () => Promise<string | null | undefined>) => void;
     close: () => void;
 }
 
@@ -39,9 +42,10 @@ let isInitialized = false;
 const activeSubscriptions = new Map<string, Unsubscribe>();
 
 function getAuthToken(): string | undefined {
-    return localStorage.getItem('auth_session_token')
-        ?? localStorage.getItem('convex_auth_token')
+    return localStorage.getItem('convex_auth_token')
         ?? sessionStorage.getItem('convex_auth_token')
+        ?? localStorage.getItem('auth_session_token')
+        ?? sessionStorage.getItem('auth_session_token')
         ?? undefined;
 }
 
@@ -123,29 +127,223 @@ export async function listSessions(): Promise<SessionsResult> {
 }
 
 /**
+ * Populate session metadata if the backend exposes the helper endpoint.
+ */
+export async function kickstartSessions(): Promise<Record<string, unknown>> {
+    if (!client) throw new Error('Convex not initialized');
+
+    try {
+        const convexUrl = (window as Window & { CONFIG?: Record<string, string> }).CONFIG?.CONVEX_URL ?? '';
+        if (!convexUrl) throw new Error('CONVEX_URL not configured');
+
+        const response = await fetch(`${convexUrl}/api/run/sessions/kickstartSessions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ args: {}, format: 'json' }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+
+        return await response.json() as Record<string, unknown>;
+    } catch (error) {
+        console.warn('[Convex] kickstartSessions failed (non-fatal):', error);
+        return { error: String(error) };
+    }
+}
+
+/**
  * Get all records for a session
  */
-export async function getSessionRecords(sessionId: string): Promise<TelemetryRecord[]> {
+export async function getSessionRecords(
+    sessionId: string,
+    onProgress?: (loaded: number, estimated: number) => void
+): Promise<TelemetryRecord[]> {
     if (!client) throw new Error('Convex not initialized');
 
     const token = getAuthToken();
+    const COLLECT_CAP = 16000;
+    const primaryArgs = { sessionId, token };
+    let singleResult: TelemetryRecord[] | null = null;
+    let latestInfo: { timestamp: string | null; recordCount: number; latestMessageId: number | null } | null = null;
+    debugRewind('convex.getSessionRecords.start', {
+        sessionId,
+        hasToken: Boolean(token),
+    });
+
+    try {
+        latestInfo = await getLatestSessionTimestamp(sessionId);
+        debugRewind('convex.getSessionRecords.latestInfo', {
+            sessionId,
+            recordCount: latestInfo.recordCount,
+            latestTimestamp: latestInfo.timestamp,
+            latestMessageId: latestInfo.latestMessageId ?? null,
+        });
+    } catch (error) {
+        debugRewind('convex.getSessionRecords.latestInfo.error', {
+            sessionId,
+            error: String(error instanceof Error ? error.message : error),
+        });
+        console.warn('[Convex] getLatestSessionTimestamp fallback probe failed:', error);
+    }
+
     try {
         const records = await client.query('telemetry:getSessionRecords', {
             sessionId,
             token,
         });
-        return records as TelemetryRecord[];
+        singleResult = records as TelemetryRecord[];
+        debugRewind('convex.getSessionRecords.singleResult', {
+            sessionId,
+            count: singleResult.length,
+        });
     } catch (error) {
         try {
             const records = await client.query('telemetry:getSessionRecords', { sessionId });
-            return records as TelemetryRecord[];
+            singleResult = records as TelemetryRecord[];
+            debugRewind('convex.getSessionRecords.singleResult.compat', {
+                sessionId,
+                count: singleResult.length,
+            });
         } catch {
             if (token && shouldRetryWithoutToken(error)) {
                 console.warn('[Convex] getSessionRecords compatibility retry failed');
             }
-            throw error;
+            debugRewind('convex.getSessionRecords.singleResult.error', {
+                sessionId,
+                error: String(error instanceof Error ? error.message : error),
+            });
+            singleResult = null;
         }
     }
+
+    if (singleResult && singleResult.length < COLLECT_CAP) {
+        if (singleResult.length === 0 && (latestInfo?.recordCount ?? 0) > 0) {
+            debugRewind('convex.getSessionRecords.singleResult.emptyButLatestInfoPresent', {
+                sessionId,
+                latestRecordCount: latestInfo?.recordCount ?? null,
+                latestTimestamp: latestInfo?.timestamp ?? null,
+            });
+        } else {
+            debugRewind('convex.getSessionRecords.return.singleResult', {
+                sessionId,
+                count: singleResult.length,
+            });
+            return singleResult;
+        }
+    }
+
+    if ((!singleResult || singleResult.length === 0) && (latestInfo?.recordCount ?? 0) > 0) {
+        try {
+            const fallbackLimit = Math.min(
+                COLLECT_CAP,
+                Math.max(1000, latestInfo?.recordCount ?? 0)
+            );
+            const recentRecords = await getRecentRecords(sessionId, undefined, fallbackLimit);
+            if (recentRecords.length > 0) {
+                debugRewind('convex.getSessionRecords.return.recentFallback', {
+                    sessionId,
+                    count: recentRecords.length,
+                    fallbackLimit,
+                    latestRecordCount: latestInfo?.recordCount ?? null,
+                });
+                console.warn('[Convex] Falling back to recent-records backfill for active session');
+                onProgress?.(recentRecords.length, latestInfo?.recordCount ?? recentRecords.length);
+                return recentRecords;
+            }
+        } catch (error) {
+            debugRewind('convex.getSessionRecords.recentFallback.error', {
+                sessionId,
+                error: String(error instanceof Error ? error.message : error),
+            });
+            console.warn('[Convex] recent-records fallback failed:', error);
+        }
+    }
+
+    const allRecords: TelemetryRecord[] = [];
+    let afterTimestamp: string | undefined;
+    let hasMore = true;
+    const estimated = singleResult?.length ?? latestInfo?.recordCount ?? 0;
+
+    while (hasMore) {
+        const args: Record<string, unknown> = { ...primaryArgs };
+        if (afterTimestamp) args.afterTimestamp = afterTimestamp;
+
+        let result: {
+            page: TelemetryRecord[];
+            hasMore: boolean;
+            lastTimestamp?: string | null;
+        };
+
+        try {
+            result = await client.query('telemetry:getSessionRecordsBatch', args) as typeof result;
+        } catch (error) {
+            const legacyArgs: Record<string, unknown> = { sessionId };
+            if (afterTimestamp) legacyArgs.afterTimestamp = afterTimestamp;
+            try {
+                result = await client.query('telemetry:getSessionRecordsBatch', legacyArgs) as typeof result;
+            } catch {
+                if (token && shouldRetryWithoutToken(error)) {
+                    console.warn('[Convex] getSessionRecordsBatch compatibility retry failed');
+                }
+                if (singleResult) return singleResult;
+                if ((latestInfo?.recordCount ?? 0) > 0) {
+                    try {
+                        const fallbackLimit = Math.min(
+                            COLLECT_CAP,
+                            Math.max(1000, latestInfo?.recordCount ?? 0)
+                        );
+                        const recentRecords = await getRecentRecords(sessionId, undefined, fallbackLimit);
+                        if (recentRecords.length > 0) {
+                            debugRewind('convex.getSessionRecords.return.batchFallback', {
+                                sessionId,
+                                count: recentRecords.length,
+                                fallbackLimit,
+                            });
+                            console.warn('[Convex] Batch fetch denied, using recent-records fallback');
+                            onProgress?.(recentRecords.length, latestInfo?.recordCount ?? recentRecords.length);
+                            return recentRecords;
+                        }
+                    } catch (fallbackError) {
+                        debugRewind('convex.getSessionRecords.batchFallback.error', {
+                            sessionId,
+                            error: String(fallbackError instanceof Error ? fallbackError.message : fallbackError),
+                        });
+                        console.warn('[Convex] Batch fallback failed:', fallbackError);
+                    }
+                }
+                throw error;
+            }
+        }
+
+        if (!result || !Array.isArray(result.page)) break;
+
+        allRecords.push(...result.page);
+        debugRewind('convex.getSessionRecords.batchPage', {
+            sessionId,
+            pageSize: result.page.length,
+            loaded: allRecords.length,
+            estimated,
+            hasMore: result.hasMore,
+            lastTimestamp: result.lastTimestamp ?? null,
+        });
+        onProgress?.(allRecords.length, estimated || allRecords.length);
+        hasMore = Boolean(result.hasMore);
+        afterTimestamp = result.lastTimestamp ?? undefined;
+
+        if (hasMore && !afterTimestamp) {
+            console.warn('[Convex] Missing batch cursor, stopping to avoid loop');
+            break;
+        }
+    }
+
+    const finalResult = allRecords.length > 0 ? allRecords : (singleResult ?? []);
+    debugRewind('convex.getSessionRecords.return.final', {
+        sessionId,
+        count: finalResult.length,
+    });
+    return finalResult;
 }
 
 /**
@@ -163,8 +361,20 @@ export async function getRecentRecords(
         args.sinceTimestamp = sinceTimestamp;
     }
 
+    debugRewind('convex.getRecentRecords.start', {
+        sessionId,
+        sinceTimestamp: sinceTimestamp ?? null,
+        limit,
+    });
     const records = await client.query('telemetry:getRecentRecords', args);
-    return records as TelemetryRecord[];
+    const result = records as TelemetryRecord[];
+    debugRewind('convex.getRecentRecords.result', {
+        sessionId,
+        count: result.length,
+        firstTimestamp: result[0]?.timestamp ?? null,
+        lastTimestamp: result[result.length - 1]?.timestamp ?? null,
+    });
+    return result;
 }
 
 /**
@@ -188,7 +398,14 @@ export async function getLatestSessionTimestamp(sessionId: string): Promise<{
     if (!client) throw new Error('Convex not initialized');
 
     const result = await client.query('telemetry:getLatestSessionTimestamp', { sessionId });
-    return result as { timestamp: string | null; recordCount: number; latestMessageId: number | null };
+    const typedResult = result as { timestamp: string | null; recordCount: number; latestMessageId: number | null };
+    debugRewind('convex.getLatestSessionTimestamp.result', {
+        sessionId,
+        timestamp: typedResult.timestamp,
+        recordCount: typedResult.recordCount,
+        latestMessageId: typedResult.latestMessageId ?? null,
+    });
+    return typedResult;
 }
 
 /**
@@ -344,6 +561,7 @@ export const convexClient = {
     init: initConvex,
     getClient,
     isConnected,
+    kickstartSessions,
     listSessions,
     getSessionRecords,
     getRecentRecords,

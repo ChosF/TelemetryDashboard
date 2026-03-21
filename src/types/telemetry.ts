@@ -45,6 +45,7 @@ export interface TelemetryRecord {
     // GPS
     latitude?: number;
     longitude?: number;
+    altitude?: number;
     altitude_m?: number;
 
     // IMU - Gyroscope (degrees/second)
@@ -209,11 +210,22 @@ export interface DataQualityReport {
     quality_score: number;
     total_records: number;
     missing_fields: Record<string, number>;
+    missing_rates?: Record<string, number>;
     outliers: {
         count: number;
         by_severity: Record<OutlierSeverity, number>;
         by_field: Record<string, number>;
     };
+    outlier_count?: number;
+    outlier_severity?: {
+        info: number;
+        warning: number;
+        critical: number;
+    };
+    outlier_reasons?: Record<string, number>;
+    dropouts?: number;
+    max_gap_s?: number | null;
+    hz?: number | null;
     freshness: {
         last_update: string;
         age_seconds: number;

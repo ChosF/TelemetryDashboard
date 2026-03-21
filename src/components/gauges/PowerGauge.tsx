@@ -10,6 +10,8 @@ export interface PowerGaugeProps {
     value: number;
     /** Maximum power for scale */
     max?: number;
+    /** Whether the gauge is currently visible */
+    active?: boolean;
     /** Container class */
     class?: string;
     /** Container style */
@@ -32,10 +34,10 @@ export function PowerGauge(props: PowerGaugeProps): JSX.Element {
             max={getMax()}
             color="#f59e0b"
             unit="W"
-            label="Power"
             decimals={0}
             class={props.class}
             style={props.style}
+            active={props.active}
         />
     );
 }

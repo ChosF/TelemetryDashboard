@@ -10,6 +10,8 @@ export interface SpeedGaugeProps {
     value: number;
     /** Maximum speed for scale (default: 100) */
     max?: number;
+    /** Whether the gauge is currently visible */
+    active?: boolean;
     /** Container class */
     class?: string;
     /** Container style */
@@ -26,10 +28,10 @@ export function SpeedGauge(props: SpeedGaugeProps): JSX.Element {
             max={props.max ?? 100}
             color="#1f77b4"
             unit="km/h"
-            label="Speed"
             decimals={1}
             class={props.class}
             style={props.style}
+            active={props.active}
         />
     );
 }

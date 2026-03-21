@@ -41,22 +41,28 @@
     // ── Web Worker Config ──
     const histWorker = new Worker('/workers/historical-worker.js');
     let workerMsgId = 0;
-    function runHistoricalWorkerTask(type, payload) {
+    function runHistoricalWorkerTask(type, payload, onProgress = null) {
         return new Promise((resolve, reject) => {
             const id = ++workerMsgId;
+            const cleanup = () => {
+                histWorker.removeEventListener('message', handler);
+                histWorker.removeEventListener('error', errorHandler);
+            };
             const handler = (e) => {
-                if (e.data.id === id) {
-                    histWorker.removeEventListener('message', handler);
-                    if (e.data.type === 'SUCCESS') resolve(e.data.payload);
-                    else reject(new Error(e.data.error || 'Worker error'));
+                if (e.data.id !== id) return;
+                if (e.data.type === 'PROGRESS') {
+                    if (onProgress) onProgress(e.data.payload);
+                    return;
                 }
+                cleanup();
+                if (e.data.type === 'SUCCESS') resolve(e.data.payload);
+                else reject(new Error(e.data.error || 'Worker error'));
             };
             histWorker.addEventListener('message', handler);
 
             // Temporary error listener to abort hung promises
             const errorHandler = (err) => {
-                histWorker.removeEventListener('message', handler);
-                histWorker.removeEventListener('error', errorHandler);
+                cleanup();
                 reject(err);
             };
             histWorker.addEventListener('error', errorHandler);
@@ -72,6 +78,126 @@
     };
 
     function toast(msg) { let el = document.querySelector('.ha-toast'); if (!el) { el = document.createElement('div'); el.className = 'ha-toast'; document.body.appendChild(el) } el.textContent = msg; el.classList.add('show'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 2500) }
+
+    const sessionLoadControllers = new Map();
+    const MAX_SESSION_LOAD_CACHE = 2;
+
+    function clampProgress(value) {
+        return Math.max(0, Math.min(100, Math.round(value || 0)));
+    }
+
+    function emitSessionLoad(controller) {
+        const snapshot = {
+            sessionId: controller.sessionId,
+            progress: clampProgress(controller.progress),
+            status: controller.status,
+            expectedTotal: controller.expectedTotal,
+            error: controller.error || null,
+        };
+        controller.listeners.forEach(listener => {
+            try { listener(snapshot) } catch (error) { console.warn('[historical] session load listener failed', error) }
+        });
+    }
+
+    function trimSessionLoadCache(exceptSessionId = null) {
+        const resolved = [...sessionLoadControllers.values()]
+            .filter(controller => controller.status === 'resolved' && controller.sessionId !== exceptSessionId);
+        if (resolved.length <= MAX_SESSION_LOAD_CACHE) return;
+        resolved
+            .sort((a, b) => (a.completedAt || 0) - (b.completedAt || 0))
+            .slice(0, resolved.length - MAX_SESSION_LOAD_CACHE)
+            .forEach(controller => sessionLoadControllers.delete(controller.sessionId));
+    }
+
+    function getOrCreateSessionLoadController(sessionId, sessionMeta = null) {
+        const existing = sessionLoadControllers.get(sessionId);
+        if (existing) {
+            if (!existing.sessionMeta && sessionMeta) existing.sessionMeta = sessionMeta;
+            return existing;
+        }
+
+        const controller = {
+            sessionId,
+            sessionMeta,
+            status: 'fetching',
+            progress: 0,
+            expectedTotal: Number.isFinite(sessionMeta?.record_count) ? sessionMeta.record_count : null,
+            listeners: new Set(),
+            error: null,
+            completedAt: null,
+            promise: null,
+        };
+
+        controller.promise = (async () => {
+            emitSessionLoad(controller);
+            const raw = await ConvexBridge.getSessionRecords(sessionId, (loaded, total) => {
+                const effectiveTotal = Number.isFinite(total) && total > 0
+                    ? total
+                    : (Number.isFinite(controller.expectedTotal) && controller.expectedTotal > 0 ? controller.expectedTotal : loaded);
+                controller.expectedTotal = effectiveTotal || controller.expectedTotal;
+                controller.progress = effectiveTotal > 0
+                    ? Math.min(88, (loaded / effectiveTotal) * 80)
+                    : Math.min(88, 8 + (Math.log10(Math.max(1, loaded)) * 18));
+                emitSessionLoad(controller);
+            });
+
+            const rawRecords = Array.isArray(raw) ? raw : [];
+            const metadataCount = Number.isFinite(controller.expectedTotal) ? controller.expectedTotal : 0;
+
+            if (!rawRecords.length && metadataCount > 0) {
+                throw new Error(`Session metadata reports ${metadataCount} records, but fetch returned none.`);
+            }
+
+            controller.status = 'processing';
+            controller.progress = Math.max(controller.progress, rawRecords.length > 0 ? 84 : 92);
+            emitSessionLoad(controller);
+
+            const { normalized, stats } = await runHistoricalWorkerTask(
+                'NORMALIZE_RECORDS',
+                { records: rawRecords },
+                (workerProgress) => {
+                    const workerPct = Number(workerProgress?.progress || 0);
+                    controller.progress = Math.max(controller.progress, 80 + ((workerPct / 100) * 20));
+                    emitSessionLoad(controller);
+                }
+            );
+
+            controller.status = 'resolved';
+            controller.progress = 100;
+            controller.completedAt = Date.now();
+            emitSessionLoad(controller);
+            trimSessionLoadCache(sessionId);
+
+            return { rawRecords, normalized, stats };
+        })().catch((error) => {
+            controller.status = 'error';
+            controller.error = error;
+            emitSessionLoad(controller);
+            throw error;
+        });
+
+        sessionLoadControllers.set(sessionId, controller);
+        return controller;
+    }
+
+    function subscribeSessionLoad(controller, listener) {
+        controller.listeners.add(listener);
+        listener({
+            sessionId: controller.sessionId,
+            progress: clampProgress(controller.progress),
+            status: controller.status,
+            expectedTotal: controller.expectedTotal,
+            error: controller.error || null,
+        });
+        return () => controller.listeners.delete(listener);
+    }
+
+    function prewarmSessionLoad(sessionId) {
+        if (!sessionId) return;
+        const sessionMeta = S.sessions.find(session => session.session_id === sessionId) || null;
+        const controller = getOrCreateSessionLoadController(sessionId, sessionMeta);
+        controller.promise.catch(() => { /* warm path is best effort */ });
+    }
 
     // ── Auth / Permissions ──
     async function checkPermission() {
@@ -183,7 +309,15 @@
             const nm = s.session_name || 'Unnamed', id = s.session_id || '', dt = s.start_time ? new Date(s.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '', ct = s.record_count || 0, dur = s.duration_s ? fmtTime(s.duration_s * 1000) : '';
             return `<div class="ha-card ha-session-card ha-animate-in" data-sid="${id}"><div class="ha-scard-top"><div class="ha-scard-name">${esc(nm)}</div><div class="ha-scard-date">${dt}</div></div><div class="ha-scard-meta"><span><b>${fmtInt(ct)}</b> records</span>${dur ? `<span>⏱ ${dur}</span>` : ''}</div><div class="ha-scard-bottom"><div class="ha-scard-id">${id.slice(0, 10)}…</div><div class="ha-scard-badge">${fmtInt(ct)}</div></div></div>`;
         }).join('');
-        $$('.ha-session-card').forEach(c => c.addEventListener('click', () => openSession(c.dataset.sid)));
+        $$('.ha-session-card').forEach(c => {
+            c.addEventListener('click', () => openSession(c.dataset.sid));
+            c.addEventListener('mouseenter', () => {
+                clearTimeout(c._prewarmTimer);
+                c._prewarmTimer = setTimeout(() => prewarmSessionLoad(c.dataset.sid), 120);
+            });
+            c.addEventListener('mouseleave', () => clearTimeout(c._prewarmTimer));
+            c.addEventListener('focus', () => prewarmSessionLoad(c.dataset.sid), true);
+        });
     }
 
     $('h-sort')?.addEventListener('change', renderSessions);
@@ -242,23 +376,21 @@
         const grid = $('h-summary-grid');
         if (grid) grid.style.opacity = '0.4';
 
-        // Progress callback — only fired when batch-fetching large sessions
-        const sessionName = S.activeSessionMeta?.session_name || sid.slice(0, 12);
-        const onProgress = (loaded, total) => {
-            if (!label) return;
-            const l = Number(loaded).toLocaleString();
-            const t = total ? ` / ${Number(total).toLocaleString()}` : '';
-            label.textContent = `Loading… ${l}${t}`;
+        const controller = getOrCreateSessionLoadController(sid, S.activeSessionMeta);
+        let unsubscribeProgress = null;
+        const updateLoadingLabel = (progress) => {
+            if (!label || S.activeSessionId !== sid) return;
+            label.textContent = `Loading ${clampProgress(progress)}%`;
         };
+
+        updateLoadingLabel(controller.progress);
+        unsubscribeProgress = subscribeSessionLoad(controller, (snapshot) => {
+            updateLoadingLabel(snapshot.progress);
+        });
 
 
         try {
-            const raw = await ConvexBridge.getSessionRecords(sid, onProgress);
-
-            // Offload normalisation and stats calculation to Web Worker thread
-            if (label) label.textContent = 'Processing Data\u2026';
-            const rawRecords = Array.isArray(raw) ? raw : [];
-            const { normalized, stats } = await runHistoricalWorkerTask('NORMALIZE_RECORDS', { records: rawRecords });
+            const { normalized, stats } = await controller.promise;
 
             const cappedData = applyExternalDataCap(normalized);
             S.data = cappedData;
@@ -267,7 +399,14 @@
             // Restore label after load
             if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
 
-            if (!S.data.length) { toast('No data for this session'); return; }
+            if (!S.data.length) {
+                if ((controller.expectedTotal || 0) > 0) {
+                    toast('Failed to load this session correctly. Please retry.');
+                } else {
+                    toast('No data for this session');
+                }
+                return;
+            }
             if (cappedData.length < normalized.length) {
                 toast(`External access limited to ${externalDataPointLimit.toLocaleString()} representative points.`);
             }
@@ -278,6 +417,9 @@
             toast('Failed to load session data');
             if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
             if (grid) grid.style.opacity = '1';
+        } finally {
+            if (grid) grid.style.opacity = '1';
+            if (unsubscribeProgress) unsubscribeProgress();
         }
         populateCompareSelect();
         showAnalysisActions(true);

@@ -3,6 +3,7 @@ import asyncio
 import csv
 import json
 import logging
+
 import math
 import os
 import random
@@ -1076,6 +1077,188 @@ class OptimalSpeedOptimizer:
 # ============================================================
 
 
+# ============================================================
+# MODULE: DRIVER NOTIFICATION ENGINE
+# Generates driving recommendations, efficiency hints, and
+# optimal speed guidance for the driver cockpit dashboard
+# ============================================================
+
+class DriverNotificationEngine:
+    """
+    Analyzes telemetry data and generates actionable notifications:
+    - Efficiency trend alerts (declining efficiency)
+    - Speed-to-optimal delta recommendations
+    - Aggressive driving pattern detection
+    - System health warnings (low voltage, high current)
+    
+    Rate-limited: minimum 10s between same-category notifications.
+    """
+    
+    MIN_INTERVAL_SECONDS = 10  # Min time between same-category notifications
+    EFFICIENCY_WINDOW = 30     # Samples to track efficiency trend
+    
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.notification_buffer: List[Dict[str, Any]] = []
+        self.last_notification_time: Dict[str, float] = {}
+        
+        # Tracking state
+        self.efficiency_history: List[float] = []
+        self.last_optimal_speed_kmh: Optional[float] = None
+        self.aggressive_driving_count = 0
+        self.message_count = 0
+    
+    def reset(self) -> None:
+        """Reset engine state"""
+        self.notification_buffer.clear()
+        self.last_notification_time.clear()
+        self.efficiency_history.clear()
+        self.last_optimal_speed_kmh = None
+        self.aggressive_driving_count = 0
+        self.message_count = 0
+    
+    def _can_send(self, category: str) -> bool:
+        """Check if enough time has passed since last notification in this category"""
+        last = self.last_notification_time.get(category, 0)
+        return (time.time() - last) >= self.MIN_INTERVAL_SECONDS
+    
+    def _emit(self, severity: str, title: str, message: str, category: str, ttl: Optional[int] = None) -> None:
+        """Queue a notification for batch flushing"""
+        if not self._can_send(category):
+            return
+        
+        self.last_notification_time[category] = time.time()
+        self.notification_buffer.append({
+            "session_id": self.session_id,
+            "severity": severity,
+            "title": title,
+            "message": message,
+            "category": category,
+            "ttl": ttl or (8000 if severity == "critical" else 5000 if severity == "warn" else 3500),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    
+    def analyze(self, data: Dict[str, Any]) -> None:
+        """
+        Analyze a telemetry sample and generate notifications.
+        Called on every normalized telemetry message.
+        """
+        self.message_count += 1
+        
+        # Skip first 20 messages (let data stabilize)
+        if self.message_count < 20:
+            return
+        
+        speed_kmh = data.get("speed_ms", 0) * 3.6
+        optimal_kmh = data.get("optimal_speed_kmh")
+        efficiency = data.get("current_efficiency_km_kwh")
+        voltage = data.get("voltage_v", 0)
+        current = data.get("current_a", 0)
+        driver_mode = data.get("driver_mode", "")
+        throttle_pct = data.get("throttle_pct", 0)
+        brake_pct = data.get("brake_pct", 0)
+        optimal_confidence = data.get("optimal_speed_confidence", 0)
+        
+        # ── Efficiency trend ──────────────────────────────────────────────
+        if efficiency is not None and 0 < efficiency < 200:
+            self.efficiency_history.append(efficiency)
+            if len(self.efficiency_history) > self.EFFICIENCY_WINDOW:
+                self.efficiency_history = self.efficiency_history[-self.EFFICIENCY_WINDOW:]
+            
+            if len(self.efficiency_history) >= self.EFFICIENCY_WINDOW:
+                first_half = sum(self.efficiency_history[:15]) / 15
+                second_half = sum(self.efficiency_history[15:]) / 15
+                
+                if first_half > 0 and second_half < first_half * 0.8:
+                    self._emit(
+                        "warn",
+                        "Efficiency Declining",
+                        f"Down {((1 - second_half/first_half) * 100):.0f}%. Consider reducing speed.",
+                        "efficiency"
+                    )
+                elif first_half > 0 and second_half > first_half * 1.15:
+                    self._emit(
+                        "info",
+                        "Great Efficiency",
+                        f"Efficiency improved {((second_half/first_half - 1) * 100):.0f}%. Keep it up!",
+                        "efficiency"
+                    )
+        
+        # ── Speed vs optimal ──────────────────────────────────────────────
+        if optimal_kmh is not None and optimal_confidence >= 0.4 and speed_kmh > 2:
+            delta = speed_kmh - optimal_kmh
+            
+            if delta > 8:
+                self._emit(
+                    "warn",
+                    "Over Optimal Speed",
+                    f"Reduce by ~{delta:.0f} kph for best efficiency ({optimal_kmh:.0f} kph target).",
+                    "speed"
+                )
+            elif delta < -8 and speed_kmh > 5:
+                self._emit(
+                    "info",
+                    "Below Optimal Speed",
+                    f"You can go {abs(delta):.0f} kph faster. Optimal: {optimal_kmh:.0f} kph.",
+                    "speed"
+                )
+            
+            self.last_optimal_speed_kmh = optimal_kmh
+        
+        # ── Aggressive driving ────────────────────────────────────────────
+        if driver_mode == "aggressive" or throttle_pct > 85:
+            self.aggressive_driving_count += 1
+            if self.aggressive_driving_count >= 25:
+                self._emit(
+                    "warn",
+                    "Aggressive Driving",
+                    "High throttle usage detected. Eco mode recommended for better range.",
+                    "style"
+                )
+                self.aggressive_driving_count = 0
+        elif driver_mode in ("eco", "coasting"):
+            self.aggressive_driving_count = max(0, self.aggressive_driving_count - 1)
+        
+        # ── Hard braking events ───────────────────────────────────────────
+        if brake_pct > 70:
+            self._emit(
+                "info",
+                "Hard Brake Detected",
+                "Smooth braking preserves energy. Anticipate stops earlier.",
+                "style"
+            )
+        
+        # ── System health ─────────────────────────────────────────────────
+        if voltage > 0 and voltage < 48:
+            self._emit(
+                "critical",
+                "Low Battery Voltage",
+                f"Voltage at {voltage:.1f}V. Consider pit stop soon.",
+                "system"
+            )
+        
+        if current > 25:
+            self._emit(
+                "warn",
+                "High Current Draw",
+                f"Drawing {current:.1f}A. Reduce load to protect battery.",
+                "system"
+            )
+    
+    def flush(self) -> List[Dict[str, Any]]:
+        """Return and clear the notification buffer"""
+        if not self.notification_buffer:
+            return []
+        buf = list(self.notification_buffer)
+        self.notification_buffer.clear()
+        return buf
+
+
+# ============================================================
+# END MODULE: DRIVER NOTIFICATION ENGINE
+# ============================================================
+
+
 # ------------------------------
 # Mock Mode Configuration
 # ------------------------------
@@ -1814,6 +1997,11 @@ class TelemetryBridgeWithDB:
             window_size=50, 
             sample_interval=MOCK_DATA_INTERVAL
         )
+        
+        # Driver notification engine
+        self.notification_engine = DriverNotificationEngine(
+            session_id=self.session_id
+        )
 
         self.stats = {
             "messages_received": 0,
@@ -2145,6 +2333,12 @@ class TelemetryBridgeWithDB:
             out.update(calculated)
         except Exception as e:
             logger.warning(f"⚠️ Telemetry calculation failed: {e}")
+        
+        # Run driver notification engine
+        try:
+            self.notification_engine.analyze(out)
+        except Exception as e:
+            logger.warning(f"⚠️ Driver notification analysis failed: {e}")
 
         return out
 
@@ -2292,6 +2486,30 @@ class TelemetryBridgeWithDB:
                 await asyncio.sleep(0.05)
             except Exception as e:
                 self._count_error(f"Republish loop error: {e}")
+
+    # ------------- Driver notification flusher -------------
+
+    async def notification_flusher(self):
+        """Periodically flush driver notifications to Convex"""
+        while self.running and not self.shutdown_event.is_set():
+            try:
+                await asyncio.sleep(5)  # Flush every 5 seconds
+                
+                notifications = self.notification_engine.flush()
+                if not notifications or not self.convex_client:
+                    continue
+                
+                try:
+                    self.convex_client.mutation(
+                        "driverNotifications:insertNotificationBatch",
+                        {"notifications": notifications},
+                        timeout=10.0
+                    )
+                    logger.debug(f"📩 Flushed {len(notifications)} driver notifications")
+                except Exception as e:
+                    logger.warning(f"⚠️ Driver notification flush failed: {e}")
+            except Exception as e:
+                self._count_error(f"Notification flusher error: {e}")
 
     # ------------- Health check / watchdog -------------
 
@@ -2515,6 +2733,7 @@ class TelemetryBridgeWithDB:
                 ),
                 asyncio.create_task(self.print_stats(), name="stats"),
                 asyncio.create_task(self.health_monitor(), name="health"),
+                asyncio.create_task(self.notification_flusher(), name="notif_flush"),
             ]
             if self.mock_mode:
                 tasks.append(

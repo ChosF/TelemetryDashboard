@@ -4,8 +4,20 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/driver",
+      "destination": "/driver.html"
+    },
+    {
       "source": "/dashboard",
-      "destination": "/dashboard-solid.html"
+      "destination": "/dashboard.html"
+    },
+    {
+      "source": "/dashboard-solid",
+      "destination": "/dashboard.html"
+    },
+    {
+      "source": "/dashboard-legacy",
+      "destination": "/legacy-dashboard-do-not-use/dashboard.html"
     },
     {
       "source": "/dashboard/sessions",

@@ -17,6 +17,8 @@ export interface ExportButtonProps {
     class?: string;
     /** Button style */
     style?: JSX.CSSProperties;
+    /** Visual style variant */
+    variant?: 'default' | 'legacy';
 }
 
 /**
@@ -24,6 +26,7 @@ export interface ExportButtonProps {
  */
 export function ExportButton(props: ExportButtonProps): JSX.Element {
     const [isExporting, setIsExporting] = createSignal(false);
+    const isLegacy = () => props.variant === 'legacy';
 
     const handleExport = () => {
         if (props.data.length === 0) return;
@@ -48,29 +51,32 @@ export function ExportButton(props: ExportButtonProps): JSX.Element {
             disabled={isExporting() || props.data.length === 0}
             class={props.class}
             style={{
-                padding: '8px 16px',
-                background: props.data.length === 0
-                    ? 'rgba(255, 255, 255, 0.1)'
-                    : 'rgba(59, 130, 246, 0.8)',
-                border: 'none',
-                'border-radius': '6px',
-                color: 'white',
+                padding: isLegacy() ? undefined : '8px 16px',
+                background: isLegacy()
+                    ? undefined
+                    : props.data.length === 0
+                        ? 'rgba(255, 255, 255, 0.1)'
+                        : 'rgba(59, 130, 246, 0.8)',
+                border: isLegacy() ? undefined : 'none',
+                'border-radius': isLegacy() ? undefined : '6px',
+                color: isLegacy() ? undefined : 'white',
                 cursor: props.data.length === 0 ? 'not-allowed' : 'pointer',
                 'font-size': '13px',
-                'font-weight': 500,
+                'font-weight': isLegacy() ? undefined : 500,
                 transition: 'background 0.2s',
                 display: 'flex',
                 'align-items': 'center',
                 gap: '6px',
+                opacity: props.data.length === 0 ? 0.55 : 1,
                 ...props.style,
             }}
             onMouseEnter={(e) => {
-                if (props.data.length > 0) {
+                if (props.data.length > 0 && !isLegacy()) {
                     e.currentTarget.style.background = 'rgba(59, 130, 246, 1)';
                 }
             }}
             onMouseLeave={(e) => {
-                if (props.data.length > 0) {
+                if (props.data.length > 0 && !isLegacy()) {
                     e.currentTarget.style.background = 'rgba(59, 130, 246, 0.8)';
                 }
             }}

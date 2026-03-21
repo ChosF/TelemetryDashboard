@@ -3,8 +3,8 @@
  */
 
 import { JSX, createSignal, Show } from 'solid-js';
-import { Modal } from '@/components/ui';
 import { authStore } from '@/stores/auth';
+import { LegacyAuthModal } from './LegacyAuthModal';
 
 export interface LoginModalProps {
     /** Whether modal is open */
@@ -50,117 +50,70 @@ export function LoginModal(props: LoginModalProps): JSX.Element {
     };
 
     return (
-        <Modal isOpen={props.isOpen} onClose={handleClose} title="Sign In">
-            <form onSubmit={handleSubmit} style={{ display: 'flex', 'flex-direction': 'column', gap: '16px' }}>
-                {/* Error message */}
-                <Show when={error()}>
-                    <div style={{
-                        padding: '12px',
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        border: '1px solid rgba(239, 68, 68, 0.3)',
-                        'border-radius': '6px',
-                        color: '#ef4444',
-                        'font-size': '14px',
-                    }}>
-                        {error()}
-                    </div>
-                </Show>
-
-                {/* Email */}
-                <div>
-                    <label style={labelStyle}>Email</label>
+        <LegacyAuthModal
+            isOpen={props.isOpen}
+            onClose={handleClose}
+            title="Welcome Back"
+            subtitle="Sign in to access your dashboard"
+            footer={(
+                <p class="auth-switch-text">
+                    Don't have an account?
+                    {' '}
+                    <button class="auth-switch-btn liquid-hover" type="button" onClick={props.onSwitchToSignup}>
+                        Sign Up
+                    </button>
+                </p>
+            )}
+        >
+            <form class="auth-form" onSubmit={handleSubmit}>
+                <div class="form-group">
+                    <label class="form-label" for="auth-email-login">Email</label>
                     <input
+                        id="auth-email-login"
+                        class="form-input"
                         type="email"
                         value={email()}
                         onInput={(e) => setEmail(e.currentTarget.value)}
-                        placeholder="your@email.com"
-                        style={inputStyle}
+                        placeholder="you@example.com"
                         autocomplete="email"
                     />
                 </div>
 
-                {/* Password */}
-                <div>
-                    <label style={labelStyle}>Password</label>
+                <div class="form-group">
+                    <label class="form-label" for="auth-password-login">Password</label>
                     <input
+                        id="auth-password-login"
+                        class="form-input"
                         type="password"
                         value={password()}
                         onInput={(e) => setPassword(e.currentTarget.value)}
-                        placeholder="••••••••"
-                        style={inputStyle}
+                        placeholder="Enter your password"
                         autocomplete="current-password"
                     />
                 </div>
 
-                {/* Remember Me */}
-                <label style={{ display: 'flex', 'align-items': 'center', gap: '8px', cursor: 'pointer' }}>
-                    <input
-                        type="checkbox"
-                        checked={rememberMe()}
-                        onChange={(e) => setRememberMe(e.currentTarget.checked)}
-                        style={{ width: '16px', height: '16px' }}
-                    />
-                    <span style={{ 'font-size': '14px', color: 'rgba(255,255,255,0.7)' }}>Remember me</span>
-                </label>
+                <div class="form-group form-checkbox">
+                    <label class="checkbox-label">
+                        <input
+                            class="checkbox-input"
+                            type="checkbox"
+                            checked={rememberMe()}
+                            onChange={(e) => setRememberMe(e.currentTarget.checked)}
+                        />
+                        <span class="checkbox-text">Remember me</span>
+                    </label>
+                </div>
 
-                {/* Submit Button */}
-                <button
-                    type="submit"
-                    disabled={authStore.isLoading()}
-                    style={{
-                        padding: '12px 20px',
-                        background: authStore.isLoading() ? 'rgba(59, 130, 246, 0.5)' : 'rgba(59, 130, 246, 0.9)',
-                        border: 'none',
-                        'border-radius': '8px',
-                        color: 'white',
-                        'font-size': '15px',
-                        'font-weight': 600,
-                        cursor: authStore.isLoading() ? 'not-allowed' : 'pointer',
-                        transition: 'background 0.2s',
-                    }}
-                >
+                <Show when={error()}>
+                    <div class="auth-error">{error()}</div>
+                </Show>
+
+                <button type="submit" class="auth-submit-btn liquid-hover" disabled={authStore.isLoading()}>
                     {authStore.isLoading() ? 'Signing in...' : 'Sign In'}
                 </button>
-
-                {/* Switch to signup */}
-                <div style={{ 'text-align': 'center', 'font-size': '14px', color: 'rgba(255,255,255,0.6)' }}>
-                    Don't have an account?{' '}
-                    <button
-                        type="button"
-                        onClick={props.onSwitchToSignup}
-                        style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#3b82f6',
-                            cursor: 'pointer',
-                            'text-decoration': 'underline',
-                        }}
-                    >
-                        Sign up
-                    </button>
-                </div>
             </form>
-        </Modal>
+        </LegacyAuthModal>
     );
 }
-
-const labelStyle = {
-    display: 'block',
-    'margin-bottom': '6px',
-    'font-size': '14px',
-    'font-weight': 500,
-    color: 'rgba(255,255,255,0.8)',
-};
-
-const inputStyle = {
-    width: '100%',
-    padding: '12px 14px',
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    'border-radius': '8px',
-    color: 'white',
-    'font-size': '15px',
-    'box-sizing': 'border-box' as const,
-};
 
 export default LoginModal;

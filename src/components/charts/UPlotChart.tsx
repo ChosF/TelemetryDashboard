@@ -96,6 +96,7 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
         const size = getSize();
         const fullOptions: Options = {
             ...props.options,
+            title: undefined,
             width: size.width,
             height: size.height,
         };

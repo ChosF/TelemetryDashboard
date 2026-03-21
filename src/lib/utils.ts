@@ -13,7 +13,7 @@ import type { TelemetryRecord, TelemetryRow, KPISummary, DataQualityReport } fro
 export const G = 9.80665;
 
 /** Maximum telemetry points to keep in memory */
-export const MAX_TELEMETRY_POINTS = 3000;
+export const MAX_TELEMETRY_POINTS = 100000;
 
 /** Chart update throttle interval (ms) - targets ~5 FPS */
 export const CHART_UPDATE_INTERVAL = 200;
@@ -118,17 +118,28 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
         normalized.current_efficiency_km_kwh = clamp(efficiency, 0, 200);
     }
 
-    // Map altitude field variations
-    if (!('altitude' in normalized) || normalized.altitude === undefined) {
-        const altitudeFields = ['altitude_m', 'gps_altitude', 'elevation', 'alt'] as const;
+    const rowAny = row as unknown as Record<string, unknown>;
+    const normalizedAny = normalized as unknown as Record<string, unknown>;
+    const altitudeFields = ['altitude_m', 'altitude', 'gps_altitude', 'elevation', 'alt'] as const;
+
+    if (!('altitude_m' in normalized) || normalized.altitude_m === undefined) {
         for (const field of altitudeFields) {
-            if (field in row) {
-                const rowAny = row as unknown as Record<string, unknown>;
-                if (rowAny[field] !== undefined) {
-                    (normalized as unknown as Record<string, unknown>).altitude = rowAny[field];
-                    break;
-                }
+            if (rowAny[field] !== undefined) {
+                normalizedAny.altitude_m = rowAny[field];
+                break;
             }
+        }
+    }
+
+    if (!('altitude' in normalized) || normalized.altitude === undefined) {
+        for (const field of altitudeFields) {
+            if (rowAny[field] !== undefined) {
+                normalizedAny.altitude = rowAny[field];
+                break;
+            }
+        }
+        if (normalizedAny.altitude === undefined && normalizedAny.altitude_m !== undefined) {
+            normalizedAny.altitude = normalizedAny.altitude_m;
         }
     }
 
@@ -352,6 +363,89 @@ function getRecordKey(r: TelemetryRow): string {
     return `${ts}::${msgId}`;
 }
 
+function toTimestampMs(row: TelemetryRow): number {
+    return new Date(row.timestamp).getTime();
+}
+
+function interpolateNumericValue(a: unknown, b: unknown, ratio: number): number | undefined {
+    if (typeof a === 'number' && Number.isFinite(a) && typeof b === 'number' && Number.isFinite(b)) {
+        return a + ((b - a) * ratio);
+    }
+    return undefined;
+}
+
+function interpolateTelemetryPoint(
+    start: TelemetryRow,
+    end: TelemetryRow,
+    ratio: number,
+    timestamp: string
+): TelemetryRow {
+    const point: TelemetryRow = {
+        ...start,
+        timestamp,
+        message_id: undefined,
+        _interpolated: true,
+    } as TelemetryRow & { _interpolated?: boolean };
+
+    const startRecord = start as unknown as Record<string, unknown>;
+    const endRecord = end as unknown as Record<string, unknown>;
+    const pointRecord = point as unknown as Record<string, unknown>;
+
+    const numericFields = new Set<string>();
+    Object.keys(start).forEach((key) => {
+        if (typeof startRecord[key] === 'number') numericFields.add(key);
+    });
+    Object.keys(end).forEach((key) => {
+        if (typeof endRecord[key] === 'number') numericFields.add(key);
+    });
+
+    for (const key of numericFields) {
+        const interpolated = interpolateNumericValue(
+            startRecord[key],
+            endRecord[key],
+            ratio
+        );
+        if (interpolated !== undefined) {
+            pointRecord[key] = interpolated;
+        }
+    }
+
+    return point;
+}
+
+function interpolateSmallGaps(rows: TelemetryRow[]): TelemetryRow[] {
+    const MAX_ACCEPTABLE_GAP_MS = 800;
+    const EXPECTED_INTERVAL_MS = 200;
+    const GAP_THRESHOLD_MS = 250;
+
+    if (rows.length < 2) return rows;
+
+    const interpolated: TelemetryRow[] = [];
+
+    for (let index = 0; index < rows.length; index += 1) {
+        const current = rows[index];
+        interpolated.push(current);
+
+        if (index >= rows.length - 1) continue;
+
+        const next = rows[index + 1];
+        const gapMs = toTimestampMs(next) - toTimestampMs(current);
+        if (gapMs <= GAP_THRESHOLD_MS || gapMs > MAX_ACCEPTABLE_GAP_MS) continue;
+
+        const pointsToAdd = Math.floor(gapMs / EXPECTED_INTERVAL_MS) - 1;
+        if (pointsToAdd <= 0 || pointsToAdd > 4) continue;
+
+        for (let extra = 1; extra <= pointsToAdd; extra += 1) {
+            const ratio = extra / (pointsToAdd + 1);
+            const timestamp = new Date(toTimestampMs(current) + (gapMs * ratio)).toISOString();
+            interpolated.push(interpolateTelemetryPoint(current, next, ratio, timestamp));
+        }
+    }
+
+    interpolated.sort((left, right) => toTimestampMs(left) - toTimestampMs(right));
+    return interpolated;
+}
+
 /**
  * Merge and deduplicate telemetry data
  * Uses timestamp + message_id as unique key
@@ -361,6 +455,27 @@ export function mergeTelemetry(
     incoming: TelemetryRow[],
     maxPoints: number = MAX_TELEMETRY_POINTS
 ): TelemetryRow[] {
+    if (incoming.length === 1) {
+        const next = incoming[0];
+        const lastExisting = last(existing);
+        const nextKey = getRecordKey(next);
+
+        if (!lastExisting) return [next];
+
+        if (getRecordKey(lastExisting) === nextKey) {
+            const copy = existing.slice();
+            copy[copy.length - 1] = next;
+            return copy;
+        }
+
+        if (toTimestampMs(next) > toTimestampMs(lastExisting)) {
+            const appended = existing.length >= maxPoints
+                ? [...existing.slice(1), next]
+                : [...existing, next];
+            return appended;
+        }
+    }
+
     // Build map from existing, preferring real data over interpolated
     const seen = new Map<string, TelemetryRow>();
 
@@ -391,6 +506,25 @@ export function mergeTelemetry(
     }
 
     return result;
+}
+
+export function mergeHistoricalTelemetry(
+    existing: TelemetryRow[],
+    convexData: TelemetryRow[],
+    ablyData: TelemetryRow[],
+    maxPoints: number = MAX_TELEMETRY_POINTS
+): TelemetryRow[] {
+    const allHistorical = [...convexData, ...ablyData];
+    if (allHistorical.length === 0) return existing;
+
+    const merged = mergeTelemetry(existing, allHistorical, Math.max(maxPoints * 2, allHistorical.length + existing.length));
+    const interpolated = interpolateSmallGaps(merged);
+
+    if (interpolated.length > maxPoints) {
+        return interpolated.slice(interpolated.length - maxPoints);
+    }
+
+    return interpolated;
 }
 
 // =============================================================================
@@ -479,11 +613,22 @@ export function computeDataQualityReport(rows: TelemetryRow[]): DataQualityRepor
         quality_score: 100,
         total_records: rows.length,
         missing_fields: {},
+        missing_rates: {},
         outliers: {
             count: 0,
             by_severity: { low: 0, medium: 0, high: 0, critical: 0 },
             by_field: {},
         },
+        outlier_count: 0,
+        outlier_severity: {
+            info: 0,
+            warning: 0,
+            critical: 0,
+        },
+        outlier_reasons: {},
+        dropouts: 0,
+        max_gap_s: null,
+        hz: null,
         freshness: {
             last_update: '',
             age_seconds: 0,
@@ -495,7 +640,7 @@ export function computeDataQualityReport(rows: TelemetryRow[]): DataQualityRepor
 
     const keyCols = [
         'timestamp', 'speed_ms', 'power_w', 'voltage_v', 'current_a',
-        'distance_m', 'energy_j', 'latitude', 'longitude', 'altitude'
+        'distance_m', 'energy_j', 'latitude', 'longitude', 'altitude_m'
     ];
 
     // Calculate missing rates
@@ -506,20 +651,66 @@ export function computeDataQualityReport(rows: TelemetryRow[]): DataQualityRepor
         }).length;
         report.missing_fields[col] = missing / rows.length;
     }
+    report.missing_rates = { ...report.missing_fields };
+
+    const timestamps = rows
+        .map((row) => new Date(row.timestamp).getTime())
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+
+    if (timestamps.length >= 2) {
+        const deltas: number[] = [];
+        for (let index = 1; index < timestamps.length; index += 1) {
+            const deltaSeconds = (timestamps[index] - timestamps[index - 1]) / 1000;
+            if (deltaSeconds > 0 && Number.isFinite(deltaSeconds)) {
+                deltas.push(deltaSeconds);
+            }
+        }
+
+        if (deltas.length > 0) {
+            const sorted = [...deltas].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            report.hz = median > 0 ? 1 / median : null;
+            report.max_gap_s = Math.max(...sorted);
+            const dropoutGaps = sorted.filter((value) => value > 3 * (median || 1));
+            report.dropouts = dropoutGaps.length
+                ? Math.floor(dropoutGaps.reduce((sum, value) => sum + value, 0) / (median || 1))
+                : 0;
+        }
+    }
 
     // Count outliers from bridge data
     for (const r of rows) {
-        if (r.outliers?.flagged_fields && r.outliers.flagged_fields.length > 0) {
-            report.outliers.count++;
+        const fields = r.outliers?.flagged_fields ?? r.outliers?.fields ?? [];
+        if (!fields.length) continue;
 
-            const severity = r.outlier_severity || 'low';
-            if (severity in report.outliers.by_severity) {
-                report.outliers.by_severity[severity]++;
-            }
+        report.outliers.count++;
+        report.outlier_count = report.outliers.count;
 
-            for (const field of r.outliers.flagged_fields) {
-                report.outliers.by_field[field] = (report.outliers.by_field[field] || 0) + 1;
-            }
+        const severity = (r.outliers?.severity as string | undefined) ?? r.outlier_severity ?? 'low';
+        if (severity in report.outliers.by_severity) {
+            report.outliers.by_severity[severity as keyof typeof report.outliers.by_severity]++;
+        } else if (severity === 'warning') {
+            report.outliers.by_severity.medium += 1;
+        } else if (severity === 'info') {
+            report.outliers.by_severity.low += 1;
+        }
+
+        if (severity === 'critical' || severity === 'high') {
+            report.outlier_severity!.critical += 1;
+        } else if (severity === 'warning' || severity === 'medium') {
+            report.outlier_severity!.warning += 1;
+        } else {
+            report.outlier_severity!.info += 1;
+        }
+
+        for (const field of fields) {
+            report.outliers.by_field[field] = (report.outliers.by_field[field] || 0) + 1;
+        }
+
+        for (const reason of Object.values(r.outliers?.reasons ?? {})) {
+            report.outlier_reasons![reason] = (report.outlier_reasons![reason] || 0) + 1;
         }
     }
 
@@ -535,9 +726,10 @@ export function computeDataQualityReport(rows: TelemetryRow[]): DataQualityRepor
     let score = 100;
     const avgMissing = Object.values(report.missing_fields).reduce((a, b) => a + b, 0) / keyCols.length;
     score -= avgMissing * 40;
-    score -= Math.min(15, report.outliers.by_severity.critical * 2);
-    score -= Math.min(10, report.outliers.by_severity.high * 0.5);
-    score -= Math.min(5, report.outliers.by_severity.medium * 0.1);
+    score -= Math.min(20, (report.dropouts ?? 0) * 0.2);
+    score -= Math.min(15, report.outlier_severity!.critical * 2);
+    score -= Math.min(10, report.outlier_severity!.warning * 0.5);
+    score -= Math.min(5, report.outlier_severity!.info * 0.1);
     report.quality_score = Math.max(0, Math.round(score * 10) / 10);
 
     return report;

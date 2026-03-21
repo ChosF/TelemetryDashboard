@@ -22,8 +22,7 @@ const compatConvexBridge = {
     // Compatibility shim: keep legacy call sites safe while internals migrate.
     getRecordsAfterTimestamp: async (sessionId: string, afterTimestamp: string, limit = 500) =>
         convexClient.getRecentRecords(sessionId, afterTimestamp, limit),
-    // Legacy helper is non-critical; retain API contract.
-    kickstartSessions: async () => ({ skipped: true, source: 'solid-compat' }),
+    kickstartSessions: convexClient.kickstartSessions,
     getConfig: async () => {
         const response = await fetch('/api/config');
         if (!response.ok) return {};

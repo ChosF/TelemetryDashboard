@@ -75,7 +75,7 @@ export function createVoltageStabilityOptions(): Omit<Options, 'width' | 'height
         },
         axes: [
             DEFAULT_TIME_AXIS,
-            createYAxis('Voltage (V)', CHART_COLORS.voltage),
+            createYAxis('Std Dev (V)', CHART_COLORS.voltage),
         ],
         series: [
             {},
@@ -110,8 +110,22 @@ export function createCurrentPeaksOptions(): Omit<Options, 'width' | 'height'> {
             createSeries('Current', CHART_COLORS.current, {
                 fill: 'rgba(214, 39, 40, 0.15)',
             }),
+            createSeries('Peaks', '#f59e0b', {
+                width: 0,
+                points: {
+                    show: true,
+                    size: 8,
+                    stroke: '#f59e0b',
+                    fill: '#f59e0b',
+                },
+            }),
+            createSeries('Threshold', '#f59e0b', {
+                width: 1,
+                dash: [6, 6],
+                points: { show: false },
+            }),
         ],
-        legend: { show: true },
+        legend: { show: false },
     };
 }
 
@@ -131,7 +145,7 @@ export function createEnergyCumulativeOptions(): Omit<Options, 'width' | 'height
         },
         axes: [
             DEFAULT_TIME_AXIS,
-            createYAxis('Energy (Wh)', CHART_COLORS.efficiency),
+            createYAxis('Energy (kWh)', CHART_COLORS.efficiency),
         ],
         series: [
             {},

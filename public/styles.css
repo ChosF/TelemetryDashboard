@@ -374,6 +374,14 @@ a:hover {
   flex-wrap: wrap;
 }
 
+.status-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
 /* Status Badge */
 .status-badge {
   display: inline-flex;
@@ -410,6 +418,13 @@ a:hover {
 
 .status-text {
   color: var(--text-secondary);
+}
+
+.status-note {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  max-width: 320px;
 }
 
 /* Mini Stats */
@@ -1124,6 +1139,15 @@ table.dataTable tbody tr:hover .frozen-col {
    ========================================================================== */
 
 @media (max-width: 768px) {
+  .data-table-tabs {
+    padding: var(--space-3) var(--space-3) 0;
+  }
+
+  .data-table-tab {
+    font-size: 11px;
+    padding: 7px 10px;
+  }
+
   .table-controls {
     flex-direction: column;
     align-items: stretch;
@@ -2888,22 +2912,19 @@ body {
   background: var(--surface-secondary);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
-  border-left: 3px solid var(--border-default);
+  border: 1px solid var(--border-subtle);
 }
 
 .outlier-timeline-item.critical {
-  border-left-color: var(--error);
-  background: var(--error-muted);
+  background: var(--surface-secondary);
 }
 
 .outlier-timeline-item.warning {
-  border-left-color: var(--warning);
-  background: var(--warning-muted);
+  background: var(--surface-secondary);
 }
 
 .outlier-timeline-item.info {
-  border-left-color: var(--info);
-  background: var(--info-muted);
+  background: var(--surface-secondary);
 }
 
 .outlier-timeline-time {
@@ -3042,6 +3063,51 @@ body {
   padding: var(--space-4);
   max-width: 100%;
   overflow-x: auto;
+}
+
+.data-table-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+.data-table-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: var(--surface-secondary);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.data-table-tab:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  background: var(--surface-tertiary);
+}
+
+.data-table-tab.active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-secondary));
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border-default));
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.legacy-telemetry-table thead th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.legacy-telemetry-table thead th span,
+.legacy-telemetry-table tbody td {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Quality Metrics Container - Grid Layout */
@@ -3787,6 +3853,61 @@ body {
   color: var(--text-primary);
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.speed-histogram {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(34px, 1fr));
+  align-items: end;
+  gap: 10px;
+  height: 220px;
+  padding: 12px 0 8px;
+}
+
+.speed-histogram-bin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.speed-histogram-count {
+  min-height: 16px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-histogram-track {
+  position: relative;
+  width: 100%;
+  height: 150px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 2px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.04));
+  border: 1px solid var(--border-subtle);
+}
+
+.speed-histogram-fill {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 10px 10px 4px 4px;
+  background: linear-gradient(180deg, #22d3ee 0%, #3b82f6 100%);
+  transition: height var(--duration-normal) var(--ease-out);
+}
+
+.speed-histogram-label {
+  width: 100%;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 /* ==========================================================================
@@ -4545,22 +4666,19 @@ body {
   background: var(--surface-secondary);
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
-  border-left: 3px solid var(--warning);
+  border: 1px solid var(--border-subtle);
 }
 
 .current-spike-item.severity-high {
-  border-left-color: var(--error);
-  background: var(--error-muted);
+  background: var(--surface-secondary);
 }
 
 .current-spike-item.severity-medium {
-  border-left-color: var(--warning);
-  background: var(--warning-muted);
+  background: var(--surface-secondary);
 }
 
 .current-spike-item.severity-low {
-  border-left-color: var(--accent);
-  background: var(--accent-muted);
+  background: var(--surface-secondary);
 }
 
 .spike-time {

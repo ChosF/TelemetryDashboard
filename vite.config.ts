@@ -44,7 +44,8 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           main: resolve(__dirname, 'index.html'),
-          dashboardSolid: resolve(__dirname, 'dashboard-solid.html'),
+          dashboard: resolve(__dirname, 'dashboard.html'),
+          driver: resolve(__dirname, 'driver.html'),
           legacyCompat: resolve(__dirname, 'src/legacy/legacyCompat.ts'),
         },
         output: {
@@ -54,6 +55,7 @@ export default defineConfig(({ mode }) => {
             'vendor-charts': ['uplot'],
             'vendor-map': ['maplibre-gl'],
             'vendor-table': ['@tanstack/solid-table'],
+                'vendor-ably': ['ably'],
           },
           // Asset file naming for cache busting
           assetFileNames: 'assets/[name]-[hash][extname]',

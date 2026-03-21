@@ -61,8 +61,67 @@ const [sessionToken, setSessionToken] = createSignal<string | null>(null);
 const [isLoading, setIsLoading] = createSignal(false);
 const [authError, setAuthError] = createSignal<string | null>(null);
 
+interface AuthConvexClient {
+    query: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+    mutation: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+    action: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+    setAuth?: (fetchToken: () => Promise<string | null | undefined>) => void;
+}
+
 // Convex client reference (set during init)
-let convexClient: unknown = null;
+let convexClient: AuthConvexClient | null = null;
+
+type AdminUserProfile = UserProfile & {
+    _creationTime?: number;
+};
+
+function getStoredAuthToken(): string | null {
+    return localStorage.getItem('convex_auth_token')
+        ?? sessionStorage.getItem('convex_auth_token')
+        ?? localStorage.getItem('auth_session_token')
+        ?? sessionStorage.getItem('auth_session_token');
+}
+
+function persistAuthToken(token: string, rememberMe = true): void {
+    localStorage.removeItem('auth_session_token');
+    localStorage.removeItem('convex_auth_token');
+    sessionStorage.removeItem('auth_session_token');
+    sessionStorage.removeItem('convex_auth_token');
+
+    const primary = rememberMe ? localStorage : sessionStorage;
+    primary.setItem('auth_session_token', token);
+    primary.setItem('convex_auth_token', token);
+}
+
+function clearStoredAuthToken(): void {
+    localStorage.removeItem('auth_session_token');
+    localStorage.removeItem('convex_auth_token');
+    sessionStorage.removeItem('auth_session_token');
+    sessionStorage.removeItem('convex_auth_token');
+}
+
+function setConvexAuthToken(token: string | null): void {
+    try {
+        convexClient?.setAuth?.(() => Promise.resolve(token));
+    } catch {
+        // Some Convex client variants may not support setAuth in all contexts.
+    }
+}
+
+function requireAuthClient(): AuthConvexClient {
+    if (!convexClient) {
+        throw new Error('Auth not initialized');
+    }
+    return convexClient;
+}
+
+function requireSessionToken(): string {
+    const token = sessionToken() ?? getStoredAuthToken();
+    if (!token) {
+        throw new Error('Not authenticated');
+    }
+    return token;
+}
 
 // =============================================================================
 // DERIVED STATE
@@ -125,19 +184,20 @@ const canAccessAdmin = createMemo(() => hasPermission('canAccessAdmin'));
  * Initialize auth with Convex client
  */
 async function initAuth(client: unknown): Promise<boolean> {
-    convexClient = client;
+    convexClient = client as AuthConvexClient;
 
     // Check for stored session
-    const storedToken = localStorage.getItem('auth_session_token');
+    const storedToken = getStoredAuthToken();
     if (storedToken) {
         setSessionToken(storedToken);
+        setConvexAuthToken(storedToken);
         // Try to load profile
         try {
             await loadUserProfile();
             return true;
         } catch {
             // Token invalid, clear it
-            localStorage.removeItem('auth_session_token');
+            clearStoredAuthToken();
             setSessionToken(null);
         }
     }
@@ -155,10 +215,15 @@ async function loadUserProfile(): Promise<void> {
     setAuthError(null);
 
     try {
-        // This will be implemented when Convex is fully integrated
-        // const profile = await (convexClient as any).query('auth:getProfile', {});
-        // setUser(profile);
-        console.log('[AuthStore] Profile loading not yet implemented');
+        const profile = await convexClient.query('users:getCurrentProfile', { token: sessionToken() });
+
+        batch(() => {
+            setUser((profile as UserProfile | null) ?? null);
+            if (!(profile as UserProfile | null)) {
+                setSessionToken(null);
+                clearStoredAuthToken();
+            }
+        });
     } catch (error) {
         console.error('[AuthStore] Failed to load profile:', error);
         setAuthError('Failed to load profile');
@@ -171,9 +236,9 @@ async function loadUserProfile(): Promise<void> {
  * Sign in with email and password
  */
 async function signIn(
-    _email: string,
-    _password: string,
-    _rememberMe = false
+    email: string,
+    password: string,
+    rememberMe = false
 ): Promise<{ success: boolean; error?: string }> {
     if (!convexClient) {
         return { success: false, error: 'Auth not initialized' };
@@ -183,12 +248,28 @@ async function signIn(
     setAuthError(null);
 
     try {
-        // This will be implemented when Convex is fully integrated
-        // const result = await (convexClient as any).mutation('auth:signIn', { email, password });
+        const result = await convexClient.action('auth:signIn', {
+            provider: 'password',
+            params: {
+                email,
+                password,
+                flow: 'signIn',
+            },
+        }) as { token?: string; error?: string };
 
-        // Placeholder for now
-        console.log('[AuthStore] Sign in not yet implemented');
-        return { success: false, error: 'Not implemented' };
+        if (result?.error) {
+            throw new Error(result.error);
+        }
+
+        if (!result?.token) {
+            throw new Error('Authentication succeeded without a session token');
+        }
+
+        persistAuthToken(result.token, rememberMe);
+        setSessionToken(result.token);
+        setConvexAuthToken(result.token);
+        await loadUserProfile();
+        return { success: true };
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Sign in failed';
         setAuthError(message);
@@ -202,10 +283,10 @@ async function signIn(
  * Sign up with email and password
  */
 async function signUp(
-    _email: string,
-    _password: string,
-    _requestedRole: UserRole = 'external',
-    _name?: string
+    email: string,
+    password: string,
+    requestedRole: UserRole = 'external',
+    name?: string
 ): Promise<{ success: boolean; error?: string }> {
     if (!convexClient) {
         return { success: false, error: 'Auth not initialized' };
@@ -215,9 +296,42 @@ async function signUp(
     setAuthError(null);
 
     try {
-        // This will be implemented when Convex is fully integrated
-        console.log('[AuthStore] Sign up not yet implemented');
-        return { success: false, error: 'Not implemented' };
+        const result = await convexClient.action('auth:signIn', {
+            provider: 'password',
+            params: {
+                email,
+                password,
+                name,
+                flow: 'signUp',
+            },
+        }) as { token?: string; userId?: string; error?: string };
+
+        if (result?.error) {
+            throw new Error(result.error);
+        }
+
+        if (!result?.token || !result?.userId) {
+            throw new Error('Registration succeeded without creating a session');
+        }
+
+        const isInternalRequest = requestedRole === USER_ROLES.INTERNAL;
+        const normalizedRole: UserRole = requestedRole === USER_ROLES.ADMIN
+            ? USER_ROLES.GUEST
+            : USER_ROLES.EXTERNAL;
+
+        await convexClient.mutation('users:upsertProfile', {
+            userId: result.userId,
+            email,
+            name,
+            role: normalizedRole,
+            requestedRole: isInternalRequest ? USER_ROLES.INTERNAL : undefined,
+        });
+
+        persistAuthToken(result.token, true);
+        setSessionToken(result.token);
+        setConvexAuthToken(result.token);
+        await loadUserProfile();
+        return { success: true };
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Sign up failed';
         setAuthError(message);
@@ -231,22 +345,101 @@ async function signUp(
  * Sign out
  */
 async function signOut(): Promise<void> {
+    const token = sessionToken();
+
+    if (convexClient && token) {
+        try {
+            await convexClient.action('auth:signOut', { token });
+        } catch (error) {
+            console.error('[AuthStore] Sign out error:', error);
+        }
+    }
+
     batch(() => {
         setUser(null);
         setSessionToken(null);
         setAuthError(null);
     });
 
-    localStorage.removeItem('auth_session_token');
+    clearStoredAuthToken();
+    setConvexAuthToken(null);
+}
 
-    // Notify Convex if connected
-    if (convexClient) {
-        try {
-            // await (convexClient as any).mutation('auth:signOut', {});
-            console.log('[AuthStore] Sign out completed');
-        } catch (error) {
-            console.error('[AuthStore] Sign out error:', error);
+async function getPendingUsers(): Promise<AdminUserProfile[]> {
+    const client = requireAuthClient();
+    const token = requireSessionToken();
+    const result = await client.query('users:getPendingUsers', { token });
+    return (result as AdminUserProfile[]) ?? [];
+}
+
+async function getAllUsers(): Promise<AdminUserProfile[]> {
+    const client = requireAuthClient();
+    const token = requireSessionToken();
+    const result = await client.query('users:getAllUsers', { token });
+    return (result as AdminUserProfile[]) ?? [];
+}
+
+async function updateUserRole(targetUserId: string, role: UserRole): Promise<{ success: boolean }> {
+    const client = requireAuthClient();
+    const token = requireSessionToken();
+    return await client.mutation('users:updateUserRole', {
+        token,
+        targetUserId,
+        role,
+    }) as { success: boolean };
+}
+
+async function rejectUser(targetUserId: string): Promise<{ success: boolean }> {
+    const client = requireAuthClient();
+    const token = requireSessionToken();
+    return await client.mutation('users:rejectUser', {
+        token,
+        targetUserId,
+    }) as { success: boolean };
+}
+
+function isMissingFunctionError(error: unknown, functionName: string): boolean {
+    const message = String(error instanceof Error ? error.message : error).toLowerCase();
+    return message.includes('could not find')
+        || message.includes('not found')
+        || message.includes(`users:${functionName}`.toLowerCase());
+}
+
+async function banUser(targetUserId: string): Promise<{ success: boolean; softBanned?: boolean }> {
+    const client = requireAuthClient();
+    const token = requireSessionToken();
+
+    try {
+        return await client.mutation('users:banUser', {
+            token,
+            targetUserId,
+        }) as { success: boolean };
+    } catch (error) {
+        if (isMissingFunctionError(error, 'banUser')) {
+            await updateUserRole(targetUserId, USER_ROLES.GUEST);
+            await rejectUser(targetUserId);
+            return { success: true, softBanned: true };
         }
+        throw error;
+    }
+}
+
+async function deleteUser(targetUserId: string): Promise<{ success: boolean; softDeleted?: boolean }> {
+    const client = requireAuthClient();
+    const token = requireSessionToken();
+
+    try {
+        return await client.mutation('users:deleteUser', {
+            token,
+            targetUserId,
+        }) as { success: boolean };
+    } catch (error) {
+        if (isMissingFunctionError(error, 'deleteUser')) {
+            await updateUserRole(targetUserId, USER_ROLES.GUEST);
+            await rejectUser(targetUserId);
+            return { success: true, softDeleted: true };
+        }
+        throw error;
     }
 }
 
@@ -283,6 +476,12 @@ export const authStore = {
     signIn,
     signUp,
     signOut,
+    getPendingUsers,
+    getAllUsers,
+    updateUserRole,
+    rejectUser,
+    banUser,
+    deleteUser,
     setUserProfile,
 
     // Permission helpers
@@ -310,6 +509,12 @@ export {
     signIn,
     signUp,
     signOut,
+    getPendingUsers,
+    getAllUsers,
+    updateUserRole,
+    rejectUser,
+    banUser,
+    deleteUser,
     setUserProfile,
     hasPermission,
     getPermissionValue,

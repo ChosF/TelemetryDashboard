@@ -1,9 +1,11 @@
 import { query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 
 const BATCH_SIZE = 3000; // Safe well under the 16,384 .collect() hard cap
 const EXTERNAL_HISTORICAL_LIMIT_DAYS = 7;
+const LIVE_BACKFILL_ACTIVITY_WINDOW_MS = 5 * 60 * 1000;
 
 type HistoricalAccess = {
     role: "guest" | "external" | "internal" | "admin";
@@ -68,6 +70,42 @@ async function canAccessHistoricalSession(
     return startMs >= cutoffMs;
 }
 
+async function canAccessLiveBackfillSession(ctx: any, sessionId: string): Promise<boolean> {
+    const sessionMeta = await ctx.db
+        .query("sessions")
+        .withIndex("by_session_id", (q: any) => q.eq("session_id", sessionId))
+        .first();
+
+    const latestTimestamp = sessionMeta?.end_time ?? (
+        await ctx.db
+            .query("telemetry")
+            .withIndex("by_session_timestamp", (q: any) => q.eq("session_id", sessionId))
+            .order("desc")
+            .first()
+    )?.timestamp;
+
+    if (!latestTimestamp) return false;
+
+    const latestMs = new Date(latestTimestamp).getTime();
+    if (!Number.isFinite(latestMs)) return false;
+
+    return (Date.now() - latestMs) <= LIVE_BACKFILL_ACTIVITY_WINDOW_MS;
+}
+
+async function canAccessSessionRecords(
+    ctx: any,
+    sessionId: string,
+    access: HistoricalAccess
+): Promise<boolean> {
+    if (await canAccessHistoricalSession(ctx, sessionId, access)) {
+        return true;
+    }
+
+    // Realtime dashboard joins must be able to backfill the currently active session
+    // even when the viewer does not have full historical access.
+    return canAccessLiveBackfillSession(ctx, sessionId);
+}
+
 /**
  * Get all records for a specific session.
  * Works for sessions up to ~14k records (Convex .collect() hard cap is 16,384).
@@ -77,7 +115,7 @@ export const getSessionRecords = query({
     args: { sessionId: v.string(), token: v.optional(v.string()) },
     handler: async (ctx, args) => {
         const access = await getHistoricalAccess(ctx, args.token);
-        const allowed = await canAccessHistoricalSession(ctx, args.sessionId, access);
+        const allowed = await canAccessSessionRecords(ctx, args.sessionId, access);
         if (!allowed) return [];
 
         const records = await ctx.db
@@ -113,7 +151,7 @@ export const getSessionRecordsBatch = query({
     },
     handler: async (ctx, args) => {
         const access = await getHistoricalAccess(ctx, args.token);
-        const allowed = await canAccessHistoricalSession(ctx, args.sessionId, access);
+        const allowed = await canAccessSessionRecords(ctx, args.sessionId, access);
         if (!allowed) return { page: [], hasMore: false, lastTimestamp: null };
 
         const records = await ctx.db
@@ -132,6 +170,31 @@ export const getSessionRecordsBatch = query({
         const lastTimestamp = page.length > 0 ? page[page.length - 1].timestamp : null;
 
         return { page, hasMore, lastTimestamp };
+    },
+});
+
+/**
+ * Cursor-paginated session fetch for large historical sessions.
+ * Uses Convex pagination so we never rely on timestamp-only cursors.
+ */
+export const getSessionRecordsPage = query({
+    args: {
+        sessionId: v.string(),
+        paginationOpts: paginationOptsValidator,
+        token: v.optional(v.string()),
+    },
+    handler: async (ctx, args) => {
+        const access = await getHistoricalAccess(ctx, args.token);
+        const allowed = await canAccessSessionRecords(ctx, args.sessionId, access);
+        if (!allowed) {
+            return { page: [], isDone: true, continueCursor: args.paginationOpts.cursor ?? "" };
+        }
+
+        return await ctx.db
+            .query("telemetry")
+            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+            .order("asc")
+            .paginate(args.paginationOpts);
     },
 });
 
@@ -191,6 +254,11 @@ export const getLatestRecord = query({
 export const getLatestSessionTimestamp = query({
     args: { sessionId: v.string() },
     handler: async (ctx, args) => {
+        const sessionMeta = await ctx.db
+            .query("sessions")
+            .withIndex("by_session_id", (q) => q.eq("session_id", args.sessionId))
+            .first();
+
         const record = await ctx.db
             .query("telemetry")
             .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
@@ -198,19 +266,17 @@ export const getLatestSessionTimestamp = query({
             .first();
 
         if (!record) {
-            return { timestamp: null, recordCount: 0 };
+            return {
+                timestamp: sessionMeta?.end_time ?? null,
+                recordCount: sessionMeta?.record_count ?? 0,
+                latestMessageId: null,
+            };
         }
-
-        // Also get count for context
-        const allRecords = await ctx.db
-            .query("telemetry")
-            .withIndex("by_session", (q) => q.eq("session_id", args.sessionId))
-            .collect();
 
         return {
             timestamp: record.timestamp,
-            recordCount: allRecords.length,
-            latestMessageId: record.message_id,
+            recordCount: sessionMeta?.record_count ?? 0,
+            latestMessageId: record.message_id ?? null,
         };
     },
 });

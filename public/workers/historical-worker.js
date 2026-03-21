@@ -7,12 +7,55 @@ self.onmessage = function (e) {
     try {
         if (type === 'NORMALIZE_RECORDS') {
             const { records } = payload;
+            const total = Array.isArray(records) ? records.length : 0;
+            if (total === 0) {
+                self.postMessage({
+                    id,
+                    type: 'SUCCESS',
+                    payload: { normalized: [], stats: self.HA.computeSessionStats([]) }
+                });
+                return;
+            }
 
-            // Heavy array mapping and parsing
-            const normalized = records.map(self.HA.normalizeRecord).sort((a, b) => a._ts - b._ts);
+            const normalized = new Array(total);
+            const progressStep = Math.max(250, Math.min(2000, Math.ceil(total / 20)));
+            let previousTs = Number.NEGATIVE_INFINITY;
+            let needsSort = false;
+
+            for (let i = 0; i < total; i++) {
+                const row = self.HA.normalizeRecord(records[i]);
+                normalized[i] = row;
+                const currentTs = row?._ts ?? Number.NEGATIVE_INFINITY;
+                if (currentTs < previousTs) needsSort = true;
+                previousTs = currentTs;
+
+                if ((i + 1) % progressStep === 0 || i === total - 1) {
+                    self.postMessage({
+                        id,
+                        type: 'PROGRESS',
+                        payload: { phase: 'normalizing', progress: Math.round(((i + 1) / total) * 70) }
+                    });
+                }
+            }
+
+            if (needsSort) {
+                normalized.sort((a, b) => a._ts - b._ts);
+            }
+
+            self.postMessage({
+                id,
+                type: 'PROGRESS',
+                payload: { phase: 'processing', progress: 85 }
+            });
 
             // Calculate statistical summary offline for UI rendering
             const stats = self.HA.computeSessionStats(normalized);
+
+            self.postMessage({
+                id,
+                type: 'PROGRESS',
+                payload: { phase: 'processing', progress: 100 }
+            });
 
             self.postMessage({
                 id,
