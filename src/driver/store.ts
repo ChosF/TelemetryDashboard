@@ -24,6 +24,7 @@ const MAX_NOTIFICATIONS = 5;
 const EMPTY_SNAPSHOT: DriverTelemetrySnapshot = {
     speed_kmh: 0,
     speed_ms: 0,
+    motor_rpm: 0,
     voltage_v: 0,
     current_a: 0,
     power_w: 0,
@@ -35,6 +36,8 @@ const EMPTY_SNAPSHOT: DriverTelemetrySnapshot = {
     brake2_pct: 0,
     motion_state: 'stationary',
     driver_mode: 'coasting',
+    g_lat: 0,
+    g_long: 0,
     latitude: 0,
     longitude: 0,
     timestamp: '',
@@ -116,10 +119,22 @@ function flushSnapshot(): void {
  * This is the hot path — must be extremely fast.
  */
 function ingestTelemetry(raw: Record<string, unknown>): void {
-    // Minimal extraction — no deep copies, no transforms
+    const speedMs = (raw.speed_ms as number) ?? 0;
+    const speedKmhRaw = raw.speed_kmh;
+    const speedKmh =
+        typeof speedKmhRaw === 'number' && Number.isFinite(speedKmhRaw) ? speedKmhRaw : speedMs * 3.6;
+    const rpmRaw =
+        (raw.motor_rpm as number) ??
+        (raw.rpm as number) ??
+        (raw.motor_speed_rpm as number) ??
+        (raw.motor_rpm_est as number);
+    const motorRpm =
+        typeof rpmRaw === 'number' && Number.isFinite(rpmRaw) ? rpmRaw : 0;
+
     const data: DriverTelemetrySnapshot = {
-        speed_kmh: ((raw.speed_ms as number) ?? 0) * 3.6,
-        speed_ms: (raw.speed_ms as number) ?? 0,
+        speed_kmh: speedKmh,
+        speed_ms: speedMs,
+        motor_rpm: motorRpm,
         voltage_v: (raw.voltage_v as number) ?? 0,
         current_a: (raw.current_a as number) ?? 0,
         power_w: (raw.power_w as number) ?? 0,
@@ -131,6 +146,8 @@ function ingestTelemetry(raw: Record<string, unknown>): void {
         brake2_pct: (raw.brake2_pct as number) ?? 0,
         motion_state: (raw.motion_state as string) ?? 'stationary',
         driver_mode: (raw.driver_mode as string) ?? 'coasting',
+        g_lat: typeof raw.g_lat === 'number' && Number.isFinite(raw.g_lat) ? raw.g_lat : 0,
+        g_long: typeof raw.g_long === 'number' && Number.isFinite(raw.g_long) ? raw.g_long : 0,
         latitude: (raw.latitude as number) ?? 0,
         longitude: (raw.longitude as number) ?? 0,
         timestamp: (raw.timestamp as string) ?? '',

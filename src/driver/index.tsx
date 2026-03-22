@@ -11,6 +11,8 @@ if (!root) {
     throw new Error('Root element not found. Make sure there is a <div id="root"></div> in driver.html.');
 }
 
+document.documentElement.classList.add('driver-page');
+
 type BootPhase = 'loading' | 'ready' | 'redirecting';
 
 const DriverBoot: Component = () => {

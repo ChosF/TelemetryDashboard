@@ -1,9 +1,10 @@
 """
 mock_driver.py — Standalone mock telemetry publisher for the Driver Dashboard
 
-Sends realistic EV race-lap telemetry directly to the Ably dashboard channel
-(telemetry-dashboard-channel) at ~5 Hz, so you can test the driver dashboard
-UI without running the full bridge or needing an ESP32.
+Publishes to the same Ably channel the ESP32 uses (EcoTele), with the ESP32 app
+key — matching backend/maindata.py ESP32_ABLY_API_KEY / ESP32_CHANNEL_NAME.
+maindata.py ingests from here; the driver dashboard can subscribe to the same
+channel for raw uplink. ~5 Hz JSON messages (event name: telemetry_update).
 
 Usage:
     python backend/mock_driver.py
@@ -33,11 +34,13 @@ except ImportError:
     sys.exit(1)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# CONFIG  (same credentials as maindata.py)
+# CONFIG  (same ESP32 uplink as maindata.py — not DASHBOARD_*)
 # ──────────────────────────────────────────────────────────────────────────────
 
-ABLY_API_KEY    = "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ"
-CHANNEL_NAME    = "telemetry-dashboard-channel"
+ESP32_ABLY_API_KEY = (
+    "ja_fwQ.K6CTEw:F-aWFMdJXPCv9MvxhYztCGna3XdRJZVgA0qm9pMfDOQ"
+)
+ESP32_CHANNEL_NAME = "EcoTele"
 PUBLISH_HZ      = 5          # messages per second
 INTERVAL        = 1 / PUBLISH_HZ
 SESSION_ID      = str(uuid.uuid4())
@@ -71,6 +74,7 @@ class SimState:
         # Smoothed throttle/brake
         self._throttle = 0.0
         self._brake    = 0.0
+        self._prev_speed_ms = 0.0  # for ESP32-style planar G (longitudinal)
 
         # Optimal speed accumulator data
         self._speed_power_history: list = []   # [(speed_ms, power_w)]
@@ -272,14 +276,16 @@ class SimState:
             "longitude": round(lon, 6),
             "altitude":  round(alt, 2),
 
-            # IMU (simple approximation)
-            "accel_x": round(ax / 9.80665, 3),
-            "accel_y": round(random.gauss(0, 0.02), 3),
-            "accel_z": round(-1.0 + random.gauss(0, 0.01), 3),
+            # IMU (still sent for outlier / legacy paths; G metrics prefer g_lat / g_long)
+            "accel_x": round(g_long * 9.80665, 3),
+            "accel_y": round(g_lat * 9.80665, 3),
+            "accel_z": round(9.80665 + random.gauss(0, 0.05), 3),
+            "g_lat": g_lat,
+            "g_long": g_long,
             "gyro_x":  round(random.gauss(0, 0.1), 3),
             "gyro_y":  round(random.gauss(0, 0.1), 3),
             "gyro_z":  round(random.gauss(0, 0.1), 3),
-            "total_acceleration": round(abs(ax / 9.80665), 3),
+            "total_acceleration": round(math.sqrt((g_long * 9.80665) ** 2 + (g_lat * 9.80665) ** 2 + 9.80665 ** 2), 3),
 
             # Driver inputs
             "throttle":     round(self._throttle, 3),
@@ -327,13 +333,13 @@ async def run():
     print("=" * 55)
     print("  EcoVolt Driver Dashboard — Mock Publisher")
     print("=" * 55)
-    print(f"  Channel : {CHANNEL_NAME}")
+    print(f"  Channel : {ESP32_CHANNEL_NAME}  (ESP32 uplink)")
     print(f"  Rate    : {PUBLISH_HZ} Hz  ({INTERVAL*1000:.0f} ms/msg)")
     print(f"  Session : {SESSION_NAME}")
     print("  Press Ctrl+C to stop.\n")
 
-    client  = AblyRealtime(ABLY_API_KEY)
-    channel = client.channels.get(CHANNEL_NAME)
+    client  = AblyRealtime(ESP32_ABLY_API_KEY)
+    channel = client.channels.get(ESP32_CHANNEL_NAME)
 
     # Wait for connection
     print("[..] Connecting to Ably...", end="", flush=True)

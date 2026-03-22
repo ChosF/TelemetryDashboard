@@ -1,14 +1,11 @@
 /**
  * Driver Dashboard — Ably Realtime Connection Service
- * 
- * Subscribes directly to the same Ably channel that maindata.py publishes to.
- * Uses the `ably` npm package for a lighter, tree-shakeable connection.
- * 
- * Design:
- * - Direct WebSocket subscription (no CDN script loading)
- * - Auto-reconnect with state propagation
- * - Zero-transform message ingestion (raw → store)
- * - Independent of team dashboard connection lifecycle
+ *
+ * Subscribes to the **ESP32 uplink** channel (same as `maindata.py` `ESP32_CHANNEL_NAME`),
+ * bypassing maindata processing for lowest-latency cockpit data.
+ *
+ * Payloads may be JSON (object/string) or the compact binary frame defined in `backend/maindata.py`
+ * (`BINARY_FORMAT` / `BINARY_FIELD_NAMES`).
  */
 
 import Ably from 'ably';
@@ -21,8 +18,19 @@ import { driverStore } from './store';
 let client: InstanceType<typeof Ably.Realtime> | null = null;
 let ageInterval: ReturnType<typeof setInterval> | null = null;
 
+// Keep in sync with maindata.py: BINARY_FORMAT = "<ffffffI"
+const ESP32_BINARY_FLOAT_FIELDS = [
+    'speed_ms',
+    'voltage_v',
+    'current_a',
+    'latitude',
+    'longitude',
+    'altitude',
+] as const;
+const ESP32_BINARY_SIZE = 6 * 4 + 4; // 6x float32 + uint32
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// CONFIG
+// CONFIG (mirror backend/maindata.py ESP32_* and DASHBOARD_* split)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface DriverAblyConfig {
@@ -34,10 +42,77 @@ interface DriverAblyConfig {
 function getConfig(): DriverAblyConfig {
     const cfg = (window as unknown as { CONFIG?: Record<string, string> }).CONFIG ?? {};
     return {
-        apiKey: cfg.ABLY_API_KEY || cfg.DASHBOARD_ABLY_API_KEY,
-        authUrl: cfg.ABLY_AUTH_URL,
-        channelName: cfg.ABLY_CHANNEL_NAME || 'telemetry-dashboard-channel',
+        // Device channel credentials (required for EcoTele / ESP32 publish key)
+        apiKey: cfg.ABLY_ESP32_API_KEY || cfg.ABLY_API_KEY || cfg.DASHBOARD_ABLY_API_KEY,
+        authUrl: cfg.ABLY_ESP32_AUTH_URL || cfg.ABLY_AUTH_URL,
+        channelName: cfg.ABLY_ESP32_CHANNEL_NAME || 'EcoTele',
     };
+}
+
+function toUint8View(data: unknown): Uint8Array | null {
+    if (data instanceof ArrayBuffer) {
+        return new Uint8Array(data);
+    }
+    if (ArrayBuffer.isView(data)) {
+        return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    }
+    return null;
+}
+
+/**
+ * Parse ESP32 binary frame (maindata `_parse_binary_message` equivalent).
+ */
+function parseEsp32BinaryBinary(u8: Uint8Array): Record<string, unknown> | null {
+    if (u8.byteLength !== ESP32_BINARY_SIZE) {
+        return null;
+    }
+    const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    const out: Record<string, unknown> = {};
+    let offset = 0;
+    for (const name of ESP32_BINARY_FLOAT_FIELDS) {
+        out[name] = view.getFloat32(offset, true);
+        offset += 4;
+    }
+    out.message_id = view.getUint32(offset, true);
+    const v = out.voltage_v as number;
+    const a = out.current_a as number;
+    out.power_w = v * a;
+    return out;
+}
+
+function parseMessageData(raw: unknown): Record<string, unknown> | null {
+    const bin = toUint8View(raw);
+    if (bin) {
+        const parsed = parseEsp32BinaryBinary(bin);
+        if (parsed) {
+            return parsed;
+        }
+    }
+
+    if (typeof raw === 'string') {
+        try {
+            const obj = JSON.parse(raw) as unknown;
+            if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+                return obj as Record<string, unknown>;
+            }
+        } catch {
+            return null;
+        }
+        return null;
+    }
+
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        return raw as Record<string, unknown>;
+    }
+
+    return null;
+}
+
+function ensureTimestamp(data: Record<string, unknown>): void {
+    const ts = data.timestamp;
+    if (ts == null || ts === '') {
+        data.timestamp = new Date().toISOString();
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -45,13 +120,11 @@ function getConfig(): DriverAblyConfig {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Connect to Ably and subscribe to telemetry channel.
- * Returns a cleanup function.
+ * Connect to Ably on the ESP32 device channel. Returns a cleanup function.
  */
 export function connectDriverAbly(): () => void {
     const config = getConfig();
 
-    // Build Ably client options
     const opts: Record<string, unknown> = {
         autoConnect: true,
         echoMessages: false,
@@ -59,13 +132,12 @@ export function connectDriverAbly(): () => void {
         suspendedRetryTimeout: 5000,
     };
 
-    // Prefer API key (for dev), fall back to authUrl (for prod)
     if (config.apiKey) {
         opts.key = config.apiKey;
     } else if (config.authUrl) {
         opts.authUrl = config.authUrl;
     } else {
-        console.error('[Driver Ably] No API key or auth URL configured');
+        console.error('[Driver Ably] No API key or auth URL configured (set ABLY_ESP32_API_KEY or ABLY_API_KEY)');
         driverStore.setConnectionState('failed');
         return () => {};
     }
@@ -78,7 +150,6 @@ export function connectDriverAbly(): () => void {
         return () => {};
     }
 
-    // ── Connection state mapping ─────────────────────────────────────────────
     client.connection.on((stateChange: { current: string }) => {
         const state = stateChange.current;
         console.log(`[Driver Ably] Connection: ${state}`);
@@ -102,7 +173,6 @@ export function connectDriverAbly(): () => void {
         }
     });
 
-    // ── Channel subscription ─────────────────────────────────────────────────
     const channel = client.channels.get(config.channelName);
 
     channel.on((stateChange: { current: string }) => {
@@ -111,25 +181,23 @@ export function connectDriverAbly(): () => void {
 
     channel.subscribe((message: { data: unknown }) => {
         try {
-            const data = typeof message.data === 'string'
-                ? JSON.parse(message.data)
-                : message.data;
-
-            // Hot path: feed directly into store (minimal processing)
-            driverStore.ingestTelemetry(data as Record<string, unknown>);
+            const data = parseMessageData(message.data);
+            if (!data) {
+                return;
+            }
+            ensureTimestamp(data);
+            driverStore.ingestTelemetry(data);
         } catch (err) {
             console.error('[Driver Ably] Message parse error:', err);
         }
     });
 
-    // ── Message age ticker ───────────────────────────────────────────────────
     ageInterval = setInterval(() => {
         driverStore.tickMessageAge();
     }, 250);
 
-    console.log(`[Driver Ably] ✅ Subscribed to: ${config.channelName}`);
+    console.log(`[Driver Ably] ✅ Subscribed to ESP32 uplink channel: ${config.channelName}`);
 
-    // ── Return cleanup ───────────────────────────────────────────────────────
     return () => {
         if (ageInterval) {
             clearInterval(ageInterval);

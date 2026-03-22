@@ -85,6 +85,21 @@ These are the **most important** variables for efficiency calculations:
 
 ### 🎛️ IMU / Motion Sensors
 
+#### Planar G (recommended — compute on ESP32)
+
+Send **lateral** and **longitudinal** acceleration in **g** (dimensionless multiples of 9.80665 m/s²), in the **vehicle body frame** after your IMU fusion / mounting compensation:
+
+| Variable Name | Type | Unit | Typical range | Description |
+|---------------|------|------|---------------|-------------|
+| `g_lat` | `number` | **g** | about ±2 | Lateral acceleration (positive = one consistent side, e.g. right; match your firmware convention) |
+| `g_long` | `number` | **g** | about ±2 | Longitudinal acceleration (positive = forward) |
+
+**Aliases** (optional): `g_lateral` / `lateral_g` / `lat_g` → `g_lat`; `g_longitudinal` / `longitudinal_g` / `long_g` / `lon_g` → `g_long`.
+
+When **both** `g_lat` and `g_long` are present, `maindata.py` uses them for `current_g_force`, `max_g_force`, peak detection, and motion analytics (`current_g_force` = `√(g_lat² + g_long²)`). The same values are passed through (rounded) for live dashboards that plot a G-ball.
+
+If you omit them, the bridge falls back to raw accelerometer data below.
+
 #### Gyroscope (Angular Velocity)
 
 | Variable Name | Type | Unit | Max Rate | Description |
@@ -102,7 +117,7 @@ These are the **most important** variables for efficiency calculations:
 | `accel_z` | `number` | m/s² | 80 combined | Up/down (includes gravity ~9.81) |
 | `total_acceleration` | `number` | m/s² | - | Pre-calculated: `√(x² + y² + z²)` |
 
-> 💡 **G-Force Calculation**: The backend calculates G-force as `√(accel_x² + accel_y² + (accel_z - 9.81)²) / 9.81`
+> 💡 **Legacy G-force (no `g_lat` / `g_long`)**: The backend approximates horizontal G from accelerometer as `√(accel_x² + accel_y² + (accel_z − 9.81)²) / 9.80665`, and approximates `g_lat` / `g_long` for downstream consumers as `accel_y/9.80665` and `accel_x/9.80665` (same axis convention as above — adjust IMU mount docs if yours differ).
 
 ---
 
@@ -196,6 +211,9 @@ Here's a complete example of a JSON payload the ESP32 should send:
   "gyro_y": -0.08,
   "gyro_z": 2.35,
   
+  "g_lat": 0.08,
+  "g_long": 0.12,
+
   "accel_x": 0.52,
   "accel_y": 0.18,
   "accel_z": 9.78,
@@ -261,9 +279,10 @@ The following fields are **automatically calculated** by `maindata.py` from the 
 | `driver_mode` | `throttle_pct`, `brake_pct`, `speed_ms` | Driver style: `eco`, `normal`, `aggressive`, `coasting`, `braking` |
 | `throttle_intensity` | `throttle_pct` | Classification: `idle`, `light`, `moderate`, `heavy` |
 | `brake_intensity` | `brake_pct` | Classification: `idle`, `light`, `moderate`, `heavy` |
-| `current_g_force` | `accel_x`, `accel_y`, `accel_z` | Current G-force |
-| `max_g_force` | `accel_*` | Session maximum G-force |
-| `accel_magnitude` | `accel_x`, `accel_y`, `accel_z` | Acceleration magnitude |
+| `g_lat`, `g_long` | `g_lat`, `g_long` **or** approximated from `accel_*` | Planar G components (g) for displays |
+| `current_g_force` | `g_lat`, `g_long` **or** `accel_*` | Magnitude in g: `√(g_lat² + g_long²)` or from accel |
+| `max_g_force` | same as above | Session maximum G-force |
+| `accel_magnitude` | same as above | Horizontal acceleration magnitude (m/s²) |
 | `avg_acceleration` | `accel_*` | Rolling average acceleration |
 | `elevation_gain_m` | `altitude` | Cumulative elevation gain |
 | `quality_score` | All fields | Data quality assessment |
@@ -324,6 +343,8 @@ The backend automatically flags values outside these ranges:
 | `gyro_x` | ⬜ | number | °/s |
 | `gyro_y` | ⬜ | number | °/s |
 | `gyro_z` | ⬜ | number | °/s |
+| `g_lat` | ⬜ | number | g |
+| `g_long` | ⬜ | number | g |
 | `accel_x` | ⬜ | number | m/s² |
 | `accel_y` | ⬜ | number | m/s² |
 | `accel_z` | ⬜ | number | m/s² |
@@ -355,4 +376,4 @@ The backend automatically flags values outside these ranges:
 
 ---
 
-*Last Updated: March 21, 2026*
+*Last Updated: March 22, 2026*

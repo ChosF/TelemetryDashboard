@@ -24,6 +24,9 @@ export interface DriverTelemetrySnapshot {
     speed_kmh: number;
     speed_ms: number;
 
+    /** Motor / wheel RPM (CAN or derived); drives F1-style rev bar */
+    motor_rpm: number;
+
     // Power system
     voltage_v: number;
     current_a: number;
@@ -41,9 +44,11 @@ export interface DriverTelemetrySnapshot {
     brake_pct: number;    // B1 — primary brake
     brake2_pct: number;   // B2 — secondary brake pressure (0 if not sent)
 
-    // Motion
+    // Motion (g_lat / g_long = planar G in vehicle frame, ≈ ±1 for typical UI clamp)
     motion_state: string;
     driver_mode: string;
+    g_lat: number;
+    g_long: number;
 
     // GPS
     latitude: number;

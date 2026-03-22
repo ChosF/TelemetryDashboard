@@ -1,32 +1,15 @@
 /**
- * DriverDashboard — Main cockpit component
+ * DriverDashboard — Compact race cockpit (portrait phone)
  *
- * Layout (portrait-first):
- * ┌──────────────────────────┐
- * │ HEADER (EcoVolt + conn)  │
- * ├──────────────────────────┤
- * │ [Current] [Effic] [Opt]  │  ← top metric cards
- * │                          │
- * │        300               │  ← dominant speed
- * │      km/h                │
- * │     +2 kph               │  ← delta to optimal
- * │                          │
- * │ T▓▓▓▓░░░░ 60%            │  ← horizontal input bars
- * │ B1▓░░░░░░ 20%            │
- * │ B2▓▓░░░░░ 35%            │
- * │                          │
- * │  ┌──────────┬──────────┐ │
- * │  │  G-Force │  GPS map │ │  ← bottom panels
- * │  └──────────┴──────────┘ │
- * │  [notifications overlay]  │
- * │  [observability bar]      │
- * └──────────────────────────┘
+ * Priority stack: session clock → F1-style RPM bar → speed+delta | map →
+ * secondary strip (A / eff / opt) → G-force + pedals. Dense telemetry-first UI.
  */
 
-import { Component, onMount, onCleanup, Show, For, createMemo, createSignal } from 'solid-js';
+import { Component, onMount, onCleanup, Show, For, Match, Switch, createMemo, createSignal } from 'solid-js';
 import { driverStore } from './store';
 import { connectDriverAbly } from './ablyDriver';
 import { startNotificationPoller } from './notificationPoller';
+import { enterDriverFullscreen, initDriverFullscreen } from './driverFullscreen';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUB-COMPONENTS
@@ -64,74 +47,106 @@ const MessageAge: Component = () => {
     );
 };
 
-const MetricCard: Component<{
-    label: string;
-    value: () => string;
-    unit?: string;
-    variant?: 'accent' | 'warn';
-}> = (props) => {
-    return (
-        <div class={`drv-card ${props.variant ? `drv-card--${props.variant}` : ''}`}>
-            <span class="drv-card-label">{props.label}</span>
-            <span class="drv-card-value">
-                {props.value()}
-                <Show when={props.unit}>
-                    <span class="drv-card-unit">{props.unit}</span>
-                </Show>
-            </span>
-        </div>
-    );
-};
+/** Bar full-scale RPM (telemetry above this clamps visually to 100%) */
+const RPM_BAR_MAX = 7000;
 
-const SpeedDisplay: Component = () => {
-    const speed = createMemo(() => {
-        const s = driverStore.snapshot().speed_kmh;
-        return Math.round(s);
+type SpeedCue = 'accel' | 'brake' | 'hold' | 'none';
+
+/** Triangle cue | dominant speed | recommended (optimal) speed */
+const SpeedHero: Component = () => {
+    const snap = createMemo(() => driverStore.snapshot());
+
+    const speed = createMemo(() => Math.round(snap().speed_kmh));
+
+    const target = createMemo(() => {
+        const s = snap();
+        if (s.optimal_speed_kmh === null || s.optimal_speed_confidence < 0.3) return null;
+        return Math.round(s.optimal_speed_kmh);
     });
 
-    return (
-        <div class="drv-speed-wrapper">
-            <div class="drv-speed-value">{speed()}</div>
-            <div class="drv-speed-unit">km/h</div>
-        </div>
-    );
-};
+    const cue = createMemo((): SpeedCue => {
+        const s = snap();
+        const opt = s.optimal_speed_kmh;
+        if (opt === null || s.optimal_speed_confidence < 0.3) return 'none';
+        const d = s.speed_kmh - opt;
+        if (Math.abs(d) < 1) return 'hold';
+        return d > 0 ? 'brake' : 'accel';
+    });
 
-const DeltaIndicator: Component = () => {
-    const delta = createMemo(() => {
-        const snap = driverStore.snapshot();
-        if (snap.optimal_speed_kmh === null || snap.optimal_speed_confidence < 0.3) {
-            return null;
+    const cueLabel = createMemo(() => {
+        switch (cue()) {
+            case 'accel':
+                return 'Accelerate — below target speed';
+            case 'brake':
+                return 'Ease off — above target speed';
+            case 'hold':
+                return 'On target speed';
+            default:
+                return 'No target speed';
         }
-        return snap.speed_kmh - snap.optimal_speed_kmh;
-    });
-
-    const deltaClass = createMemo(() => {
-        const d = delta();
-        if (d === null) return 'drv-delta--neutral';
-        if (Math.abs(d) < 1) return 'drv-delta--neutral';
-        return d > 0 ? 'drv-delta--negative' : 'drv-delta--positive';
-    });
-
-    const deltaText = createMemo(() => {
-        const d = delta();
-        if (d === null) return '— kph';
-        const sign = d >= 0 ? '+' : '';
-        return `${sign}${d.toFixed(1)} kph`;
-    });
-
-    const arrow = createMemo(() => {
-        const d = delta();
-        if (d === null || Math.abs(d) < 1) return '';
-        return d > 0 ? '▲' : '▼';
     });
 
     return (
-        <div class={`drv-delta ${deltaClass()}`}>
-            <Show when={arrow()}>
-                <span class="drv-delta-arrow">{arrow()}</span>
-            </Show>
-            {deltaText()}
+        <div class="drv-speed-hero" aria-label={cueLabel()}>
+            <div class="drv-speed-cue" data-cue={cue()} aria-hidden="true">
+                <Switch>
+                    <Match when={cue() === 'accel'}>
+                        <svg class="drv-speed-cue-svg" viewBox="0 0 32 40" aria-hidden="true">
+                            <path
+                                class="drv-speed-cue-shape drv-speed-cue-shape--accel"
+                                d="M16 4 L30 34 H2 Z"
+                            />
+                        </svg>
+                    </Match>
+                    <Match when={cue() === 'brake'}>
+                        <svg class="drv-speed-cue-svg" viewBox="0 0 32 40" aria-hidden="true">
+                            <path
+                                class="drv-speed-cue-shape drv-speed-cue-shape--brake"
+                                d="M16 36 L2 6 H30 Z"
+                            />
+                        </svg>
+                    </Match>
+                    <Match when={cue() === 'hold'}>
+                        <svg class="drv-speed-cue-svg" viewBox="0 0 32 40" aria-hidden="true">
+                            <rect
+                                class="drv-speed-cue-shape drv-speed-cue-shape--hold"
+                                x="6"
+                                y="17"
+                                width="20"
+                                height="6"
+                                rx="1.5"
+                            />
+                        </svg>
+                    </Match>
+                    <Match when={cue() === 'none'}>
+                        <svg class="drv-speed-cue-svg" viewBox="0 0 32 40" aria-hidden="true">
+                            <line
+                                class="drv-speed-cue-shape drv-speed-cue-shape--none"
+                                x1="6"
+                                y1="20"
+                                x2="26"
+                                y2="20"
+                                stroke="currentColor"
+                                stroke-width="3"
+                                stroke-linecap="round"
+                            />
+                        </svg>
+                    </Match>
+                </Switch>
+            </div>
+
+            <div class="drv-speed-main">
+                <div class="drv-speed-value">{speed()}</div>
+                <div class="drv-speed-unit">km/h</div>
+            </div>
+
+            <div class="drv-speed-target">
+                <span class="drv-speed-target-label">Target</span>
+                <span class="drv-speed-target-value">
+                    {target() === null ? '—' : target()}
+                </span>
+                <span class="drv-speed-target-unit">km/h</span>
+            </div>
         </div>
     );
 };
@@ -184,28 +199,84 @@ const InputBars: Component = () => {
 // Tick signal for timer reactivity (updated externally)
 const [timerTick, setTimerTick] = createSignal(0);
 
-const SessionTimer: Component = () => {
-    const timer = createMemo(() => {
-        // Subscribe to tick to force re-evaluation
-        timerTick();
-        const start = driverStore.sessionStartTime();
-        if (start === null) return '00:00.00';
+const sessionClockText = (): string => {
+    timerTick();
+    const start = driverStore.sessionStartTime();
+    if (start === null) return '00:00.00';
 
-        const elapsed = Math.max(0, (Date.now() - start) / 1000);
-        const mins = Math.floor(elapsed / 60);
-        const secs = Math.floor(elapsed % 60);
-        const hundredths = Math.floor((elapsed % 1) * 100);
+    const elapsed = Math.max(0, (Date.now() - start) / 1000);
+    const mins = Math.floor(elapsed / 60);
+    const secs = Math.floor(elapsed % 60);
+    const hundredths = Math.floor((elapsed % 1) * 100);
 
-        return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
-    });
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
+};
 
+/** Large session clock — primary time readout */
+const SessionHero: Component = () => {
+    const text = createMemo(() => sessionClockText());
     return (
-        <div class="drv-timer">
-            <span class="drv-timer-label">Session</span>
-            <span class="drv-timer-value">{timer()}</span>
+        <div class="drv-session-hero">
+            <span class="drv-session-hero-label">Session</span>
+            <span class="drv-session-hero-value">{text()}</span>
         </div>
     );
 };
+
+/** F1-style segmented RPM strip (green → amber → red) */
+const RevBar: Component = () => {
+    const rpm = createMemo(() => Math.max(0, Math.round(driverStore.snapshot().motor_rpm)));
+    const pct = createMemo(() => Math.min(100, (rpm() / RPM_BAR_MAX) * 100));
+
+    return (
+        <div class="drv-rev" aria-label={`Engine ${rpm()} RPM`}>
+            <div class="drv-rev-meta">
+                <span class="drv-rev-title">RPM</span>
+                <span class="drv-rev-readout">{rpm().toLocaleString()}</span>
+            </div>
+            <div class="drv-rev-track">
+                <div class="drv-rev-ticks" aria-hidden="true" />
+                <div class="drv-rev-fill-wrap">
+                    <div
+                        class="drv-rev-fill"
+                        style={{ width: `${pct()}%` }}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/** Current + efficiency above T/B bars (reuses strip row space) */
+const PedalsMeta: Component = () => {
+    const line = createMemo(() => {
+        const s = driverStore.snapshot();
+        const eff = s.current_efficiency_km_kwh;
+        const effStr = eff !== null ? `${eff.toFixed(1)} km/kWh` : '— km/kWh';
+        return {
+            amps: `${s.current_a.toFixed(1)} A`,
+            eff: effStr,
+        };
+    });
+
+    return (
+        <div class="drv-inputs-meta">
+            <span class="drv-inputs-meta-item drv-inputs-meta-item--accent">{line().amps}</span>
+            <span class="drv-inputs-meta-sep" aria-hidden="true">
+                |
+            </span>
+            <span class="drv-inputs-meta-item">{line().eff}</span>
+        </div>
+    );
+};
+
+/** Throttle / brake bars + current & efficiency in the same card */
+const PedalsPanel: Component = () => (
+    <div class="drv-inputs-right">
+        <PedalsMeta />
+        <InputBars />
+    </div>
+);
 
 /** Mini G-Force meter — shows lateral + longitudinal as a dot in a circle */
 const GForceMeter: Component = () => {
@@ -216,11 +287,11 @@ const GForceMeter: Component = () => {
 
     // Clamp dot position to ±50% of the circle radius
     const dotX = createMemo(() => {
-        const raw = (snap() as any).g_lat ?? 0;
+        const raw = snap().g_lat;
         return Math.max(-1, Math.min(1, raw));
     });
     const dotY = createMemo(() => {
-        const raw = (snap() as any).g_long ?? 0;
+        const raw = snap().g_long;
         return Math.max(-1, Math.min(1, raw));
     });
 
@@ -418,9 +489,12 @@ const ObservabilityBar: Component = () => {
 const DriverDashboard: Component = () => {
     let ablyCleanup: (() => void) | null = null;
     let notifCleanup: (() => void) | null = null;
+    let fullscreenCleanup: (() => void) | null = null;
     let timerInterval: ReturnType<typeof setInterval> | null = null;
 
     onMount(() => {
+        fullscreenCleanup = initDriverFullscreen();
+
         // Connect to Ably (critical-latency telemetry path)
         ablyCleanup = connectDriverAbly();
 
@@ -434,21 +508,11 @@ const DriverDashboard: Component = () => {
     });
 
     onCleanup(() => {
+        fullscreenCleanup?.();
         ablyCleanup?.();
         notifCleanup?.();
         if (timerInterval) clearInterval(timerInterval);
         driverStore.reset();
-    });
-
-    // Computed values for metric cards
-    const currentA = createMemo(() => driverStore.snapshot().current_a.toFixed(1));
-    const efficiency = createMemo(() => {
-        const e = driverStore.snapshot().current_efficiency_km_kwh;
-        return e !== null ? e.toFixed(1) : '—';
-    });
-    const optimalSpeed = createMemo(() => {
-        const o = driverStore.snapshot().optimal_speed_kmh;
-        return o !== null ? Math.round(o).toString() : '—';
     });
 
     return (
@@ -465,6 +529,15 @@ const DriverDashboard: Component = () => {
                         </Show>
                     </div>
                     <div class="drv-header-right">
+                        <button
+                            type="button"
+                            class="drv-fs-btn"
+                            title="Fullscreen"
+                            aria-label="Enter fullscreen"
+                            onClick={() => void enterDriverFullscreen()}
+                        >
+                            ⛶
+                        </button>
                         <MessageAge />
                         <ConnectionDot />
                     </div>
@@ -475,43 +548,23 @@ const DriverDashboard: Component = () => {
                     {/* Notification overlay */}
                     <NotificationStack />
 
-                    {/* Top metrics row */}
-                    <div class="drv-metrics-top">
-                        <MetricCard
-                            label="Current"
-                            value={currentA}
-                            unit="A"
-                            variant="accent"
-                        />
-                        <MetricCard
-                            label="Efficiency"
-                            value={efficiency}
-                            unit="km/kWh"
-                        />
-                        <MetricCard
-                            label="Optimal"
-                            value={optimalSpeed}
-                            unit="kph"
-                            variant="warn"
-                        />
-                    </div>
+                    <SessionHero />
+                    <RevBar />
 
-                    {/* Center row: Speed LEFT 50% | GPS Map RIGHT 50% */}
+                    {/* Speed | GPS — inner split is flex-sized + clipped (no paint over pedals) */}
                     <div class="drv-center-row">
-                        <div class="drv-center">
-                            <SpeedDisplay />
-                            <DeltaIndicator />
+                        <div class="drv-center-split">
+                            <div class="drv-center">
+                                <SpeedHero />
+                            </div>
+                            <MiniGPSMap />
                         </div>
-                        <MiniGPSMap />
                     </div>
 
-                    {/* Bottom row: G-Force LEFT | Bars+Timer RIGHT */}
+                    {/* G-Force | pedals + current / efficiency */}
                     <div class="drv-inputs-row">
                         <GForceMeter />
-                        <div class="drv-inputs-right">
-                            <InputBars />
-                            <SessionTimer />
-                        </div>
+                        <PedalsPanel />
                     </div>
 
                     {/* Observability bar */}

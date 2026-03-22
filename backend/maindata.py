@@ -41,6 +41,7 @@ import numpy as np
 ESP32_ABLY_API_KEY = (
     "ja_fwQ.K6CTEw:F-aWFMdJXPCv9MvxhYztCGna3XdRJZVgA0qm9pMfDOQ"
 )
+# Driver dashboard (driver.html / ablyDriver.ts) subscribes here for raw ESP32 telemetry — keep names in sync.
 ESP32_CHANNEL_NAME = "EcoTele"
 
 # Dashboard output
@@ -576,6 +577,43 @@ class TelemetryCalculator:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return R * c
     
+    def _planar_g_from_data(
+        self, data: Dict[str, Any], accel_x: float, accel_y: float, accel_z: float
+    ) -> tuple[float, float, float, float]:
+        """
+        Resolve lateral / longitudinal G and horizontal acceleration magnitude.
+
+        Prefer ESP32-computed planar G (g_lat, g_long) in **g** (1.0 = 1×9.80665 m/s²), vehicle frame:
+        - g_long: positive = forward acceleration
+        - g_lat: positive = lateral (right in a typical SAE-style body frame; match your firmware)
+
+        Fallback: estimate magnitude from raw accel (m/s²) with gravity removed from Z, and
+        approximate components as accel_y/9.81 (lateral) and accel_x/9.81 (longitudinal).
+        """
+        raw_lat = data.get("g_lat")
+        raw_long = data.get("g_long")
+        use_esp32 = False
+        if raw_lat is not None and raw_long is not None:
+            try:
+                g_lat = float(raw_lat)
+                g_long = float(raw_long)
+                if not (math.isnan(g_lat) or math.isnan(g_long) or math.isinf(g_lat) or math.isinf(g_long)):
+                    use_esp32 = True
+            except (TypeError, ValueError):
+                use_esp32 = False
+        if use_esp32:
+            g_lat = max(-10.0, min(10.0, g_lat))
+            g_long = max(-10.0, min(10.0, g_long))
+            g_force = math.sqrt(g_lat * g_lat + g_long * g_long)
+            accel_mag = g_force * 9.80665
+            return g_lat, g_long, accel_mag, g_force
+
+        accel_mag = math.sqrt(accel_x**2 + accel_y**2 + (accel_z - 9.81) ** 2)
+        g_force = accel_mag / 9.80665
+        g_lat = accel_y / 9.80665
+        g_long = accel_x / 9.80665
+        return g_lat, g_long, accel_mag, g_force
+
     def _classify_motion_state(self, speed: float, accel_mag: float, gyro_z: float) -> str:
         """Classify current motion state"""
         if speed < 0.5:
@@ -779,14 +817,17 @@ class TelemetryCalculator:
         accel_y = data.get("accel_y", 0.0)
         accel_z = data.get("accel_z", 9.81)
         gyro_z = data.get("gyro_z", 0.0)
-        
-        accel_mag = math.sqrt(accel_x**2 + accel_y**2 + (accel_z - 9.81)**2)
-        g_force = accel_mag / 9.81
+
+        g_lat, g_long, accel_mag, g_force = self._planar_g_from_data(
+            data, accel_x, accel_y, accel_z
+        )
         self.accel_magnitude_window.push(accel_mag)
         self.max_g_force = max(self.max_g_force, g_force)
-        
+
         motion_state = self._classify_motion_state(speed, accel_mag, gyro_z)
         result["motion_state"] = motion_state
+        result["g_lat"] = round(g_lat, 4)
+        result["g_long"] = round(g_long, 4)
         result["accel_magnitude"] = round(accel_mag, 3)
         result["current_g_force"] = round(g_force, 2)
         result["max_g_force"] = round(self.max_g_force, 2)
@@ -2049,7 +2090,7 @@ class TelemetryBridgeWithDB:
             "reconnect_count": 0,
         }
 
-        # ESP32 binary format
+        # ESP32 binary format (compact uplink; planar G is JSON-only — see g_lat / g_long in esp32-variables-guide.md)
         self.BINARY_FORMAT = "<ffffffI"
         self.BINARY_FIELD_NAMES = [
             "speed_ms",
@@ -2296,6 +2337,8 @@ class TelemetryBridgeWithDB:
 
         # Canonicalize optional aliases before defaults are applied.
         alias_map = {
+            "g_lat": ["g_lateral", "lateral_g", "lat_g"],
+            "g_long": ["g_longitudinal", "longitudinal_g", "long_g", "lon_g"],
             "brake2_pct": ["brake_2_pct", "brake2_percent"],
             "brake2": ["brake2_ratio", "brake_2_ratio"],
             "motor_current_a": ["motor_current", "can_motor_current_a"],
