@@ -577,18 +577,31 @@ __global.HA = __global.HA || {};
     // ── Compute Session Stats (for compare) ──
     HA.computeSessionStats = data => {
         const speeds = data.map(r => r.speed_kmh).filter(v => v > 0);
-        let dist = 0, energy = 0;
+        let distMeters = 0;
+        let integratedEnergyWh = 0;
         for (let i = 1; i < data.length; i++) {
             const dt = (data[i]._ts - data[i - 1]._ts) / 1000;
-            if (dt > 0 && dt < 60) dist += data[i].speed_ms * dt;
+            if (dt > 0 && dt < 60) distMeters += data[i].speed_ms * dt;
             const dtH = dt / 3600;
-            if (dtH > 0 && dtH < 0.02) energy += Math.abs(data[i].power_w) * dtH;
+            if (dtH > 0 && dtH < 0.02) integratedEnergyWh += Math.abs(data[i].power_w) * dtH;
         }
-        const distKm = dist / 1000, energyWh = energy / 1000;
+        const last = data[data.length - 1] || null;
+        const serverDistanceKm = last && Number.isFinite(last.routeDist) && last.routeDist > 0
+            ? last.routeDist
+            : null;
+        const serverEnergyWh = last && Number.isFinite(last.cumEnergy) && last.cumEnergy > 0
+            ? last.cumEnergy * 1000
+            : null;
+        const distKm = serverDistanceKm ?? (distMeters / 1000);
+        const energyWh = serverEnergyWh ?? integratedEnergyWh;
         const durationMs = data.length > 1 ? data[data.length - 1]._ts - data[0]._ts : 0;
+        const backendEfficiency = last && Number.isFinite(last.efficiency) && last.efficiency > 0 && last.efficiency < 1000
+            ? last.efficiency
+            : null;
+        const computedEfficiency = energyWh > 0 ? distKm / (energyWh / 1000) : 0;
         return {
             distance: distKm, maxSpeed: speeds.length ? Math.max(...speeds) : 0, avgSpeed: HA.mean(speeds),
-            energyWh, efficiency: energyWh > 0 ? distKm / (energyWh / 1000) : 0, durationMin: durationMs / 60000,
+            energyWh, efficiency: backendEfficiency ?? computedEfficiency, durationMin: durationMs / 60000,
             avgPower: HA.mean(data.map(r => r.power_w)), maxG: data.length ? Math.max(...data.map(r => r.g_force)) : 0,
             optimalSpeed: data.find(r => r.optimalSpeed != null)?.optimalSpeed || 0,
             qualityScore: (() => { const q = data.map(r => r.qualityScore).filter(v => v != null); return q.length ? q.reduce((a, b) => a + b, 0) / q.length : 0 })(),
