@@ -46,6 +46,8 @@ html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 }
 
 body.hist-page {
@@ -53,8 +55,11 @@ body.hist-page {
     background: var(--ha-bg);
     color: var(--ha-text);
     min-height: 100vh;
+    min-height: 100dvh;
     overflow-x: hidden;
     line-height: 1.5;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
 }
 
 /* ─── Scrollbar ─── */
@@ -273,8 +278,9 @@ body.hist-page {
 .ha-main {
     max-width: 1440px;
     margin: 0 auto;
-    padding: 24px 28px 80px;
+    padding: 24px 28px calc(80px + env(safe-area-inset-bottom, 0px));
     min-height: calc(100vh - 52px);
+    min-height: calc(100dvh - 52px);
 }
 
 /* Views */
@@ -2674,7 +2680,7 @@ select.ha-ca-select[multiple] option:checked {
     }
 
     .ha-main {
-        padding: 20px 22px 80px;
+        padding: 20px 22px calc(80px + env(safe-area-inset-bottom, 0px));
     }
 
     .ha-kpi-grid {
@@ -2702,7 +2708,7 @@ select.ha-ca-select[multiple] option:checked {
     }
 
     .ha-main {
-        padding: 16px 16px 80px;
+        padding: 16px 16px calc(80px + env(safe-area-inset-bottom, 0px));
     }
 
     .ha-chart-box {
@@ -2738,7 +2744,86 @@ select.ha-ca-select[multiple] option:checked {
 
 /* ≤ 700px — Phones */
 @media (max-width: 700px) {
-    .ha-mobile-nav {
+    /* One compact header row; scroll horizontally if many actions (analysis view) */
+    .ha-header {
+        flex-wrap: nowrap;
+        align-items: center;
+        height: auto;
+        min-height: 48px;
+        gap: 8px;
+        padding-top: max(8px, env(safe-area-inset-top, 0px));
+        padding-bottom: 8px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .ha-header::-webkit-scrollbar {
+        display: none;
+    }
+
+    .ha-header-logo {
+        margin-top: 0;
+        flex-shrink: 0;
+    }
+
+    .ha-header-back {
+        flex-shrink: 0;
+    }
+
+    .ha-header-title {
+        flex: 1 1 auto;
+        min-width: 120px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.25;
+    }
+
+    .ha-quality-badge {
+        flex-shrink: 0;
+    }
+
+    .ha-header-actions {
+        display: flex;
+        flex-wrap: nowrap;
+        flex-shrink: 0;
+        width: auto;
+        margin-left: auto;
+        gap: 6px;
+        align-items: center;
+    }
+
+    .ha-header-actions .ha-btn {
+        flex: 0 0 auto;
+        min-height: 40px;
+        max-width: min(100vw - 48px, 280px);
+        padding-left: 10px;
+        padding-right: 10px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    .ha-header-actions .ha-btn-primary {
+        max-width: min(92vw, 320px);
+    }
+
+    .ha-header-actions .ha-btn-icon {
+        min-width: 40px;
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .ha-header-actions>a.ha-header-back {
+        flex: 0 0 auto;
+    }
+
+    /* Bottom section nav: body.ha-session-open toggled from historical.js */
+    body.hist-page:not(.ha-session-open) #ha-mobile-nav {
+        display: none !important;
+    }
+
+    body.hist-page.ha-session-open #ha-mobile-nav {
         display: flex !important;
         position: fixed;
         bottom: 0;
@@ -2748,14 +2833,41 @@ select.ha-ca-select[multiple] option:checked {
         border-top: 1px solid var(--ha-border);
         z-index: 100;
         padding: 6px 4px;
+        padding-bottom: max(6px, env(safe-area-inset-bottom, 0px));
         gap: 2px;
         justify-content: space-around;
         backdrop-filter: blur(16px);
         -webkit-backdrop-filter: blur(16px);
     }
 
-    .ha-main {
-        padding: 12px 10px 80px;
+    body.hist-page:not(.ha-session-open) .ha-main {
+        padding: 12px 10px max(20px, env(safe-area-inset-bottom, 0px));
+    }
+
+    body.hist-page.ha-session-open .ha-main {
+        padding: 12px 10px calc(80px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .ha-explorer-toolbar {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        align-items: stretch;
+    }
+
+    .ha-explorer-toolbar .ha-search-wrap {
+        grid-column: 1 / -1;
+        min-width: 0;
+    }
+
+    .ha-explorer-toolbar .ha-select {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .ha-explorer-toolbar .ha-btn {
+        width: 100%;
+        justify-content: center;
     }
 
     .ha-kpi-grid {
@@ -2874,7 +2986,8 @@ select.ha-ca-select[multiple] option:checked {
     }
 
     .ha-kpi-label {
-        font-size: 9px;
+        font-size: 10px;
+        letter-spacing: 0.02em;
     }
 
     .ha-chart-box {

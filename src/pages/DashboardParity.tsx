@@ -1196,6 +1196,45 @@ const DashboardParity: Component = () => {
                                     Real-time Telemetry Dashboard
                                 </p>
                             </div>
+                            <div class="header-actions hero-header-actions">
+                                <Show when={canAccessDriverDashboard()}>
+                                    <a
+                                        href={DRIVER_DASHBOARD_HREF}
+                                        class="header-historical-link liquid-hover"
+                                        title="Driver dashboard"
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            window.location.assign(DRIVER_DASHBOARD_HREF);
+                                        }}
+                                    >
+                                        <span>🎮</span>
+                                    </a>
+                                </Show>
+                                <a
+                                    href={historyHref()}
+                                    class="header-historical-link liquid-hover"
+                                    title="Historical Analysis"
+                                    onMouseEnter={prewarmHistoricalMode}
+                                    onFocus={prewarmHistoricalMode}
+                                >
+                                    <span>📊</span>
+                                </a>
+                                <button
+                                    id="theme-toggle"
+                                    class="theme-toggle liquid-hover"
+                                    aria-label="Toggle theme"
+                                    title="Toggle light/dark mode"
+                                    onClick={toggleTheme}
+                                >
+                                    <span class="theme-icon theme-icon-sun">☀️</span>
+                                    <span class="theme-icon theme-icon-moon">🌙</span>
+                                </button>
+                                <UserMenu
+                                    onLogin={() => setShowLogin(true)}
+                                    onSignup={() => setShowSignup(true)}
+                                    onAdmin={() => setShowAdmin(true)}
+                                />
+                            </div>
                             <div class="hero-status">
                                 <div class="status-cluster">
                                     <button
@@ -1242,47 +1281,6 @@ const DashboardParity: Component = () => {
                                         <span class="stat-mini-label">Last Update</span>
                                     </div>
                                 </div>
-                                <div class="header-actions">
-                                    <Show when={canAccessDriverDashboard()}>
-                                        <a
-                                            href={DRIVER_DASHBOARD_HREF}
-                                            class="header-historical-link liquid-hover"
-                                            title="Driver dashboard"
-                                            onClick={(e) => {
-                                                // Bypass Solid Router: `path="*"` would otherwise capture /driver and
-                                                // stay on the SPA instead of loading driver.html (separate entry).
-                                                e.preventDefault();
-                                                window.location.assign(DRIVER_DASHBOARD_HREF);
-                                            }}
-                                        >
-                                            <span>🎮</span>
-                                        </a>
-                                    </Show>
-                                    <a
-                                        href={historyHref()}
-                                        class="header-historical-link liquid-hover"
-                                        title="Historical Analysis"
-                                        onMouseEnter={prewarmHistoricalMode}
-                                        onFocus={prewarmHistoricalMode}
-                                    >
-                                        <span>📊</span>
-                                    </a>
-                                    <button
-                                        id="theme-toggle"
-                                        class="theme-toggle liquid-hover"
-                                        aria-label="Toggle theme"
-                                        title="Toggle light/dark mode"
-                                        onClick={toggleTheme}
-                                    >
-                                        <span class="theme-icon theme-icon-sun">☀️</span>
-                                        <span class="theme-icon theme-icon-moon">🌙</span>
-                                    </button>
-                                    <UserMenu
-                                        onLogin={() => setShowLogin(true)}
-                                        onSignup={() => setShowSignup(true)}
-                                        onAdmin={() => setShowAdmin(true)}
-                                    />
-                                </div>
                             </div>
                         </div>
                     </header>
@@ -1304,7 +1302,7 @@ const DashboardParity: Component = () => {
                                 </nav>
                             </div>
 
-                            <div style={{ padding: '0 0 24px' }}>
+                            <div class="main-panels">
                                 <div style={{ display: activePanel() === 'overview' ? 'block' : 'none' }}>
                                     <OverviewPanel data={data()} loading={booting()} sessionId={sessionId()} active={activePanel() === 'overview'} />
                                     <div class="glass-panel driver-box mb-4">

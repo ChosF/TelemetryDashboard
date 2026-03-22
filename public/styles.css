@@ -339,6 +339,23 @@ a:hover {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
+    gap: var(--space-4);
+  }
+
+  .hero-title-wrapper {
+    order: 1;
+  }
+
+  .hero-status {
+    order: 2;
+    flex: 1;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .hero-header-actions {
+    order: 3;
+    flex-shrink: 0;
   }
 }
 
@@ -2624,23 +2641,73 @@ body {
   margin-left: 0;
 }
 
-/* Mobile: Position header-actions in top right */
+/* Main panel stack — extra bottom inset so content clears mobile browser chrome */
+.main-panels {
+  padding: 0 0 var(--space-6);
+}
+
+/* Mobile: layout, safe areas, tabs, charts (desktop unchanged at 768px+) */
 @media (max-width: 767px) {
+  .app-container {
+    padding-top: max(var(--space-3), env(safe-area-inset-top, 0px));
+    padding-right: max(var(--space-3), env(safe-area-inset-right, 0px));
+    padding-bottom: max(var(--space-6), calc(env(safe-area-inset-bottom, 0px) + var(--space-5)));
+    padding-left: max(var(--space-3), env(safe-area-inset-left, 0px));
+  }
+
+  .main-panels {
+    padding-bottom: max(5rem, calc(env(safe-area-inset-bottom, 0px) + 3.5rem));
+  }
+
   .hero-content {
-    position: relative;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .hero-title-wrapper {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding-right: 0;
+  }
+
+  .hero-title {
+    font-size: clamp(1.125rem, 4.2vw, 1.5rem);
+    line-height: 1.2;
+    word-break: break-word;
+  }
+
+  .hero-subtitle {
+    font-size: 0.6875rem;
+  }
+
+  .hero-header {
+    padding: var(--space-4) 0;
+    margin-bottom: var(--space-4);
+  }
+
+  .hero-header-actions.header-actions {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    row-gap: var(--space-2);
   }
 
   .hero-status {
     flex-wrap: wrap;
     gap: var(--space-3);
-    align-items: center;
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .status-note {
+    max-width: 100%;
   }
 
   .header-actions {
-    position: absolute;
-    top: 0;
-    right: 0;
-    gap: var(--space-1);
+    gap: var(--space-2);
+    align-items: center;
   }
 
   .theme-toggle {
@@ -2656,6 +2723,95 @@ body {
     gap: var(--space-4);
     flex-wrap: wrap;
   }
+
+  /* Single-column gauges so cards are not clipped horizontally */
+  .gauge-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+
+  .gauge-wrap {
+    min-width: 0;
+    max-width: 100%;
+    padding: var(--space-3);
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kpi {
+    min-width: 0;
+    padding: var(--space-3);
+  }
+
+  .panel .glass-panel {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .tabs-nav-wrapper {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: var(--z-sticky);
+    margin: 0 0 var(--space-3);
+    padding-bottom: var(--space-2);
+    background: var(--bg-base);
+    box-shadow: 0 1px 0 var(--border-subtle);
+  }
+
+  .tabs-nav {
+    margin-bottom: 0;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+
+  .tab {
+    min-height: 44px;
+    min-width: 44px;
+    justify-content: center;
+    padding: var(--space-2) var(--space-3);
+    scroll-snap-align: start;
+  }
+
+  .tab-icon {
+    font-size: 1.125rem;
+  }
+
+  .tab-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .time-range-selector {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+  }
+
+  .time-btn {
+    flex: 1 1 auto;
+    min-height: 40px;
+    min-width: 2.5rem;
+    justify-content: center;
+  }
+
+  .collapsible-header {
+    min-height: 44px;
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .chart.xxl {
+    height: min(400px, 58vh);
+    min-height: 260px;
+  }
+
+  #chart-imu-detail {
+    min-height: min(340px, 52vh);
+  }
 }
 
 /* Very small screens */
@@ -2666,6 +2822,10 @@ body {
 
   .theme-icon {
     font-size: 0.875rem;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -38,6 +38,13 @@
         window.history[method](state, '', next);
     }
 
+    /** Mobile bottom nav + main padding (CSS hooks on body.ha-session-open) */
+    function syncHistoricalMobileChrome() {
+        const analysisOn = $('h-view-analysis')?.classList.contains('active');
+        const customOn = $('h-view-custom-analysis')?.classList.contains('active');
+        document.body.classList.toggle('ha-session-open', !!(analysisOn || customOn));
+    }
+
     // ── Web Worker Config ──
     const histWorker = new Worker('/workers/historical-worker.js');
     let workerMsgId = 0;
@@ -332,6 +339,7 @@
         showAnalysisActions(true);
         $('h-btn-custom-analysis').style.display = canAccessCustomAnalysis ? '' : 'none';
         $('h-btn-collapse-all').style.display = '';
+        syncHistoricalMobileChrome();
     }
 
     function showCustomAnalysisView() {
@@ -340,6 +348,7 @@
         $('h-btn-custom-analysis').style.display = 'none';
         $('h-btn-collapse-all').style.display = 'none';
         showTOC(false);
+        syncHistoricalMobileChrome();
     }
 
     async function openSession(sid, options = {}) {
@@ -455,6 +464,7 @@
         if (!options.skipHistory) {
             updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, !!options.replaceHistory);
         }
+        syncHistoricalMobileChrome();
     }
     $('h-back-to-sessions')?.addEventListener('click', backToSessions);
 
@@ -482,6 +492,7 @@
         $('h-btn-custom-analysis').style.display = canAccessCustomAnalysis ? '' : 'none';
         $('h-btn-collapse-all').style.display = '';
         showTOC(true);
+        syncHistoricalMobileChrome();
         if (S.activeSessionId) {
             updateRoute(`${HIST_ROUTE_BASE}/${encodeURIComponent(S.activeSessionId)}`, { view: 'analysis', sessionId: S.activeSessionId }, false);
         }
@@ -3140,6 +3151,7 @@
         } else {
             updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, true);
         }
+        syncHistoricalMobileChrome();
     }
 
     window.addEventListener('popstate', async () => {
