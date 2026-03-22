@@ -16,6 +16,8 @@ export type { UPlotChartProps } from './UPlotChart';
 // G-Force visualization
 export { GForceScatter } from './GForceScatter';
 export type { GForceScatterProps } from './GForceScatter';
+export { OverviewGForceUPlot } from './OverviewGForceUPlot';
+export type { OverviewGForceUPlotProps } from './OverviewGForceUPlot';
 
 // Chart configurations
 export * from './configs';

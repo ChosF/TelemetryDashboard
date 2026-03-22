@@ -110,6 +110,9 @@ export const TELEMETRY_EXPORT_COLUMNS: string[] = [
     'motor_voltage_v',
     'motor_current_a',
     'motor_rpm',
+    'motor_phase_1_current_a',
+    'motor_phase_2_current_a',
+    'motor_phase_3_current_a',
     'motor_phase_current_a',
 ];
 
@@ -138,6 +141,9 @@ export const TELEMETRY_HEADERS: Record<string, string> = {
     motor_voltage_v: 'Motor Voltage (V)',
     motor_current_a: 'Motor Current (A)',
     motor_rpm: 'Motor RPM',
+    motor_phase_1_current_a: 'Motor Phase 1 Current (A)',
+    motor_phase_2_current_a: 'Motor Phase 2 Current (A)',
+    motor_phase_3_current_a: 'Motor Phase 3 Current (A)',
     motor_phase_current_a: 'Motor Phase Current (A)',
 };
 

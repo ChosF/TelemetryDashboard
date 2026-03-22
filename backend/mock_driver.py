@@ -219,7 +219,13 @@ class SimState:
         motor_voltage_v = round(max(0.0, self.voltage_v * 0.94 + random.gauss(0, 0.15)), 2)
         motor_current_a = round(max(-40.0, current_a * 1.08 + random.gauss(0, 0.35)), 2)
         motor_rpm = round(max(0.0, v * 315.0 + random.gauss(0, 18.0)), 1)
-        motor_phase_current_a = round(max(-50.0, motor_current_a * 1.14 + random.gauss(0, 0.45)), 2)
+        motor_phase_1_current_a = round(max(-50.0, motor_current_a * 1.10 + random.gauss(0, 0.40)), 2)
+        motor_phase_2_current_a = round(max(-50.0, motor_current_a * 1.14 + random.gauss(0, 0.45)), 2)
+        motor_phase_3_current_a = round(max(-50.0, motor_current_a * 1.18 + random.gauss(0, 0.50)), 2)
+        motor_phase_current_a = round(
+            (motor_phase_1_current_a + motor_phase_2_current_a + motor_phase_3_current_a) / 3.0,
+            2,
+        )
 
         # Efficiency km/kWh
         energy_kwh = self.cumulative_energy_j / 3_600_000
@@ -287,6 +293,9 @@ class SimState:
             "motor_voltage_v":       motor_voltage_v,
             "motor_current_a":       motor_current_a,
             "motor_rpm":             motor_rpm,
+            "motor_phase_1_current_a": motor_phase_1_current_a,
+            "motor_phase_2_current_a": motor_phase_2_current_a,
+            "motor_phase_3_current_a": motor_phase_3_current_a,
             "motor_phase_current_a": motor_phase_current_a,
 
             # Driver state

@@ -22,6 +22,9 @@ type MetricId =
     | 'motorVoltage'
     | 'motorCurrent'
     | 'motorRpm'
+    | 'motorPhase1Current'
+    | 'motorPhase2Current'
+    | 'motorPhase3Current'
     | 'motorPhaseCurrent'
     | 'efficiency'
     | 'throttle'
@@ -113,12 +116,43 @@ const METRICS: Record<MetricId, MetricDef> = {
         color: '#a855f7',
         extract: (row) => row.motor_rpm ?? null,
     },
-    motorPhaseCurrent: {
-        id: 'motorPhaseCurrent',
-        label: 'Phase Current',
+    motorPhase1Current: {
+        id: 'motorPhase1Current',
+        label: 'Motor Phase 1',
         unit: 'A',
         color: '#fb7185',
-        extract: (row) => row.motor_phase_current_a ?? null,
+        extract: (row) => row.motor_phase_1_current_a ?? row.motor_phase_current_a ?? null,
+    },
+    motorPhase2Current: {
+        id: 'motorPhase2Current',
+        label: 'Motor Phase 2',
+        unit: 'A',
+        color: '#f43f5e',
+        extract: (row) => row.motor_phase_2_current_a ?? null,
+    },
+    motorPhase3Current: {
+        id: 'motorPhase3Current',
+        label: 'Motor Phase 3',
+        unit: 'A',
+        color: '#e11d48',
+        extract: (row) => row.motor_phase_3_current_a ?? null,
+    },
+    motorPhaseCurrent: {
+        id: 'motorPhaseCurrent',
+        label: 'Phase Current Avg',
+        unit: 'A',
+        color: '#fb7185',
+        extract: (row) => {
+            const phases = [
+                row.motor_phase_1_current_a,
+                row.motor_phase_2_current_a,
+                row.motor_phase_3_current_a,
+            ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+            if (phases.length > 0) {
+                return phases.reduce((sum, value) => sum + value, 0) / phases.length;
+            }
+            return row.motor_phase_current_a ?? null;
+        },
     },
     efficiency: {
         id: 'efficiency',
@@ -446,7 +480,7 @@ function CustomChartCard(props: {
                         }),
                     },
                 ],
-                legend: { show: false },
+                legend: { show: true },
             };
         }
 
@@ -477,7 +511,7 @@ function CustomChartCard(props: {
                         }),
                     },
                 ],
-                legend: { show: false },
+                legend: { show: true },
             };
         }
 
@@ -515,7 +549,7 @@ function CustomChartCard(props: {
                         }),
                     },
                 ],
-                legend: { show: false },
+                legend: { show: true },
             };
         }
 
@@ -691,7 +725,7 @@ function CustomChartCard(props: {
                 <StatChip label="Avg" value={formatNumber(stats().avg, 1)} unit={primaryMetric().unit} />
             </div>
 
-            <div style={{ height: '280px' }}>
+            <div style={{ height: '320px' }}>
                 <UPlotChart options={chartOptions()} data={chartData()} />
             </div>
         </div>

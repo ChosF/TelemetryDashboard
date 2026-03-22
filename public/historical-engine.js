@@ -542,7 +542,17 @@ __global.HA = __global.HA || {};
         n.motor_voltage_v = r.motor_voltage_v || 0;
         n.motor_current_a = r.motor_current_a || 0;
         n.motor_rpm = r.motor_rpm || 0;
-        n.motor_phase_current_a = r.motor_phase_current_a || 0;
+        n.motor_phase_1_current_a = r.motor_phase_1_current_a || r.phase_1_current_a || 0;
+        n.motor_phase_2_current_a = r.motor_phase_2_current_a || r.phase_2_current_a || 0;
+        n.motor_phase_3_current_a = r.motor_phase_3_current_a || r.phase_3_current_a || 0;
+        {
+            const phaseValues = [];
+            if (r.motor_phase_1_current_a != null || r.phase_1_current_a != null) phaseValues.push(n.motor_phase_1_current_a);
+            if (r.motor_phase_2_current_a != null || r.phase_2_current_a != null) phaseValues.push(n.motor_phase_2_current_a);
+            if (r.motor_phase_3_current_a != null || r.phase_3_current_a != null) phaseValues.push(n.motor_phase_3_current_a);
+            n.motor_phase_current_a = r.motor_phase_current_a
+                || (phaseValues.length ? phaseValues.reduce((a, b) => a + b, 0) / phaseValues.length : 0);
+        }
         n.throttle_intensity = r.throttle_intensity || null;
         n.brake_intensity = r.brake_intensity || null;
         n.accel_x = r.accel_x || 0; n.accel_y = r.accel_y || 0; n.accel_z = r.accel_z || 0;
@@ -626,7 +636,10 @@ __global.HA = __global.HA || {};
         { key: 'motor_voltage_v', label: 'Motor Voltage (V)' },
         { key: 'motor_current_a', label: 'Motor Current (A)' },
         { key: 'motor_rpm', label: 'Motor RPM' },
-        { key: 'motor_phase_current_a', label: 'Phase Current (A)' },
+        { key: 'motor_phase_1_current_a', label: 'Motor Phase 1 Current (A)' },
+        { key: 'motor_phase_2_current_a', label: 'Motor Phase 2 Current (A)' },
+        { key: 'motor_phase_3_current_a', label: 'Motor Phase 3 Current (A)' },
+        { key: 'motor_phase_current_a', label: 'Motor Phase Current Avg (A)' },
         { key: 'throttle_pct', label: 'Throttle (%)' },
         { key: 'brake_pct', label: 'Brake (%)' },
         { key: 'brake2_pct', label: 'Brake 2 (%)' },

@@ -4,13 +4,15 @@
  */
 
 import type { Options } from 'uplot';
-import { CHART_COLORS as _CHART_COLORS, DEFAULT_TIME_AXIS, createYAxis, createSeries } from '../UPlotChart';
+import { DEFAULT_TIME_AXIS, createYAxis, createSeries } from '../UPlotChart';
 
 const MOTOR_COLORS = {
     rpm: '#f59e0b',
     voltage: '#22d3ee',
     current: '#fb923c',
-    phase: '#f87171',
+    phase1: '#fb7185',
+    phase2: '#f43f5e',
+    phase3: '#e11d48',
     speed: 'rgba(148,163,184,0.5)',
 };
 
@@ -59,7 +61,7 @@ export function createMotorRpmChartOptions(): Omit<Options, 'width' | 'height'> 
     };
 }
 
-/** Motor current vs phase current on shared scale */
+/** Motor current vs per-phase current on shared scale */
 export function createMotorCurrentChartOptions(): Omit<Options, 'width' | 'height'> {
     return {
         cursor: {
@@ -82,8 +84,16 @@ export function createMotorCurrentChartOptions(): Omit<Options, 'width' | 'heigh
                 width: 2,
             },
             {
-                ...createSeries('Phase Current', MOTOR_COLORS.phase),
+                ...createSeries('Phase 1', MOTOR_COLORS.phase1),
                 fill: 'rgba(248,113,113,0.07)',
+                width: 2,
+            },
+            {
+                ...createSeries('Phase 2', MOTOR_COLORS.phase2),
+                width: 2,
+            },
+            {
+                ...createSeries('Phase 3', MOTOR_COLORS.phase3),
                 width: 2,
             },
         ],

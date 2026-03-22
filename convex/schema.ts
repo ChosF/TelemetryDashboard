@@ -61,6 +61,9 @@ export default defineSchema({
     motor_voltage_v: v.optional(v.number()),
     motor_current_a: v.optional(v.number()),
     motor_rpm: v.optional(v.number()),
+    motor_phase_1_current_a: v.optional(v.number()),
+    motor_phase_2_current_a: v.optional(v.number()),
+    motor_phase_3_current_a: v.optional(v.number()),
     motor_phase_current_a: v.optional(v.number()),
     data_source: v.optional(v.string()),
     outliers: v.optional(v.any()), // JSON object for outlier detection data

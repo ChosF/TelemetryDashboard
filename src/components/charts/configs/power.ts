@@ -125,7 +125,7 @@ export function createCurrentPeaksOptions(): Omit<Options, 'width' | 'height'> {
                 points: { show: false },
             }),
         ],
-        legend: { show: false },
+        legend: { show: true },
     };
 }
 

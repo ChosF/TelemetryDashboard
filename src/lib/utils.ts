@@ -105,6 +105,9 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
     const motorVoltage = toNum(normalized.motor_voltage_v, null);
     const motorCurrent = toNum(normalized.motor_current_a, null);
     const motorRpm = toNum(normalized.motor_rpm, null);
+    const motorPhase1Current = toNum(normalized.motor_phase_1_current_a, null);
+    const motorPhase2Current = toNum(normalized.motor_phase_2_current_a, null);
+    const motorPhase3Current = toNum(normalized.motor_phase_3_current_a, null);
     const motorPhaseCurrent = toNum(normalized.motor_phase_current_a, null);
 
     if (voltage !== null) normalized.voltage_v = voltage;
@@ -118,6 +121,9 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
     if (motorVoltage !== null) normalized.motor_voltage_v = motorVoltage;
     if (motorCurrent !== null) normalized.motor_current_a = motorCurrent;
     if (motorRpm !== null) normalized.motor_rpm = motorRpm;
+    if (motorPhase1Current !== null) normalized.motor_phase_1_current_a = motorPhase1Current;
+    if (motorPhase2Current !== null) normalized.motor_phase_2_current_a = motorPhase2Current;
+    if (motorPhase3Current !== null) normalized.motor_phase_3_current_a = motorPhase3Current;
     if (motorPhaseCurrent !== null) normalized.motor_phase_current_a = motorPhaseCurrent;
 
     const efficiency = toNum(normalized.current_efficiency_km_kwh, null);
@@ -134,6 +140,9 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
         ['motor_current_a', ['motor_current', 'can_motor_current_a']],
         ['motor_voltage_v', ['motor_voltage', 'can_motor_voltage_v']],
         ['motor_rpm', ['rpm', 'motor_speed_rpm', 'can_motor_rpm']],
+        ['motor_phase_1_current_a', ['phase_1_current_a', 'motor_phase_1_current', 'can_phase_1_current_a']],
+        ['motor_phase_2_current_a', ['phase_2_current_a', 'motor_phase_2_current', 'can_phase_2_current_a']],
+        ['motor_phase_3_current_a', ['phase_3_current_a', 'motor_phase_3_current', 'can_phase_3_current_a']],
         ['motor_phase_current_a', ['phase_current_a', 'motor_phase_current', 'can_phase_current_a']],
     ];
 
@@ -146,6 +155,15 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
             }
         }
     }
+
+    const normalizedPhase1 = toNum(normalized.motor_phase_1_current_a, null);
+    const normalizedPhase2 = toNum(normalized.motor_phase_2_current_a, null);
+    const normalizedPhase3 = toNum(normalized.motor_phase_3_current_a, null);
+    const normalizedPhaseAvg = toNum(normalized.motor_phase_current_a, null);
+    if (normalizedPhase1 !== null) normalized.motor_phase_1_current_a = normalizedPhase1;
+    if (normalizedPhase2 !== null) normalized.motor_phase_2_current_a = normalizedPhase2;
+    if (normalizedPhase3 !== null) normalized.motor_phase_3_current_a = normalizedPhase3;
+    if (normalizedPhaseAvg !== null) normalized.motor_phase_current_a = normalizedPhaseAvg;
 
     const brake2Pct = toNum(normalized.brake2_pct, null);
     const brake2Ratio = toNum(normalized.brake2, null);
@@ -160,6 +178,17 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
     }
     if (brake2Ratio === null && brake2Pct !== null) {
         normalized.brake2 = clamp(brake2Pct / 100, 0, 1);
+    }
+
+    const perPhaseValues = [
+        toNum(normalized.motor_phase_1_current_a, null),
+        toNum(normalized.motor_phase_2_current_a, null),
+        toNum(normalized.motor_phase_3_current_a, null),
+    ].filter((value): value is number => value !== null);
+    if (perPhaseValues.length > 0) {
+        normalized.motor_phase_current_a = perPhaseValues.reduce((sum, value) => sum + value, 0) / perPhaseValues.length;
+    } else if (motorPhaseCurrent !== null && normalized.motor_phase_1_current_a == null) {
+        normalized.motor_phase_1_current_a = motorPhaseCurrent;
     }
 
     const altitudeFields = ['altitude_m', 'altitude', 'gps_altitude', 'elevation', 'alt'] as const;

@@ -178,7 +178,7 @@ export const IMUDetailPanel: Component<IMUDetailPanelProps> = (props) => {
             {},
             createSeries(label, color, { fill: `${color}20` }),
         ],
-        legend: { show: false },
+        legend: { show: true },
     });
 
     return (
@@ -274,7 +274,7 @@ function MiniChart(props: {
             <div class="chart-header" style={{ 'margin-bottom': '12px' }}>
                 <h4>{props.title}</h4>
             </div>
-            <div style={{ height: '150px' }}>
+            <div style={{ height: '185px' }}>
                 <UPlotChart options={props.options} data={props.data} />
             </div>
         </div>

@@ -352,7 +352,7 @@ export function DataPanel(props: DataPanelProps): JSX.Element {
                 },
             }),
         ],
-        legend: { show: false },
+        legend: { show: true },
     }));
 
     const gaugeCircumference = 2 * Math.PI * 52;
@@ -559,7 +559,7 @@ export function DataPanel(props: DataPanelProps): JSX.Element {
 
                 <div class="glass-panel quality-trend-chart">
                     <h4>📈 Quality Score Trend</h4>
-                    <div class="chart h-200" style={{ height: '220px' }}>
+                    <div class="chart h-200" style={{ height: '260px' }}>
                         <UPlotChart options={qualityTrendOptions()} data={qualityTrend()} />
                     </div>
                 </div>

@@ -130,9 +130,13 @@ These values are now supported end to end by `maindata.py`, Convex, Ably, the li
 | `motor_current_a` | `number` | Amps | -50 to 200 | Motor-side current from CAN bus |
 | `motor_voltage_v` | `number` | Volts | 0 to 120 | Motor-side voltage from CAN bus |
 | `motor_rpm` | `number` | RPM | 0 to 20000 | Motor rotational speed |
-| `motor_phase_current_a` | `number` | Amps | -50 to 250 | Motor phase current |
+| `motor_phase_1_current_a` | `number` | Amps | -50 to 250 | Instantaneous current on motor phase 1 |
+| `motor_phase_2_current_a` | `number` | Amps | -50 to 250 | Instantaneous current on motor phase 2 |
+| `motor_phase_3_current_a` | `number` | Amps | -50 to 250 | Instantaneous current on motor phase 3 |
 
-> 💡 Use these exact names when possible. The bridge also tolerates a few aliases such as `motor_voltage`, `motor_current`, `rpm`, and `phase_current_a`, but the canonical names above are preferred.
+> 💡 Use these exact names when possible. The bridge also tolerates a few aliases such as `motor_voltage`, `motor_current`, `rpm`, `phase_1_current_a`, `phase_2_current_a`, and `phase_3_current_a`, but the canonical names above are preferred.
+>
+> Legacy note: `motor_phase_current_a` is still accepted for backwards compatibility, but it is now treated as a legacy single-phase/aggregate field. New integrations should send the three per-phase fields instead.
 
 #### 🔧 Throttle Hardware Configuration (Current Implementation)
 
@@ -204,7 +208,9 @@ Here's a complete example of a JSON payload the ESP32 should send:
   "motor_voltage_v": 45.3,
   "motor_current_a": 18.4,
   "motor_rpm": 2630.0,
-  "motor_phase_current_a": 21.7,
+  "motor_phase_1_current_a": 21.7,
+  "motor_phase_2_current_a": 20.9,
+  "motor_phase_3_current_a": 22.3,
   
   "data_source": "ESP32_LIVE"
 }
@@ -331,7 +337,9 @@ The backend automatically flags values outside these ranges:
 | `motor_voltage_v` | ⬜ | number | V |
 | `motor_current_a` | ⬜ | number | A |
 | `motor_rpm` | ⬜ | number | rpm |
-| `motor_phase_current_a` | ⬜ | number | A |
+| `motor_phase_1_current_a` | ⬜ | number | A |
+| `motor_phase_2_current_a` | ⬜ | number | A |
+| `motor_phase_3_current_a` | ⬜ | number | A |
 | `data_source` | ⬜ | string | - |
 
 **Legend:** ✅ = Required, ⬜ = Optional

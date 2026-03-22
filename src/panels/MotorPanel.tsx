@@ -59,7 +59,9 @@ const C = {
     rpm: '#f59e0b',
     voltage: '#22d3ee',
     current: '#fb923c',
-    phase: '#f87171',
+    phase1: '#fb7185',
+    phase2: '#f43f5e',
+    phase3: '#e11d48',
 };
 
 // ─── sub-components ───────────────────────────────────────────────────────────
@@ -316,17 +318,22 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
     const rpmVals = createMemo(() => nums(props.data, 'motor_rpm'));
     const voltVals = createMemo(() => nums(props.data, 'motor_voltage_v'));
     const currVals = createMemo(() => nums(props.data, 'motor_current_a'));
-    const phaseVals = createMemo(() => nums(props.data, 'motor_phase_current_a'));
+    const phase1Vals = createMemo(() => nums(props.data, 'motor_phase_1_current_a'));
+    const phase2Vals = createMemo(() => nums(props.data, 'motor_phase_2_current_a'));
+    const phase3Vals = createMemo(() => nums(props.data, 'motor_phase_3_current_a'));
 
     const hasData = createMemo(
-        () => rpmVals().length > 0 || currVals().length > 0 || voltVals().length > 0,
+        () => rpmVals().length > 0 || currVals().length > 0 || voltVals().length > 0
+            || phase1Vals().length > 0 || phase2Vals().length > 0 || phase3Vals().length > 0,
     );
 
     const stats = createMemo(() => ({
         rpm: { avg: avg(rpmVals()), peak: pk(rpmVals()), min: mn(rpmVals()) },
         voltage: { avg: avg(voltVals()), peak: pk(voltVals()), min: mn(voltVals()) },
         current: { avg: avg(currVals()), peak: pk(currVals()), min: mn(currVals()) },
-        phase: { avg: avg(phaseVals()), peak: pk(phaseVals()), min: mn(phaseVals()) },
+        phase1: { avg: avg(phase1Vals()), peak: pk(phase1Vals()), min: mn(phase1Vals()) },
+        phase2: { avg: avg(phase2Vals()), peak: pk(phase2Vals()), min: mn(phase2Vals()) },
+        phase3: { avg: avg(phase3Vals()), peak: pk(phase3Vals()), min: mn(phase3Vals()) },
     }));
 
     // ── uPlot data ──────────────────────────────────────────────────────────
@@ -345,16 +352,22 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
     });
 
     const currentChartData = createMemo((): AlignedData => {
-        if (props.data.length === 0) return [[], [], []];
-        const ts: number[] = [], mCurr: (number | null)[] = [], pCurr: (number | null)[] = [];
+        if (props.data.length === 0) return [[], [], [], [], []];
+        const ts: number[] = [];
+        const mCurr: (number | null)[] = [];
+        const p1Curr: (number | null)[] = [];
+        const p2Curr: (number | null)[] = [];
+        const p3Curr: (number | null)[] = [];
         for (const row of props.data) {
             const t = new Date(row.timestamp).getTime() / 1000;
             if (!Number.isFinite(t)) continue;
             ts.push(t);
             mCurr.push(row.motor_current_a ?? null);
-            pCurr.push(row.motor_phase_current_a ?? null);
+            p1Curr.push(row.motor_phase_1_current_a ?? row.motor_phase_current_a ?? null);
+            p2Curr.push(row.motor_phase_2_current_a ?? null);
+            p3Curr.push(row.motor_phase_3_current_a ?? null);
         }
-        return [ts, mCurr, pCurr];
+        return [ts, mCurr, p1Curr, p2Curr, p3Curr];
     });
 
     const voltageChartData = createMemo((): AlignedData => {
@@ -395,8 +408,11 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                 @media (min-width: 640px) {
                     .motor-envelope-grid { grid-template-columns: 1fr 1fr; }
                 }
-                @media (min-width: 1100px) {
-                    .motor-envelope-grid { grid-template-columns: 1fr 1fr 1fr 1fr; }
+                @media (min-width: 980px) {
+                    .motor-envelope-grid { grid-template-columns: 1fr 1fr 1fr; }
+                }
+                @media (min-width: 1380px) {
+                    .motor-envelope-grid { grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr; }
                 }
 
                 .motor-kpi-row {
@@ -407,8 +423,11 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                 @media (min-width: 540px) {
                     .motor-kpi-row { grid-template-columns: 1fr 1fr; }
                 }
-                @media (min-width: 1000px) {
-                    .motor-kpi-row { grid-template-columns: 2fr 1fr 1fr 1fr; }
+                @media (min-width: 860px) {
+                    .motor-kpi-row { grid-template-columns: 2fr 1fr 1fr; }
+                }
+                @media (min-width: 1280px) {
+                    .motor-kpi-row { grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr; }
                 }
 
                 .motor-stat-row {
@@ -458,13 +477,33 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                     />
                     <KpiCard
                         live={hasData()}
-                        label="Phase Current"
-                        value={latest()?.motor_phase_current_a ?? null}
+                        label="Phase 1"
+                        value={latest()?.motor_phase_1_current_a ?? latest()?.motor_phase_current_a ?? null}
                         unit="A"
-                        color={C.phase}
+                        color={C.phase1}
                         decimals={1}
                         subLabel="Peak"
-                        subValue={`${fmt(stats().phase.peak, 1)} A`}
+                        subValue={`${fmt(stats().phase1.peak, 1)} A`}
+                    />
+                    <KpiCard
+                        live={hasData()}
+                        label="Phase 2"
+                        value={latest()?.motor_phase_2_current_a ?? null}
+                        unit="A"
+                        color={C.phase2}
+                        decimals={1}
+                        subLabel="Peak"
+                        subValue={`${fmt(stats().phase2.peak, 1)} A`}
+                    />
+                    <KpiCard
+                        live={hasData()}
+                        label="Phase 3"
+                        value={latest()?.motor_phase_3_current_a ?? null}
+                        unit="A"
+                        color={C.phase3}
+                        decimals={1}
+                        subLabel="Peak"
+                        subValue={`${fmt(stats().phase3.peak, 1)} A`}
                     />
                 </div>
 
@@ -486,7 +525,7 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                         <div style={{ 'font-size': '13px', 'max-width': '440px', margin: '0 auto', 'line-height': '1.6' }}>
                             Waiting for <code style={{ background: 'var(--surface-tertiary)', padding: '1px 5px', 'border-radius': '4px' }}>motor_voltage_v</code>,{' '}
                             <code style={{ background: 'var(--surface-tertiary)', padding: '1px 5px', 'border-radius': '4px' }}>motor_rpm</code>, or{' '}
-                            <code style={{ background: 'var(--surface-tertiary)', padding: '1px 5px', 'border-radius': '4px' }}>motor_current_a</code>{' '}
+                            <code style={{ background: 'var(--surface-tertiary)', padding: '1px 5px', 'border-radius': '4px' }}>motor_phase_1_current_a</code>{' '}
                             from the CAN bridge.
                         </div>
                     </div>
@@ -523,7 +562,7 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                             <UPlotChart
                                 options={rpmOpts}
                                 data={rpmChartData()}
-                                style={{ height: '220px' }}
+                                style={{ height: '255px' }}
                             />
                         </div>
 
@@ -550,12 +589,12 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                                 }}
                             >
                                 <span style={{ width: '10px', height: '10px', 'border-radius': '999px', background: C.current, display: 'inline-block' }} />
-                                Motor Current · Phase Current
+                                Motor Current · Phase 1 · Phase 2 · Phase 3
                             </div>
                             <UPlotChart
                                 options={currOpts}
                                 data={currentChartData()}
-                                style={{ height: '220px' }}
+                                style={{ height: '255px' }}
                             />
                         </div>
                     </div>
@@ -588,7 +627,7 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                         <UPlotChart
                             options={voltOpts}
                             data={voltageChartData()}
-                            style={{ height: '180px' }}
+                            style={{ height: '220px' }}
                         />
                     </div>
 
@@ -611,7 +650,7 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                                 color: 'var(--text-muted)',
                             }}
                         >
-                            Operating Envelope — Current vs Session Range
+                            Operating Envelope — Motor + Per-Phase Session Range
                         </div>
                         <div class="motor-envelope-grid">
                             <EnvelopeBar
@@ -645,13 +684,33 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                                 decimals={1}
                             />
                             <EnvelopeBar
-                                label="Phase Current"
-                                current={latest()?.motor_phase_current_a ?? null}
-                                min={stats().phase.min}
-                                avg={stats().phase.avg}
-                                max={stats().phase.peak}
+                                label="Phase 1"
+                                current={latest()?.motor_phase_1_current_a ?? latest()?.motor_phase_current_a ?? null}
+                                min={stats().phase1.min}
+                                avg={stats().phase1.avg}
+                                max={stats().phase1.peak}
                                 unit="A"
-                                color={C.phase}
+                                color={C.phase1}
+                                decimals={1}
+                            />
+                            <EnvelopeBar
+                                label="Phase 2"
+                                current={latest()?.motor_phase_2_current_a ?? null}
+                                min={stats().phase2.min}
+                                avg={stats().phase2.avg}
+                                max={stats().phase2.peak}
+                                unit="A"
+                                color={C.phase2}
+                                decimals={1}
+                            />
+                            <EnvelopeBar
+                                label="Phase 3"
+                                current={latest()?.motor_phase_3_current_a ?? null}
+                                min={stats().phase3.min}
+                                avg={stats().phase3.avg}
+                                max={stats().phase3.peak}
+                                unit="A"
+                                color={C.phase3}
                                 decimals={1}
                             />
                         </div>
@@ -716,13 +775,15 @@ export const MotorPanel: Component<MotorPanelProps> = (props) => {
                                 { label: 'RPM', color: C.rpm, s: stats().rpm, unit: 'rpm', d: 0 },
                                 { label: 'Voltage', color: C.voltage, s: stats().voltage, unit: 'V', d: 1 },
                                 { label: 'Current', color: C.current, s: stats().current, unit: 'A', d: 1 },
-                                { label: 'Phase I', color: C.phase, s: stats().phase, unit: 'A', d: 1 },
+                                { label: 'Phase 1', color: C.phase1, s: stats().phase1, unit: 'A', d: 1 },
+                                { label: 'Phase 2', color: C.phase2, s: stats().phase2, unit: 'A', d: 1 },
+                                { label: 'Phase 3', color: C.phase3, s: stats().phase3, unit: 'A', d: 1 },
                             ].map((row, idx) => (
                                 <div
                                     class="motor-stat-row"
                                     style={{
                                         background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
-                                        'border-bottom': idx < 3 ? '1px solid var(--border-subtle)' : 'none',
+                                        'border-bottom': idx < 5 ? '1px solid var(--border-subtle)' : 'none',
                                     }}
                                 >
                                     <div

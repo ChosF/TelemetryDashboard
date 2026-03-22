@@ -1424,7 +1424,8 @@ class MockDataGenerator:
                 self._sensor_failure_remaining = cfg.sensor_failure_duration
                 all_sensors = ["voltage_v", "current_a", "gyro_x", "gyro_y", "gyro_z",
                                "accel_x", "accel_y", "accel_z",
-                               "motor_voltage_v", "motor_current_a", "motor_rpm", "motor_phase_current_a"]
+                               "motor_voltage_v", "motor_current_a", "motor_rpm",
+                               "motor_phase_1_current_a", "motor_phase_2_current_a", "motor_phase_3_current_a"]
                 self._current_failed_sensors = random.sample(all_sensors, random.randint(1, 4))
                 self.stats["sensor_failures"] += 1
                 logger.warning(f"⚠️ MOCK: Sensor failure started for {self._current_failed_sensors}")
@@ -1570,7 +1571,13 @@ class MockDataGenerator:
         motor_voltage_v = round(max(0.0, voltage * 0.95 + random.gauss(0, 0.12)), 2)
         motor_current_a = round(max(-5.0, current * 1.06 + random.gauss(0, 0.28)), 2)
         motor_rpm = round(max(0.0, speed * 300.0 + random.gauss(0, 18.0)), 1)
-        motor_phase_current_a = round(max(-10.0, motor_current_a * 1.14 + random.gauss(0, 0.4)), 2)
+        motor_phase_1_current_a = round(max(-10.0, motor_current_a * 1.10 + random.gauss(0, 0.35)), 2)
+        motor_phase_2_current_a = round(max(-10.0, motor_current_a * 1.14 + random.gauss(0, 0.40)), 2)
+        motor_phase_3_current_a = round(max(-10.0, motor_current_a * 1.18 + random.gauss(0, 0.45)), 2)
+        motor_phase_current_a = round(
+            (motor_phase_1_current_a + motor_phase_2_current_a + motor_phase_3_current_a) / 3.0,
+            2,
+        )
         
         self.simulation_time += 1
         self.message_count += 1
@@ -1593,6 +1600,9 @@ class MockDataGenerator:
             "motor_voltage_v": motor_voltage_v,
             "motor_current_a": motor_current_a,
             "motor_rpm": motor_rpm,
+            "motor_phase_1_current_a": motor_phase_1_current_a,
+            "motor_phase_2_current_a": motor_phase_2_current_a,
+            "motor_phase_3_current_a": motor_phase_3_current_a,
             "motor_phase_current_a": motor_phase_current_a,
         }
         
@@ -2291,6 +2301,9 @@ class TelemetryBridgeWithDB:
             "motor_current_a": ["motor_current", "can_motor_current_a"],
             "motor_voltage_v": ["motor_voltage", "can_motor_voltage_v"],
             "motor_rpm": ["rpm", "motor_speed_rpm", "can_motor_rpm"],
+            "motor_phase_1_current_a": ["phase_1_current_a", "motor_phase_1_current", "can_phase_1_current_a"],
+            "motor_phase_2_current_a": ["phase_2_current_a", "motor_phase_2_current", "can_phase_2_current_a"],
+            "motor_phase_3_current_a": ["phase_3_current_a", "motor_phase_3_current", "can_phase_3_current_a"],
             "motor_phase_current_a": ["phase_current_a", "motor_phase_current", "can_phase_current_a"],
         }
         for canonical, aliases in alias_map.items():
@@ -2300,6 +2313,25 @@ class TelemetryBridgeWithDB:
                 if alias in out and out.get(alias) is not None:
                     out[canonical] = out[alias]
                     break
+
+        legacy_phase_current = out.get("motor_phase_current_a")
+        phase_fields = [
+            "motor_phase_1_current_a",
+            "motor_phase_2_current_a",
+            "motor_phase_3_current_a",
+        ]
+        phase_values = []
+        for field in phase_fields:
+            value = out.get(field)
+            if value is not None:
+                try:
+                    phase_values.append(float(value))
+                except Exception:
+                    pass
+        if phase_values:
+            out["motor_phase_current_a"] = round(sum(phase_values) / len(phase_values), 2)
+        elif legacy_phase_current is not None and out.get("motor_phase_1_current_a") is None:
+            out["motor_phase_1_current_a"] = legacy_phase_current
 
         # defaults
         defaults = {
@@ -2330,6 +2362,9 @@ class TelemetryBridgeWithDB:
             "motor_voltage_v": 0.0,
             "motor_current_a": 0.0,
             "motor_rpm": 0.0,
+            "motor_phase_1_current_a": 0.0,
+            "motor_phase_2_current_a": 0.0,
+            "motor_phase_3_current_a": 0.0,
             "motor_phase_current_a": 0.0,
             "data_source": "ESP32_REAL" if not self.mock_mode else "MOCK_GENERATOR",
         }
@@ -2653,7 +2688,9 @@ class TelemetryBridgeWithDB:
                         "gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z",
                         "total_acceleration", "message_id", "uptime_seconds",
                         "throttle_pct", "brake_pct", "brake2_pct", "throttle", "brake", "brake2",
-                        "motor_voltage_v", "motor_current_a", "motor_rpm", "motor_phase_current_a",
+                        "motor_voltage_v", "motor_current_a", "motor_rpm",
+                        "motor_phase_1_current_a", "motor_phase_2_current_a", "motor_phase_3_current_a",
+                        "motor_phase_current_a",
                         "data_source", "outliers"
                     ]
                     
@@ -2865,6 +2902,9 @@ class TelemetryBridgeWithDB:
                     "motor_voltage_v",
                     "motor_current_a",
                     "motor_rpm",
+                    "motor_phase_1_current_a",
+                    "motor_phase_2_current_a",
+                    "motor_phase_3_current_a",
                     "motor_phase_current_a",
                     "data_source",
                 ]

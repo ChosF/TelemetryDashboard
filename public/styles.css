@@ -699,6 +699,57 @@ a:hover {
   letter-spacing: var(--tracking-wide);
 }
 
+/* Overview: G-force uPlot (matches driver GForceMeter layout) */
+.gauge--gforce {
+  padding: 0;
+  overflow: visible;
+}
+
+.overview-gforce-meter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 6px 6px 8px;
+  box-sizing: border-box;
+}
+
+.overview-gforce-uplot-host {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 88px;
+  max-width: 160px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.overview-gforce-value {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--success-text);
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
+.overview-gforce-meter--inactive {
+  opacity: 0.55;
+}
+
+.overview-gforce-uplot-host .uplot,
+.overview-gforce-uplot-host .u-wrap {
+  overflow: visible !important;
+}
+
 /* Charts */
 .chart {
   height: 300px;
@@ -2625,6 +2676,12 @@ body {
 /* Base uPlot styling */
 .uplot {
   font-family: var(--font-sans);
+  box-sizing: border-box;
+  padding-bottom: 34px;
+}
+
+.uplot .u-wrap {
+  box-sizing: border-box;
 }
 
 /* Light mode: Ensure grid lines, axis lines, and labels are visible */
@@ -4636,12 +4693,17 @@ body {
 
 /* uPlot specific: ensure canvas fills exactly the chart div, no more */
 .u-wrap {
-  overflow: hidden !important;
+  overflow: visible !important;
 }
 
 .u-over,
 .u-under {
   overflow: hidden;
+}
+
+.uplot .u-legend {
+  margin-top: 8px;
+  padding-top: 4px;
 }
 
 /* ==========================================================================

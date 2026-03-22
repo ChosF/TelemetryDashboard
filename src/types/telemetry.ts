@@ -71,6 +71,9 @@ export interface TelemetryRecord {
     motor_voltage_v?: number;
     motor_current_a?: number;
     motor_rpm?: number;
+    motor_phase_1_current_a?: number;
+    motor_phase_2_current_a?: number;
+    motor_phase_3_current_a?: number;
     motor_phase_current_a?: number;
 
     // System

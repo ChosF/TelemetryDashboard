@@ -208,7 +208,7 @@ export function EfficiencyPanel(props: EfficiencyPanelProps): JSX.Element {
                 }),
             },
         ],
-        legend: { show: false },
+        legend: { show: true },
     }));
 
     const trendOptions = createMemo((): Omit<Options, 'width' | 'height'> => ({

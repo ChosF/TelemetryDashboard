@@ -62,7 +62,7 @@ const PANEL_META: Array<{ id: DashboardPanel; label: string; icon: string }> = [
 ];
 
 const VALID_PANELS = new Set<DashboardPanel>(PANEL_META.map((item) => item.id));
-const TIME_RANGE_PANELS = ['speed', 'power', 'imu', 'imu-detail', 'efficiency', 'gps'] as const;
+const TIME_RANGE_PANELS = ['speed', 'power', 'motor', 'imu', 'imu-detail', 'efficiency', 'gps'] as const;
 type TimeRangePanel = typeof TIME_RANGE_PANELS[number];
 const TIME_RANGE_PANEL_SET = new Set<DashboardPanel>(TIME_RANGE_PANELS);
 const DEFAULT_RUNTIME_CONFIG: Record<string, string> = {
@@ -185,6 +185,7 @@ const DashboardParity: Component = () => {
     const [panelTimeRanges, setPanelTimeRanges] = createSignal<Record<TimeRangePanel, TimeRangePreset>>({
         speed: 'all',
         power: 'all',
+        motor: 'all',
         imu: 'all',
         'imu-detail': 'all',
         efficiency: 'all',
@@ -356,7 +357,8 @@ const DashboardParity: Component = () => {
         }
         if ([
             'current_a', 'voltage_v', 'power_w', 'max_power_w', 'max_current_a', 'avg_current', 'avg_voltage', 'avg_power',
-            'motor_current_a', 'motor_voltage_v', 'motor_rpm', 'motor_phase_current_a',
+            'motor_current_a', 'motor_voltage_v', 'motor_rpm',
+            'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'motor_phase_current_a',
         ].includes(field)) {
             return 'power';
         }
@@ -1353,7 +1355,13 @@ const DashboardParity: Component = () => {
                                 </Show>
 
                                 <Show when={activePanel() === 'motor'}>
-                                    <MotorPanel data={data()} loading={booting()} />
+                                    <div style={{ display: 'grid', gap: '16px' }}>
+                                        <RealtimeTimeRangeSelector
+                                            value={panelTimeRanges().motor}
+                                            onChange={(preset) => setPanelTimeRange('motor', preset)}
+                                        />
+                                        <MotorPanel data={activeRangeData()} loading={booting()} />
+                                    </div>
                                 </Show>
 
                                 <Show when={activePanel() === 'imu'}>

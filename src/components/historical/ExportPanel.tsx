@@ -40,7 +40,9 @@ const ExportPanel: Component<ExportPanelProps> = (props) => {
         const headers = [
             'timestamp', 'speed_ms', 'distance_m', 'voltage_v', 'current_a', 'power_w',
             'energy_j', 'latitude', 'longitude', 'altitude_m', 'throttle_pct', 'brake_pct', 'brake2_pct',
-            'motor_voltage_v', 'motor_current_a', 'motor_rpm', 'motor_phase_current_a',
+            'motor_voltage_v', 'motor_current_a', 'motor_rpm',
+            'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a',
+            'motor_phase_current_a',
             'gyro_x', 'gyro_y', 'gyro_z', 'accel_x', 'accel_y', 'accel_z',
             'total_acceleration', 'current_efficiency_km_kwh', 'cumulative_energy_kwh',
             'motion_state', 'driver_mode', 'quality_score',

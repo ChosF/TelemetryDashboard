@@ -3,7 +3,8 @@
  */
 
 import { JSX, createEffect, createMemo, createSignal, For } from 'solid-js';
-import { SpeedGauge, BatteryGauge, PowerGauge, EfficiencyGauge, CanvasGauge } from '@/components/gauges';
+import { SpeedGauge, BatteryGauge, PowerGauge, EfficiencyGauge } from '@/components/gauges';
+import { OverviewGForceUPlot } from '@/components/charts/OverviewGForceUPlot';
 import type { TelemetryRow } from '@/types/telemetry';
 
 export interface OverviewPanelProps {
@@ -311,17 +312,9 @@ export function OverviewPanel(props: OverviewPanelProps): JSX.Element {
                             </div>
                             <div class="gauge-title">Efficiency (km/kWh)</div>
                         </div>
-                        <div class="gauge-wrap">
-                            <div class="gauge">
-                                <CanvasGauge
-                                    value={latest()?.g_total ?? 0}
-                                    min={0}
-                                    max={2}
-                                    color="#60a5fa"
-                                    decimals={2}
-                                    unit="G"
-                                    active={props.active}
-                                />
+                        <div class="gauge-wrap gauge-wrap--gforce">
+                            <div class="gauge gauge--gforce">
+                                <OverviewGForceUPlot row={latest()} active={props.active} />
                             </div>
                             <div class="gauge-title">G Forces</div>
                         </div>
