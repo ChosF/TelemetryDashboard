@@ -236,8 +236,12 @@ class SimState:
         dist_km    = self.cumulative_dist_m / 1000
         eff = round(dist_km / energy_kwh, 2) if energy_kwh > 0.001 else None
 
-        # GForce approximate
-        ax = (v - self.speed_ms) / INTERVAL if self.t > INTERVAL else 0.0
+        # Planar G (g) — vehicle frame; matches maindata.py / ESP32 convention
+        long_g = ((v - self._prev_speed_ms) / INTERVAL) / 9.80665
+        self._prev_speed_ms = v
+        lat_g = ((v * v) / max(TRACK_RADIUS_M, 1.0)) / 9.80665 * 0.5 * math.sin(self.lap_angle * 2)
+        g_long = round(max(-3.0, min(3.0, long_g + random.gauss(0, 0.02))), 3)
+        g_lat = round(max(-3.0, min(3.0, lat_g + random.gauss(0, 0.03))), 3)
         lat, lon, alt = self._gps()
 
         # Driver mode
