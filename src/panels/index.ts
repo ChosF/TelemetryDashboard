@@ -12,6 +12,9 @@ export type { SpeedPanelProps } from './SpeedPanel';
 export { PowerPanel } from './PowerPanel';
 export type { PowerPanelProps } from './PowerPanel';
 
+export { MotorPanel } from './MotorPanel';
+export type { MotorPanelProps } from './MotorPanel';
+
 export { IMUPanel } from './IMUPanel';
 export type { IMUPanelProps } from './IMUPanel';
 

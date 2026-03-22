@@ -1,6 +1,11 @@
 import { mutation, query, action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+
+type SignInResult =
+  | { error: string }
+  | { token: string; userId: Id<"authUsers"> };
 
 /**
  * Simple authentication module for Convex
@@ -102,7 +107,7 @@ export const signIn = action({
     email: v.optional(v.string()),
     password: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<SignInResult> => {
     // Support both formats
     const email = args.params?.email || args.email;
     const password = args.params?.password || args.password;

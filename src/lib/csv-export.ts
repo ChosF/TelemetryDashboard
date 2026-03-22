@@ -106,6 +106,11 @@ export const TELEMETRY_EXPORT_COLUMNS: string[] = [
     'gyro_z',
     'throttle_pct',
     'brake_pct',
+    'brake2_pct',
+    'motor_voltage_v',
+    'motor_current_a',
+    'motor_rpm',
+    'motor_phase_current_a',
 ];
 
 /**
@@ -129,6 +134,11 @@ export const TELEMETRY_HEADERS: Record<string, string> = {
     gyro_z: 'Gyro Z (°/s)',
     throttle_pct: 'Throttle (%)',
     brake_pct: 'Brake (%)',
+    brake2_pct: 'Brake 2 (%)',
+    motor_voltage_v: 'Motor Voltage (V)',
+    motor_current_a: 'Motor Current (A)',
+    motor_rpm: 'Motor RPM',
+    motor_phase_current_a: 'Motor Phase Current (A)',
 };
 
 /**

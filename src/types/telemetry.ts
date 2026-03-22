@@ -62,8 +62,16 @@ export interface TelemetryRecord {
     // Driver inputs
     throttle_pct?: number;
     brake_pct?: number;
+    brake2_pct?: number;
     throttle?: number;
     brake?: number;
+    brake2?: number;
+
+    // Motor CAN bus
+    motor_voltage_v?: number;
+    motor_current_a?: number;
+    motor_rpm?: number;
+    motor_phase_current_a?: number;
 
     // System
     uptime_seconds?: number;

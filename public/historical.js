@@ -1166,8 +1166,8 @@
 
     // ── Data Table ──
     function renderDataTable(d) {
-        const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'throttle_pct', 'brake_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
-        const labels = ['Time', 'Speed', 'Power', 'Voltage', 'Current', 'Throttle', 'Brake', 'G-Force', 'Lat', 'Lon', 'Alt', 'Motion'];
+        const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'motor_voltage_v', 'motor_current_a', 'motor_rpm', 'motor_phase_current_a', 'throttle_pct', 'brake_pct', 'brake2_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
+        const labels = ['Time', 'Speed', 'Power', 'Voltage', 'Current', 'Motor V', 'Motor A', 'RPM', 'Phase A', 'Throttle', 'Brake 1', 'Brake 2', 'G-Force', 'Lat', 'Lon', 'Alt', 'Motion'];
         const filter = ($('h-table-filter')?.value || '').toLowerCase();
         const filtered = filter ? d.filter(r => cols.some(c => { const v = r[c]; return v != null && String(v).toLowerCase().includes(filter) })) : d;
         $('h-table-count').textContent = `${Math.min(filtered.length, 2000)} of ${filtered.length} rows`;
@@ -1741,7 +1741,7 @@
     $('h-table-csv')?.addEventListener('click', () => {
         if (!S.data.length) { toast('No data'); return }
         const filter = ($('h-table-filter')?.value || '').toLowerCase();
-        const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'throttle_pct', 'brake_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
+        const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'motor_voltage_v', 'motor_current_a', 'motor_rpm', 'motor_phase_current_a', 'throttle_pct', 'brake_pct', 'brake2_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
         const filtered = filter ? S.data.filter(r => cols.some(c => { const v = r[c]; return v != null && String(v).toLowerCase().includes(filter) })) : S.data;
         const lines = [cols.join(','), ...filtered.map(r => cols.map(k => r[k] ?? '').join(','))];
         const sessionName = (S.activeSessionMeta?.session_name || S.activeSessionId?.slice(0, 8) || 'session')

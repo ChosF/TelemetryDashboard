@@ -102,6 +102,10 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
     const voltage = toNum(normalized.voltage_v, null);
     const current = toNum(normalized.current_a, null);
     const power = toNum(normalized.power_w, null);
+    const motorVoltage = toNum(normalized.motor_voltage_v, null);
+    const motorCurrent = toNum(normalized.motor_current_a, null);
+    const motorRpm = toNum(normalized.motor_rpm, null);
+    const motorPhaseCurrent = toNum(normalized.motor_phase_current_a, null);
 
     if (voltage !== null) normalized.voltage_v = voltage;
     if (current !== null) normalized.current_a = current;
@@ -111,6 +115,10 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
         // Some historical records omit power; recover it from V * A.
         normalized.power_w = voltage * current;
     }
+    if (motorVoltage !== null) normalized.motor_voltage_v = motorVoltage;
+    if (motorCurrent !== null) normalized.motor_current_a = motorCurrent;
+    if (motorRpm !== null) normalized.motor_rpm = motorRpm;
+    if (motorPhaseCurrent !== null) normalized.motor_phase_current_a = motorPhaseCurrent;
 
     const efficiency = toNum(normalized.current_efficiency_km_kwh, null);
     if (efficiency !== null) {
@@ -120,6 +128,40 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
 
     const rowAny = row as unknown as Record<string, unknown>;
     const normalizedAny = normalized as unknown as Record<string, unknown>;
+    const aliasGroups: Array<[string, string[]]> = [
+        ['brake2_pct', ['brake_2_pct', 'brake2_percent']],
+        ['brake2', ['brake2_ratio', 'brake_2_ratio']],
+        ['motor_current_a', ['motor_current', 'can_motor_current_a']],
+        ['motor_voltage_v', ['motor_voltage', 'can_motor_voltage_v']],
+        ['motor_rpm', ['rpm', 'motor_speed_rpm', 'can_motor_rpm']],
+        ['motor_phase_current_a', ['phase_current_a', 'motor_phase_current', 'can_phase_current_a']],
+    ];
+
+    for (const [canonical, aliases] of aliasGroups) {
+        if (normalizedAny[canonical] !== undefined && normalizedAny[canonical] !== null) continue;
+        for (const alias of aliases) {
+            if (rowAny[alias] !== undefined && rowAny[alias] !== null) {
+                normalizedAny[canonical] = rowAny[alias];
+                break;
+            }
+        }
+    }
+
+    const brake2Pct = toNum(normalized.brake2_pct, null);
+    const brake2Ratio = toNum(normalized.brake2, null);
+    if (brake2Pct !== null) {
+        normalized.brake2_pct = brake2Pct;
+    }
+    if (brake2Ratio !== null) {
+        normalized.brake2 = brake2Ratio;
+    }
+    if (brake2Pct === null && brake2Ratio !== null) {
+        normalized.brake2_pct = clamp(brake2Ratio, 0, 1) * 100;
+    }
+    if (brake2Ratio === null && brake2Pct !== null) {
+        normalized.brake2 = clamp(brake2Pct / 100, 0, 1);
+    }
+
     const altitudeFields = ['altitude_m', 'altitude', 'gps_altitude', 'elevation', 'alt'] as const;
 
     if (!('altitude_m' in normalized) || normalized.altitude_m === undefined) {

@@ -37,3 +37,11 @@ export {
     createAltitudeChartOptions,
     createGPSSpeedChartOptions,
 } from './altitude';
+
+// Motor CAN charts
+export {
+    createMotorRpmChartOptions,
+    createMotorCurrentChartOptions,
+    createMotorVoltageChartOptions,
+    MOTOR_COLORS,
+} from './motor';

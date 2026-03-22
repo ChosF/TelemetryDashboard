@@ -19,9 +19,14 @@ type MetricId =
     | 'power'
     | 'voltage'
     | 'current'
+    | 'motorVoltage'
+    | 'motorCurrent'
+    | 'motorRpm'
+    | 'motorPhaseCurrent'
     | 'efficiency'
     | 'throttle'
     | 'brake'
+    | 'brake2'
     | 'gforce'
     | 'altitude'
     | 'gyroZ';
@@ -87,6 +92,34 @@ const METRICS: Record<MetricId, MetricDef> = {
         color: CHART_COLORS.current,
         extract: (row) => row.current_a ?? null,
     },
+    motorVoltage: {
+        id: 'motorVoltage',
+        label: 'Motor Voltage',
+        unit: 'V',
+        color: '#38bdf8',
+        extract: (row) => row.motor_voltage_v ?? null,
+    },
+    motorCurrent: {
+        id: 'motorCurrent',
+        label: 'Motor Current',
+        unit: 'A',
+        color: '#f97316',
+        extract: (row) => row.motor_current_a ?? null,
+    },
+    motorRpm: {
+        id: 'motorRpm',
+        label: 'Motor RPM',
+        unit: 'rpm',
+        color: '#a855f7',
+        extract: (row) => row.motor_rpm ?? null,
+    },
+    motorPhaseCurrent: {
+        id: 'motorPhaseCurrent',
+        label: 'Phase Current',
+        unit: 'A',
+        color: '#fb7185',
+        extract: (row) => row.motor_phase_current_a ?? null,
+    },
     efficiency: {
         id: 'efficiency',
         label: 'Efficiency',
@@ -107,6 +140,13 @@ const METRICS: Record<MetricId, MetricDef> = {
         unit: '%',
         color: '#ef4444',
         extract: (row) => row.brake_pct ?? row.brake ?? null,
+    },
+    brake2: {
+        id: 'brake2',
+        label: 'Brake 2',
+        unit: '%',
+        color: '#f59e0b',
+        extract: (row) => row.brake2_pct ?? (typeof row.brake2 === 'number' ? row.brake2 * 100 : null),
     },
     gforce: {
         id: 'gforce',
@@ -158,6 +198,15 @@ const PRESETS: ChartPreset[] = [
         secondary: 'brake',
         window: '5m',
         style: 'area',
+    },
+    {
+        id: 'motor-watch',
+        title: 'Motor Watch',
+        description: 'Overlay motor RPM with motor current to watch CAN-side load buildup.',
+        primary: 'motorRpm',
+        secondary: 'motorCurrent',
+        window: '5m',
+        style: 'line',
     },
     {
         id: 'stability-watch',

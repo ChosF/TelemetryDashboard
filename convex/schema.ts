@@ -54,8 +54,14 @@ export default defineSchema({
     uptime_seconds: v.optional(v.number()),
     throttle_pct: v.optional(v.number()),
     brake_pct: v.optional(v.number()),
+    brake2_pct: v.optional(v.number()),
     throttle: v.optional(v.number()),
     brake: v.optional(v.number()),
+    brake2: v.optional(v.number()),
+    motor_voltage_v: v.optional(v.number()),
+    motor_current_a: v.optional(v.number()),
+    motor_rpm: v.optional(v.number()),
+    motor_phase_current_a: v.optional(v.number()),
     data_source: v.optional(v.string()),
     outliers: v.optional(v.any()), // JSON object for outlier detection data
     // Calculated fields from backend bridge

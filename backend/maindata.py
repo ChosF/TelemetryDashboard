@@ -1422,8 +1422,9 @@ class MockDataGenerator:
         if self._sensor_failure_remaining <= 0:
             if random.random() < cfg.sensor_failure_probability:
                 self._sensor_failure_remaining = cfg.sensor_failure_duration
-                all_sensors = ["voltage_v", "current_a", "gyro_x", "gyro_y", "gyro_z", 
-                               "accel_x", "accel_y", "accel_z"]
+                all_sensors = ["voltage_v", "current_a", "gyro_x", "gyro_y", "gyro_z",
+                               "accel_x", "accel_y", "accel_z",
+                               "motor_voltage_v", "motor_current_a", "motor_rpm", "motor_phase_current_a"]
                 self._current_failed_sensors = random.sample(all_sensors, random.randint(1, 4))
                 self.stats["sensor_failures"] += 1
                 logger.warning(f"⚠️ MOCK: Sensor failure started for {self._current_failed_sensors}")
@@ -1557,6 +1558,19 @@ class MockDataGenerator:
         else:
             brake_pct = max(0.0, random.gauss(2, 1))
             throttle_pct = min(100.0, max(5.0, th_base + random.gauss(0, 5)))
+
+        # Secondary brake (B2): correlated with B1, slightly lagged / scaled for realism
+        if brake_event:
+            brake2_pct_val = min(100.0, max(0.0, brake_pct * 0.68 + random.gauss(0, 10)))
+        else:
+            brake2_pct_val = max(0.0, min(100.0, brake_pct * 0.42 + random.gauss(0, 4)))
+        brake2_pct_val = round(brake2_pct_val, 1)
+
+        # Motor CAN bus (inverter-side): tracks pack V/I and mechanical speed
+        motor_voltage_v = round(max(0.0, voltage * 0.95 + random.gauss(0, 0.12)), 2)
+        motor_current_a = round(max(-5.0, current * 1.06 + random.gauss(0, 0.28)), 2)
+        motor_rpm = round(max(0.0, speed * 300.0 + random.gauss(0, 18.0)), 1)
+        motor_phase_current_a = round(max(-10.0, motor_current_a * 1.14 + random.gauss(0, 0.4)), 2)
         
         self.simulation_time += 1
         self.message_count += 1
@@ -1574,6 +1588,12 @@ class MockDataGenerator:
             "session_name": self.session_name, "throttle_pct": round(throttle_pct, 1),
             "brake_pct": round(brake_pct, 1), "throttle": round(throttle_pct / 100.0, 3),
             "brake": round(brake_pct / 100.0, 3),
+            "brake2_pct": brake2_pct_val,
+            "brake2": round(brake2_pct_val / 100.0, 3),
+            "motor_voltage_v": motor_voltage_v,
+            "motor_current_a": motor_current_a,
+            "motor_rpm": motor_rpm,
+            "motor_phase_current_a": motor_phase_current_a,
         }
         
         # Apply error simulations
@@ -2264,6 +2284,23 @@ class TelemetryBridgeWithDB:
             except Exception:
                 out["timestamp"] = datetime.now(timezone.utc).isoformat()
 
+        # Canonicalize optional aliases before defaults are applied.
+        alias_map = {
+            "brake2_pct": ["brake_2_pct", "brake2_percent"],
+            "brake2": ["brake2_ratio", "brake_2_ratio"],
+            "motor_current_a": ["motor_current", "can_motor_current_a"],
+            "motor_voltage_v": ["motor_voltage", "can_motor_voltage_v"],
+            "motor_rpm": ["rpm", "motor_speed_rpm", "can_motor_rpm"],
+            "motor_phase_current_a": ["phase_current_a", "motor_phase_current", "can_phase_current_a"],
+        }
+        for canonical, aliases in alias_map.items():
+            if canonical in out and out.get(canonical) is not None:
+                continue
+            for alias in aliases:
+                if alias in out and out.get(alias) is not None:
+                    out[canonical] = out[alias]
+                    break
+
         # defaults
         defaults = {
             "speed_ms": 0.0,
@@ -2286,8 +2323,14 @@ class TelemetryBridgeWithDB:
             "uptime_seconds": 0.0,
             "throttle_pct": 0.0,
             "brake_pct": 0.0,
+            "brake2_pct": 0.0,
             "throttle": 0.0,
             "brake": 0.0,
+            "brake2": 0.0,
+            "motor_voltage_v": 0.0,
+            "motor_current_a": 0.0,
+            "motor_rpm": 0.0,
+            "motor_phase_current_a": 0.0,
             "data_source": "ESP32_REAL" if not self.mock_mode else "MOCK_GENERATOR",
         }
         for k, v in defaults.items():
@@ -2314,10 +2357,14 @@ class TelemetryBridgeWithDB:
             out["throttle_pct"] = round(_clamp01(out["throttle"]) * 100.0, 2)
         if out.get("brake_pct", 0) == 0 and out.get("brake", 0) != 0:
             out["brake_pct"] = round(_clamp01(out["brake"]) * 100.0, 2)
+        if out.get("brake2_pct", 0) == 0 and out.get("brake2", 0) != 0:
+            out["brake2_pct"] = round(_clamp01(out["brake2"]) * 100.0, 2)
         if out.get("throttle", 0) == 0 and out.get("throttle_pct", 0) != 0:
             out["throttle"] = round(_clamp01(out["throttle_pct"] / 100.0), 3)
         if out.get("brake", 0) == 0 and out.get("brake_pct", 0) != 0:
             out["brake"] = round(_clamp01(out["brake_pct"] / 100.0), 3)
+        if out.get("brake2", 0) == 0 and out.get("brake2_pct", 0) != 0:
+            out["brake2"] = round(_clamp01(out["brake2_pct"] / 100.0), 3)
 
         # Run outlier detection (always available - embedded module)
         try:
@@ -2605,7 +2652,8 @@ class TelemetryBridgeWithDB:
                         "distance_m", "latitude", "longitude", "altitude", "altitude_m",
                         "gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z",
                         "total_acceleration", "message_id", "uptime_seconds",
-                        "throttle_pct", "brake_pct", "throttle", "brake",
+                        "throttle_pct", "brake_pct", "brake2_pct", "throttle", "brake", "brake2",
+                        "motor_voltage_v", "motor_current_a", "motor_rpm", "motor_phase_current_a",
                         "data_source", "outliers"
                     ]
                     
@@ -2810,8 +2858,14 @@ class TelemetryBridgeWithDB:
                     "uptime_seconds",
                     "throttle_pct",
                     "brake_pct",
+                    "brake2_pct",
                     "throttle",
                     "brake",
+                    "brake2",
+                    "motor_voltage_v",
+                    "motor_current_a",
+                    "motor_rpm",
+                    "motor_phase_current_a",
                     "data_source",
                 ]
                 n = self.journal.export_csv(out_csv, field_order)

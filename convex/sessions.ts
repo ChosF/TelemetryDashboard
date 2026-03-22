@@ -330,9 +330,11 @@ export const kickstartSessions = action({
                 );
 
                 for (const record of result.page) {
-                    const id = record.session_id;
-                    const ts = record.timestamp;
-                    if (!id || !ts) continue;
+                    const rawId = record.session_id;
+                    const rawTs = record.timestamp;
+                    if (typeof rawId !== "string" || typeof rawTs !== "string") continue;
+                    const id = rawId;
+                    const ts = rawTs;
 
                     if (!sessionsMap.has(id)) {
                         sessionsMap.set(id, {

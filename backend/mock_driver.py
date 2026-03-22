@@ -215,6 +215,11 @@ class SimState:
         # Voltage sags slightly with current
         current_a = power_w / max(self.voltage_v, 1.0)
         self.voltage_v = max(60.0, 84.0 - current_a * 0.05 + random.gauss(0, 0.1))
+        brake2_pct = round(min(100.0, max(0.0, self._brake * 100.0 * 0.72 + random.gauss(0, 2.0))), 1)
+        motor_voltage_v = round(max(0.0, self.voltage_v * 0.94 + random.gauss(0, 0.15)), 2)
+        motor_current_a = round(max(-40.0, current_a * 1.08 + random.gauss(0, 0.35)), 2)
+        motor_rpm = round(max(0.0, v * 315.0 + random.gauss(0, 18.0)), 1)
+        motor_phase_current_a = round(max(-50.0, motor_current_a * 1.14 + random.gauss(0, 0.45)), 2)
 
         # Efficiency km/kWh
         energy_kwh = self.cumulative_energy_j / 3_600_000
@@ -275,6 +280,14 @@ class SimState:
             "brake":        round(self._brake, 3),
             "throttle_pct": round(self._throttle * 100, 1),
             "brake_pct":    round(self._brake * 100, 1),
+            "brake2_pct":   brake2_pct,
+            "brake2":       round(brake2_pct / 100.0, 3),
+
+            # Motor CAN bus
+            "motor_voltage_v":       motor_voltage_v,
+            "motor_current_a":       motor_current_a,
+            "motor_rpm":             motor_rpm,
+            "motor_phase_current_a": motor_phase_current_a,
 
             # Driver state
             "driver_mode":  driver_mode,

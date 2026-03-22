@@ -538,6 +538,11 @@ __global.HA = __global.HA || {};
         n.voltage_v = r.voltage_v || 0; n.current_a = r.current_a || 0;
         n.throttle_pct = r.throttle_pct || r.throttle || 0;
         n.brake_pct = r.brake_pct || r.brake || 0;
+        n.brake2_pct = r.brake2_pct || (typeof r.brake2 === 'number' ? r.brake2 * 100 : 0);
+        n.motor_voltage_v = r.motor_voltage_v || 0;
+        n.motor_current_a = r.motor_current_a || 0;
+        n.motor_rpm = r.motor_rpm || 0;
+        n.motor_phase_current_a = r.motor_phase_current_a || 0;
         n.throttle_intensity = r.throttle_intensity || null;
         n.brake_intensity = r.brake_intensity || null;
         n.accel_x = r.accel_x || 0; n.accel_y = r.accel_y || 0; n.accel_z = r.accel_z || 0;
@@ -618,8 +623,13 @@ __global.HA = __global.HA || {};
         { key: 'power_w', label: 'Power (W)' },
         { key: 'voltage_v', label: 'Voltage (V)' },
         { key: 'current_a', label: 'Current (A)' },
+        { key: 'motor_voltage_v', label: 'Motor Voltage (V)' },
+        { key: 'motor_current_a', label: 'Motor Current (A)' },
+        { key: 'motor_rpm', label: 'Motor RPM' },
+        { key: 'motor_phase_current_a', label: 'Phase Current (A)' },
         { key: 'throttle_pct', label: 'Throttle (%)' },
         { key: 'brake_pct', label: 'Brake (%)' },
+        { key: 'brake2_pct', label: 'Brake 2 (%)' },
         { key: 'accel_x', label: 'Accel X' },
         { key: 'accel_y', label: 'Accel Y' },
         { key: 'accel_z', label: 'Accel Z' },

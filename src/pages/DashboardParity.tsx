@@ -15,6 +15,7 @@ import { IMUPanel } from '@/panels/IMUPanel';
 import { IMUDetailPanel } from '@/panels/IMUDetailPanel';
 import { EfficiencyPanel } from '@/panels/EfficiencyPanel';
 import { GPSPanel } from '@/panels/GPSPanel';
+import { MotorPanel } from '@/panels/MotorPanel';
 import { CustomPanel } from '@/panels/CustomPanel';
 import { DataPanel } from '@/panels/DataPanel';
 import { UserMenu, LoginModal, SignupModal, AdminDashboardModal } from '@/components/auth';
@@ -35,6 +36,7 @@ type DashboardPanel =
     | 'overview'
     | 'speed'
     | 'power'
+    | 'motor'
     | 'imu'
     | 'imu-detail'
     | 'efficiency'
@@ -49,6 +51,7 @@ const PANEL_META: Array<{ id: DashboardPanel; label: string; icon: string }> = [
     { id: 'overview', label: 'Overview', icon: '📊' },
     { id: 'speed', label: 'Speed', icon: '🚗' },
     { id: 'power', label: 'Power', icon: '⚡' },
+    { id: 'motor', label: 'Motor', icon: '⚙️' },
     { id: 'imu', label: 'IMU', icon: '🧭' },
     { id: 'imu-detail', label: 'IMU Detail', icon: '🎮' },
     { id: 'efficiency', label: 'Efficiency', icon: '📈' },
@@ -344,7 +347,10 @@ const DashboardParity: Component = () => {
         if (['latitude', 'longitude', 'altitude', 'altitude_m', 'gps_accuracy', 'elevation_gain_m'].includes(field)) {
             return 'gps';
         }
-        if (['current_a', 'voltage_v', 'power_w', 'max_power_w', 'max_current_a', 'avg_current', 'avg_voltage', 'avg_power'].includes(field)) {
+        if ([
+            'current_a', 'voltage_v', 'power_w', 'max_power_w', 'max_current_a', 'avg_current', 'avg_voltage', 'avg_power',
+            'motor_current_a', 'motor_voltage_v', 'motor_rpm', 'motor_phase_current_a',
+        ].includes(field)) {
             return 'power';
         }
         if (
@@ -1271,8 +1277,9 @@ const DashboardParity: Component = () => {
                                             <DriverInputBars
                                                 throttle={latest()?.throttle_pct ?? 0}
                                                 brake={latest()?.brake_pct ?? 0}
+                                                brake2={latest()?.brake2_pct ?? 0}
                                             />
-                                            <div class="center fine">Brake and Throttle (0-100%)</div>
+                                            <div class="center fine">Throttle, Brake 1, and Brake 2 (0-100%)</div>
                                         </div>
                                     </div>
                                 </div>
@@ -1295,6 +1302,10 @@ const DashboardParity: Component = () => {
                                         />
                                         <PowerPanel data={activeRangeData()} loading={booting()} />
                                     </div>
+                                </Show>
+
+                                <Show when={activePanel() === 'motor'}>
+                                    <MotorPanel data={data()} loading={booting()} />
                                 </Show>
 
                                 <Show when={activePanel() === 'imu'}>
@@ -1374,11 +1385,12 @@ const DashboardParity: Component = () => {
     );
 };
 
-const DriverInputBars: Component<{ throttle: number; brake: number }> = (props) => {
+const DriverInputBars: Component<{ throttle: number; brake: number; brake2: number }> = (props) => {
     return (
         <div style={{ display: 'grid', gap: '14px', 'margin-bottom': '14px' }}>
             <InputBar label="Throttle" value={props.throttle} color="linear-gradient(90deg, #22c55e, #86efac)" />
-            <InputBar label="Brake" value={props.brake} color="linear-gradient(90deg, #ef4444, #fb7185)" />
+            <InputBar label="Brake 1" value={props.brake} color="linear-gradient(90deg, #ef4444, #fb7185)" />
+            <InputBar label="Brake 2" value={props.brake2} color="linear-gradient(90deg, #f59e0b, #f97316)" />
         </div>
     );
 };

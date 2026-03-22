@@ -112,10 +112,27 @@ These are the **most important** variables for efficiency calculations:
 |---------------|------|------|-------|-------------|
 | `throttle_pct` | `number` | % | 0 - 100 | Throttle position percentage |
 | `brake_pct` | `number` | % | 0 - 100 | Brake position percentage |
+| `brake2_pct` | `number` | % | 0 - 100 | Secondary brake position percentage |
 | `throttle` | `number` | ratio | 0.0 - 1.0 | Throttle as decimal (alternative) |
 | `brake` | `number` | ratio | 0.0 - 1.0 | Brake as decimal (alternative) |
+| `brake2` | `number` | ratio | 0.0 - 1.0 | Secondary brake as decimal (alternative) |
 
-> 💡 You can send either `throttle_pct`/`brake_pct` OR `throttle`/`brake`. The `_pct` versions are preferred.
+> 💡 You can send either `throttle_pct`/`brake_pct`/`brake2_pct` OR `throttle`/`brake`/`brake2`. The `_pct` versions are preferred.
+
+---
+
+### ⚙️ Motor CAN Bus (Optional but Supported)
+
+These values are now supported end to end by `maindata.py`, Convex, Ably, the live dashboard, and historical custom-analysis tooling:
+
+| Variable Name | Type | Unit | Suggested Range | Description |
+|---------------|------|------|-----------------|-------------|
+| `motor_current_a` | `number` | Amps | -50 to 200 | Motor-side current from CAN bus |
+| `motor_voltage_v` | `number` | Volts | 0 to 120 | Motor-side voltage from CAN bus |
+| `motor_rpm` | `number` | RPM | 0 to 20000 | Motor rotational speed |
+| `motor_phase_current_a` | `number` | Amps | -50 to 250 | Motor phase current |
+
+> 💡 Use these exact names when possible. The bridge also tolerates a few aliases such as `motor_voltage`, `motor_current`, `rpm`, and `phase_current_a`, but the canonical names above are preferred.
 
 #### 🔧 Throttle Hardware Configuration (Current Implementation)
 
@@ -182,6 +199,12 @@ Here's a complete example of a JSON payload the ESP32 should send:
   
   "throttle_pct": 45.0,
   "brake_pct": 0.0,
+  "brake2_pct": 12.0,
+
+  "motor_voltage_v": 45.3,
+  "motor_current_a": 18.4,
+  "motor_rpm": 2630.0,
+  "motor_phase_current_a": 21.7,
   
   "data_source": "ESP32_LIVE"
 }
@@ -366,8 +389,14 @@ void sendTelemetry() {
 | `total_acceleration` | ⬜ | number | m/s² |
 | `throttle_pct` | ⬜ | number | % |
 | `brake_pct` | ⬜ | number | % |
+| `brake2_pct` | ⬜ | number | % |
 | `throttle` | ⬜ | number | ratio |
 | `brake` | ⬜ | number | ratio |
+| `brake2` | ⬜ | number | ratio |
+| `motor_voltage_v` | ⬜ | number | V |
+| `motor_current_a` | ⬜ | number | A |
+| `motor_rpm` | ⬜ | number | rpm |
+| `motor_phase_current_a` | ⬜ | number | A |
 | `data_source` | ⬜ | string | - |
 
 **Legend:** ✅ = Required, ⬜ = Optional
@@ -383,4 +412,4 @@ void sendTelemetry() {
 
 ---
 
-*Last Updated: February 4, 2026*
+*Last Updated: March 21, 2026*
