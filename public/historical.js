@@ -364,6 +364,8 @@
         const label = $('h-active-session-label');
         if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
         showAnalysisView();
+        // Fresh session open: start with every analysis module collapsed (matches user expectation vs HTML defaults).
+        applyHistoricalSectionsCollapsed(true);
         if (!options.skipHistory) {
             updateRoute(
                 `${HIST_ROUTE_BASE}/${encodeURIComponent(sid)}`,
@@ -1591,6 +1593,26 @@
 
 
     // ── Collapsible Sections ──
+    /** Tracks whether "Collapse all" is active (shared with per-section toggles via applyHistoricalSectionsCollapsed). */
+    let historicalAllSectionsCollapsed = false;
+
+    function applyHistoricalSectionsCollapsed(collapsed) {
+        historicalAllSectionsCollapsed = !!collapsed;
+        const globalBtn = $('h-btn-collapse-all');
+        if (globalBtn) {
+            globalBtn.textContent = collapsed ? '⇱ Expand All' : '⇲ Collapse All';
+            globalBtn.title = collapsed ? 'Expand all sections' : 'Collapse all sections';
+        }
+        $$('.ha-collapse-btn').forEach(btn => {
+            const bodyId = btn.dataset.target;
+            const body = document.getElementById(bodyId);
+            if (!body) return;
+            body.classList.toggle('collapsed', collapsed);
+            btn.classList.toggle('collapsed', collapsed);
+            btn.title = collapsed ? 'Expand' : 'Collapse';
+        });
+    }
+
     function initCollapsibles() {
         $$('.ha-collapse-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1600,24 +1622,22 @@
                 const collapsed = body.classList.toggle('collapsed');
                 btn.classList.toggle('collapsed', collapsed);
                 btn.title = collapsed ? 'Expand' : 'Collapse';
+                historicalAllSectionsCollapsed = $$('.ha-collapse-btn').every(b => {
+                    const id = b.dataset.target;
+                    const el = id ? document.getElementById(id) : null;
+                    return el && el.classList.contains('collapsed');
+                });
+                const globalBtn = $('h-btn-collapse-all');
+                if (globalBtn) {
+                    globalBtn.textContent = historicalAllSectionsCollapsed ? '⇱ Expand All' : '⇲ Collapse All';
+                    globalBtn.title = historicalAllSectionsCollapsed ? 'Expand all sections' : 'Collapse all sections';
+                }
             });
         });
 
         // Global Collapse / Expand All
-        let allCollapsed = false;
         $('h-btn-collapse-all')?.addEventListener('click', (e) => {
-            allCollapsed = !allCollapsed;
-            e.target.textContent = allCollapsed ? '⇱ Expand All' : '⇲ Collapse All';
-            e.target.title = allCollapsed ? 'Expand all sections' : 'Collapse all sections';
-
-            $$('.ha-collapse-btn').forEach(btn => {
-                const bodyId = btn.dataset.target;
-                const body = document.getElementById(bodyId);
-                if (!body) return;
-                body.classList.toggle('collapsed', allCollapsed);
-                btn.classList.toggle('collapsed', allCollapsed);
-                btn.title = allCollapsed ? 'Expand' : 'Collapse';
-            });
+            applyHistoricalSectionsCollapsed(!historicalAllSectionsCollapsed);
         });
     }
 
