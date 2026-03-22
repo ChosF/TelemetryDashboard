@@ -26,6 +26,7 @@ import { ablyClient } from '@/lib/ably';
 import { debugRewind } from '@/lib/rewindDebug';
 import { ensureLegacyNotificationApi, showLegacyNotification } from '@/lib/legacyNotifications';
 import { mergeHistoricalTelemetry } from '@/lib/utils';
+import { DRIVER_DASHBOARD_HREF } from '@/lib/appEntrypoints';
 import type { TelemetryRow } from '@/types/telemetry';
 
 type WindowWithConfig = Window & {
@@ -328,6 +329,12 @@ const DashboardParity: Component = () => {
     const historyHref = createMemo(() => {
         if (!authStore.canViewHistory()) return '/dashboard/sessions';
         return '/dashboard/sessions';
+    });
+
+    /** Driver dashboard: admins and internal users only (not external / guest). */
+    const canAccessDriverDashboard = createMemo(() => {
+        const role = authStore.userRole();
+        return role === authStore.USER_ROLES.ADMIN || role === authStore.USER_ROLES.INTERNAL;
     });
     const summarizeRows = (rows: TelemetryRow[]) => ({
         count: rows.length,
@@ -1030,6 +1037,32 @@ const DashboardParity: Component = () => {
             const savedTheme = (localStorage.getItem('theme') as 'dark' | 'light' | null) ?? 'dark';
             setTheme(savedTheme === 'light' ? 'light' : 'dark');
             ensureLegacyNotificationApi();
+
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const gate = params.get('driverGate');
+                if (gate) {
+                    const messages: Record<string, string> = {
+                        login: 'Sign in as internal or admin to use the driver cockpit.',
+                        forbidden: 'Driver cockpit is restricted to internal and admin users.',
+                        error: 'Could not verify driver cockpit access. Check your connection and try again.',
+                    };
+                    const text = messages[gate];
+                    if (text) {
+                        showLegacyNotification(text, gate === 'error' ? 'error' : 'warning', 7000);
+                    }
+                    params.delete('driverGate');
+                    const next = params.toString();
+                    window.history.replaceState(
+                        {},
+                        '',
+                        `${window.location.pathname}${next ? `?${next}` : ''}${window.location.hash}`,
+                    );
+                }
+            } catch {
+                // ignore URL / notification edge cases
+            }
+
             notificationTimer = window.setInterval(analyzeRealtimeNotifications, 1000);
 
             const w = window as WindowWithConfig;
@@ -1208,6 +1241,21 @@ const DashboardParity: Component = () => {
                                     </div>
                                 </div>
                                 <div class="header-actions">
+                                    <Show when={canAccessDriverDashboard()}>
+                                        <a
+                                            href={DRIVER_DASHBOARD_HREF}
+                                            class="header-historical-link liquid-hover"
+                                            title="Driver dashboard"
+                                            onClick={(e) => {
+                                                // Bypass Solid Router: `path="*"` would otherwise capture /driver and
+                                                // stay on the SPA instead of loading driver.html (separate entry).
+                                                e.preventDefault();
+                                                window.location.assign(DRIVER_DASHBOARD_HREF);
+                                            }}
+                                        >
+                                            <span>🎮</span>
+                                        </a>
+                                    </Show>
                                     <a
                                         href={historyHref()}
                                         class="header-historical-link liquid-hover"

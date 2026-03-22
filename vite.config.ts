@@ -1,13 +1,43 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import solidPlugin from 'vite-plugin-solid';
 import { resolve } from 'path';
+/**
+ * Match production Vercel rewrites in dev/preview: /driver → driver.html, /dashboard → dashboard.html
+ */
+function mpaEntryRewrite(): Plugin {
+  const rewrite: (
+    req: { url?: string },
+    _res: unknown,
+    next: (err?: unknown) => void,
+  ) => void = (req, _res, next) => {
+    const raw = req.url ?? '';
+    const pathOnly = raw.split('?')[0] ?? '';
+    const qs = raw.includes('?') ? raw.slice(raw.indexOf('?')) : '';
+    if (pathOnly === '/driver' || pathOnly === '/driver/') {
+      req.url = '/driver.html' + qs;
+    } else if (pathOnly === '/dashboard' || pathOnly === '/dashboard/') {
+      req.url = '/dashboard.html' + qs;
+    }
+    next();
+  };
+
+  return {
+    name: 'mpa-entry-rewrite',
+    configureServer: ({ middlewares }) => {
+      middlewares.use(rewrite);
+    },
+    configurePreviewServer: ({ middlewares }) => {
+      middlewares.use(rewrite);
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
   const isDev = mode === 'development';
   const isProd = mode === 'production';
 
   return {
-    plugins: [solidPlugin()],
+    plugins: [mpaEntryRewrite(), solidPlugin()],
 
     // Public directory for static assets
     publicDir: 'public',

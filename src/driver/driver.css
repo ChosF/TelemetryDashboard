@@ -570,3 +570,41 @@
   .drv-header { padding-top: env(safe-area-inset-top); }
   .drv-content { padding-bottom: calc(var(--drv-gap) + env(safe-area-inset-bottom)); }
 }
+
+/* === ACCESS GATE (pre-dashboard) === */
+.drv-boot-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--drv-bg);
+  color: var(--drv-text);
+  font-family: var(--drv-font-display);
+  z-index: 99999;
+}
+
+.drv-boot-inner {
+  text-align: center;
+  padding: 24px;
+}
+
+.drv-boot-spinner {
+  width: 36px;
+  height: 36px;
+  margin: 0 auto 16px;
+  border: 3px solid var(--drv-border);
+  border-top-color: var(--drv-accent);
+  border-radius: 50%;
+  animation: drv-boot-spin 0.85s linear infinite;
+}
+
+.drv-boot-text {
+  font-size: 0.85rem;
+  color: var(--drv-text-dim);
+  letter-spacing: 0.04em;
+}
+
+@keyframes drv-boot-spin {
+  to { transform: rotate(360deg); }
+}
