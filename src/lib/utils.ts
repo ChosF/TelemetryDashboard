@@ -428,10 +428,85 @@ export function computeKPIs(rows: TelemetryRow[]): KPISummary {
 /**
  * Create unique key for telemetry record (timestamp + message_id)
  */
-function getRecordKey(r: TelemetryRow): string {
+export function getTelemetryRecordKey(r: TelemetryRow): string {
     const ts = new Date(r.timestamp).getTime();
     const msgId = r.message_id ?? '';
     return `${ts}::${msgId}`;
+}
+
+function getRecordKey(r: TelemetryRow): string {
+    return getTelemetryRecordKey(r);
+}
+
+/** Shallow merge: patch keys only when value is not undefined (avoids wiping merged rows from JSON holes). */
+function mergeDefinedTelemetry(
+    base: Record<string, unknown>,
+    patch: Record<string, unknown>
+): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...base };
+    for (const key of Object.keys(patch)) {
+        const v = patch[key];
+        if (v !== undefined) {
+            out[key] = v;
+        }
+    }
+    return out;
+}
+
+const ACCEL_REUSE_EPS = 1e-4;
+
+function accelerometersNearlyEqual(a: TelemetryRow, b: TelemetryRow): boolean {
+    const axes = ['accel_x', 'accel_y', 'accel_z'] as const;
+    for (const axis of axes) {
+        const av = toNum(a[axis], null);
+        const bv = toNum(b[axis], null);
+        if (av === null && bv === null) continue;
+        if (av === null || bv === null) return false;
+        if (Math.abs(av - bv) > ACCEL_REUSE_EPS) return false;
+    }
+    return true;
+}
+
+/**
+ * Derive fields for one live row, reusing g-force EMA state when this packet is an enrichment
+ * update for the same timestamp+message_id (same IMU samples → do not advance EMA twice).
+ */
+export function withDerivedLiveUpdate(
+    previousRow: TelemetryRow | undefined,
+    incoming: TelemetryRow
+): TelemetryRow {
+    const sameKey =
+        previousRow !== undefined && getRecordKey(previousRow) === getRecordKey(incoming);
+    const merged = sameKey
+        ? (mergeDefinedTelemetry(
+              previousRow as unknown as Record<string, unknown>,
+              incoming as unknown as Record<string, unknown>
+          ) as unknown as TelemetryRow)
+        : incoming;
+
+    const normalized = normalizeFieldNames(merged as TelemetryRecord) as TelemetryRow;
+    const rows = [normalized];
+    withRollPitch(rows);
+
+    const reuseG =
+        sameKey &&
+        previousRow !== undefined &&
+        accelerometersNearlyEqual(previousRow, normalized) &&
+        previousRow.g_total !== undefined;
+
+    if (reuseG) {
+        normalized.g_longitudinal = previousRow.g_longitudinal;
+        normalized.g_lateral = previousRow.g_lateral;
+        normalized.g_total = previousRow.g_total;
+    } else {
+        withGForces(rows);
+    }
+
+    for (const r of rows) {
+        r.speed_kmh = (toNum(r.speed_ms, 0) ?? 0) * 3.6;
+    }
+
+    return normalized;
 }
 
 function toTimestampMs(row: TelemetryRow): number {
@@ -535,7 +610,10 @@ export function mergeTelemetry(
 
         if (getRecordKey(lastExisting) === nextKey) {
             const copy = existing.slice();
-            copy[copy.length - 1] = next;
+            copy[copy.length - 1] = mergeDefinedTelemetry(
+                lastExisting as unknown as Record<string, unknown>,
+                next as unknown as Record<string, unknown>
+            ) as unknown as TelemetryRow;
             return copy;
         }
 
@@ -561,7 +639,13 @@ export function mergeTelemetry(
         if (!existing || ((existing as { _interpolated?: boolean })._interpolated && !(r as { _interpolated?: boolean })._interpolated)) {
             seen.set(key, r);
         } else if (!(existing as { _interpolated?: boolean })._interpolated && !(r as { _interpolated?: boolean })._interpolated) {
-            seen.set(key, { ...existing, ...r } as TelemetryRow);
+            seen.set(
+                key,
+                mergeDefinedTelemetry(
+                    existing as unknown as Record<string, unknown>,
+                    r as unknown as Record<string, unknown>
+                ) as unknown as TelemetryRow
+            );
         }
     }
 

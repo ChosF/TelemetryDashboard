@@ -314,7 +314,7 @@ export function OverviewPanel(props: OverviewPanelProps): JSX.Element {
                         </div>
                         <div class="gauge-wrap gauge-wrap--gforce">
                             <div class="gauge gauge--gforce">
-                                <OverviewGForceUPlot row={latest()} active={props.active} />
+                                <OverviewGForceUPlot row={latest() ?? undefined} active={props.active} />
                             </div>
                             <div class="gauge-title">G Forces</div>
                         </div>

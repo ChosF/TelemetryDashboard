@@ -12,12 +12,14 @@ import type {
 } from '@/types/telemetry';
 import {
     withDerived,
+    withDerivedLiveUpdate,
     mergeTelemetry,
     computeKPIs,
     computeDataQualityReport,
     resetDynamicState,
     MAX_TELEMETRY_POINTS,
-    last
+    last,
+    getTelemetryRecordKey,
 } from '@/lib/utils';
 
 // =============================================================================
@@ -107,13 +109,17 @@ function addData(incoming: TelemetryRow | TelemetryRow[]): void {
     if (incomingArray.length === 0) return;
 
     batch(() => {
-        // Apply derived calculations
-        const processed = withDerived(incomingArray);
-
-        // Merge with existing data
-        const current = telemetryData();
-        const merged = mergeTelemetry(current, processed, MAX_TELEMETRY_POINTS);
-        setTelemetryData(merged);
+        let acc = telemetryData();
+        for (const row of incomingArray) {
+            const lastRow = last(acc);
+            const prevForDerivation =
+                lastRow && getTelemetryRecordKey(lastRow) === getTelemetryRecordKey(row)
+                    ? lastRow
+                    : undefined;
+            const rowOut = withDerivedLiveUpdate(prevForDerivation, row);
+            acc = mergeTelemetry(acc, [rowOut], MAX_TELEMETRY_POINTS);
+        }
+        setTelemetryData(acc);
 
         setMessageCount(prev => prev + incomingArray.length);
         setLastMessageTime(Date.now());

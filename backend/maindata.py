@@ -2012,6 +2012,16 @@ class ConvexHTTPClient:
 # Bridge
 # ------------------------------
 
+# Omit from Ably dashboard payloads (smaller messages; full dict kept for journal/DB).
+_DASHBOARD_INTERNAL_KEYS = frozenset({"_local_rx_time", "_profiling"})
+
+
+def _strip_dashboard_internals(message: Dict[str, Any]) -> Dict[str, Any]:
+    if not (message.keys() & _DASHBOARD_INTERNAL_KEYS):
+        return message
+    return {k: v for k, v in message.items() if k not in _DASHBOARD_INTERNAL_KEYS}
+
+
 class TelemetryBridgeWithDB:
     """
     - Subscribes to ESP32 (real) or generates mock data
@@ -2618,7 +2628,11 @@ class TelemetryBridgeWithDB:
             try:
                 self.calc_queue.put_nowait(normalized)
             except queue.Full:
-                pass
+                try:
+                    self.calc_queue.get_nowait()
+                    self.calc_queue.put_nowait(normalized)
+                except queue.Empty:
+                    pass
 
             self.stats["messages_received"] += 1
             self.stats["last_message_time"] = datetime.now(timezone.utc)
@@ -2659,7 +2673,11 @@ class TelemetryBridgeWithDB:
                 try:
                     self.calc_queue.put_nowait(normalized)
                 except queue.Full:
-                    pass
+                    try:
+                        self.calc_queue.get_nowait()
+                        self.calc_queue.put_nowait(normalized)
+                    except queue.Empty:
+                        pass
                 
                 self.stats["messages_received"] += 1
                 self.stats["last_message_time"] = datetime.now(timezone.utc)
@@ -2700,9 +2718,10 @@ class TelemetryBridgeWithDB:
                         break
                 
                 for m in batch:
+                    pub = _strip_dashboard_internals(m)
                     try:
                         success = await self.rate_limiter.publish(
-                            self.dashboard_channel, "telemetry_update", m
+                            self.dashboard_channel, "telemetry_update", pub
                         )
                         if success:
                             self.stats["messages_republished"] += 1
@@ -2738,7 +2757,7 @@ class TelemetryBridgeWithDB:
                         self.dashboard_health.record_error()
                         self.dashboard_health.is_connected = False
                         # Queue message for retry via rate limiter
-                        self.rate_limiter.queue_message(m)
+                        self.rate_limiter.queue_message(pub)
                         break
                 
                 await asyncio.sleep(0.05)
@@ -2783,8 +2802,8 @@ class TelemetryBridgeWithDB:
                         break
                 
                 for basic_data in batch:
-                    # Run sequentially to ensure thread-safety of internal state
-                    computed = self._compute_heavy(basic_data)
+                    # Offload CPU-bound work so the event loop can keep republishing (asyncio best practice).
+                    computed = await asyncio.to_thread(self._compute_heavy, basic_data)
                     
                     # 1) durable journal
                     self.journal.append(computed)

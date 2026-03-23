@@ -139,7 +139,6 @@ function buildOptions(width: number, height: number): Options {
 }
 
 export function OverviewGForceUPlot(props: OverviewGForceUPlotProps): JSX.Element {
-    let root: HTMLDivElement | undefined;
     let chartEl: HTMLDivElement | undefined;
     let chart: uPlot | undefined;
     let ro: ResizeObserver | undefined;
