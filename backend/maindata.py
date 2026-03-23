@@ -11,6 +11,7 @@ import signal
 import sys
 import time
 import uuid
+import ctypes
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -18,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import threading
 import queue
 import struct
+import re
 
 try:
     from ably import AblyRealtime
@@ -99,6 +101,12 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
+
+# Silence noisy third-party libraries
+logging.getLogger("ably").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger("TelemetryBridge")
 
 
@@ -2024,6 +2032,27 @@ class TelemetryBridgeWithDB:
         self.mock_mode = mock_mode
         self.mock_config = mock_config or MockModeConfig()
         
+        # Attempt to elevate Windows process priority
+        if sys.platform == 'win32':
+            try:
+                # 1. Try standard kernel32 (Works for standalone python)
+                res = ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00000080)
+                if res != 0:
+                    logger.info("⚡ CPU priority successfully elevated to HIGH_PRIORITY_CLASS (Kernel32)")
+                else:
+                    # 2. Windows Store AppContainer blocking it -> Fallback to WMI
+                    import os, subprocess
+                    wmic_res = subprocess.call(
+                        ["wmic", "process", "where", f"processid={os.getpid()}", "CALL", "setpriority", "128"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                    if wmic_res == 0:
+                        logger.info("⚡ CPU priority successfully elevated to HIGH_PRIORITY_CLASS (WMI Override)")
+                    else:
+                        logger.warning("⚠️ Could not elevate CPU priority (Windows Admin blocked).")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to elevate CPU priority: {e}")
+
         self.esp32_client: Optional[AblyRealtime] = None
         self.dashboard_client: Optional[AblyRealtime] = None
         self.convex_client: Optional[ConvexHTTPClient] = None
@@ -2060,6 +2089,9 @@ class TelemetryBridgeWithDB:
         # Rate-limited publisher
         self.rate_limiter = RateLimitedPublisher()
         
+        # Pre-compile regex for emergency parser to avoid overhead
+        self._emergency_regex = re.compile(r'"([a-zA-Z0-9_]+)"\s*:\s*(-?\d+(?:\.\d+)?)')
+        
         # Outlier detector (embedded module)
         self.outlier_detector = OutlierDetector()
         
@@ -2081,6 +2113,8 @@ class TelemetryBridgeWithDB:
             "messages_dropped": 0,
             "last_message_time": None,
             "last_db_write_time": None,
+            "latest_ably_latency_ms": 0.0,
+            "latest_process_latency_ms": 0.0,
             "errors": 0,
             "last_error": None,
             "current_session_id": self.session_id,
@@ -2277,35 +2311,64 @@ class TelemetryBridgeWithDB:
 
     # ------------- Parsers -------------
 
-    def _parse_json_message(self, b: bytes) -> Optional[Dict]:
+    def _parse_json_message(self, b: bytes) -> tuple[Optional[Dict], str]:
+        # 1. Decode bytes securely (b is guaranteed bytes from _on_esp32_message_received check)
         try:
-            s = b.decode("utf-8") if isinstance(b, (bytes, bytearray)) else str(b)
-            return json.loads(s)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return None
+            s_raw = b.decode("utf-8")
+        except UnicodeDecodeError:
+            # Salvage string if it has bad embedded bytes
+            try:
+                s_raw = b.decode("utf-8", errors="replace")
+            except Exception as dec_err:
+                return None, f"String decode error: {dec_err}"
 
-    def _parse_binary_message(self, b: bytes) -> Optional[Dict]:
-        if not isinstance(b, (bytes, bytearray)) or len(b) != self.BINARY_MESSAGE_SIZE:
-            return None
+        # 2. Try normal JSON parse
+        try:
+            return json.loads(s_raw), ""
+        except json.JSONDecodeError as e:
+            # 3. EMERGENCY REGEX PARSE:
+            salvaged = {}
+            for match in self._emergency_regex.finditer(s_raw):
+                try:
+                    salvaged[match.group(1)] = float(match.group(2))
+                except ValueError:
+                    pass
+            
+            # If we salvaged core fields, consider it a success and warn
+            if "speed_ms" in salvaged and "voltage_v" in salvaged and "current_a" in salvaged:
+                logger.warning(f"⚠️ JSON was heavily corrupted ({e}), but salvaged {len(salvaged)} metrics via Regex!")
+                return salvaged, ""
+            
+            return None, f"JSON parse error (Regex fallback couldn't find core metrics): {e}"
+        except Exception as e:
+            return None, f"Unknown JSON error: {e}"
+
+    def _parse_binary_message(self, b: bytes) -> tuple[Optional[Dict], str]:
+        if not isinstance(b, (bytes, bytearray)):
+            return None, f"Expected bytes, got {type(b)}"
+        if len(b) != self.BINARY_MESSAGE_SIZE:
+            return None, f"Binary length mismatch: expected {self.BINARY_MESSAGE_SIZE}, got {len(b)}"
         try:
             vals = struct.unpack(self.BINARY_FORMAT, b)
             d = dict(zip(self.BINARY_FIELD_NAMES, vals))
             d["power_w"] = d["voltage_v"] * d["current_a"]
-            return d
-        except struct.error:
-            return None
+            return d, ""
+        except struct.error as e:
+            return None, f"Struct unpack error: {e}"
+        except Exception as e:
+            return None, f"Unknown binary error: {e}"
 
-    def _validate_message(self, data: Dict[str, Any]) -> bool:
+    def _validate_message(self, data: Dict[str, Any]) -> tuple[bool, str]:
         """Validate that message has minimum required fields and sane values"""
         if not isinstance(data, dict):
-            return False
+            return False, f"Expected dict, got {type(data)}"
         
         # Check for at least some core fields
         core_fields = ["speed_ms", "voltage_v", "current_a"]
         has_core = any(field in data for field in core_fields)
         
         if not has_core:
-            return False
+            return False, f"Missing all core fields {core_fields}. Keys found: {list(data.keys())[:10]}"
         
         # Sanity check numeric values (prevent NaN/Inf)
         for key, val in data.items():
@@ -2314,12 +2377,16 @@ class TelemetryBridgeWithDB:
                     logger.warning(f"⚠️ Invalid value for {key}: {val}")
                     data[key] = 0.0
         
-        return True
+        return True, ""
 
     # ------------- Normalization -------------
 
     def _normalize_telemetry_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         out = data.copy()
+        
+        out["_profiling"] = {}
+        t_start = time.perf_counter()
+        
         out["session_id"] = self.session_id
         out["session_name"] = self.session_name
 
@@ -2444,6 +2511,9 @@ class TelemetryBridgeWithDB:
         if out.get("brake2", 0) == 0 and out.get("brake2_pct", 0) != 0:
             out["brake2"] = round(_clamp01(out["brake2_pct"] / 100.0), 3)
 
+        t_norm = time.perf_counter()
+        out["_profiling"]["norm_ms"] = (t_norm - t_start) * 1000
+
         # Run outlier detection (always available - embedded module)
         try:
             outliers = self.outlier_detector.detect(out)
@@ -2451,6 +2521,9 @@ class TelemetryBridgeWithDB:
         except Exception as e:
             logger.warning(f"⚠️ Outlier detection failed: {e}")
             out["outliers"] = None
+            
+        t_outlier = time.perf_counter()
+        out["_profiling"]["outliers_ms"] = (t_outlier - t_norm) * 1000
 
         # Run telemetry calculator for derived metrics
         try:
@@ -2458,12 +2531,19 @@ class TelemetryBridgeWithDB:
             out.update(calculated)
         except Exception as e:
             logger.warning(f"⚠️ Telemetry calculation failed: {e}")
+            
+        t_math = time.perf_counter()
+        out["_profiling"]["math_ms"] = (t_math - t_outlier) * 1000
         
         # Run driver notification engine
         try:
             self.notification_engine.analyze(out)
         except Exception as e:
             logger.warning(f"⚠️ Driver notification analysis failed: {e}")
+
+        t_notif = time.perf_counter()
+        out["_profiling"]["notif_ms"] = (t_notif - t_math) * 1000
+        out["_profiling"]["total_process_ms"] = (t_notif - t_start) * 1000
 
         return out
 
@@ -2472,28 +2552,45 @@ class TelemetryBridgeWithDB:
     def _on_esp32_message_received(self, message):
         try:
             data = None
+            parse_errors = []
             if isinstance(message.data, (bytes, bytearray)):
-                data = self._parse_json_message(message.data) or self._parse_binary_message(
-                    message.data
-                )
+                data, err_json = self._parse_json_message(message.data)
+                if data is None:
+                    parse_errors.append(err_json)
+                    data, err_bin = self._parse_binary_message(message.data)
+                    if data is None:
+                        parse_errors.append(err_bin)
             elif isinstance(message.data, str):
                 try:
                     data = json.loads(message.data)
-                except json.JSONDecodeError:
-                    data = None
+                except json.JSONDecodeError as e:
+                    parse_errors.append(f"JSON string parse error: {e}")
             elif isinstance(message.data, dict):
                 data = message.data
+            else:
+                parse_errors.append(f"Unknown message.data type: {type(message.data)}")
 
             if data is None:
-                self._count_error("Failed to parse incoming ESP32 message")
+                error_context = " | ".join(parse_errors)
+                self._count_error(f"Failed to parse ESP32 msg. Errors: {error_context}. Full Raw Data: {message.data}")
                 return
             
-            # Validate message
-            if not self._validate_message(data):
-                self._count_error("Message validation failed")
+            is_valid, val_reason = self._validate_message(data)
+            if not is_valid:
+                self._count_error(f"Message validation failed: {val_reason}")
                 return
 
+            # Latency from Ably infrastructure
+            msg_ts = getattr(message, 'timestamp', 0)
+            ably_lat_ms = 0.0
+            if msg_ts:
+                ably_lat_ms = (time.time() * 1000) - msg_ts
+                self.stats["latest_ably_latency_ms"] = ably_lat_ms
+                if ably_lat_ms > 3000:
+                    logger.warning(f"⚠️ HIGH ABLY NETWORK LATENCY: {ably_lat_ms:.0f} ms | msg_id: {data.get('message_id', 'N/A')}")
+
             normalized = self._normalize_telemetry_data(data)
+            normalized["_local_rx_time"] = time.time()
 
             # 1) durable journal
             self.journal.append(normalized)
@@ -2593,13 +2690,38 @@ class TelemetryBridgeWithDB:
                 
                 for m in batch:
                     try:
-                        # Use rate-limited publish
                         success = await self.rate_limiter.publish(
                             self.dashboard_channel, "telemetry_update", m
                         )
                         if success:
                             self.stats["messages_republished"] += 1
                             self.dashboard_health.record_message()
+                            try:
+                                dt = datetime.fromisoformat(m["timestamp"].replace("Z", "+00:00"))
+                                process_lat_ms = (datetime.now(timezone.utc) - dt).total_seconds() * 1000
+                                self.stats["latest_process_latency_ms"] = process_lat_ms
+                                if process_lat_ms > 3000:
+                                    rx_time = m.get("_local_rx_time", 0)
+                                    queue_age_ms = (time.time() - rx_time) * 1000 if rx_time else 0
+                                    ext_lat_ms = process_lat_ms - queue_age_ms
+                                    
+                                    reason = []
+                                    if queue_age_ms > 1000:
+                                        reason.append(f"Python internal processing/queues held it for {queue_age_ms:.0f}ms")
+                                    if ext_lat_ms > 1000:
+                                        reason.append(f"Ably network delay OR ESP32 out-of-sync clock caused {ext_lat_ms:.0f}ms delay before arriving")
+                                    
+                                    perf = m.get("_profiling", {})
+                                    prof_str = f"Norm: {perf.get('norm_ms', 0):.2f}ms | Outliers: {perf.get('outliers_ms', 0):.2f}ms | Math: {perf.get('math_ms', 0):.2f}ms | Notif: {perf.get('notif_ms', 0):.2f}ms | ProcessTotal: {perf.get('total_process_ms', 0):.2f}ms"
+                                    
+                                    logger.warning(
+                                        f"⚠️ HIGH PROCESS/REPUBLISH LATENCY: {process_lat_ms:.0f} ms | msg_id: {m.get('message_id', 'N/A')} "
+                                        f"| QueueSizes - Main: {self.message_queue.qsize()} RL: {self.rate_limiter._queue.qsize()} "
+                                        f"| Breakdown: [Internal Queue Age: {queue_age_ms:.0f}ms, External Delay: {ext_lat_ms:.0f}ms] -> {' | '.join(reason)}\n"
+                                        f"    └─ Profiling: [{prof_str}]"
+                                    )
+                            except Exception:
+                                pass
                     except Exception as e:
                         self._count_error(f"Republish failed: {e}")
                         self.dashboard_health.record_error()
@@ -2800,7 +2922,7 @@ class TelemetryBridgeWithDB:
     async def print_stats(self):
         while self.running and not self.shutdown_event.is_set():
             try:
-                await asyncio.sleep(30)
+                await asyncio.sleep(5)
                 mode = f"MOCK/{self.mock_config.scenario.value}" if self.mock_mode else "REAL"
                 buf_len = len(self.db_buffer)
                 retry_batches = len(self.db_retry_queue)
@@ -2812,13 +2934,14 @@ class TelemetryBridgeWithDB:
                 
                 logger.info(
                     f"📊 STATS ({mode}) - "
-                    f"Received: {self.stats['messages_received']}, "
-                    f"Republished: {self.stats['messages_republished']}, "
-                    f"DB Stored: {self.stats['messages_stored_db']}, "
-                    f"Dropped: {dropped}, "
-                    f"Buffer: {buf_len}, RetryBatches: {retry_batches}, "
-                    f"Reconnects: {reconnects}, "
-                    f"Errors: {self.stats['errors']}"
+                    f"Rx: {self.stats['messages_received']}, "
+                    f"Repub: {self.stats['messages_republished']}, "
+                    f"DB: {self.stats['messages_stored_db']}, "
+                    f"Drop: {dropped}, "
+                    f"Q-Main: {self.message_queue.qsize()}, Q-DB: {buf_len}, Q-RL: {rl_stats['queue_depth']}, "
+                    f"Err: {self.stats['errors']} | "
+                    f"Lat(AblyNet): {self.stats.get('latest_ably_latency_ms', 0):.0f}ms, "
+                    f"Lat(Process): {self.stats.get('latest_process_latency_ms', 0):.0f}ms"
                 )
                 
                 # Log rate limiter stats if there's activity
