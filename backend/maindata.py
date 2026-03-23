@@ -74,6 +74,8 @@ CONNECTION_TIMEOUT = 15.0  # seconds
 WATCHDOG_TIMEOUT = 30.0  # seconds - trigger reconnect if no data
 HEALTH_CHECK_INTERVAL = 10.0  # seconds
 MAX_QUEUE_SIZE = 5000  # prevent memory issues
+# Smaller batches = calc worker yields to republish sooner (lower tail latency).
+CALC_QUEUE_BATCH_MAX = 12
 RECONNECT_MAX_ATTEMPTS = 10
 RECONNECT_BASE_DELAY = 1.0  # seconds
 
@@ -962,8 +964,8 @@ class OptimalSpeedOptimizer:
         self.optimal_efficiency: Optional[float] = None
         self.confidence: float = 0.0
         
-        # Update frequency (don't recalculate every sample)
-        self.update_interval = 10
+        # Update frequency (don't recalculate every sample — polyfit is relatively expensive)
+        self.update_interval = 25
         self.samples_since_update = 0
         
         # Speed range for optimization (m/s)
@@ -2116,6 +2118,9 @@ class TelemetryBridgeWithDB:
         self.notification_engine = DriverNotificationEngine(
             session_id=self.session_id
         )
+        # Driver notifications are rate-limited already; analyzing every sample adds latency.
+        self._notification_analyze_stride = 4
+        self._heavy_compute_counter = 0
 
         self.stats = {
             "messages_received": 0,
@@ -2126,6 +2131,7 @@ class TelemetryBridgeWithDB:
             "last_db_write_time": None,
             "latest_ably_latency_ms": 0.0,
             "latest_process_latency_ms": 0.0,
+            "latest_internal_publish_lag_ms": 0.0,
             "errors": 0,
             "last_error": None,
             "current_session_id": self.session_id,
@@ -2553,18 +2559,21 @@ class TelemetryBridgeWithDB:
             
         t_math = time.perf_counter()
         out["_profiling"]["math_ms"] = (t_math - t_outlier) * 1000
-        
-        # Run driver notification engine
-        try:
-            self.notification_engine.analyze(out)
-        except Exception as e:
-            logger.warning(f"⚠️ Driver notification analysis failed: {e}")
 
-        t_notif = time.perf_counter()
-        out["_profiling"]["notif_ms"] = (t_notif - t_math) * 1000
-        
+        notif_ms = 0.0
+        self._heavy_compute_counter += 1
+        if self._heavy_compute_counter % self._notification_analyze_stride == 0:
+            t_notif0 = time.perf_counter()
+            try:
+                self.notification_engine.analyze(out)
+            except Exception as e:
+                logger.warning(f"⚠️ Driver notification analysis failed: {e}")
+            notif_ms = (time.perf_counter() - t_notif0) * 1000
+
+        t_end = time.perf_counter()
+        out["_profiling"]["notif_ms"] = notif_ms
         norm_ms = out["_profiling"].get("norm_ms", 0)
-        out["_profiling"]["total_process_ms"] = norm_ms + (t_notif - t_start) * 1000
+        out["_profiling"]["total_process_ms"] = norm_ms + (t_end - t_start) * 1000
 
         return out
 
@@ -2716,7 +2725,8 @@ class TelemetryBridgeWithDB:
                         batch.append(self.message_queue.get_nowait())
                     except queue.Empty:
                         break
-                
+
+                had_batch = len(batch) > 0
                 for m in batch:
                     pub = _strip_dashboard_internals(m)
                     try:
@@ -2726,6 +2736,9 @@ class TelemetryBridgeWithDB:
                         if success:
                             self.stats["messages_republished"] += 1
                             self.dashboard_health.record_message()
+                            rx = m.get("_local_rx_time")
+                            if isinstance(rx, (int, float)) and rx > 0:
+                                self.stats["latest_internal_publish_lag_ms"] = (time.time() - rx) * 1000
                             try:
                                 dt = datetime.fromisoformat(m["timestamp"].replace("Z", "+00:00"))
                                 process_lat_ms = (datetime.now(timezone.utc) - dt).total_seconds() * 1000
@@ -2759,8 +2772,9 @@ class TelemetryBridgeWithDB:
                         # Queue message for retry via rate limiter
                         self.rate_limiter.queue_message(pub)
                         break
-                
-                await asyncio.sleep(0.05)
+
+                # Tight loop while draining telemetry; longer sleep when idle (reduces publish tail latency).
+                await asyncio.sleep(0.003 if had_batch else 0.04)
             except Exception as e:
                 self._count_error(f"Republish loop error: {e}")
 
@@ -2795,30 +2809,28 @@ class TelemetryBridgeWithDB:
         while self.running and not self.shutdown_event.is_set():
             try:
                 batch = []
-                while not self.calc_queue.empty() and len(batch) < 20:
+                while not self.calc_queue.empty() and len(batch) < CALC_QUEUE_BATCH_MAX:
                     try:
                         batch.append(self.calc_queue.get_nowait())
                     except queue.Empty:
                         break
-                
+
                 for basic_data in batch:
                     # Offload CPU-bound work so the event loop can keep republishing (asyncio best practice).
                     computed = await asyncio.to_thread(self._compute_heavy, basic_data)
-                    
-                    # 1) durable journal
-                    self.journal.append(computed)
-                    
-                    # 2) db buffer
-                    with self.db_buffer_lock:
-                        self.db_buffer.append(computed)
-                    
-                    # 3) send enriched data to dashboard
+
+                    # Dashboard first — lower time-to-enriched; journal/DB follow.
                     try:
                         self.message_queue.put_nowait(computed)
                     except queue.Full:
                         pass
-                
-                await asyncio.sleep(0.01) # Yield to event loop
+
+                    self.journal.append(computed)
+
+                    with self.db_buffer_lock:
+                        self.db_buffer.append(computed)
+
+                await asyncio.sleep(0.002 if batch else 0.02)
             except Exception as e:
                 self._count_error(f"Calc worker error: {e}")
 
@@ -3005,7 +3017,8 @@ class TelemetryBridgeWithDB:
                     f"Q-Main: {self.message_queue.qsize()}, Q-DB: {buf_len}, Q-RL: {rl_stats['queue_depth']}, "
                     f"Err: {self.stats['errors']} | "
                     f"Lat(AblyNet): {self.stats.get('latest_ably_latency_ms', 0):.0f}ms, "
-                    f"Lat(Process): {self.stats.get('latest_process_latency_ms', 0):.0f}ms"
+                    f"Lat(Process): {self.stats.get('latest_process_latency_ms', 0):.0f}ms, "
+                    f"Lat(Bridge→Pub): {self.stats.get('latest_internal_publish_lag_ms', 0):.0f}ms"
                 )
                 
                 # Log rate limiter stats if there's activity

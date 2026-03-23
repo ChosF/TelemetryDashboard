@@ -14,6 +14,7 @@ import {
     withDerived,
     withDerivedLiveUpdate,
     mergeTelemetry,
+    patchCarryForwardLastRow,
     computeKPIs,
     computeDataQualityReport,
     resetDynamicState,
@@ -118,6 +119,7 @@ function addData(incoming: TelemetryRow | TelemetryRow[]): void {
                     : undefined;
             const rowOut = withDerivedLiveUpdate(prevForDerivation, row);
             acc = mergeTelemetry(acc, [rowOut], MAX_TELEMETRY_POINTS);
+            acc = patchCarryForwardLastRow(acc);
         }
         setTelemetryData(acc);
 

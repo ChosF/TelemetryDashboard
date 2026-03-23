@@ -509,6 +509,80 @@ export function withDerivedLiveUpdate(
     return normalized;
 }
 
+/**
+ * Bridge sends a fast row (core sensors) then an enriched row (same message_id).
+ * The newest row may omit server-derived fields; copy them from the previous point
+ * so gauges (averages, peaks, session max) do not flash 0 between the two updates.
+ */
+const CARRY_FORWARD_BRIDGE_KEYS: readonly string[] = [
+    'avg_voltage',
+    'avg_current',
+    'avg_power',
+    'avg_speed_kmh',
+    'max_speed_kmh',
+    'max_power_w',
+    'max_current_a',
+    'max_g_force',
+    'cumulative_energy_kwh',
+    'current_efficiency_km_kwh',
+    'route_distance_km',
+    'elevation_gain_m',
+    'motion_state',
+    'driver_mode',
+    'throttle_intensity',
+    'brake_intensity',
+    'current_g_force',
+    'accel_magnitude',
+    'avg_acceleration',
+    'g_lat',
+    'g_long',
+    'optimal_speed_kmh',
+    'optimal_speed_ms',
+    'optimal_efficiency_km_kwh',
+    'optimal_speed_confidence',
+    'optimal_speed_data_points',
+    'optimal_speed_range',
+    'current_peaks',
+    'current_peak_count',
+    'acceleration_peaks',
+    'acceleration_peak_count',
+    'quality_score',
+    'outliers',
+    'outlier_severity',
+];
+
+export function carryBridgeDerivedFieldsForward(
+    prev: TelemetryRow | undefined,
+    cur: TelemetryRow
+): TelemetryRow {
+    if (!prev) return cur;
+    const out = { ...cur } as Record<string, unknown>;
+    const prevRec = prev as unknown as Record<string, unknown>;
+    for (const key of CARRY_FORWARD_BRIDGE_KEYS) {
+        const c = out[key];
+        if (c !== undefined && c !== null) continue;
+        const p = prevRec[key];
+        if (p === undefined || p === null) continue;
+        if (key === 'current_peaks' || key === 'acceleration_peaks') {
+            if (Array.isArray(p) && p.length > 0) {
+                out[key] = [...p];
+            }
+        } else {
+            out[key] = p;
+        }
+    }
+    return out as unknown as TelemetryRow;
+}
+
+/** Apply carry-forward to the last row only (live pipeline). */
+export function patchCarryForwardLastRow(rows: TelemetryRow[]): TelemetryRow[] {
+    if (rows.length < 2) return rows;
+    const copy = rows.slice();
+    const n = copy.length;
+    copy[n - 1] = carryBridgeDerivedFieldsForward(copy[n - 2], copy[n - 1]);
+    return copy;
+}
+
 function toTimestampMs(row: TelemetryRow): number {
     return new Date(row.timestamp).getTime();
 }

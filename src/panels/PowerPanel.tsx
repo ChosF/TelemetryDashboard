@@ -168,8 +168,15 @@ export function PowerPanel(props: PowerPanelProps): JSX.Element {
         const latest = props.data[props.data.length - 1] as (TelemetryRow & {
             current_peaks?: CurrentPeak[];
         }) | undefined;
-        const peaks = latest?.current_peaks ?? [];
-        return peaks.length > 0 ? [...peaks].reverse() : computedCurrentPeaks();
+        const peaks = latest?.current_peaks;
+        if (Array.isArray(peaks) && peaks.length > 0) {
+            return [...peaks].reverse();
+        }
+        // Server sent an explicit empty list — do not swap to client-derived spikes (avoids flicker).
+        if (peaks !== undefined) {
+            return [];
+        }
+        return props.data.length >= 5 ? computedCurrentPeaks() : [];
     });
 
     const currentPeakCount = createMemo(() => {
