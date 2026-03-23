@@ -557,9 +557,11 @@ export function mergeTelemetry(
     for (const r of incoming) {
         const key = getRecordKey(r);
         const existing = seen.get(key);
-        // Prefer real data over interpolated
+        // Prefer real data over interpolated, or merge if both are real to add computed fields
         if (!existing || ((existing as { _interpolated?: boolean })._interpolated && !(r as { _interpolated?: boolean })._interpolated)) {
             seen.set(key, r);
+        } else if (!(existing as { _interpolated?: boolean })._interpolated && !(r as { _interpolated?: boolean })._interpolated) {
+            seen.set(key, { ...existing, ...r } as TelemetryRow);
         }
     }
 

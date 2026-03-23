@@ -2064,6 +2064,7 @@ class TelemetryBridgeWithDB:
 
         # Use bounded queue to prevent memory issues
         self.message_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=MAX_QUEUE_SIZE)
+        self.calc_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=MAX_QUEUE_SIZE)
         self.db_buffer: List[Dict[str, Any]] = []
         self.db_buffer_lock = threading.Lock()
 
@@ -2381,7 +2382,7 @@ class TelemetryBridgeWithDB:
 
     # ------------- Normalization -------------
 
-    def _normalize_telemetry_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_basic(self, data: Dict[str, Any]) -> Dict[str, Any]:
         out = data.copy()
         
         out["_profiling"] = {}
@@ -2514,6 +2515,14 @@ class TelemetryBridgeWithDB:
         t_norm = time.perf_counter()
         out["_profiling"]["norm_ms"] = (t_norm - t_start) * 1000
 
+        return out
+
+    def _compute_heavy(self, basic_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Runs the heavy analytic computations (outliers, efficiency metrics)."""
+        out = basic_data.copy()
+        
+        t_start = time.perf_counter()
+        
         # Run outlier detection (always available - embedded module)
         try:
             outliers = self.outlier_detector.detect(out)
@@ -2523,7 +2532,7 @@ class TelemetryBridgeWithDB:
             out["outliers"] = None
             
         t_outlier = time.perf_counter()
-        out["_profiling"]["outliers_ms"] = (t_outlier - t_norm) * 1000
+        out["_profiling"]["outliers_ms"] = (t_outlier - t_start) * 1000
 
         # Run telemetry calculator for derived metrics
         try:
@@ -2543,7 +2552,9 @@ class TelemetryBridgeWithDB:
 
         t_notif = time.perf_counter()
         out["_profiling"]["notif_ms"] = (t_notif - t_math) * 1000
-        out["_profiling"]["total_process_ms"] = (t_notif - t_start) * 1000
+        
+        norm_ms = out["_profiling"].get("norm_ms", 0)
+        out["_profiling"]["total_process_ms"] = norm_ms + (t_notif - t_start) * 1000
 
         return out
 
@@ -2589,17 +2600,13 @@ class TelemetryBridgeWithDB:
                 if ably_lat_ms > 3000:
                     logger.warning(f"⚠️ HIGH ABLY NETWORK LATENCY: {ably_lat_ms:.0f} ms | msg_id: {data.get('message_id', 'N/A')}")
 
-            normalized = self._normalize_telemetry_data(data)
+            normalized = self._normalize_basic(data)
             normalized["_local_rx_time"] = time.time()
 
-            # 1) durable journal
-            self.journal.append(normalized)
-
-            # 2) realtime + db buffer (with backpressure)
+            # 1) Immediately queue fast data for republish 
             try:
                 self.message_queue.put_nowait(normalized)
             except queue.Full:
-                # Drop oldest messages if queue is full
                 try:
                     self.message_queue.get_nowait()
                     self.message_queue.put_nowait(normalized)
@@ -2607,8 +2614,11 @@ class TelemetryBridgeWithDB:
                 except queue.Empty:
                     pass
             
-            with self.db_buffer_lock:
-                self.db_buffer.append(normalized)
+            # 2) Queue for heavy calculations (journal and DB will happen there)
+            try:
+                self.calc_queue.put_nowait(normalized)
+            except queue.Full:
+                pass
 
             self.stats["messages_received"] += 1
             self.stats["last_message_time"] = datetime.now(timezone.utc)
@@ -2633,9 +2643,8 @@ class TelemetryBridgeWithDB:
                     continue
                 
                 # IMPORTANT: Pass mock data through same outlier detection pipeline as real data
-                normalized = self._normalize_telemetry_data(mock)
-                
-                self.journal.append(normalized)
+                normalized = self._normalize_basic(mock)
+                normalized["_local_rx_time"] = time.time()
                 
                 try:
                     self.message_queue.put_nowait(normalized)
@@ -2647,8 +2656,10 @@ class TelemetryBridgeWithDB:
                     except queue.Empty:
                         pass
                 
-                with self.db_buffer_lock:
-                    self.db_buffer.append(normalized)
+                try:
+                    self.calc_queue.put_nowait(normalized)
+                except queue.Full:
+                    pass
                 
                 self.stats["messages_received"] += 1
                 self.stats["last_message_time"] = datetime.now(timezone.utc)
@@ -2757,6 +2768,40 @@ class TelemetryBridgeWithDB:
                     logger.warning(f"⚠️ Driver notification flush failed: {e}")
             except Exception as e:
                 self._count_error(f"Notification flusher error: {e}")
+
+    # ------------- Heavy calculation worker -------------
+
+    async def calculation_worker(self):
+        """Worker task to process computationally heavy telemetry metrics asynchronously."""
+        while self.running and not self.shutdown_event.is_set():
+            try:
+                batch = []
+                while not self.calc_queue.empty() and len(batch) < 20:
+                    try:
+                        batch.append(self.calc_queue.get_nowait())
+                    except queue.Empty:
+                        break
+                
+                for basic_data in batch:
+                    # Run sequentially to ensure thread-safety of internal state
+                    computed = self._compute_heavy(basic_data)
+                    
+                    # 1) durable journal
+                    self.journal.append(computed)
+                    
+                    # 2) db buffer
+                    with self.db_buffer_lock:
+                        self.db_buffer.append(computed)
+                    
+                    # 3) send enriched data to dashboard
+                    try:
+                        self.message_queue.put_nowait(computed)
+                    except queue.Full:
+                        pass
+                
+                await asyncio.sleep(0.01) # Yield to event loop
+            except Exception as e:
+                self._count_error(f"Calc worker error: {e}")
 
     # ------------- Health check / watchdog -------------
 
@@ -2985,6 +3030,7 @@ class TelemetryBridgeWithDB:
                 asyncio.create_task(self.print_stats(), name="stats"),
                 asyncio.create_task(self.health_monitor(), name="health"),
                 asyncio.create_task(self.notification_flusher(), name="notif_flush"),
+                asyncio.create_task(self.calculation_worker(), name="calc_worker"),
             ]
             if self.mock_mode:
                 tasks.append(
