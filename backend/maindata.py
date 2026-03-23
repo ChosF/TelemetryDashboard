@@ -74,8 +74,8 @@ CONNECTION_TIMEOUT = 15.0  # seconds
 WATCHDOG_TIMEOUT = 30.0  # seconds - trigger reconnect if no data
 HEALTH_CHECK_INTERVAL = 10.0  # seconds
 MAX_QUEUE_SIZE = 5000  # prevent memory issues
-# Smaller batches = calc worker yields to republish sooner (lower tail latency).
-CALC_QUEUE_BATCH_MAX = 12
+# Small batches: more await points between to_thread calls so republish keeps up (lower tail latency).
+CALC_QUEUE_BATCH_MAX = 4
 RECONNECT_MAX_ATTEMPTS = 10
 RECONNECT_BASE_DELAY = 1.0  # seconds
 
@@ -121,7 +121,7 @@ logger = logging.getLogger("TelemetryBridge")
 @dataclass
 class OutlierConfig:
     """Configuration for outlier detection thresholds"""
-    window_size: int = 50
+    window_size: int = 36
     z_score_threshold: float = 5.0
     voltage_min: float = 35.0
     voltage_max: float = 60.0
@@ -170,69 +170,68 @@ class OutlierReason(Enum):
 
 
 class RollingWindow:
-    """Circular buffer for rolling statistics with NumPy"""
-    
+    """Circular buffer with O(1) mean, std, and sum (no per-call NumPy scans)."""
+
+    __slots__ = ("size", "buffer", "count", "index", "_sum", "_sum_sq")
+
     def __init__(self, size: int = 50):
         self.size = size
         self.buffer = np.zeros(size, dtype=np.float64)
         self.count = 0
         self.index = 0
-        self._mean_cache = None
-        self._std_cache = None
-        self._dirty = True
-    
+        self._sum = 0.0
+        self._sum_sq = 0.0
+
     def push(self, value: float) -> None:
-        self.buffer[self.index] = value
-        self.index = (self.index + 1) % self.size
-        self.count = min(self.count + 1, self.size)
-        self._dirty = True
-    
+        v = float(value)
+        if self.count < self.size:
+            self.buffer[self.index] = v
+            self._sum += v
+            self._sum_sq += v * v
+            self.index = (self.index + 1) % self.size
+            self.count += 1
+        else:
+            old = float(self.buffer[self.index])
+            self.buffer[self.index] = v
+            self._sum += v - old
+            self._sum_sq += v * v - old * old
+            self.index = (self.index + 1) % self.size
+
     def get_values(self) -> np.ndarray:
         if self.count < self.size:
-            return self.buffer[:self.count]
+            return self.buffer[: self.count]
         return self.buffer
-    
+
+    @property
+    def sum_values(self) -> float:
+        return self._sum
+
     def mean(self) -> float:
         if self.count == 0:
             return 0.0
-        if self._dirty:
-            self._update_stats()
-        return self._mean_cache
-    
+        return self._sum / self.count
+
     def std(self) -> float:
         if self.count < 2:
             return 0.0
-        if self._dirty:
-            self._update_stats()
-        return self._std_cache
-    
-    def _update_stats(self) -> None:
-        values = self.get_values()
-        if len(values) > 0:
-            self._mean_cache = float(np.mean(values))
-            self._std_cache = float(np.std(values)) if len(values) > 1 else 0.0
-        else:
-            self._mean_cache = 0.0
-            self._std_cache = 0.0
-        self._dirty = False
-    
-    def last_n(self, n: int) -> np.ndarray:
+        n = float(self.count)
+        # Population std (matches np.std default ddof=0 used before)
+        var = (self._sum_sq - (self._sum * self._sum) / n) / n
+        return math.sqrt(var) if var > 0.0 else 0.0
+
+    def peek_last(self) -> Optional[float]:
         if self.count == 0:
-            return np.array([])
-        n = min(n, self.count)
+            return None
         if self.count < self.size:
-            return self.buffer[max(0, self.count - n):self.count]
-        end = self.index
-        start = (end - n) % self.size
-        if start < end:
-            return self.buffer[start:end]
-        return np.concatenate([self.buffer[start:], self.buffer[:end]])
-    
+            return float(self.buffer[self.index - 1])
+        return float(self.buffer[(self.index - 1) % self.size])
+
     def reset(self) -> None:
         self.buffer.fill(0)
         self.count = 0
         self.index = 0
-        self._dirty = True
+        self._sum = 0.0
+        self._sum_sq = 0.0
 
 
 class GPSTrackWindow:
@@ -335,15 +334,23 @@ class OutlierDetector:
             self.stats["outliers_by_severity"][max_severity.value] += 1
             for f in flagged_fields:
                 self.stats["outliers_by_field"][f] = self.stats["outliers_by_field"].get(f, 0) + 1
-        
-        self.stats["detection_times"].append(detection_time)
-        if len(self.stats["detection_times"]) > 100:
-            self.stats["detection_times"] = self.stats["detection_times"][-100:]
-        self.stats["avg_detection_time_ms"] = sum(self.stats["detection_times"]) / len(self.stats["detection_times"])
-        
+
+        self._record_detection_timing(detection_time)
+
         if not flagged_fields:
             return {}
         return {"flagged_fields": list(flagged_fields), "confidence": confidence, "reasons": reasons, "severity": max_severity.value}
+
+    def _record_detection_timing(self, detection_time_ms: float) -> None:
+        """Sampled stats only — avoids list churn on every message in the hot path."""
+        tm = self.stats["total_messages"]
+        if tm & 63 != 0:
+            return
+        dt = self.stats["detection_times"]
+        dt.append(detection_time_ms)
+        if len(dt) > 64:
+            dt[:] = dt[-64:]
+        self.stats["avg_detection_time_ms"] = sum(dt) / len(dt) if dt else 0.0
     
     def _detect_electrical(self, data, flagged, confidence, reasons):
         cfg = self.config
@@ -387,17 +394,22 @@ class OutlierDetector:
         for gyro_field in ["gyro_x", "gyro_y", "gyro_z"]:
             if gyro_field in data:
                 window = self.windows[gyro_field]
-                if window.count > 0:
-                    last_vals = window.last_n(1)
-                    if len(last_vals) > 0:
-                        rate = abs(data[gyro_field] - last_vals[0])
-                        if rate > cfg.gyro_rate_max:
-                            flagged.add(gyro_field); confidence[gyro_field] = min(1.0, rate / (cfg.gyro_rate_max * 2)); reasons[gyro_field] = OutlierReason.RATE_OF_CHANGE.value
+                prev_g = window.peek_last()
+                if prev_g is not None:
+                    rate = abs(data[gyro_field] - prev_g)
+                    if rate > cfg.gyro_rate_max:
+                        flagged.add(gyro_field); confidence[gyro_field] = min(1.0, rate / (cfg.gyro_rate_max * 2)); reasons[gyro_field] = OutlierReason.RATE_OF_CHANGE.value
     
     def _detect_gps(self, data, flagged, confidence, reasons):
         cfg = self.config
         lat, lon, alt, speed = data.get("latitude"), data.get("longitude"), data.get("altitude", 0), data.get("speed_ms", 0)
         if lat is None or lon is None:
+            return
+        # No GPS fix — skip expensive coherence checks
+        try:
+            if abs(float(lat)) < 1e-5 and abs(float(lon)) < 1e-5:
+                return
+        except (TypeError, ValueError):
             return
         if not (-90 <= lat <= 90):
             flagged.add("latitude"); confidence["latitude"] = 1.0; reasons["latitude"] = OutlierReason.ABSOLUTE_BOUND.value
@@ -430,12 +442,11 @@ class OutlierDetector:
             flagged.add("speed_ms"); confidence["speed_ms"] = 1.0; reasons["speed_ms"] = OutlierReason.NEGATIVE_VALUE.value; return
         if speed > cfg.speed_max:
             flagged.add("speed_ms"); confidence["speed_ms"] = min(1.0, speed / (cfg.speed_max * 1.5)); reasons["speed_ms"] = OutlierReason.ABSOLUTE_BOUND.value; return
-        if window.count > 0:
-            last_vals = window.last_n(1)
-            if len(last_vals) > 0:
-                accel = abs(speed - last_vals[0]) / cfg.sample_interval
-                if accel > cfg.speed_impossible_accel:
-                    flagged.add("speed_ms"); confidence["speed_ms"] = min(1.0, accel / (cfg.speed_impossible_accel * 2)); reasons["speed_ms"] = OutlierReason.RATE_OF_CHANGE.value
+        prev_sp = window.peek_last()
+        if prev_sp is not None:
+            accel = abs(speed - prev_sp) / cfg.sample_interval
+            if accel > cfg.speed_impossible_accel:
+                flagged.add("speed_ms"); confidence["speed_ms"] = min(1.0, accel / (cfg.speed_impossible_accel * 2)); reasons["speed_ms"] = OutlierReason.RATE_OF_CHANGE.value
     
     def _detect_cumulative(self, data, flagged, confidence, reasons):
         if "energy_j" in data:
@@ -500,7 +511,7 @@ class TelemetryCalculator:
     MAX_PEAKS_STORED = 50  # Max peaks to keep in memory
     CURRENT_PEAK_THRESHOLD_MULTIPLIER = 1.5  # Peak = value > mean * multiplier
     
-    def __init__(self, window_size: int = 50, sample_interval: float = 0.2):
+    def __init__(self, window_size: int = 36, sample_interval: float = 0.2):
         self.window_size = window_size
         self.sample_interval = sample_interval
         
@@ -750,9 +761,9 @@ class TelemetryCalculator:
         self.energy_deltas.push(energy_delta_kwh)
         self.cumulative_energy_kwh += energy_delta_kwh
         
-        # Current efficiency (rolling window)
-        total_dist = sum(self.distance_deltas.get_values())
-        total_energy = sum(self.energy_deltas.get_values())
+        # Current efficiency (rolling window) — O(1) sums
+        total_dist = self.distance_deltas.sum_values
+        total_energy = self.energy_deltas.sum_values
         
         if total_energy > 0.00001:
             efficiency = total_dist / total_energy
@@ -946,12 +957,12 @@ class OptimalSpeedOptimizer:
     P = a*v^3 + b*v^2 + c*v + d (aerodynamic + rolling resistance)
     """
     
-    MIN_DATA_POINTS = 30  # Minimum samples before optimization
-    OPTIMAL_DATA_POINTS = 100  # Points for high confidence
-    POLY_DEGREE = 3  # Cubic polynomial (captures aero drag)
-    SPEED_RESOLUTION = 0.5  # m/s resolution for optimization
-    
-    def __init__(self, buffer_size: int = 500):
+    MIN_DATA_POINTS = 28  # Minimum samples before optimization
+    OPTIMAL_DATA_POINTS = 96  # Points for high confidence
+    POLY_DEGREE = 2  # Quadratic — faster polyfit than degree 3, still tracks EV power curve
+    SPEED_RESOLUTION = 1.0  # m/s — fewer grid points than 0.5 for faster argmin scan
+
+    def __init__(self, buffer_size: int = 320):
         self.buffer_size = buffer_size
         self.speeds = np.zeros(buffer_size, dtype=np.float64)
         self.powers = np.zeros(buffer_size, dtype=np.float64)
@@ -964,8 +975,8 @@ class OptimalSpeedOptimizer:
         self.optimal_efficiency: Optional[float] = None
         self.confidence: float = 0.0
         
-        # Update frequency (don't recalculate every sample — polyfit is relatively expensive)
-        self.update_interval = 25
+        # Update frequency (polyfit + grid scan — keep this high for low CPU)
+        self.update_interval = 72
         self.samples_since_update = 0
         
         # Speed range for optimization (m/s)
@@ -2110,8 +2121,8 @@ class TelemetryBridgeWithDB:
         
         # Telemetry calculator for server-side metrics
         self.telemetry_calculator = TelemetryCalculator(
-            window_size=50, 
-            sample_interval=MOCK_DATA_INTERVAL
+            window_size=36,
+            sample_interval=MOCK_DATA_INTERVAL,
         )
         
         # Driver notification engine
@@ -2119,7 +2130,7 @@ class TelemetryBridgeWithDB:
             session_id=self.session_id
         )
         # Driver notifications are rate-limited already; analyzing every sample adds latency.
-        self._notification_analyze_stride = 4
+        self._notification_analyze_stride = 8
         self._heavy_compute_counter = 0
 
         self.stats = {

@@ -21,6 +21,45 @@ import type {
 
 const MAX_NOTIFICATIONS = 5;
 
+/** Coerce firmware strings / loose JSON to finite numbers (ESP32 serializers vary). */
+function toFiniteNumber(value: unknown, fallback = 0): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === 'string' && value.trim() !== '') {
+        const n = Number(value);
+        if (Number.isFinite(n)) {
+            return n;
+        }
+    }
+    return fallback;
+}
+
+function toOptionalFiniteNumber(value: unknown): number | null {
+    if (value == null || value === '') {
+        return null;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === 'string' && value.trim() !== '') {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+    }
+    return null;
+}
+
+function toMessageId(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return Math.trunc(value);
+    }
+    if (typeof value === 'string' && value.trim() !== '') {
+        const n = parseInt(value, 10);
+        return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+}
+
 const EMPTY_SNAPSHOT: DriverTelemetrySnapshot = {
     speed_kmh: 0,
     speed_ms: 0,
@@ -119,42 +158,46 @@ function flushSnapshot(): void {
  * This is the hot path — must be extremely fast.
  */
 function ingestTelemetry(raw: Record<string, unknown>): void {
-    const speedMs = (raw.speed_ms as number) ?? 0;
+    const speedMs = toFiniteNumber(raw.speed_ms);
     const speedKmhRaw = raw.speed_kmh;
-    const speedKmh =
-        typeof speedKmhRaw === 'number' && Number.isFinite(speedKmhRaw) ? speedKmhRaw : speedMs * 3.6;
-    const rpmRaw =
-        (raw.motor_rpm as number) ??
-        (raw.rpm as number) ??
-        (raw.motor_speed_rpm as number) ??
-        (raw.motor_rpm_est as number);
-    const motorRpm =
-        typeof rpmRaw === 'number' && Number.isFinite(rpmRaw) ? rpmRaw : 0;
+    const speedKmhFromField = toOptionalFiniteNumber(speedKmhRaw);
+    const speedKmh = speedKmhFromField ?? speedMs * 3.6;
+
+    const motorRpm = toFiniteNumber(
+        raw.motor_rpm ?? raw.rpm ?? raw.motor_speed_rpm ?? raw.motor_rpm_est,
+    );
+
+    const voltageV = toFiniteNumber(raw.voltage_v);
+    const currentA = toFiniteNumber(raw.current_a);
+    let powerW = toFiniteNumber(raw.power_w);
+    if (powerW === 0 && voltageV !== 0 && currentA !== 0) {
+        powerW = voltageV * currentA;
+    }
 
     const data: DriverTelemetrySnapshot = {
         speed_kmh: speedKmh,
         speed_ms: speedMs,
         motor_rpm: motorRpm,
-        voltage_v: (raw.voltage_v as number) ?? 0,
-        current_a: (raw.current_a as number) ?? 0,
-        power_w: (raw.power_w as number) ?? 0,
-        current_efficiency_km_kwh: (raw.current_efficiency_km_kwh as number) ?? null,
-        optimal_speed_kmh: (raw.optimal_speed_kmh as number) ?? null,
-        optimal_speed_confidence: (raw.optimal_speed_confidence as number) ?? 0,
-        throttle_pct: (raw.throttle_pct as number) ?? 0,
-        brake_pct: (raw.brake_pct as number) ?? 0,
-        brake2_pct: (raw.brake2_pct as number) ?? 0,
-        motion_state: (raw.motion_state as string) ?? 'stationary',
-        driver_mode: (raw.driver_mode as string) ?? 'coasting',
-        g_lat: typeof raw.g_lat === 'number' && Number.isFinite(raw.g_lat) ? raw.g_lat : 0,
-        g_long: typeof raw.g_long === 'number' && Number.isFinite(raw.g_long) ? raw.g_long : 0,
-        latitude: (raw.latitude as number) ?? 0,
-        longitude: (raw.longitude as number) ?? 0,
-        timestamp: (raw.timestamp as string) ?? '',
-        session_id: (raw.session_id as string) ?? '',
-        session_name: (raw.session_name as string) ?? '',
-        uptime_seconds: (raw.uptime_seconds as number) ?? 0,
-        message_id: (raw.message_id as number) ?? 0,
+        voltage_v: voltageV,
+        current_a: currentA,
+        power_w: powerW,
+        current_efficiency_km_kwh: toOptionalFiniteNumber(raw.current_efficiency_km_kwh),
+        optimal_speed_kmh: toOptionalFiniteNumber(raw.optimal_speed_kmh),
+        optimal_speed_confidence: toFiniteNumber(raw.optimal_speed_confidence),
+        throttle_pct: toFiniteNumber(raw.throttle_pct),
+        brake_pct: toFiniteNumber(raw.brake_pct),
+        brake2_pct: toFiniteNumber(raw.brake2_pct),
+        motion_state: typeof raw.motion_state === 'string' && raw.motion_state ? raw.motion_state : 'stationary',
+        driver_mode: typeof raw.driver_mode === 'string' && raw.driver_mode ? raw.driver_mode : 'coasting',
+        g_lat: toFiniteNumber(raw.g_lat),
+        g_long: toFiniteNumber(raw.g_long),
+        latitude: toFiniteNumber(raw.latitude),
+        longitude: toFiniteNumber(raw.longitude),
+        timestamp: typeof raw.timestamp === 'string' ? raw.timestamp : '',
+        session_id: typeof raw.session_id === 'string' ? raw.session_id : '',
+        session_name: typeof raw.session_name === 'string' ? raw.session_name : '',
+        uptime_seconds: toFiniteNumber(raw.uptime_seconds),
+        message_id: toMessageId(raw.message_id),
     };
 
     scheduleSnapshotUpdate(data);

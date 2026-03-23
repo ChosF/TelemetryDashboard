@@ -80,20 +80,89 @@ function parseEsp32BinaryBinary(u8: Uint8Array): Record<string, unknown> | null 
     return out;
 }
 
+/** JSON sent as UTF-8 bytes (common for embedded MQTT→Ably bridges). */
+function tryParseJsonObjectFromUtf8Bytes(u8: Uint8Array): Record<string, unknown> | null {
+    try {
+        const text = new TextDecoder('utf-8', { fatal: false }).decode(u8).trim();
+        if (!text.startsWith('{')) {
+            return null;
+        }
+        const obj = JSON.parse(text) as unknown;
+        if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            return obj as Record<string, unknown>;
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+const DEVICE_SESSION_STORAGE_KEY = 'ecovolt_driver_device_session_v1';
+
+function newDeviceSessionId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `device-${crypto.randomUUID()}`;
+    }
+    return `device-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * ESP32 often omits session_id / session_name. Convex notifications need a stable id;
+ * use a per-tab device session so the poller can still run.
+ */
+function ensureSessionAndEnvelope(data: Record<string, unknown>): void {
+    let sid = data.session_id;
+    if (typeof sid !== 'string' || sid.trim() === '') {
+        try {
+            let stored = sessionStorage.getItem(DEVICE_SESSION_STORAGE_KEY);
+            if (!stored) {
+                stored = newDeviceSessionId();
+                sessionStorage.setItem(DEVICE_SESSION_STORAGE_KEY, stored);
+            }
+            data.session_id = stored;
+        } catch {
+            data.session_id = newDeviceSessionId();
+        }
+    }
+
+    const name = data.session_name;
+    if (name == null || name === '') {
+        data.session_name = 'Live vehicle';
+    }
+}
+
+/** One-level unwrap if firmware wraps the frame. */
+function unwrapTelemetryEnvelope(obj: Record<string, unknown>): Record<string, unknown> {
+    const inner =
+        obj.telemetry ??
+        obj.payload ??
+        obj.data ??
+        obj.body;
+    if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+        return inner as Record<string, unknown>;
+    }
+    return obj;
+}
+
 function parseMessageData(raw: unknown): Record<string, unknown> | null {
     const bin = toUint8View(raw);
     if (bin) {
-        const parsed = parseEsp32BinaryBinary(bin);
-        if (parsed) {
-            return parsed;
+        const fromBinaryFrame = parseEsp32BinaryBinary(bin);
+        if (fromBinaryFrame) {
+            return fromBinaryFrame;
         }
+        const fromUtf8Json = tryParseJsonObjectFromUtf8Bytes(bin);
+        if (fromUtf8Json) {
+            return fromUtf8Json;
+        }
+        return null;
     }
 
     if (typeof raw === 'string') {
         try {
             const obj = JSON.parse(raw) as unknown;
             if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-                return obj as Record<string, unknown>;
+                return unwrapTelemetryEnvelope(obj as Record<string, unknown>);
             }
         } catch {
             return null;
@@ -101,8 +170,11 @@ function parseMessageData(raw: unknown): Record<string, unknown> | null {
         return null;
     }
 
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        return raw as Record<string, unknown>;
+    if (raw != null && typeof raw === 'object' && !Array.isArray(raw)) {
+        if (ArrayBuffer.isView(raw) || raw instanceof ArrayBuffer) {
+            return null;
+        }
+        return unwrapTelemetryEnvelope(raw as Record<string, unknown>);
     }
 
     return null;
@@ -179,13 +251,14 @@ export function connectDriverAbly(): () => void {
         driverStore.setChannelState(stateChange.current);
     });
 
-    channel.subscribe((message: { data: unknown }) => {
+    channel.subscribe((message: { name?: string; data: unknown }) => {
         try {
             const data = parseMessageData(message.data);
             if (!data) {
                 return;
             }
             ensureTimestamp(data);
+            ensureSessionAndEnvelope(data);
             driverStore.ingestTelemetry(data);
         } catch (err) {
             console.error('[Driver Ably] Message parse error:', err);
