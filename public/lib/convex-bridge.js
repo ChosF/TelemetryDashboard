@@ -125,7 +125,7 @@ const ConvexBridge = (function () {
         if (!client) throw new Error('ConvexBridge not initialized');
         try {
             // Derive the deployment base URL from the Convex URL
-            // e.g. "https://impartial-walrus-693.convex.cloud"
+            // e.g. "https://wonderful-kookabura-432.convex.cloud"
             const convexUrl = window.CONFIG?.CONVEX_URL || '';
             if (!convexUrl) throw new Error('CONVEX_URL not configured');
 

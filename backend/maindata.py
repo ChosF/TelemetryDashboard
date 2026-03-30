@@ -1,5 +1,6 @@
 # maindata.py
 import asyncio
+from collections import deque
 import csv
 import json
 import logging
@@ -35,6 +36,39 @@ except ImportError:
 
 import numpy as np
 
+
+def _load_env_from_files() -> None:
+    """Load missing keys from .env.local / .env (project root or backend). No python-dotenv."""
+    roots = (
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        os.path.dirname(os.path.abspath(__file__)),
+    )
+    for root in roots:
+        for fname in (".env.local", ".env"):
+            path = os.path.join(root, fname)
+            if not os.path.isfile(path):
+                continue
+            try:
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        if "=" not in line:
+                            continue
+                        key, _, value = line.partition("=")
+                        key = key.strip()
+                        value = value.strip()
+                        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                            value = value[1:-1]
+                        if key and key not in os.environ:
+                            os.environ[key] = value
+            except OSError:
+                pass
+
+
+_load_env_from_files()
+
 # ------------------------------
 # Configuration
 # ------------------------------
@@ -52,15 +86,21 @@ DASHBOARD_ABLY_API_KEY = (
 )
 DASHBOARD_CHANNEL_NAME = "telemetry-dashboard-channel"
 
-# Convex configuration
-CONVEX_URL = os.environ.get(
-    "CONVEX_URL",
-    "https://impartial-walrus-693.convex.cloud"
+# -----------------------------------------------------------------------------
+# Convex — team production deployment (edit here; env vars override if set)
+#   Cloud URL          → ConvexClient / HTTP API (mutations)
+#   HTTP Actions URL   → routes on .convex.site (e.g. /ably/token)
+#   Deploy key         → server-side HTTP API auth (Dashboard → Deploy keys)
+# -----------------------------------------------------------------------------
+CONVEX_CLOUD_URL = "https://wonderful-kookabura-432.convex.cloud"
+CONVEX_HTTP_ACTIONS_URL = "https://wonderful-kookabura-432.convex.site"
+CONVEX_DEPLOY_KEY_DEFAULT = (
+    "prod:wonderful-kookabura-432|"
+    "eyJ2MiI6IjkwYTVjYjA0MjM0NjRiNzdhMzIyM2VmOWNhYjlhMDViIn0="
 )
-CONVEX_DEPLOY_KEY = os.environ.get(
-    "CONVEX_DEPLOY_KEY",
-    "prod:impartial-walrus-693|eyJ2MiI6ImI2MWY4ZjEyMmZiMDQ3NWFiOTljNjAwN2Q0YmE0MmMxIn0="
-)
+
+CONVEX_URL = os.environ.get("CONVEX_URL", CONVEX_CLOUD_URL).strip()
+CONVEX_DEPLOY_KEY = os.environ.get("CONVEX_DEPLOY_KEY", CONVEX_DEPLOY_KEY_DEFAULT).strip()
 
 # Timings
 MOCK_DATA_INTERVAL = 0.2  # seconds
@@ -75,9 +115,21 @@ WATCHDOG_TIMEOUT = 30.0  # seconds - trigger reconnect if no data
 HEALTH_CHECK_INTERVAL = 10.0  # seconds
 MAX_QUEUE_SIZE = 5000  # prevent memory issues
 # Small batches: more await points between to_thread calls so republish keeps up (lower tail latency).
-CALC_QUEUE_BATCH_MAX = 4
+CALC_QUEUE_BATCH_MAX = 16
 RECONNECT_MAX_ATTEMPTS = 10
 RECONNECT_BASE_DELAY = 1.0  # seconds
+
+# Latency-focused scheduling
+REPUBLISH_BATCH_MAX = 64
+PUBLISH_ACTIVE_SLEEP = 0.001
+PUBLISH_IDLE_SLEEP = 0.005
+CALC_IDLE_SLEEP = 0.002
+PROCESS_LATENCY_WARN_MS = 400.0
+
+# Fast path behavior
+PUBLISH_RAW_FAST_PATH = False
+ENABLE_PER_MESSAGE_PROFILING = False
+USE_THREAD_OFFLOAD_FOR_CALC = False
 
 # Rate limiting settings
 PUBLISH_RATE_LIMIT = 500  # messages per second
@@ -2026,7 +2078,7 @@ class ConvexHTTPClient:
 # ------------------------------
 
 # Omit from Ably dashboard payloads (smaller messages; full dict kept for journal/DB).
-_DASHBOARD_INTERNAL_KEYS = frozenset({"_local_rx_time", "_profiling"})
+_DASHBOARD_INTERNAL_KEYS = frozenset({"_local_rx_time", "_profiling", "_bridge_seq"})
 
 
 def _strip_dashboard_internals(message: Dict[str, Any]) -> Dict[str, Any]:
@@ -2132,6 +2184,12 @@ class TelemetryBridgeWithDB:
         # Driver notifications are rate-limited already; analyzing every sample adds latency.
         self._notification_analyze_stride = 8
         self._heavy_compute_counter = 0
+        self._pending_heavy_by_msgid: Dict[Any, Dict[str, Any]] = {}
+        self._pending_heavy_order = deque()
+        self._max_pending_heavy = max(256, MAX_QUEUE_SIZE // 2)
+        self._bridge_seq = 0
+        self._last_process_latency_log = 0.0
+        self._log_cooldown_seconds = 1.0
 
         self.stats = {
             "messages_received": 0,
@@ -2199,8 +2257,14 @@ class TelemetryBridgeWithDB:
 
     async def connect_convex(self) -> bool:
         try:
+            if not CONVEX_DEPLOY_KEY:
+                logger.warning(
+                    "CONVEX_DEPLOY_KEY not set; Convex HTTP writes disabled. "
+                    "Set it to your Production deploy key (Dashboard → Settings → Deploy Keys)."
+                )
+                self.convex_client = None
+                return True
             self.convex_client = ConvexHTTPClient(CONVEX_URL, CONVEX_DEPLOY_KEY)
-            # Test connection by making a simple request
             logger.info(f"✅ Connected to Convex at {CONVEX_URL}")
             return True
         except Exception as e:
@@ -2239,6 +2303,82 @@ class TelemetryBridgeWithDB:
             self._count_error(f"Dashboard connect failed: {e}")
             self.dashboard_health.record_error()
             return False
+
+    def _merge_heavy_result(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        msg_id = message.get("_bridge_seq")
+        if msg_id is None:
+            msg_id = message.get("message_id")
+        if msg_id is None:
+            return message
+
+        pending = self._pending_heavy_by_msgid.pop(msg_id, None)
+        if pending is None:
+            return message
+
+        while self._pending_heavy_order and self._pending_heavy_order[0] not in self._pending_heavy_by_msgid:
+            self._pending_heavy_order.popleft()
+
+        merged = message.copy()
+        for k, v in pending.items():
+            if k not in merged:
+                merged[k] = v
+        return merged
+
+    def _cache_heavy_result(self, message: Dict[str, Any]) -> None:
+        msg_id = message.get("_bridge_seq")
+        if msg_id is None:
+            msg_id = message.get("message_id")
+        if msg_id is None:
+            return
+
+        heavy_fields = {
+            "outliers",
+            "current_efficiency_km_kwh",
+            "max_speed_kmh",
+            "max_power_w",
+            "max_current_a",
+            "avg_speed_kmh",
+            "avg_voltage",
+            "avg_current",
+            "avg_power",
+            "cumulative_energy_kwh",
+            "optimal_speed_range",
+            "optimal_speed_ms",
+            "optimal_speed_kmh",
+            "optimal_efficiency_km_kwh",
+            "optimal_speed_confidence",
+            "optimal_speed_data_points",
+            "motion_state",
+            "g_lat",
+            "g_long",
+            "accel_magnitude",
+            "current_g_force",
+            "max_g_force",
+            "avg_acceleration",
+            "throttle_intensity",
+            "brake_intensity",
+            "driver_mode",
+            "current_peaks",
+            "current_peak_count",
+            "acceleration_peaks",
+            "acceleration_peak_count",
+            "route_distance_km",
+            "elevation_gain_m",
+        }
+
+        cached = {k: message[k] for k in heavy_fields if k in message}
+        if ENABLE_PER_MESSAGE_PROFILING and "_profiling" in message:
+            cached["_profiling"] = message["_profiling"]
+
+        if not cached:
+            return
+
+        self._pending_heavy_by_msgid[msg_id] = cached
+        self._pending_heavy_order.append(msg_id)
+
+        while len(self._pending_heavy_by_msgid) > self._max_pending_heavy and self._pending_heavy_order:
+            old_id = self._pending_heavy_order.popleft()
+            self._pending_heavy_by_msgid.pop(old_id, None)
 
     async def _wait_for_connection(self, client, name: str, timeout: float = 10):
         logger.info(f"Waiting for {name} connection...")
@@ -2412,8 +2552,9 @@ class TelemetryBridgeWithDB:
     def _normalize_basic(self, data: Dict[str, Any]) -> Dict[str, Any]:
         out = data.copy()
         
-        out["_profiling"] = {}
-        t_start = time.perf_counter()
+        if ENABLE_PER_MESSAGE_PROFILING:
+            out["_profiling"] = {}
+            t_start = time.perf_counter()
         
         out["session_id"] = self.session_id
         out["session_name"] = self.session_name
@@ -2539,16 +2680,18 @@ class TelemetryBridgeWithDB:
         if out.get("brake2", 0) == 0 and out.get("brake2_pct", 0) != 0:
             out["brake2"] = round(_clamp01(out["brake2_pct"] / 100.0), 3)
 
-        t_norm = time.perf_counter()
-        out["_profiling"]["norm_ms"] = (t_norm - t_start) * 1000
+        if ENABLE_PER_MESSAGE_PROFILING:
+            t_norm = time.perf_counter()
+            out["_profiling"]["norm_ms"] = (t_norm - t_start) * 1000
 
         return out
 
     def _compute_heavy(self, basic_data: Dict[str, Any]) -> Dict[str, Any]:
         """Runs the heavy analytic computations (outliers, efficiency metrics)."""
         out = basic_data.copy()
-        
-        t_start = time.perf_counter()
+        profile_enabled = ENABLE_PER_MESSAGE_PROFILING
+        if profile_enabled:
+            t_start = time.perf_counter()
         
         # Run outlier detection (always available - embedded module)
         try:
@@ -2558,8 +2701,9 @@ class TelemetryBridgeWithDB:
             logger.warning(f"⚠️ Outlier detection failed: {e}")
             out["outliers"] = None
             
-        t_outlier = time.perf_counter()
-        out["_profiling"]["outliers_ms"] = (t_outlier - t_start) * 1000
+        if profile_enabled:
+            t_outlier = time.perf_counter()
+            out.setdefault("_profiling", {})["outliers_ms"] = (t_outlier - t_start) * 1000
 
         # Run telemetry calculator for derived metrics
         try:
@@ -2568,23 +2712,26 @@ class TelemetryBridgeWithDB:
         except Exception as e:
             logger.warning(f"⚠️ Telemetry calculation failed: {e}")
             
-        t_math = time.perf_counter()
-        out["_profiling"]["math_ms"] = (t_math - t_outlier) * 1000
+        if profile_enabled:
+            t_math = time.perf_counter()
+            out.setdefault("_profiling", {})["math_ms"] = (t_math - t_outlier) * 1000
 
         notif_ms = 0.0
         self._heavy_compute_counter += 1
         if self._heavy_compute_counter % self._notification_analyze_stride == 0:
-            t_notif0 = time.perf_counter()
+            t_notif0 = time.perf_counter() if profile_enabled else 0.0
             try:
                 self.notification_engine.analyze(out)
             except Exception as e:
                 logger.warning(f"⚠️ Driver notification analysis failed: {e}")
-            notif_ms = (time.perf_counter() - t_notif0) * 1000
+            if profile_enabled:
+                notif_ms = (time.perf_counter() - t_notif0) * 1000
 
-        t_end = time.perf_counter()
-        out["_profiling"]["notif_ms"] = notif_ms
-        norm_ms = out["_profiling"].get("norm_ms", 0)
-        out["_profiling"]["total_process_ms"] = norm_ms + (t_end - t_start) * 1000
+        if profile_enabled:
+            t_end = time.perf_counter()
+            out.setdefault("_profiling", {})["notif_ms"] = notif_ms
+            norm_ms = out.get("_profiling", {}).get("norm_ms", 0)
+            out.setdefault("_profiling", {})["total_process_ms"] = norm_ms + (t_end - t_start) * 1000
 
         return out
 
@@ -2632,25 +2779,36 @@ class TelemetryBridgeWithDB:
 
             normalized = self._normalize_basic(data)
             normalized["_local_rx_time"] = time.time()
+            self._bridge_seq += 1
+            normalized["_bridge_seq"] = self._bridge_seq
+            persist_payload = normalized
 
             # 1) Immediately queue fast data for republish 
             try:
-                self.message_queue.put_nowait(normalized)
+                if PUBLISH_RAW_FAST_PATH:
+                    to_publish = normalized
+                else:
+                    computed = self._compute_heavy(normalized)
+                    self._cache_heavy_result(computed)
+                    to_publish = computed
+                    persist_payload = computed
+
+                self.message_queue.put_nowait(to_publish)
             except queue.Full:
                 try:
                     self.message_queue.get_nowait()
-                    self.message_queue.put_nowait(normalized)
+                    self.message_queue.put_nowait(to_publish)
                     self.stats["messages_dropped"] += 1
                 except queue.Empty:
                     pass
             
-            # 2) Queue for heavy calculations (journal and DB will happen there)
+            # 2) Queue for persistence / optional heavy calculations
             try:
-                self.calc_queue.put_nowait(normalized)
+                self.calc_queue.put_nowait(persist_payload)
             except queue.Full:
                 try:
                     self.calc_queue.get_nowait()
-                    self.calc_queue.put_nowait(normalized)
+                    self.calc_queue.put_nowait(persist_payload)
                 except queue.Empty:
                     pass
 
@@ -2679,23 +2837,34 @@ class TelemetryBridgeWithDB:
                 # IMPORTANT: Pass mock data through same outlier detection pipeline as real data
                 normalized = self._normalize_basic(mock)
                 normalized["_local_rx_time"] = time.time()
+                self._bridge_seq += 1
+                normalized["_bridge_seq"] = self._bridge_seq
+                persist_payload = normalized
                 
                 try:
-                    self.message_queue.put_nowait(normalized)
+                    if PUBLISH_RAW_FAST_PATH:
+                        to_publish = normalized
+                    else:
+                        computed = self._compute_heavy(normalized)
+                        self._cache_heavy_result(computed)
+                        to_publish = computed
+                        persist_payload = computed
+
+                    self.message_queue.put_nowait(to_publish)
                 except queue.Full:
                     try:
                         self.message_queue.get_nowait()
-                        self.message_queue.put_nowait(normalized)
+                        self.message_queue.put_nowait(to_publish)
                         self.stats["messages_dropped"] += 1
                     except queue.Empty:
                         pass
                 
                 try:
-                    self.calc_queue.put_nowait(normalized)
+                    self.calc_queue.put_nowait(persist_payload)
                 except queue.Full:
                     try:
                         self.calc_queue.get_nowait()
-                        self.calc_queue.put_nowait(normalized)
+                        self.calc_queue.put_nowait(persist_payload)
                     except queue.Empty:
                         pass
                 
@@ -2731,7 +2900,7 @@ class TelemetryBridgeWithDB:
                 
                 # Process new messages from main queue
                 batch = []
-                while not self.message_queue.empty() and len(batch) < 20:
+                while not self.message_queue.empty() and len(batch) < REPUBLISH_BATCH_MAX:
                     try:
                         batch.append(self.message_queue.get_nowait())
                     except queue.Empty:
@@ -2739,7 +2908,8 @@ class TelemetryBridgeWithDB:
 
                 had_batch = len(batch) > 0
                 for m in batch:
-                    pub = _strip_dashboard_internals(m)
+                    merged_message = self._merge_heavy_result(m)
+                    pub = _strip_dashboard_internals(merged_message)
                     try:
                         success = await self.rate_limiter.publish(
                             self.dashboard_channel, "telemetry_update", pub
@@ -2747,15 +2917,21 @@ class TelemetryBridgeWithDB:
                         if success:
                             self.stats["messages_republished"] += 1
                             self.dashboard_health.record_message()
-                            rx = m.get("_local_rx_time")
+                            rx = merged_message.get("_local_rx_time")
                             if isinstance(rx, (int, float)) and rx > 0:
                                 self.stats["latest_internal_publish_lag_ms"] = (time.time() - rx) * 1000
                             try:
-                                dt = datetime.fromisoformat(m["timestamp"].replace("Z", "+00:00"))
+                                dt = datetime.fromisoformat(merged_message["timestamp"].replace("Z", "+00:00"))
                                 process_lat_ms = (datetime.now(timezone.utc) - dt).total_seconds() * 1000
                                 self.stats["latest_process_latency_ms"] = process_lat_ms
-                                if process_lat_ms > 3000:
-                                    rx_time = m.get("_local_rx_time", 0)
+
+                                if process_lat_ms > PROCESS_LATENCY_WARN_MS:
+                                    now = time.monotonic()
+                                    if now - self._last_process_latency_log < self._log_cooldown_seconds:
+                                        continue
+                                    self._last_process_latency_log = now
+
+                                    rx_time = merged_message.get("_local_rx_time", 0)
                                     queue_age_ms = (time.time() - rx_time) * 1000 if rx_time else 0
                                     ext_lat_ms = process_lat_ms - queue_age_ms
                                     
@@ -2764,16 +2940,26 @@ class TelemetryBridgeWithDB:
                                         reason.append(f"Python internal processing/queues held it for {queue_age_ms:.0f}ms")
                                     if ext_lat_ms > 1000:
                                         reason.append(f"Ably network delay OR ESP32 out-of-sync clock caused {ext_lat_ms:.0f}ms delay before arriving")
-                                    
-                                    perf = m.get("_profiling", {})
-                                    prof_str = f"Norm: {perf.get('norm_ms', 0):.2f}ms | Outliers: {perf.get('outliers_ms', 0):.2f}ms | Math: {perf.get('math_ms', 0):.2f}ms | Notif: {perf.get('notif_ms', 0):.2f}ms | ProcessTotal: {perf.get('total_process_ms', 0):.2f}ms"
-                                    
-                                    logger.warning(
-                                        f"⚠️ HIGH PROCESS/REPUBLISH LATENCY: {process_lat_ms:.0f} ms | msg_id: {m.get('message_id', 'N/A')} "
+
+                                    extra_reason = f" -> {' | '.join(reason)}" if reason else ""
+                                    warn_msg = (
+                                        f"⚠️ HIGH PROCESS/REPUBLISH LATENCY: {process_lat_ms:.0f} ms | msg_id: {merged_message.get('message_id', 'N/A')} "
                                         f"| QueueSizes - Main: {self.message_queue.qsize()} RL: {self.rate_limiter._queue.qsize()} "
-                                        f"| Breakdown: [Internal Queue Age: {queue_age_ms:.0f}ms, External Delay: {ext_lat_ms:.0f}ms] -> {' | '.join(reason)}\n"
-                                        f"    └─ Profiling: [{prof_str}]"
+                                        f"| Breakdown: [Internal Queue Age: {queue_age_ms:.0f}ms, External Delay: {ext_lat_ms:.0f}ms]{extra_reason}"
                                     )
+
+                                    if ENABLE_PER_MESSAGE_PROFILING:
+                                        perf = merged_message.get("_profiling", {})
+                                        prof_str = (
+                                            f"Norm: {perf.get('norm_ms', 0):.2f}ms | "
+                                            f"Outliers: {perf.get('outliers_ms', 0):.2f}ms | "
+                                            f"Math: {perf.get('math_ms', 0):.2f}ms | "
+                                            f"Notif: {perf.get('notif_ms', 0):.2f}ms | "
+                                            f"ProcessTotal: {perf.get('total_process_ms', 0):.2f}ms"
+                                        )
+                                        warn_msg = f"{warn_msg} | Profiling: [{prof_str}]"
+
+                                    logger.warning(warn_msg)
                             except Exception:
                                 pass
                     except Exception as e:
@@ -2785,7 +2971,7 @@ class TelemetryBridgeWithDB:
                         break
 
                 # Tight loop while draining telemetry; longer sleep when idle (reduces publish tail latency).
-                await asyncio.sleep(0.003 if had_batch else 0.04)
+                await asyncio.sleep(PUBLISH_ACTIVE_SLEEP if had_batch else PUBLISH_IDLE_SLEEP)
             except Exception as e:
                 self._count_error(f"Republish loop error: {e}")
 
@@ -2802,10 +2988,11 @@ class TelemetryBridgeWithDB:
                     continue
                 
                 try:
-                    self.convex_client.mutation(
+                    await asyncio.to_thread(
+                        self.convex_client.mutation,
                         "driverNotifications:insertNotificationBatch",
                         {"notifications": notifications},
-                        timeout=10.0
+                        10.0,
                     )
                     logger.debug(f"📩 Flushed {len(notifications)} driver notifications")
                 except Exception as e:
@@ -2827,21 +3014,26 @@ class TelemetryBridgeWithDB:
                         break
 
                 for basic_data in batch:
-                    # Offload CPU-bound work so the event loop can keep republishing (asyncio best practice).
-                    computed = await asyncio.to_thread(self._compute_heavy, basic_data)
+                    if PUBLISH_RAW_FAST_PATH:
+                        if USE_THREAD_OFFLOAD_FOR_CALC:
+                            computed = await asyncio.to_thread(self._compute_heavy, basic_data)
+                        else:
+                            computed = self._compute_heavy(basic_data)
+                    else:
+                        computed = basic_data
 
-                    # Dashboard first — lower time-to-enriched; journal/DB follow.
-                    try:
-                        self.message_queue.put_nowait(computed)
-                    except queue.Full:
-                        pass
+                    if PUBLISH_RAW_FAST_PATH:
+                        try:
+                            self.message_queue.put_nowait(computed)
+                        except queue.Full:
+                            pass
 
                     self.journal.append(computed)
 
                     with self.db_buffer_lock:
                         self.db_buffer.append(computed)
 
-                await asyncio.sleep(0.002 if batch else 0.02)
+                await asyncio.sleep(PUBLISH_ACTIVE_SLEEP if batch else CALC_IDLE_SLEEP)
             except Exception as e:
                 self._count_error(f"Calc worker error: {e}")
 
@@ -2987,9 +3179,10 @@ class TelemetryBridgeWithDB:
                     records.append(record)
 
                 # Call Convex mutation via HTTP API
-                result = self.convex_client.mutation(
+                result = await asyncio.to_thread(
+                    self.convex_client.mutation,
                     "telemetry:insertTelemetryBatch",
-                    {"records": records}
+                    {"records": records},
                 )
                 
                 inserted_count = result.get("inserted", len(records))

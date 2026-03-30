@@ -68,7 +68,7 @@ const TIME_RANGE_PANEL_SET = new Set<DashboardPanel>(TIME_RANGE_PANELS);
 const DEFAULT_RUNTIME_CONFIG: Record<string, string> = {
     ABLY_CHANNEL_NAME: 'telemetry-dashboard-channel',
     ABLY_API_KEY: 'DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ',
-    CONVEX_URL: 'https://impartial-walrus-693.convex.cloud',
+    CONVEX_URL: 'https://wonderful-kookabura-432.convex.cloud',
 };
 
 const TIME_RANGE_PRESET_MS: Record<Exclude<TimeRangePreset, 'all'>, number> = {
