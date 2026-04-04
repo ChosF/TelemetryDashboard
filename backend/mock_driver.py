@@ -289,7 +289,13 @@ class SimState:
             "gyro_x":  round(random.gauss(0, 0.1), 3),
             "gyro_y":  round(random.gauss(0, 0.1), 3),
             "gyro_z":  round(random.gauss(0, 0.1), 3),
+            "steering_gyro_x": round(random.gauss(0, 0.08), 3),
+            "steering_gyro_y": round(random.gauss(0, 0.08), 3),
+            "steering_gyro_z": round(40.0 * math.sin(self.t * 0.35), 3),
             "total_acceleration": round(math.sqrt((g_long * 9.80665) ** 2 + (g_lat * 9.80665) ** 2 + 9.80665 ** 2), 3),
+            "steering_accel_x": round(random.gauss(0, 0.2), 3),
+            "steering_accel_y": round(random.gauss(0, 0.2), 3),
+            "steering_accel_z": round(9.80665 + random.gauss(0, 0.06), 3),
 
             # Driver inputs
             "throttle":     round(self._throttle, 3),

@@ -214,6 +214,21 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
         }
     }
 
+    const steeringKeys = [
+        'steering_gyro_x',
+        'steering_gyro_y',
+        'steering_gyro_z',
+        'steering_accel_x',
+        'steering_accel_y',
+        'steering_accel_z',
+    ] as const;
+    for (const key of steeringKeys) {
+        const v = toNum(normalized[key], null);
+        if (v !== null) {
+            (normalized as unknown as Record<string, number>)[key] = v;
+        }
+    }
+
     // Parse outliers if stored as JSON string
     if (normalized.outliers && typeof normalized.outliers === 'string') {
         try {
