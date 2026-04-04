@@ -22,6 +22,7 @@ import {
     last,
     getTelemetryRecordKey,
 } from '@/lib/utils';
+import { integrateSteeringFromLiveRow, resetSteeringIntegration } from '@/lib/steeringEstimate';
 
 // =============================================================================
 // SIGNALS
@@ -39,6 +40,9 @@ const [currentSessionName, setCurrentSessionName] = createSignal<string | null>(
 
 // Telemetry data
 const [telemetryData, setTelemetryData] = createSignal<TelemetryRow[]>([]);
+
+/** Integrated steering angle (°) from live Ably rows only; not driven by historical hydration. */
+const [liveSteeringAngleDeg, setLiveSteeringAngleDeg] = createSignal(0);
 
 // Mode
 const [mode, setMode] = createSignal<'realtime' | 'historical'>('realtime');
@@ -120,6 +124,7 @@ function addData(incoming: TelemetryRow | TelemetryRow[]): void {
             const rowOut = withDerivedLiveUpdate(prevForDerivation, row);
             acc = mergeTelemetry(acc, [rowOut], MAX_TELEMETRY_POINTS);
             acc = patchCarryForwardLastRow(acc);
+            setLiveSteeringAngleDeg(integrateSteeringFromLiveRow(acc[acc.length - 1]!));
         }
         setTelemetryData(acc);
 
@@ -136,6 +141,8 @@ function setData(data: TelemetryRow[]): void {
     batch(() => {
         // Reset dynamic state for fresh calculations
         resetDynamicState();
+        resetSteeringIntegration();
+        setLiveSteeringAngleDeg(0);
 
         // Apply derived calculations
         const processed = withDerived(data);
@@ -155,6 +162,8 @@ function clearData(): void {
         setErrorCount(0);
         setLastMessageTime(null);
         resetDynamicState();
+        resetSteeringIntegration();
+        setLiveSteeringAngleDeg(0);
     });
 }
 
@@ -206,6 +215,7 @@ export const telemetryStore = {
     currentSessionName,
     mode,
     telemetryData,
+    liveSteeringAngleDeg,
 
     // Derived state
     latestRecord,
@@ -238,6 +248,7 @@ export {
     currentSessionName,
     mode,
     telemetryData,
+    liveSteeringAngleDeg,
     latestRecord,
     kpis,
     dataQuality,

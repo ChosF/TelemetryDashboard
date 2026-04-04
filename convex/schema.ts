@@ -49,6 +49,13 @@ export default defineSchema({
     accel_x: v.optional(v.number()),
     accel_y: v.optional(v.number()),
     accel_z: v.optional(v.number()),
+    // Steering-wheel-mounted IMU (same units as vehicle gyro/accel: °/s and m/s²)
+    steering_gyro_x: v.optional(v.number()),
+    steering_gyro_y: v.optional(v.number()),
+    steering_gyro_z: v.optional(v.number()),
+    steering_accel_x: v.optional(v.number()),
+    steering_accel_y: v.optional(v.number()),
+    steering_accel_z: v.optional(v.number()),
     total_acceleration: v.optional(v.number()),
     message_id: v.optional(v.number()),
     uptime_seconds: v.optional(v.number()),

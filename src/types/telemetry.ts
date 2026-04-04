@@ -57,6 +57,15 @@ export interface TelemetryRecord {
     accel_x?: number;
     accel_y?: number;
     accel_z?: number;
+
+    // Steering wheel IMU (gyro °/s, accel m/s² — same convention as vehicle IMU)
+    steering_gyro_x?: number;
+    steering_gyro_y?: number;
+    steering_gyro_z?: number;
+    steering_accel_x?: number;
+    steering_accel_y?: number;
+    steering_accel_z?: number;
+
     total_acceleration?: number;
 
     // Driver inputs

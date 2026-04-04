@@ -1326,8 +1326,12 @@ const DashboardParity: Component = () => {
                                                 throttle={latest()?.throttle_pct ?? 0}
                                                 brake={latest()?.brake_pct ?? 0}
                                                 brake2={latest()?.brake2_pct ?? 0}
+                                                steeringDeg={telemetryStore.liveSteeringAngleDeg()}
+                                                showSteering={activePanel() === 'overview'}
                                             />
-                                            <div class="center fine">Throttle, Brake 1, and Brake 2 (0-100%)</div>
+                                            <div class="center fine">
+                                                Live steering (gyro estimate), throttle, and brakes (0–100%)
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1439,26 +1443,138 @@ const DashboardParity: Component = () => {
     );
 };
 
-const DriverInputBars: Component<{ throttle: number; brake: number; brake2: number }> = (props) => {
+const DriverInputBars: Component<{
+    throttle: number;
+    brake: number;
+    brake2: number;
+    steeringDeg: number;
+    showSteering: boolean;
+}> = (props) => {
     return (
-        <div style={{ display: 'grid', gap: '14px', 'margin-bottom': '14px' }}>
-            <InputBar label="Throttle" value={props.throttle} color="linear-gradient(90deg, #22c55e, #86efac)" />
-            <InputBar label="Brake 1" value={props.brake} color="linear-gradient(90deg, #ef4444, #fb7185)" />
-            <InputBar label="Brake 2" value={props.brake2} color="linear-gradient(90deg, #f59e0b, #f97316)" />
+        <div
+            style={{
+                display: 'flex',
+                gap: '14px',
+                'align-items': 'stretch',
+                'margin-bottom': '14px',
+                'flex-wrap': 'wrap',
+            }}
+        >
+            <Show when={props.showSteering}>
+                <SteeringWheelLive angleDeg={props.steeringDeg} />
+            </Show>
+            <div style={{ flex: '1', 'min-width': 'min(100%, 200px)' }}>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                    <InputBar label="Throttle" value={props.throttle} color="linear-gradient(90deg, #22c55e, #86efac)" compact />
+                    <InputBar label="Brake 1" value={props.brake} color="linear-gradient(90deg, #ef4444, #fb7185)" compact />
+                    <InputBar label="Brake 2" value={props.brake2} color="linear-gradient(90deg, #f59e0b, #f97316)" compact />
+                </div>
+            </div>
         </div>
     );
 };
 
-const InputBar: Component<{ label: string; value: number; color: string }> = (props) => {
+/** Minimal CSS steering indicator; only mounted when overview + `showSteering` is true. */
+const SteeringWheelLive: Component<{ angleDeg: number }> = (props) => {
+    return (
+        <div
+            style={{
+                width: '88px',
+                'flex-shrink': 0,
+                display: 'flex',
+                'flex-direction': 'column',
+                'align-items': 'center',
+                gap: '6px',
+            }}
+            aria-hidden="true"
+        >
+            <div
+                style={{
+                    position: 'relative',
+                    width: '76px',
+                    height: '76px',
+                    'border-radius': '50%',
+                    border: '2px solid var(--border-default)',
+                    background:
+                        'radial-gradient(circle at 32% 28%, rgba(255,255,255,0.07), transparent 52%), var(--surface-secondary)',
+                    'box-shadow': 'inset 0 2px 8px rgba(0,0,0,0.5)',
+                }}
+            >
+                <div
+                    style={{
+                        position: 'absolute',
+                        inset: '0',
+                        transform: `rotate(${props.angleDeg}deg)`,
+                        'transform-origin': '50% 50%',
+                    }}
+                >
+                    <div
+                        style={{
+                            position: 'absolute',
+                            left: '50%',
+                            top: '9%',
+                            width: '3px',
+                            height: '34%',
+                            'margin-left': '-1.5px',
+                            'border-radius': '2px',
+                            background: 'linear-gradient(180deg, #ddd6fe, #7c3aed)',
+                            'box-shadow': '0 0 10px rgba(124,58,237,0.35)',
+                        }}
+                    />
+                </div>
+                <div
+                    style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        width: '12px',
+                        height: '12px',
+                        'margin-left': '-6px',
+                        'margin-top': '-6px',
+                        'border-radius': '50%',
+                        background: 'var(--surface-primary)',
+                        border: '1px solid var(--border-default)',
+                    }}
+                />
+            </div>
+            <span
+                style={{
+                    color: 'var(--text-secondary)',
+                    'font-size': '10px',
+                    'font-weight': 600,
+                    'letter-spacing': '0.08em',
+                    'text-transform': 'uppercase',
+                }}
+            >
+                Steering
+            </span>
+        </div>
+    );
+};
+
+const InputBar: Component<{ label: string; value: number; color: string; compact?: boolean }> = (props) => {
     const clamped = createMemo(() => Math.max(0, Math.min(100, props.value)));
 
     return (
-        <div style={{ display: 'grid', 'grid-template-columns': '96px 1fr 60px', gap: '12px', 'align-items': 'center' }}>
-            <span style={{ color: 'var(--text-secondary)', 'font-size': '13px', 'font-weight': 600 }}>
+        <div
+            style={{
+                display: 'grid',
+                'grid-template-columns': props.compact ? '72px minmax(0,1fr) 44px' : '96px 1fr 60px',
+                gap: props.compact ? '8px' : '12px',
+                'align-items': 'center',
+            }}
+        >
+            <span
+                style={{
+                    color: 'var(--text-secondary)',
+                    'font-size': props.compact ? '12px' : '13px',
+                    'font-weight': 600,
+                }}
+            >
                 {props.label}
             </span>
             <div style={{
-                height: '16px',
+                height: props.compact ? '13px' : '16px',
                 background: 'var(--surface-secondary)',
                 border: '1px solid var(--border-default)',
                 'border-radius': '999px',
@@ -1472,7 +1588,15 @@ const InputBar: Component<{ label: string; value: number; color: string }> = (pr
                     transition: 'width 120ms ease-out',
                 }} />
             </div>
-            <span style={{ 'text-align': 'right', 'font-variant-numeric': 'tabular-nums', 'font-size': '13px', 'font-weight': 700, color: 'var(--text-primary)' }}>
+            <span
+                style={{
+                    'text-align': 'right',
+                    'font-variant-numeric': 'tabular-nums',
+                    'font-size': props.compact ? '12px' : '13px',
+                    'font-weight': 700,
+                    color: 'var(--text-primary)',
+                }}
+            >
                 {Math.round(clamped())}%
             </span>
         </div>
