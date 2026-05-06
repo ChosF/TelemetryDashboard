@@ -59,7 +59,7 @@ body {
 /* ── Typography Scale ────────────────────────────────────── */
 .text-display {
     font-size: clamp(3rem, 11vw, 9rem);
-    line-height: 0.85;
+    line-height: 0.92;
     letter-spacing: -0.03em;
 }
 
@@ -201,7 +201,8 @@ body {
 
 @keyframes revealUp {
     to {
-        clip-path: inset(0 0 0 0);
+        /* inset(0) clips diacritics on tight line-heights — remove mask after reveal */
+        clip-path: none;
     }
 }
 
