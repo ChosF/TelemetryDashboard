@@ -58,7 +58,14 @@ const HeaderClock: Component = () => {
 
 /** Large speed readout — primary top slot (formerly session timer) */
 const PrimarySpeedBar: Component = () => {
-    const speed = createMemo(() => Math.round(driverStore.snapshot().speed_kmh));
+    const snap = createMemo(() => driverStore.snapshot());
+    const speed = createMemo(() => Math.round(snap().speed_kmh));
+
+    const optimal = createMemo(() => {
+        const s = snap();
+        if (s.optimal_speed_kmh === null || s.optimal_speed_confidence < 0.3) return null;
+        return Math.round(s.optimal_speed_kmh);
+    });
 
     return (
         <div class="drv-primary-speed" aria-label={`Speed ${speed()} km/h`}>
@@ -66,6 +73,13 @@ const PrimarySpeedBar: Component = () => {
             <div class="drv-primary-speed-main">
                 <span class="drv-primary-speed-value">{speed()}</span>
                 <span class="drv-primary-speed-unit">km/h</span>
+            </div>
+            <div class="drv-primary-speed-optimal">
+                <span class="drv-primary-speed-optimal-label">Optimal</span>
+                <span class="drv-primary-speed-optimal-value">
+                    {optimal() === null ? '—' : optimal()}
+                </span>
+                <span class="drv-primary-speed-optimal-unit">km/h</span>
             </div>
         </div>
     );

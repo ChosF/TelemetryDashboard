@@ -186,10 +186,10 @@ html.driver-page #root {
 
 /* Primary speed — top readout (formerly session timer slot) */
 .drv-primary-speed {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   padding: 3px 8px 5px;
   background: linear-gradient(165deg, #14141c 0%, #0c0c12 55%, #0a0a10 100%);
   border: 1px solid var(--drv-border);
@@ -204,14 +204,15 @@ html.driver-page #root {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--drv-text);
-  flex-shrink: 0;
+  justify-self: start;
 }
 .drv-primary-speed-main {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 6px;
   min-width: 0;
-  margin-left: auto;
+  justify-self: center;
 }
 .drv-primary-speed-value {
   font-size: clamp(1.35rem, 9.5vw, 2.35rem);
@@ -229,6 +230,35 @@ html.driver-page #root {
   color: var(--drv-text);
   text-transform: uppercase;
   letter-spacing: 0.12em;
+}
+.drv-primary-speed-optimal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-self: end;
+  min-width: 0;
+  line-height: 1.05;
+}
+.drv-primary-speed-optimal-label {
+  font-size: 0.42rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--drv-text);
+}
+.drv-primary-speed-optimal-value {
+  font-size: clamp(0.95rem, min(5dvh, 6vw), 1.5rem);
+  font-weight: 800;
+  font-family: var(--drv-font-mono);
+  color: var(--drv-accent);
+  font-variant-numeric: tabular-nums;
+}
+.drv-primary-speed-optimal-unit {
+  font-size: 0.42rem;
+  font-weight: 600;
+  color: var(--drv-text);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 /* Current readout — center-left slot (formerly speed) */
@@ -251,7 +281,7 @@ html.driver-page #root {
   min-width: 0;
 }
 .drv-current-value {
-  font-size: clamp(1.15rem, min(9dvh, 11vw), 2.55rem);
+  font-size: clamp(1.45rem, min(10.5dvh, 13vw), 3rem);
   font-weight: 900;
   font-family: var(--drv-font-mono);
   line-height: 0.86;
@@ -261,7 +291,7 @@ html.driver-page #root {
   font-variant-numeric: tabular-nums;
 }
 .drv-current-unit {
-  font-size: 0.52rem;
+  font-size: 0.58rem;
   font-weight: 600;
   color: var(--drv-text);
   text-transform: uppercase;
