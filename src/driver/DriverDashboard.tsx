@@ -1,11 +1,11 @@
 /**
  * DriverDashboard — Compact race cockpit (portrait phone)
  *
- * Priority stack: session clock → F1-style RPM bar → speed+delta | map →
- * secondary strip (A / eff / opt) → G-force + pedals. Dense telemetry-first UI.
+ * Priority stack: header (EcoVolt + clock) → large speed → F1-style RPM bar →
+ * current | map → secondary strip (eff) → G-force + pedals. Dense telemetry-first UI.
  */
 
-import { Component, onMount, onCleanup, Show, For, Match, Switch, createMemo, createSignal } from 'solid-js';
+import { Component, onMount, onCleanup, Show, For, createMemo, createSignal } from 'solid-js';
 import { driverStore } from './store';
 import { connectDriverAbly } from './ablyDriver';
 import { startNotificationPoller } from './notificationPoller';
@@ -50,102 +50,50 @@ const MessageAge: Component = () => {
 /** Bar full-scale RPM (telemetry above this clamps visually to 100%) */
 const RPM_BAR_MAX = 7000;
 
-type SpeedCue = 'accel' | 'brake' | 'hold' | 'none';
+/** Compact session clock — sits next to EcoVolt in the header */
+const HeaderClock: Component = () => {
+    const text = createMemo(() => sessionClockText());
+    return <span class="drv-header-clock">{text()}</span>;
+};
 
-/** Triangle cue | dominant speed | recommended (optimal) speed */
-const SpeedHero: Component = () => {
+/** Large speed readout — primary top slot (formerly session timer) */
+const PrimarySpeedBar: Component = () => {
     const snap = createMemo(() => driverStore.snapshot());
-
     const speed = createMemo(() => Math.round(snap().speed_kmh));
 
-    const target = createMemo(() => {
+    const optimal = createMemo(() => {
         const s = snap();
         if (s.optimal_speed_kmh === null || s.optimal_speed_confidence < 0.3) return null;
         return Math.round(s.optimal_speed_kmh);
     });
 
-    const cue = createMemo((): SpeedCue => {
-        const s = snap();
-        const opt = s.optimal_speed_kmh;
-        if (opt === null || s.optimal_speed_confidence < 0.3) return 'none';
-        const d = s.speed_kmh - opt;
-        if (Math.abs(d) < 1) return 'hold';
-        return d > 0 ? 'brake' : 'accel';
-    });
+    return (
+        <div class="drv-primary-speed" aria-label={`Speed ${speed()} km/h`}>
+            <span class="drv-primary-speed-label">Speed</span>
+            <div class="drv-primary-speed-main">
+                <span class="drv-primary-speed-value">{speed()}</span>
+                <span class="drv-primary-speed-unit">km/h</span>
+            </div>
+            <div class="drv-primary-speed-optimal">
+                <span class="drv-primary-speed-optimal-label">Optimal</span>
+                <span class="drv-primary-speed-optimal-value">
+                    {optimal() === null ? '—' : optimal()}
+                </span>
+                <span class="drv-primary-speed-optimal-unit">km/h</span>
+            </div>
+        </div>
+    );
+};
 
-    const cueLabel = createMemo(() => {
-        switch (cue()) {
-            case 'accel':
-                return 'Accelerate — below target speed';
-            case 'brake':
-                return 'Ease off — above target speed';
-            case 'hold':
-                return 'On target speed';
-            default:
-                return 'No target speed';
-        }
-    });
+/** Large current readout — center-left slot (formerly speed) */
+const CurrentHero: Component = () => {
+    const amps = createMemo(() => driverStore.snapshot().current_a.toFixed(1));
 
     return (
-        <div class="drv-speed-hero" aria-label={cueLabel()}>
-            <div class="drv-speed-cue" data-cue={cue()} aria-hidden="true">
-                <Switch>
-                    <Match when={cue() === 'accel'}>
-                        <svg class="drv-speed-cue-svg" viewBox="0 0 32 40" aria-hidden="true">
-                            <path
-                                class="drv-speed-cue-shape drv-speed-cue-shape--accel"
-                                d="M16 4 L30 34 H2 Z"
-                            />
-                        </svg>
-                    </Match>
-                    <Match when={cue() === 'brake'}>
-                        <svg class="drv-speed-cue-svg" viewBox="0 0 32 40" aria-hidden="true">
-                            <path
-                                class="drv-speed-cue-shape drv-speed-cue-shape--brake"
-                                d="M16 36 L2 6 H30 Z"
-                            />
-                        </svg>
-                    </Match>
-                    <Match when={cue() === 'hold'}>
-                        <svg class="drv-speed-cue-svg" viewBox="0 0 32 40" aria-hidden="true">
-                            <rect
-                                class="drv-speed-cue-shape drv-speed-cue-shape--hold"
-                                x="6"
-                                y="17"
-                                width="20"
-                                height="6"
-                                rx="1.5"
-                            />
-                        </svg>
-                    </Match>
-                    <Match when={cue() === 'none'}>
-                        <svg class="drv-speed-cue-svg" viewBox="0 0 32 40" aria-hidden="true">
-                            <line
-                                class="drv-speed-cue-shape drv-speed-cue-shape--none"
-                                x1="6"
-                                y1="20"
-                                x2="26"
-                                y2="20"
-                                stroke="currentColor"
-                                stroke-width="3"
-                                stroke-linecap="round"
-                            />
-                        </svg>
-                    </Match>
-                </Switch>
-            </div>
-
-            <div class="drv-speed-main">
-                <div class="drv-speed-value">{speed()}</div>
-                <div class="drv-speed-unit">km/h</div>
-            </div>
-
-            <div class="drv-speed-target">
-                <span class="drv-speed-target-label">Target</span>
-                <span class="drv-speed-target-value">
-                    {target() === null ? '—' : target()}
-                </span>
-                <span class="drv-speed-target-unit">km/h</span>
+        <div class="drv-current-hero" aria-label={`Current ${amps()} amps`}>
+            <div class="drv-current-main">
+                <div class="drv-current-value">{amps()}</div>
+                <div class="drv-current-unit">A</div>
             </div>
         </div>
     );
@@ -212,17 +160,6 @@ const sessionClockText = (): string => {
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
 };
 
-/** Large session clock — primary time readout */
-const SessionHero: Component = () => {
-    const text = createMemo(() => sessionClockText());
-    return (
-        <div class="drv-session-hero">
-            <span class="drv-session-hero-label">Session</span>
-            <span class="drv-session-hero-value">{text()}</span>
-        </div>
-    );
-};
-
 /** F1-style segmented RPM strip (green → amber → red) */
 const RevBar: Component = () => {
     const rpm = createMemo(() => Math.max(0, Math.round(driverStore.snapshot().motor_rpm)));
@@ -247,25 +184,16 @@ const RevBar: Component = () => {
     );
 };
 
-/** Current + efficiency above T/B bars (reuses strip row space) */
+/** Efficiency above T/B bars */
 const PedalsMeta: Component = () => {
-    const line = createMemo(() => {
-        const s = driverStore.snapshot();
-        const eff = s.current_efficiency_km_kwh;
-        const effStr = eff !== null ? `${eff.toFixed(1)} km/kWh` : '— km/kWh';
-        return {
-            amps: `${s.current_a.toFixed(1)} A`,
-            eff: effStr,
-        };
+    const effStr = createMemo(() => {
+        const eff = driverStore.snapshot().current_efficiency_km_kwh;
+        return eff !== null ? `${eff.toFixed(1)} km/kWh` : '— km/kWh';
     });
 
     return (
         <div class="drv-inputs-meta">
-            <span class="drv-inputs-meta-item drv-inputs-meta-item--accent">{line().amps}</span>
-            <span class="drv-inputs-meta-sep" aria-hidden="true">
-                |
-            </span>
-            <span class="drv-inputs-meta-item">{line().eff}</span>
+            <span class="drv-inputs-meta-item">{effStr()}</span>
         </div>
     );
 };
@@ -522,6 +450,7 @@ const DriverDashboard: Component = () => {
                 <header class="drv-header">
                     <div class="drv-header-left">
                         <span class="drv-header-title">EcoVolt</span>
+                        <HeaderClock />
                         <Show when={driverStore.snapshot().session_name}>
                             <span class="drv-header-session">
                                 {driverStore.snapshot().session_name}
@@ -548,14 +477,14 @@ const DriverDashboard: Component = () => {
                     {/* Notification overlay */}
                     <NotificationStack />
 
-                    <SessionHero />
+                    <PrimarySpeedBar />
                     <RevBar />
 
-                    {/* Speed | GPS — inner split is flex-sized + clipped (no paint over pedals) */}
+                    {/* Current | GPS — inner split is flex-sized + clipped (no paint over pedals) */}
                     <div class="drv-center-row">
                         <div class="drv-center-split">
                             <div class="drv-center">
-                                <SpeedHero />
+                                <CurrentHero />
                             </div>
                             <MiniGPSMap />
                         </div>

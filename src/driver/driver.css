@@ -1,7 +1,7 @@
 /* =============================================================================
    ECOVOLT DRIVER COCKPIT — Compact portrait layout, 100dvh, safe areas
 
-   Stack: header → session → RPM → speed|GPS (clipped) → g-force | pedals+meta → obs
+   Stack: header (EcoVolt + clock) → speed → RPM → current|GPS (clipped) → g-force | pedals+meta → obs
    ============================================================================= */
 
 /* Definite height chain — without this, grid 1fr rows collapse to 0 on mobile */
@@ -129,9 +129,19 @@ html.driver-page #root {
   color: var(--drv-accent);
 }
 
+.drv-header-clock {
+  font-size: 0.58rem;
+  font-weight: 600;
+  font-family: var(--drv-font-mono);
+  color: var(--drv-text);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
 .drv-header-session {
   font-size: 0.58rem;
-  color: var(--drv-text-dim);
+  color: var(--drv-text);
   font-family: var(--drv-font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -174,12 +184,12 @@ html.driver-page #root {
   min-height: 0;
 }
 
-/* Session clock — primary time readout */
-.drv-session-hero {
-  display: flex;
+/* Primary speed — top readout (formerly session timer slot) */
+.drv-primary-speed {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   padding: 3px 8px 5px;
   background: linear-gradient(165deg, #14141c 0%, #0c0c12 55%, #0a0a10 100%);
   border: 1px solid var(--drv-border);
@@ -188,15 +198,23 @@ html.driver-page #root {
   flex-shrink: 0;
   min-width: 0;
 }
-.drv-session-hero-label {
+.drv-primary-speed-label {
   font-size: 0.5rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: var(--drv-text-muted);
-  flex-shrink: 0;
+  color: var(--drv-text);
+  justify-self: start;
 }
-.drv-session-hero-value {
+.drv-primary-speed-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  justify-self: center;
+}
+.drv-primary-speed-value {
   font-size: clamp(1.35rem, 9.5vw, 2.35rem);
   font-weight: 800;
   font-family: var(--drv-font-mono);
@@ -205,6 +223,80 @@ html.driver-page #root {
   line-height: 0.95;
   text-shadow: 0 0 24px rgba(0, 229, 160, 0.14);
   font-variant-numeric: tabular-nums;
+}
+.drv-primary-speed-unit {
+  font-size: 0.52rem;
+  font-weight: 600;
+  color: var(--drv-text);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.drv-primary-speed-optimal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-self: end;
+  min-width: 0;
+  line-height: 1.05;
+}
+.drv-primary-speed-optimal-label {
+  font-size: 0.42rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--drv-text);
+}
+.drv-primary-speed-optimal-value {
+  font-size: clamp(0.95rem, min(5dvh, 6vw), 1.5rem);
+  font-weight: 800;
+  font-family: var(--drv-font-mono);
+  color: var(--drv-accent);
+  font-variant-numeric: tabular-nums;
+}
+.drv-primary-speed-optimal-unit {
+  font-size: 0.42rem;
+  font-weight: 600;
+  color: var(--drv-text);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Current readout — center-left slot (formerly speed) */
+.drv-current-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+.drv-current-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-width: 0;
+}
+.drv-current-value {
+  font-size: clamp(1.45rem, min(10.5dvh, 13vw), 3rem);
+  font-weight: 900;
+  font-family: var(--drv-font-mono);
+  line-height: 0.86;
+  color: var(--drv-accent);
+  text-shadow: 0 0 28px rgba(0, 229, 160, 0.25);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.drv-current-unit {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: var(--drv-text);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-top: -1px;
 }
 
 /* F1-style RPM / rev strip */
@@ -230,7 +322,7 @@ html.driver-page #root {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--drv-text-muted);
+  color: var(--drv-text);
 }
 .drv-rev-readout {
   font-size: 0.62rem;
@@ -514,7 +606,7 @@ html.driver-page #root {
 }
 .drv-gps-mini-no-signal {
   font-size: 0.48rem;
-  color: var(--drv-text-muted);
+  color: var(--drv-text);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -578,20 +670,9 @@ html.driver-page #root {
   font-size: 0.5rem;
   font-family: var(--drv-font-mono);
   font-weight: 600;
-  color: var(--drv-text-dim);
+  color: var(--drv-text);
   min-width: 0;
   line-height: 1.15;
-}
-
-.drv-inputs-meta-item--accent {
-  color: var(--drv-accent);
-}
-
-.drv-inputs-meta-sep {
-  color: var(--drv-text-muted);
-  opacity: 0.4;
-  font-weight: 400;
-  user-select: none;
 }
 
 .drv-hbars {
@@ -618,7 +699,7 @@ html.driver-page #root {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: var(--drv-text-dim);
+  color: var(--drv-text);
   text-align: right;
   align-self: center;
 }
@@ -668,7 +749,7 @@ html.driver-page #root {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--drv-text-dim);
+  color: var(--drv-text);
   z-index: 2;
 }
 
@@ -776,7 +857,7 @@ html.driver-page #root {
 
 .drv-speed-value,
 .drv-speed-target-value,
-.drv-session-hero-value,
+.drv-primary-speed-value,
 .drv-rev-fill,
 .drv-rev-readout,
 .drv-hbar-fill {
