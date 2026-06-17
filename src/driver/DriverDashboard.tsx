@@ -59,7 +59,7 @@ const HeaderClock: Component = () => {
 /** Large speed readout — primary top slot (formerly session timer) */
 const PrimarySpeedBar: Component = () => {
     const snap = createMemo(() => driverStore.snapshot());
-    const speed = createMemo(() => Math.round(snap().speed_kmh));
+    const speed = createMemo(() => snap().speed_kmh.toFixed(1));
 
     const optimal = createMemo(() => {
         const s = snap();
@@ -87,7 +87,7 @@ const PrimarySpeedBar: Component = () => {
 
 /** Large current readout — center-left slot (formerly speed) */
 const CurrentHero: Component = () => {
-    const amps = createMemo(() => driverStore.snapshot().current_a.toFixed(1));
+    const amps = createMemo(() => driverStore.snapshot().current_a.toFixed(2));
 
     return (
         <div class="drv-current-hero" aria-label={`Current ${amps()} amps`}>
