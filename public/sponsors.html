@@ -164,6 +164,9 @@
                 <!-- Tec de Monterrey -->
                 <div class="data-card bg-ecovolt-black p-10 lg:p-14 flex flex-col justify-between min-h-[280px]">
                     <div>
+                        <div class="sponsor-card-logo sponsor-card-logo--lg">
+                            <img src="/images/sponsors/tec-de-monterrey.png" alt="Tecnológico de Monterrey">
+                        </div>
                         <div class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-orange mb-8 mono">Institución
                             Educativa</div>
                         <h3 class="text-3xl lg:text-4xl font-black uppercase tracking-tight mb-4">
@@ -180,12 +183,15 @@
                     </div>
                 </div>
 
-                <!-- Shell -->
+                <!-- Shell Eco-marathon -->
                 <div class="data-card bg-ecovolt-black p-10 lg:p-14 flex flex-col justify-between min-h-[280px]">
                     <div>
+                        <div class="sponsor-card-logo sponsor-card-logo--lg sponsor-card-logo--icon">
+                            <img src="/images/sponsors/shell-eco-marathon.png" alt="Shell Eco-marathon">
+                        </div>
                         <div class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-gold mb-8 mono">Organizador
                         </div>
-                        <h3 class="text-3xl lg:text-4xl font-black uppercase tracking-tight mb-4">Shell</h3>
+                        <h3 class="text-3xl lg:text-4xl font-black uppercase tracking-tight mb-4">Shell Eco-marathon</h3>
                         <p class="text-ecovolt-white/50 text-sm leading-relaxed max-w-md">
                             Organizadores del Shell Eco-marathon, la competencia que nos impulsa a innovar
                             constantemente en eficiencia energética y sustentabilidad.
@@ -202,87 +208,173 @@
     </section>
 
     <!-- ═══ TECHNOLOGY SPONSORS ═══ -->
-    <section class="py-24 lg:py-32 bg-ecovolt-charcoal border-t border-b border-ecovolt-white/5">
-        <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
-
-            <div class="mb-16 lg:mb-20">
-                <div class="section-label">
-                    <span>02</span>
-                    <span class="line"></span>
-                    <span>Socios Tecnológicos</span>
+    <section id="tech-sponsors" class="sponsor-rail-pin bg-ecovolt-charcoal border-t border-b border-ecovolt-white/5">
+        <div class="sponsor-rail-sticky">
+            <div class="max-w-[1600px] mx-auto px-6 lg:px-12 w-full">
+                <div class="mb-10 lg:mb-12">
+                    <div class="section-label">
+                        <span>02</span>
+                        <span class="line"></span>
+                        <span>Socios Tecnológicos</span>
+                    </div>
+                    <h2 class="text-title font-black uppercase tracking-tight">
+                        Tecnología de<br>clase mundial
+                    </h2>
                 </div>
-                <h2 class="text-title font-black uppercase tracking-tight">
-                    Tecnología de<br>clase mundial
-                </h2>
             </div>
 
-            <!-- Tech sponsors grid -->
-            <div data-animate class="grid md:grid-cols-3 gap-px bg-ecovolt-white/5">
-                <!-- Altair -->
-                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
-                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">01</div>
-                    <h3 class="text-xl font-bold mb-3">Altair</h3>
-                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Simulación y Análisis</div>
-                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
-                        Software de simulación para optimización estructural y aerodinámica. Ganadores del Altair Global
-                        Student Contest — primer lugar mundial.
-                    </p>
-                </div>
+            <!-- Two-row rail: vertical page scroll drives horizontal progress -->
+            <div class="sponsor-rail" data-animate>
+                <div class="sponsor-rail-viewport" id="sponsor-rail-viewport" role="region"
+                    aria-label="Socios tecnológicos">
+                    <div class="sponsor-rail-track" id="sponsor-rail-track">
+                    <div class="sponsor-rail-row">
+                        <!-- Altair -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo">
+                                <img src="/images/sponsors/altair.png" alt="Altair">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">Altair</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Simulación y Análisis</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Software de simulación para optimización estructural y aerodinámica. Ganadores del
+                                Altair Global Student Contest — primer lugar mundial.
+                            </p>
+                        </article>
 
-                <!-- Ansys -->
-                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
-                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">02</div>
-                    <h3 class="text-xl font-bold mb-3">Ansys</h3>
-                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Ingeniería CFD</div>
-                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
-                        Herramientas de análisis de dinámica de fluidos computacional para optimizar la aerodinámica del
-                        vehículo y reducir la resistencia al avance.
-                    </p>
-                </div>
+                        <!-- Ansys -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo">
+                                <img src="/images/sponsors/ansys.png" alt="Ansys">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">Ansys</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Ingeniería CFD</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Herramientas de análisis de dinámica de fluidos computacional para optimizar la
+                                aerodinámica del vehículo y reducir la resistencia al avance.
+                            </p>
+                        </article>
 
-                <!-- SolidWorks -->
-                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
-                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">03</div>
-                    <h3 class="text-xl font-bold mb-3">SolidWorks</h3>
-                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Diseño CAD</div>
-                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
-                        Plataforma de diseño asistido por computadora para el modelado 3D completo del prototipo, desde
-                        chasis hasta componentes mecánicos.
-                    </p>
-                </div>
+                        <!-- SolidWorks -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo">
+                                <img src="/images/sponsors/solidworks.png" alt="SolidWorks">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">SolidWorks</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Diseño CAD</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Plataforma de diseño asistido por computadora para el modelado 3D completo del
+                                prototipo, desde chasis hasta componentes mecánicos.
+                            </p>
+                        </article>
 
-                <!-- Tesla -->
-                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
-                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">04</div>
-                    <h3 class="text-xl font-bold mb-3">Tesla</h3>
-                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Movilidad Eléctrica</div>
-                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
-                        Apoyo y mentoría en tecnología de vehículos eléctricos, sistemas de batería y gestión energética
-                        avanzada.
-                    </p>
-                </div>
+                        <!-- Siemens -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo">
+                                <img src="/images/sponsors/siemens.png" alt="Siemens">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">Siemens</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Automatización Industrial</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Tecnología de automatización, control y software industrial que respalda la manufactura
+                                y el desarrollo de sistemas del vehículo.
+                            </p>
+                        </article>
 
-                <!-- Google -->
-                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
-                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">05</div>
-                    <h3 class="text-xl font-bold mb-3">Google</h3>
-                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Cloud & Datos</div>
-                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
-                        Infraestructura cloud para procesamiento de datos de telemetría y herramientas de desarrollo
-                        para nuestro dashboard en tiempo real.
-                    </p>
-                </div>
+                        <!-- Altium -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo">
+                                <img src="/images/sponsors/altium.png" alt="Altium">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">Altium</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Diseño Electrónico</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Herramientas de diseño de PCB y electrónica para el desarrollo de los sistemas de
+                                control, telemetría y gestión energética del vehículo.
+                            </p>
+                        </article>
 
-                <!-- EcoPoxy -->
-                <div class="data-card bg-ecovolt-black p-8 lg:p-10">
-                    <div class="text-5xl font-black text-ecovolt-orange/15 mb-6 mono">06</div>
-                    <h3 class="text-xl font-bold mb-3">EcoPoxy</h3>
-                    <div class="text-ecovolt-orange text-sm font-semibold mb-4">Materiales Sustentables</div>
-                    <p class="text-ecovolt-white/50 text-sm leading-relaxed">
-                        Resinas ecológicas de base biológica para la construcción del chasis. Clave en nuestra
-                        estrategia de reducción de huella de carbono.
-                    </p>
+                        <!-- CIMB -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo">
+                                <img src="/images/sponsors/cimb.png" alt="CIMB">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">CIMB</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Manufactura y Maquinado</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Apoyo en manufactura, maquinado y procesos industriales para la fabricación de
+                                componentes estructurales y mecánicos del prototipo.
+                            </p>
+                        </article>
+                    </div>
+
+                    <div class="sponsor-rail-row">
+                        <!-- EcoPoxy -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo sponsor-card-logo--wide">
+                                <img src="/images/sponsors/ecopoxy.png" alt="EcoPoxy">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">EcoPoxy</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Materiales Sustentables</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Resinas ecológicas de base biológica para la construcción del chasis. Clave en nuestra
+                                estrategia de reducción de huella de carbono.
+                            </p>
+                        </article>
+
+                        <!-- Easy Composites -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo">
+                                <img src="/images/sponsors/easycomposites.png" alt="Easy Composites">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">Easy Composites</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Materiales Compuestos</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Suministro de fibras de carbono, resinas y materiales compuestos para la construcción
+                                ligera y de alto rendimiento del monoplaza.
+                            </p>
+                        </article>
+
+                        <!-- Gacar's -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo sponsor-card-logo--stacked">
+                                <img src="/images/sponsors/gacars.png" alt="Gacar's">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">Gacar's</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Uniformes y Branding</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Fabricación de uniformes promocionales y camisas racing personalizadas que representan a
+                                la escudería en competencias y eventos.
+                            </p>
+                        </article>
+
+                        <!-- Grupo SSC -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo">
+                                <img src="/images/sponsors/grupo-ssc.png" alt="Grupo SSC">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">Grupo SSC</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Ingeniería y PLM</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Centro de ingeniería y tecnología especializado en simulación, PLM y soluciones CAD/CAE
+                                que impulsan el desarrollo del proyecto.
+                            </p>
+                        </article>
+
+                        <!-- Shell & Quaker State -->
+                        <article class="data-card sponsor-rail-card bg-ecovolt-black">
+                            <div class="sponsor-card-logo sponsor-card-logo--dense">
+                                <img src="/images/sponsors/shell-quaker-state.png" alt="Shell & Quaker State">
+                            </div>
+                            <h3 class="text-xl font-bold mb-3">Shell & Quaker State</h3>
+                            <div class="text-ecovolt-orange text-sm font-semibold mb-4">Lubricantes</div>
+                            <p class="text-ecovolt-white/50 text-sm leading-relaxed">
+                                Lubricantes premium para el tren motriz y componentes mecánicos del vehículo.
+                            </p>
+                        </article>
+                    </div>
                 </div>
+            </div>
             </div>
         </div>
     </section>
@@ -305,14 +397,14 @@
                         Tu apoyo nos permite seguir innovando y representando a México en competencias internacionales
                         de eficiencia energética.
                     </p>
-                    <a href="mailto:shellborregos.ccm@servicios.tec.mx" class="btn-primary group">
+                    <button type="button" id="contact-open" class="btn-primary group">
                         <span>Contáctanos</span>
                         <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none"
                             stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M17 8l4 4m0 0l-4 4m4-4H3" />
                         </svg>
-                    </a>
+                    </button>
                 </div>
 
                 <div class="lg:col-span-6 lg:col-start-7">
@@ -365,6 +457,236 @@
         </div>
     </section>
 
+    <!-- ═══ CONTACT MODAL ═══ -->
+    <div id="contact-modal" class="contact-modal" role="dialog" aria-modal="true" aria-labelledby="contact-modal-title"
+        aria-hidden="true">
+        <div class="contact-modal-backdrop" data-contact-close></div>
+        <div class="contact-modal-panel">
+            <button type="button" id="contact-close" data-contact-close
+                class="contact-modal-close w-10 h-10 flex items-center justify-center text-ecovolt-white/60 hover:text-ecovolt-orange transition-colors"
+                aria-label="Cerrar">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+
+            <!-- Left: contact info -->
+            <div class="contact-modal-info bg-ecovolt-black p-8 lg:p-14 flex flex-col justify-between">
+                <div class="contact-modal-lead">
+                    <div class="section-label contact-modal-kicker">
+                        <span>Contacto</span>
+                        <span class="line"></span>
+                    </div>
+                    <h3 id="contact-modal-title"
+                        class="contact-modal-title text-title font-black uppercase tracking-tight mb-6">
+                        Hablemos de<br>tu marca
+                    </h3>
+                    <p class="contact-modal-copy text-ecovolt-white/55 text-sm leading-relaxed max-w-sm mb-10">
+                        Cuéntanos sobre tu empresa y armamos juntos el plan de patrocinio ideal. Respondemos en menos
+                        de 48 horas.
+                    </p>
+                    <a href="mailto:shellborregos.ccm@servicios.tec.mx"
+                        class="contact-modal-cta btn-primary group mb-10">
+                        <span>Escríbenos</span>
+                        <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                        </svg>
+                    </a>
+                </div>
+
+                <div class="contact-modal-meta space-y-6">
+                    <div class="contact-meta-item contact-meta-email">
+                        <div class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-white/35 mono mb-2">Correo</div>
+                        <a href="mailto:shellborregos.ccm@servicios.tec.mx"
+                            class="text-sm text-ecovolt-white/70 hover:text-ecovolt-orange transition-colors break-all">
+                            shellborregos.ccm@servicios.tec.mx
+                        </a>
+                    </div>
+                    <div class="contact-meta-item">
+                        <div class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-white/35 mono mb-2">Sede</div>
+                        <p class="text-sm text-ecovolt-white/70">Tecnológico de Monterrey — Campus CDMX</p>
+                    </div>
+                    <div class="contact-meta-item contact-meta-socials">
+                        <div class="text-[10px] uppercase tracking-[0.2em] text-ecovolt-white/35 mono mb-3">Redes</div>
+                        <div class="flex items-center gap-3">
+                            <a href="https://www.instagram.com/ecovoltccm/" target="_blank" rel="noopener"
+                                class="contact-social" aria-label="Instagram">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                    <path
+                                        d="M12 2.2c3.2 0 3.6 0 4.9.1 1.2.1 1.8.2 2.2.4.6.2 1 .5 1.4.9.4.4.7.8.9 1.4.2.4.4 1 .4 2.2.1 1.3.1 1.7.1 4.9s0 3.6-.1 4.9c-.1 1.2-.2 1.8-.4 2.2-.2.6-.5 1-.9 1.4-.4.4-.8.7-1.4.9-.4.2-1 .4-2.2.4-1.3.1-1.7.1-4.9.1s-3.6 0-4.9-.1c-1.2-.1-1.8-.2-2.2-.4-.6-.2-1-.5-1.4-.9-.4-.4-.7-.8-.9-1.4-.2-.4-.4-1-.4-2.2C2.2 15.6 2.2 15.2 2.2 12s0-3.6.1-4.9c.1-1.2.2-1.8.4-2.2.2-.6.5-1 .9-1.4.4-.4.8-.7 1.4-.9.4-.2 1-.4 2.2-.4C8.4 2.2 8.8 2.2 12 2.2zm0 1.8c-3.1 0-3.5 0-4.8.1-1.1.1-1.5.2-1.7.3-.4.2-.7.3-1 .6-.3.3-.5.6-.6 1-.1.2-.2.6-.3 1.7-.1 1.3-.1 1.7-.1 4.8s0 3.5.1 4.8c.1 1.1.2 1.5.3 1.7.2.4.3.7.6 1 .3.3.6.5 1 .6.2.1.6.2 1.7.3 1.3.1 1.7.1 4.8.1s3.5 0 4.8-.1c1.1-.1 1.5-.2 1.7-.3.4-.2.7-.3 1-.6.3-.3.5-.6.6-1 .1-.2.2-.6.3-1.7.1-1.3.1-1.7.1-4.8s0-3.5-.1-4.8c-.1-1.1-.2-1.5-.3-1.7-.2-.4-.3-.7-.6-1-.3-.3-.6-.5-1-.6-.2-.1-.6-.2-1.7-.3-1.3-.1-1.7-.1-4.8-.1zm0 3.1a4.9 4.9 0 1 1 0 9.8 4.9 4.9 0 0 1 0-9.8zm0 1.8a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 0 0 0-6.2zm5.1-2.9a1.1 1.1 0 1 1 0 2.3 1.1 1.1 0 0 1 0-2.3z" />
+                                </svg>
+                            </a>
+                            <a href="https://mx.linkedin.com/company/eshellccm" target="_blank" rel="noopener"
+                                class="contact-social" aria-label="LinkedIn">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                    <path
+                                        d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45z" />
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: sponsorship tiers -->
+            <div class="contact-modal-tiers bg-ecovolt-charcoal">
+                <div class="tier-scroll" id="tier-scroll">
+                    <div class="tier-scroll-spacer" id="tier-spacer">
+                        <div class="tier-sticky">
+                            <div class="tier-sticky-inner">
+                                <div class="tier-section-head mb-8">
+                                    <div class="section-label" style="margin-bottom: 0.5rem;">
+                                        <span>Tipos de patrocinio</span>
+                                        <span class="line"></span>
+                                    </div>
+                                    <h3 class="text-2xl font-black uppercase tracking-tight">Elige tu nivel</h3>
+                                </div>
+
+                                <div class="tier-viewport" id="tier-viewport">
+                                    <div class="tier-track" id="tier-track">
+                                        <!-- Básico -->
+                                        <article class="tier-card data-card bg-ecovolt-black is-open"
+                                            style="--tier-accent: #FF6B35;" data-tier-index="0">
+                                            <button type="button" class="tier-card-head" aria-expanded="true">
+                                                <div class="tier-card-head-copy">
+                                                    <div
+                                                        class="text-[10px] uppercase tracking-[0.25em] mono tier-accent">
+                                                        Nivel 01</div>
+                                                    <h4 class="text-2xl font-black uppercase tracking-tight">Básico</h4>
+                                                    <div class="mono text-sm text-ecovolt-white/50">$5,000 – $10,000 MXN
+                                                    </div>
+                                                </div>
+                                                <span class="tier-card-mark" aria-hidden="true"></span>
+                                            </button>
+                                            <div class="tier-card-body">
+                                                <ul class="tier-list">
+                                                    <li>Nombre y logo en redes sociales de la escudería.</li>
+                                                    <li>Nombre y logo en página web de la escudería.</li>
+                                                </ul>
+                                            </div>
+                                        </article>
+
+                                        <!-- Bronce -->
+                                        <article class="tier-card data-card bg-ecovolt-black"
+                                            style="--tier-accent: #CD7F32;" data-tier-index="1">
+                                            <button type="button" class="tier-card-head" aria-expanded="false">
+                                                <div class="tier-card-head-copy">
+                                                    <div
+                                                        class="text-[10px] uppercase tracking-[0.25em] mono tier-accent">
+                                                        Nivel 02</div>
+                                                    <h4 class="text-2xl font-black uppercase tracking-tight">Bronce</h4>
+                                                    <div class="mono text-sm text-ecovolt-white/50">$20,000 – $40,000 MXN
+                                                    </div>
+                                                </div>
+                                                <span class="tier-card-mark" aria-hidden="true"></span>
+                                            </button>
+                                            <div class="tier-card-body">
+                                                <ul class="tier-list">
+                                                    <li class="tier-includes"><span>Todo Básico</span> Incluye los
+                                                        beneficios del nivel anterior.</li>
+                                                    <li>Post de agradecimiento en redes sociales.</li>
+                                                    <li>Logo en uniforme y overoles (dependiendo disponibilidad).</li>
+                                                    <li>Menciones en eventos y juntas.</li>
+                                                    <li>Logo en el lado izquierdo del vehículo (tamaño por definir).</li>
+                                                    <li>Mención continua en redes sociales.</li>
+                                                </ul>
+                                            </div>
+                                        </article>
+
+                                        <!-- Plata -->
+                                        <article class="tier-card data-card bg-ecovolt-black"
+                                            style="--tier-accent: #C0C0C0;" data-tier-index="2">
+                                            <button type="button" class="tier-card-head" aria-expanded="false">
+                                                <div class="tier-card-head-copy">
+                                                    <div
+                                                        class="text-[10px] uppercase tracking-[0.25em] mono tier-accent">
+                                                        Nivel 03</div>
+                                                    <h4 class="text-2xl font-black uppercase tracking-tight">Plata</h4>
+                                                    <div class="mono text-sm text-ecovolt-white/50">$50,000 – $80,000 MXN
+                                                    </div>
+                                                </div>
+                                                <span class="tier-card-mark" aria-hidden="true"></span>
+                                            </button>
+                                            <div class="tier-card-body">
+                                                <ul class="tier-list">
+                                                    <li class="tier-includes"><span>Todo Bronce</span> Incluye los
+                                                        beneficios del nivel anterior.</li>
+                                                    <li>Logo en casco del piloto (tamaño por definir).</li>
+                                                    <li>Video de agradecimiento personalizado en redes sociales.</li>
+                                                    <li>Visita demostrativa con directivos del patrocinador y sesión de
+                                                        fotos con capitanes del equipo.</li>
+                                                </ul>
+                                            </div>
+                                        </article>
+
+                                        <!-- Oro -->
+                                        <article class="tier-card data-card bg-ecovolt-black"
+                                            style="--tier-accent: #D4A574;" data-tier-index="3">
+                                            <button type="button" class="tier-card-head" aria-expanded="false">
+                                                <div class="tier-card-head-copy">
+                                                    <div
+                                                        class="text-[10px] uppercase tracking-[0.25em] mono tier-accent">
+                                                        Nivel 04</div>
+                                                    <h4 class="text-2xl font-black uppercase tracking-tight">Oro</h4>
+                                                    <div class="mono text-sm text-ecovolt-white/50">$100,000 – $200,000
+                                                        MXN</div>
+                                                </div>
+                                                <span class="tier-card-mark" aria-hidden="true"></span>
+                                            </button>
+                                            <div class="tier-card-body">
+                                                <ul class="tier-list">
+                                                    <li class="tier-includes"><span>Todo Plata</span> Incluye los
+                                                        beneficios del nivel anterior.</li>
+                                                    <li>Evento-convivencia “Good Luck” organizado por la escudería en el
+                                                        campus (espacio por definir).</li>
+                                                </ul>
+                                            </div>
+                                        </article>
+
+                                        <!-- Diamante -->
+                                        <article class="tier-card data-card bg-ecovolt-black tier-card--featured"
+                                            style="--tier-accent: #14B8A6;" data-tier-index="4">
+                                            <button type="button" class="tier-card-head" aria-expanded="false">
+                                                <div class="tier-card-head-copy">
+                                                    <div
+                                                        class="text-[10px] uppercase tracking-[0.25em] mono tier-accent">
+                                                        Nivel 05</div>
+                                                    <h4 class="text-2xl font-black uppercase tracking-tight">Diamante
+                                                    </h4>
+                                                    <div class="mono text-sm text-ecovolt-white/50">$300,000 – $500,000
+                                                        MXN</div>
+                                                </div>
+                                                <span class="tier-card-mark" aria-hidden="true"></span>
+                                            </button>
+                                            <div class="tier-card-body">
+                                                <ul class="tier-list">
+                                                    <li class="tier-includes"><span>Todo Oro</span> Incluye los
+                                                        beneficios del nivel anterior.</li>
+                                                    <li>Presencia principal de marca en vehículo, uniformes y contenido
+                                                        digital.</li>
+                                                    <li>Cápsula especial de contenido “Marca x EcoVolt”.</li>
+                                                    <li>Activación o conferencia en campus (espacio por definir).</li>
+                                                    <li>Visita demostrativa privada con directivos del patrocinador.</li>
+                                                    <li>Reporte de uso del patrocinio y avances del proyecto.</li>
+                                                    <li>Posibilidad de colaboración en especie: tecnología, mentorías,
+                                                        difusión, workshops o asesoría técnica.</li>
+                                                </ul>
+                                            </div>
+                                        </article>
+                                    </div>
+                                </div>
+
+                                <div class="tier-dots" id="tier-dots" aria-hidden="true"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ═══ FOOTER ═══ -->
     <footer class="py-8 border-t border-ecovolt-white/5">
         <div class="max-w-[1600px] mx-auto px-6 lg:px-12">
@@ -398,6 +720,380 @@
         toggle?.addEventListener('click', () => menu.classList.add('open'));
         close?.addEventListener('click', () => menu.classList.remove('open'));
         menu?.querySelectorAll('a').forEach(a => a.addEventListener('click', () => menu.classList.remove('open')));
+
+        // Contact modal + tiers (desktop timeline / mobile ladder)
+        const contactModal = document.getElementById('contact-modal');
+        const contactOpen = document.getElementById('contact-open');
+        if (contactModal && contactOpen) {
+            const panel = contactModal.querySelector('.contact-modal-panel');
+            const tierCol = contactModal.querySelector('.contact-modal-tiers');
+            const tierScroll = document.getElementById('tier-scroll');
+            const tierSpacer = document.getElementById('tier-spacer');
+            const tierSticky = contactModal.querySelector('.tier-sticky');
+            const tierViewport = document.getElementById('tier-viewport');
+            const tierTrack = document.getElementById('tier-track');
+            const dotsWrap = document.getElementById('tier-dots');
+            const cards = tierTrack ? [...tierTrack.querySelectorAll('.tier-card')] : [];
+            const desktopQuery = window.matchMedia('(min-width: 900px)');
+            let timeline = [];
+            let timelineLength = 0;
+            let tierTicking = false;
+            let activeDesktopIndex = 0;
+
+            const isDesktop = () => desktopQuery.matches;
+
+            const cardBody = (card) => card.querySelector('.tier-card-body');
+
+            const cardOverflow = (card) => {
+                const body = cardBody(card);
+                if (!body) return 0;
+                return Math.max(0, body.scrollHeight - body.clientHeight);
+            };
+
+            const cardX = (index) => {
+                if (!cards[index] || !tierViewport) return 0;
+                const maxX = Math.max(0, tierTrack.scrollWidth - tierViewport.clientWidth);
+                return Math.min(maxX, Math.max(0, cards[index].offsetLeft));
+            };
+
+            const setActiveDot = (index) => {
+                if (!dotsWrap) return;
+                [...dotsWrap.children].forEach((d, i) => d.classList.toggle('active', i === index));
+            };
+
+            const setTierTransform = (x, maxX) => {
+                if (!tierTrack || !tierViewport) return;
+                const clamped = Math.min(maxX, Math.max(0, x));
+                tierTrack.style.transform = `translate3d(${-clamped}px, 0, 0)`;
+                tierViewport.classList.toggle('is-at-start', clamped <= 2);
+                tierViewport.classList.toggle('is-at-end', clamped >= maxX - 2);
+            };
+
+            const resetCardScrolls = () => {
+                cards.forEach((card) => {
+                    const body = cardBody(card);
+                    if (body) body.scrollTop = 0;
+                });
+            };
+
+            const openMobileTier = (index) => {
+                cards.forEach((card, i) => {
+                    const open = i === index;
+                    card.classList.toggle('is-open', open);
+                    const head = card.querySelector('.tier-card-head');
+                    head?.setAttribute('aria-expanded', open ? 'true' : 'false');
+                });
+            };
+
+            const buildTimeline = () => {
+                timeline = [];
+                if (!cards.length || !tierViewport || !tierTrack) return 0;
+
+                cards.forEach((card, i) => {
+                    const overflow = cardOverflow(card);
+                    // Short cards still get a beat so the handoff feels intentional
+                    const read = Math.max(overflow, overflow > 0 ? 48 : 120);
+                    timeline.push({
+                        kind: 'read',
+                        index: i,
+                        x: cardX(i),
+                        overflow,
+                        length: read
+                    });
+
+                    if (i < cards.length - 1) {
+                        const fromX = cardX(i);
+                        const toX = cardX(i + 1);
+                        timeline.push({
+                            kind: 'slide',
+                            index: i,
+                            fromX,
+                            toX,
+                            length: Math.max(160, toX - fromX)
+                        });
+                    }
+                });
+
+                return timeline.reduce((sum, step) => sum + step.length, 0);
+            };
+
+            const applyTimeline = (distance) => {
+                if (!timeline.length) return;
+                const maxX = Math.max(0, tierTrack.scrollWidth - tierViewport.clientWidth);
+                let remaining = Math.max(0, Math.min(timelineLength, distance));
+                let currentIndex = 0;
+
+                // Reset bodies; we'll set the active/read ones below
+                cards.forEach((card, i) => {
+                    const body = cardBody(card);
+                    if (!body) return;
+                    // Cards already passed: leave at bottom; upcoming: top
+                    // Filled in during walk
+                    body.scrollTop = 0;
+                });
+
+                for (let s = 0; s < timeline.length; s++) {
+                    const step = timeline[s];
+                    if (remaining > step.length && s < timeline.length - 1) {
+                        if (step.kind === 'read') {
+                            const body = cardBody(cards[step.index]);
+                            if (body) body.scrollTop = step.overflow;
+                            currentIndex = step.index;
+                            setTierTransform(step.x, maxX);
+                        } else {
+                            currentIndex = step.index + 1;
+                            setTierTransform(step.toX, maxX);
+                        }
+                        remaining -= step.length;
+                        continue;
+                    }
+
+                    const t = step.length > 0 ? remaining / step.length : 1;
+                    if (step.kind === 'read') {
+                        const body = cardBody(cards[step.index]);
+                        if (body) body.scrollTop = step.overflow * Math.min(1, t);
+                        // Previous cards fully read
+                        for (let i = 0; i < step.index; i++) {
+                            const prev = cardBody(cards[i]);
+                            if (prev) prev.scrollTop = cardOverflow(cards[i]);
+                        }
+                        currentIndex = step.index;
+                        setTierTransform(step.x, maxX);
+                    } else {
+                        const body = cardBody(cards[step.index]);
+                        if (body) body.scrollTop = cardOverflow(cards[step.index]);
+                        for (let i = 0; i < step.index; i++) {
+                            const prev = cardBody(cards[i]);
+                            if (prev) prev.scrollTop = cardOverflow(cards[i]);
+                        }
+                        const nextBody = cardBody(cards[step.index + 1]);
+                        if (nextBody) nextBody.scrollTop = 0;
+                        const x = step.fromX + (step.toX - step.fromX) * Math.min(1, t);
+                        currentIndex = t > 0.5 ? step.index + 1 : step.index;
+                        setTierTransform(x, maxX);
+                    }
+                    break;
+                }
+
+                activeDesktopIndex = currentIndex;
+                setActiveDot(currentIndex);
+            };
+
+            const layoutTiers = () => {
+                if (!tierScroll || !tierSpacer || !tierSticky || !tierViewport || !tierTrack) return;
+
+                if (!isDesktop()) {
+                    tierCol?.classList.add('is-static');
+                    tierSticky.style.height = '';
+                    tierSticky.style.removeProperty('--tier-view-h');
+                    tierSpacer.style.height = '';
+                    tierTrack.style.transform = 'none';
+                    resetCardScrolls();
+                    // Keep one ladder rung open
+                    const openIdx = cards.findIndex((c) => c.classList.contains('is-open'));
+                    openMobileTier(openIdx >= 0 ? openIdx : 0);
+                    return;
+                }
+
+                tierCol?.classList.remove('is-static');
+                cards.forEach((card) => {
+                    card.classList.add('is-open');
+                    card.querySelector('.tier-card-head')?.setAttribute('aria-expanded', 'true');
+                });
+
+                tierTrack.style.transform = 'translate3d(0, 0, 0)';
+                resetCardScrolls();
+
+                const viewH = tierScroll.clientHeight;
+                tierSticky.style.setProperty('--tier-view-h', `${viewH}px`);
+                tierSticky.style.height = `${viewH}px`;
+
+                // Force body heights before measuring overflow
+                void tierTrack.offsetHeight;
+                timelineLength = buildTimeline();
+                tierSpacer.style.height = `${viewH + timelineLength}px`;
+                applyTimeline(tierScroll.scrollTop);
+            };
+
+            const updateTiers = () => {
+                if (!isDesktop() || !tierScroll) return;
+                applyTimeline(tierScroll.scrollTop);
+            };
+
+            const onTierScroll = () => {
+                if (tierTicking) return;
+                tierTicking = true;
+                requestAnimationFrame(() => {
+                    updateTiers();
+                    tierTicking = false;
+                });
+            };
+
+            const scrollToCard = (index) => {
+                if (!isDesktop() || !tierScroll || !timeline.length) return;
+                let distance = 0;
+                for (const step of timeline) {
+                    if (step.kind === 'read' && step.index === index) break;
+                    distance += step.length;
+                }
+                tierScroll.scrollTo({ top: distance, behavior: 'smooth' });
+            };
+
+            if (dotsWrap && cards.length) {
+                cards.forEach((_, i) => {
+                    const dot = document.createElement('button');
+                    dot.type = 'button';
+                    dot.setAttribute('aria-label', `Ir al nivel ${i + 1}`);
+                    dot.addEventListener('click', () => scrollToCard(i));
+                    dotsWrap.appendChild(dot);
+                });
+            }
+
+            // Mobile ladder: event delegation so the head always receives the tap
+            tierTrack?.addEventListener('click', (e) => {
+                if (isDesktop()) return;
+                const head = e.target.closest?.('.tier-card-head');
+                if (!head || !tierTrack.contains(head)) return;
+                const card = head.closest('.tier-card');
+                if (!card) return;
+                const index = cards.indexOf(card);
+                if (index < 0) return;
+                e.preventDefault();
+                openMobileTier(index);
+                requestAnimationFrame(() => {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                });
+            });
+
+            const openModal = () => {
+                contactModal.classList.add('open');
+                contactModal.setAttribute('aria-hidden', 'false');
+                document.body.style.overflow = 'hidden';
+                if (tierScroll) tierScroll.scrollTop = 0;
+                if (panel && !isDesktop()) panel.scrollTop = 0;
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => layoutTiers());
+                });
+            };
+            const closeModal = () => {
+                contactModal.classList.remove('open');
+                contactModal.setAttribute('aria-hidden', 'true');
+                document.body.style.overflow = '';
+            };
+
+            contactOpen.addEventListener('click', openModal);
+            contactModal.querySelectorAll('[data-contact-close]').forEach(el =>
+                el.addEventListener('click', closeModal));
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && contactModal.classList.contains('open')) closeModal();
+            });
+            tierScroll?.addEventListener('scroll', onTierScroll, { passive: true });
+
+            // Desktop: wheel on the panel drives the tier timeline
+            panel?.addEventListener('wheel', (e) => {
+                if (!contactModal.classList.contains('open') || !isDesktop() || !tierScroll) return;
+                if (timelineLength <= 0) return;
+                const maxScroll = tierScroll.scrollHeight - tierScroll.clientHeight;
+                if (maxScroll <= 0) return;
+                const next = tierScroll.scrollTop + e.deltaY;
+                const clamped = Math.min(maxScroll, Math.max(0, next));
+                if (clamped === tierScroll.scrollTop && (next < 0 || next > maxScroll)) return;
+                e.preventDefault();
+                tierScroll.scrollTop = clamped;
+            }, { passive: false });
+
+            const onViewportChange = () => {
+                if (contactModal.classList.contains('open')) layoutTiers();
+            };
+            window.addEventListener('resize', onViewportChange);
+            desktopQuery.addEventListener?.('change', onViewportChange);
+        }
+
+        // Tech sponsors: vertical scroll drives horizontal rail
+        const pin = document.getElementById('tech-sponsors');
+        const sticky = pin?.querySelector('.sponsor-rail-sticky');
+        const railWrap = pin?.querySelector('.sponsor-rail');
+        const viewport = document.getElementById('sponsor-rail-viewport');
+        const track = document.getElementById('sponsor-rail-track');
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+        if (pin && sticky && railWrap && viewport && track) {
+            let maxX = 0;
+
+            const setEdges = (x) => {
+                railWrap.classList.toggle('is-at-start', x <= 2);
+                railWrap.classList.toggle('is-at-end', x >= maxX - 2);
+            };
+
+            const setX = (x) => {
+                const clamped = Math.min(maxX, Math.max(0, x));
+                track.style.transform = `translate3d(${-clamped}px, 0, 0)`;
+                setEdges(clamped);
+            };
+
+            const layout = () => {
+                track.style.transform = 'translate3d(0, 0, 0)';
+                maxX = Math.max(0, track.scrollWidth - viewport.clientWidth);
+
+                if (reduceMotion.matches || maxX === 0) {
+                    pin.classList.add('is-static');
+                    pin.style.height = '';
+                    sticky.style.position = '';
+                    sticky.style.top = '';
+                    sticky.style.bottom = '';
+                    setX(0);
+                    return;
+                }
+
+                pin.classList.remove('is-static');
+                const viewH = window.innerHeight;
+                pin.style.height = `${viewH + maxX}px`;
+                update();
+            };
+
+            const update = () => {
+                if (reduceMotion.matches || maxX === 0) return;
+
+                const pinTop = pin.offsetTop;
+                const viewH = window.innerHeight;
+                const end = pinTop + pin.offsetHeight - viewH;
+                const y = window.scrollY;
+
+                if (y <= pinTop) {
+                    sticky.style.position = 'absolute';
+                    sticky.style.top = '0';
+                    sticky.style.bottom = 'auto';
+                    setX(0);
+                } else if (y >= end) {
+                    sticky.style.position = 'absolute';
+                    sticky.style.top = 'auto';
+                    sticky.style.bottom = '0';
+                    setX(maxX);
+                } else {
+                    sticky.style.position = 'fixed';
+                    sticky.style.top = '0';
+                    sticky.style.bottom = 'auto';
+                    const progress = (y - pinTop) / (end - pinTop);
+                    setX(progress * maxX);
+                }
+            };
+
+            let ticking = false;
+            const onScroll = () => {
+                if (ticking) return;
+                ticking = true;
+                requestAnimationFrame(() => {
+                    update();
+                    ticking = false;
+                });
+            };
+
+            window.addEventListener('scroll', onScroll, { passive: true });
+            window.addEventListener('resize', layout);
+            reduceMotion.addEventListener?.('change', layout);
+            window.addEventListener('load', layout);
+            layout();
+        }
     </script>
 </body>
 

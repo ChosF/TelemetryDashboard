@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 120" role="img" aria-label="SolidWorks">
+  <g fill="#D40000">
+    <path d="M18 18h28l18 42 18-42h28L72 102H44L18 18z"/>
+    <path d="M118 18h26v84h-26V18zm0 0"/>
+    <text x="150" y="78" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="700" font-style="italic">SOLIDWORKS</text>
+  </g>
+</svg>
