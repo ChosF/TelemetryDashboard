@@ -105,6 +105,7 @@ body {
     opacity: 0;
     background: linear-gradient(135deg, rgba(255, 107, 53, 0.04), transparent 60%);
     transition: opacity 0.35s ease;
+    pointer-events: none;
 }
 
 .data-card:hover {
@@ -274,6 +275,917 @@ body {
     color: #0A0A0A;
 }
 
+/* ── Sponsor card logo (Patrocinadores page) ─────────────── */
+.sponsor-card-logo {
+    height: 3rem;
+    max-width: 12rem;
+    display: flex;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.sponsor-card-logo img {
+    display: block;
+    max-height: 3rem;
+    max-width: 12rem;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    object-position: left center;
+    opacity: 0.92;
+    transition: opacity 0.35s ease;
+}
+
+.data-card:hover .sponsor-card-logo img {
+    opacity: 1;
+}
+
+.sponsor-card-logo--lg {
+    height: 4rem;
+    max-width: 16rem;
+    margin-bottom: 2rem;
+}
+
+.sponsor-card-logo--lg img {
+    max-height: 4rem;
+    max-width: 16rem;
+}
+
+/* Square mark logos (Shell pecten) */
+.sponsor-card-logo--icon img {
+    max-height: 3.75rem;
+}
+
+.sponsor-card-logo--lg.sponsor-card-logo--icon img {
+    max-height: 5.5rem;
+}
+
+/* Ultra-wide wordmarks */
+.sponsor-card-logo--wide {
+    max-width: 100%;
+    width: 100%;
+    height: 2rem;
+}
+
+.sponsor-card-logo--wide img {
+    max-height: 1.65rem;
+    max-width: 100%;
+    width: auto;
+    height: auto;
+    transform: none;
+}
+
+/* Stacked logos (Gacar's — original asset, size only) */
+.sponsor-card-logo--stacked {
+    max-width: 100%;
+    width: 100%;
+    height: 3rem;
+}
+
+.sponsor-card-logo--stacked img {
+    max-height: 3rem;
+    max-width: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    object-position: left center;
+}
+
+/* Low-contrast logos on dark cards */
+.sponsor-card-logo--boost img {
+    filter: brightness(2) contrast(0.9);
+    mix-blend-mode: lighten;
+}
+
+/* Composite logos that read smaller at equal height */
+.sponsor-card-logo--dense img {
+    max-height: 3.25rem;
+}
+
+/* ── Sponsor horizontal rail (vertical scroll → horizontal) ─ */
+.sponsor-rail-pin {
+    position: relative;
+}
+
+.sponsor-rail-sticky {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100vh;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 5.5rem 0 2.5rem;
+    background: #141414;
+    z-index: 5;
+}
+
+.sponsor-rail-pin.is-static {
+    height: auto !important;
+}
+
+.sponsor-rail-pin.is-static .sponsor-rail-sticky {
+    position: relative !important;
+    height: auto;
+    padding: 6rem 0;
+}
+
+.sponsor-rail-pin.is-static .sponsor-rail-viewport {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 107, 53, 0.45) rgba(255, 255, 255, 0.06);
+}
+
+.sponsor-rail {
+    position: relative;
+    --sponsor-rail-pad: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+    .sponsor-rail {
+        --sponsor-rail-pad: 3rem;
+    }
+}
+
+@media (min-width: 1600px) {
+    .sponsor-rail {
+        --sponsor-rail-pad: max(3rem, calc((100vw - 1600px) / 2 + 3rem));
+    }
+}
+
+.sponsor-rail::before,
+.sponsor-rail::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: clamp(2rem, 6vw, 5rem);
+    z-index: 2;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+}
+
+.sponsor-rail::before {
+    left: 0;
+    background: linear-gradient(to right, #141414 10%, transparent);
+    opacity: 0;
+}
+
+.sponsor-rail::after {
+    right: 0;
+    background: linear-gradient(to left, #141414 10%, transparent);
+    opacity: 1;
+}
+
+.sponsor-rail.is-at-start::before {
+    opacity: 0;
+}
+
+.sponsor-rail:not(.is-at-start)::before {
+    opacity: 1;
+}
+
+.sponsor-rail.is-at-end::after {
+    opacity: 0;
+}
+
+.sponsor-rail-viewport {
+    overflow: hidden;
+    width: 100%;
+}
+
+.sponsor-rail-track {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    width: max-content;
+    min-width: 100%;
+    padding-inline: var(--sponsor-rail-pad);
+    background: rgba(255, 255, 255, 0.05);
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+}
+
+.sponsor-rail-row {
+    display: flex;
+    gap: 1px;
+    width: max-content;
+}
+
+.sponsor-rail-card {
+    flex: 0 0 min(20rem, 78vw);
+    width: min(20rem, 78vw);
+    min-height: 17.5rem;
+    padding: 2rem;
+}
+
+@media (min-width: 1024px) {
+    .sponsor-rail-card {
+        flex-basis: 22rem;
+        width: 22rem;
+        min-height: 18.5rem;
+        padding: 2.5rem;
+    }
+}
+
+/* ── Contact modal (Patrocinadores page) ─────────────────── */
+.contact-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    padding: 0.75rem;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.35s ease, visibility 0s linear 0.35s;
+}
+
+.contact-modal.open {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.35s ease;
+}
+
+.contact-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 10, 10, 0.85);
+    backdrop-filter: blur(8px);
+}
+
+.contact-modal-panel {
+    position: relative;
+    width: min(96rem, calc(100vw - 1.5rem));
+    height: min(54rem, calc(100dvh - 1.5rem));
+    max-height: calc(100dvh - 1.5rem);
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(19rem, 42%) minmax(0, 1fr);
+    gap: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    transform: translateY(1.5rem);
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.contact-modal.open .contact-modal-panel {
+    transform: translateY(0);
+}
+
+.contact-modal-info {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.contact-modal-lead,
+.contact-modal-meta {
+    min-width: 0;
+}
+
+.contact-modal-meta > * {
+    min-width: 0;
+}
+
+.contact-modal-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    z-index: 3;
+}
+
+.contact-social {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(250, 250, 250, 0.6);
+    transition: all 0.3s ease;
+}
+
+.contact-social:hover {
+    border-color: rgba(255, 107, 53, 0.5);
+    color: #FF6B35;
+}
+
+/* Tier column: vertical scroll → horizontal track */
+.contact-modal-tiers {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.tier-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+}
+
+.tier-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+.tier-scroll-spacer {
+    position: relative;
+}
+
+.tier-sticky {
+    position: sticky;
+    top: 0;
+    height: var(--tier-view-h, 100%);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    background: #141414;
+}
+
+.tier-sticky-inner {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    padding: 2rem;
+    box-sizing: border-box;
+}
+
+.tier-viewport {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 12rem;
+    overflow: hidden;
+}
+
+.tier-viewport::before,
+.tier-viewport::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2.5rem;
+    z-index: 2;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.tier-viewport::before {
+    left: 0;
+    background: linear-gradient(to right, #141414 15%, transparent);
+    opacity: 0;
+}
+
+.tier-viewport::after {
+    right: 0;
+    background: linear-gradient(to left, #141414 15%, transparent);
+    opacity: 1;
+}
+
+.tier-viewport.is-at-start::before {
+    opacity: 0;
+}
+
+.tier-viewport:not(.is-at-start)::before {
+    opacity: 1;
+}
+
+.tier-viewport.is-at-end::after {
+    opacity: 0;
+}
+
+.tier-track {
+    display: flex;
+    gap: 1px;
+    height: 100%;
+    width: max-content;
+    background: rgba(255, 255, 255, 0.05);
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+}
+
+.tier-card {
+    flex: 0 0 min(20rem, 78vw);
+    width: min(20rem, 78vw);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #0A0A0A;
+}
+
+.tier-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
+    padding: 1.75rem 1.75rem 1.25rem;
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: default;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.tier-card-head::before {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 1.75rem;
+    width: 3rem;
+    height: 2px;
+    background: var(--tier-accent, #FF6B35);
+}
+
+.tier-card-head-copy {
+    min-width: 0;
+}
+
+.tier-card-mark {
+    display: none;
+}
+
+.tier-card-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0 1.75rem 1.75rem;
+}
+
+.tier-accent {
+    color: var(--tier-accent, #FF6B35);
+    margin-bottom: 0.5rem;
+}
+
+.tier-card--featured {
+    border-color: rgba(20, 184, 166, 0.35);
+}
+
+.tier-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    padding-top: 1.1rem;
+}
+
+.tier-list li {
+    position: relative;
+    padding-left: 1.25rem;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: rgba(250, 250, 250, 0.55);
+}
+
+.tier-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.5em;
+    width: 0.4rem;
+    height: 0.4rem;
+    background: #FF6B35;
+}
+
+.tier-list .tier-includes {
+    margin-bottom: 0.25rem;
+    padding: 0.8rem 0.9rem 0.8rem 1rem;
+    border-left: 2px solid var(--tier-accent, #FF6B35);
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(250, 250, 250, 0.68);
+}
+
+.tier-list .tier-includes::before {
+    display: none;
+}
+
+.tier-includes span {
+    display: block;
+    margin-bottom: 0.2rem;
+    color: var(--tier-accent, #FF6B35);
+    font-family: 'Space Grotesk', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+}
+
+.tier-dots {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+    flex-shrink: 0;
+}
+
+.tier-dots button {
+    width: 1.75rem;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.15);
+    transition: background 0.3s ease;
+}
+
+.tier-dots button.active {
+    background: #FF6B35;
+}
+
+@media (min-width: 900px) {
+    .contact-modal {
+        padding: 1.5rem;
+        align-items: center;
+    }
+
+    .contact-modal-panel {
+        width: min(100rem, calc(100vw - 3rem));
+        height: min(52rem, calc(100vh - 3rem));
+        max-height: calc(100vh - 3rem);
+        grid-template-columns: minmax(21rem, 0.82fr) minmax(0, 1.48fr);
+        grid-template-rows: 1fr;
+    }
+
+    .contact-modal-info {
+        padding: clamp(2.75rem, 4vw, 4.5rem) !important;
+    }
+
+    .contact-modal-title {
+        font-size: clamp(2.5rem, 3.4vw, 3.65rem) !important;
+        line-height: 0.92;
+        margin-bottom: 1.75rem !important;
+    }
+
+    .contact-modal-copy {
+        max-width: 29rem;
+        font-size: 1rem !important;
+        line-height: 1.75;
+    }
+
+    .contact-modal-meta a,
+    .contact-modal-meta p {
+        font-size: 0.95rem !important;
+        line-height: 1.5;
+    }
+
+    .tier-sticky-inner {
+        padding: clamp(2.75rem, 3.5vw, 4rem);
+    }
+
+    .tier-sticky-inner > .mb-8 h3 {
+        font-size: clamp(2rem, 2.25vw, 2.65rem) !important;
+        line-height: 1;
+    }
+
+    .tier-card {
+        flex-basis: 24rem;
+        width: 24rem;
+    }
+
+    .tier-card-head {
+        padding: 2.25rem 2.25rem 1.35rem;
+    }
+
+    .tier-card-head::before {
+        left: 2.25rem;
+    }
+
+    .tier-card-body {
+        padding: 0 2.25rem 2.25rem;
+    }
+
+    .tier-card h4 {
+        font-size: 1.8rem !important;
+        line-height: 1.05;
+        margin-bottom: 0.25rem;
+    }
+
+    .tier-card-head .mono.text-sm {
+        font-size: 0.9rem !important;
+    }
+
+    .tier-list {
+        gap: 0.85rem;
+    }
+
+    .tier-list li {
+        font-size: 0.95rem;
+        line-height: 1.6;
+    }
+}
+
+/* Portrait / tablet-narrow: single-sheet ladder (not a roulette) */
+@media (max-width: 899px) {
+    .contact-modal {
+        padding: 0;
+        align-items: stretch;
+    }
+
+    .contact-modal-panel {
+        width: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .contact-modal-info {
+        position: relative;
+        overflow: visible;
+        padding: 1.35rem 1.15rem 1.1rem !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        background:
+            linear-gradient(135deg, rgba(255, 107, 53, 0.08), transparent 42%),
+            #0A0A0A;
+    }
+
+    .contact-modal-lead {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.75rem 0.85rem;
+        align-items: end;
+        padding-right: 2.25rem;
+    }
+
+    .contact-modal-kicker {
+        grid-column: 1 / -1;
+        margin-bottom: 0;
+    }
+
+    .contact-modal-title {
+        margin: 0 !important;
+        font-size: clamp(1.55rem, 7vw, 2rem) !important;
+        line-height: 0.92;
+    }
+
+    .contact-modal-copy {
+        grid-column: 1 / -1;
+        max-width: none;
+        margin: 0 !important;
+        font-size: 0.8rem !important;
+        line-height: 1.5;
+        color: rgba(250, 250, 250, 0.5) !important;
+    }
+
+    .contact-modal-cta {
+        grid-column: 1 / -1;
+        justify-self: stretch;
+        margin: 0.15rem 0 0 !important;
+        justify-content: center;
+    }
+
+    .contact-modal-meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.85rem 0.75rem;
+        margin-top: 1.1rem;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .contact-modal-meta > * {
+        margin-top: 0 !important;
+    }
+
+    .contact-meta-email {
+        grid-column: 1 / -1;
+    }
+
+    .contact-meta-item > div:first-child {
+        margin-bottom: 0.25rem !important;
+        font-size: 0.58rem !important;
+    }
+
+    .contact-meta-item a,
+    .contact-meta-item p {
+        font-size: 0.74rem !important;
+        line-height: 1.35;
+    }
+
+    .contact-social {
+        width: 2.15rem;
+        height: 2.15rem;
+    }
+
+    /* Ladder mode: collapse the pin machinery into a vertical dossier */
+    .contact-modal-tiers {
+        overflow: visible;
+        background: #141414;
+    }
+
+    .tier-scroll,
+    .tier-scroll-spacer,
+    .tier-sticky,
+    .tier-sticky-inner,
+    .tier-viewport {
+        position: static !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        transform: none !important;
+    }
+
+    .tier-sticky-inner {
+        padding: 1.25rem 1.15rem 1.75rem;
+    }
+
+    .tier-section-head {
+        margin-bottom: 1rem !important;
+    }
+
+    .tier-section-head h3 {
+        font-size: 1.45rem !important;
+    }
+
+    .tier-viewport::before,
+    .tier-viewport::after,
+    .tier-dots {
+        display: none !important;
+    }
+
+    .tier-track {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        width: 100%;
+        height: auto;
+        background: rgba(255, 255, 255, 0.05);
+        transform: none !important;
+        will-change: auto;
+    }
+
+    .tier-card {
+        flex: none;
+        width: 100%;
+        border-left: 3px solid transparent;
+        transition: border-color 0.3s ease, background 0.3s ease;
+    }
+
+    .tier-card.is-open {
+        border-left-color: var(--tier-accent, #FF6B35);
+        background: #0A0A0A;
+    }
+
+    .tier-card-head {
+        position: relative;
+        z-index: 2;
+        cursor: pointer;
+        align-items: center;
+        padding: 1rem 1rem 1rem 1.1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .tier-card-head::before {
+        display: none;
+    }
+
+    .tier-card.is-open .tier-card-head {
+        border-bottom-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .tier-card-head-copy {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 0.85rem;
+        row-gap: 0.15rem;
+        align-items: baseline;
+        width: 100%;
+    }
+
+    .tier-card-head-copy .tier-accent {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+        margin: 0;
+        font-size: 0.62rem;
+        letter-spacing: 0.14em;
+        writing-mode: horizontal-tb;
+        align-self: center;
+        min-width: 3.4rem;
+    }
+
+    .tier-card-head-copy h4 {
+        grid-column: 2;
+        margin: 0 !important;
+        font-size: 1.15rem !important;
+        line-height: 1.1;
+    }
+
+    .tier-card-head-copy .mono.text-sm {
+        grid-column: 2;
+        font-size: 0.68rem !important;
+        color: rgba(250, 250, 250, 0.42) !important;
+    }
+
+    .tier-card-mark {
+        display: block;
+        width: 0.55rem;
+        height: 0.55rem;
+        flex-shrink: 0;
+        background: var(--tier-accent, #FF6B35);
+        opacity: 0.35;
+        transform: rotate(45deg);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .tier-card.is-open .tier-card-mark {
+        opacity: 1;
+        transform: rotate(0deg);
+    }
+
+    .tier-card-body {
+        flex: 0 1 auto;
+        display: block;
+        max-height: 0;
+        padding: 0 1.1rem;
+        overflow: hidden;
+        opacity: 0;
+        transition: max-height 0.4s ease, padding 0.35s ease, opacity 0.25s ease;
+    }
+
+    .tier-card.is-open .tier-card-body {
+        max-height: 40rem;
+        padding: 0 1.1rem 1.15rem;
+        opacity: 1;
+    }
+
+    .tier-card-body > .tier-list {
+        min-height: 0;
+        overflow: visible;
+        padding-top: 0.9rem;
+    }
+
+    .tier-list {
+        gap: 0.6rem;
+    }
+
+    .tier-list li {
+        font-size: 0.8rem;
+        line-height: 1.45;
+    }
+
+    .tier-list .tier-includes {
+        padding: 0.7rem 0.8rem;
+    }
+}
+
+/* Landscape phones: keep the dossier ladder in a compact split sheet */
+@media (max-width: 899px) and (orientation: landscape) {
+    .contact-modal {
+        padding: 0.4rem;
+    }
+
+    .contact-modal-panel {
+        width: calc(100vw - 0.8rem);
+        height: calc(100dvh - 0.8rem);
+        max-height: calc(100dvh - 0.8rem);
+        grid-template-columns: minmax(15rem, 0.9fr) minmax(0, 1.35fr);
+        grid-template-rows: 1fr;
+        overflow: hidden;
+    }
+
+    .contact-modal-info {
+        overflow-y: auto;
+        border-bottom: 0;
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .contact-modal-tiers {
+        overflow: hidden;
+        min-height: 0;
+    }
+
+    .tier-scroll {
+        position: relative !important;
+        height: 100% !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+    }
+
+    .contact-modal-cta {
+        justify-content: flex-start;
+    }
+
+    .tier-card-head-copy {
+        grid-template-columns: auto 1fr;
+    }
+}
+
 /* ── Sponsor Logo ────────────────────────────────────────── */
 .sponsor-card {
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -343,6 +1255,7 @@ body {
 /* ── Custom scrollbar ────────────────────────────────────── */
 ::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
 }
 
 ::-webkit-scrollbar-track {

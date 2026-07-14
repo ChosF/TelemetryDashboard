@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 120" role="img" aria-label="Shell and Quaker State">
+  <g transform="translate(0,10)">
+    <path fill="#FFD500" d="M60 10c-27.6 0-50 22.4-50 50s22.4 50 50 50 50-22.4 50-50-22.4-50-50-50zm0 18c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32z"/>
+    <path fill="#E40000" d="M60 28c-17.7 0-32 14.3-32 32 0 8.8 3.6 16.8 9.3 22.6L82.6 37.3C76.8 31.6 68.8 28 60 28z"/>
+  </g>
+  <text x="130" y="52" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700" fill="#FFFFFF">Shell</text>
+  <text x="130" y="92" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="600" fill="#FFD500">&amp; Quaker State</text>
+</svg>
