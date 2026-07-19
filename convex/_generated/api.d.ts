@@ -8,9 +8,14 @@
  * @module
  */
 
+import type * as archiveActions from "../archiveActions.js";
+import type * as archiveValidators from "../archiveValidators.js";
+import type * as archives from "../archives.js";
 import type * as auth from "../auth.js";
 import type * as config from "../config.js";
+import type * as crons from "../crons.js";
 import type * as driverNotifications from "../driverNotifications.js";
+import type * as historicalAccess from "../historicalAccess.js";
 import type * as http from "../http.js";
 import type * as sessions from "../sessions.js";
 import type * as telemetry from "../telemetry.js";
@@ -23,9 +28,14 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  archiveActions: typeof archiveActions;
+  archiveValidators: typeof archiveValidators;
+  archives: typeof archives;
   auth: typeof auth;
   config: typeof config;
+  crons: typeof crons;
   driverNotifications: typeof driverNotifications;
+  historicalAccess: typeof historicalAccess;
   http: typeof http;
   sessions: typeof sessions;
   telemetry: typeof telemetry;

@@ -2,46 +2,7 @@ import { query, mutation, action, internalMutation, internalQuery } from "./_gen
 import { paginationOptsValidator } from "convex/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-
-type HistoricalAccess = {
-    role: "guest" | "external" | "internal" | "admin";
-    canViewHistorical: boolean;
-    historicalLimitDays: number;
-};
-
-async function getHistoricalAccess(ctx: any, token?: string): Promise<HistoricalAccess> {
-    if (!token) {
-        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
-    }
-
-    const session = await ctx.db
-        .query("authSessions")
-        .withIndex("by_token", (q: any) => q.eq("token", token))
-        .first();
-
-    if (!session) {
-        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
-    }
-
-    const expiry = 24 * 60 * 60 * 1000;
-    if (Date.now() - session._creationTime > expiry) {
-        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
-    }
-
-    const profile = await ctx.db
-        .query("user_profiles")
-        .withIndex("by_userId", (q: any) => q.eq("userId", session.userId))
-        .first();
-
-    const role = (profile?.role ?? "guest") as HistoricalAccess["role"];
-    if (role === "admin" || role === "internal") {
-        return { role, canViewHistorical: true, historicalLimitDays: Infinity };
-    }
-    if (role === "external") {
-        return { role, canViewHistorical: true, historicalLimitDays: 7 };
-    }
-    return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
-}
+import { getHistoricalAccess } from "./historicalAccess";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // PUBLIC QUERIES

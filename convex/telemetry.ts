@@ -1,74 +1,14 @@
 import { query, mutation } from "./_generated/server";
-import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
+import {
+    canAccessHistoricalSession,
+    getHistoricalAccess,
+    type HistoricalAccess,
+} from "./historicalAccess";
 
 const BATCH_SIZE = 3000; // Safe well under the 16,384 .collect() hard cap
-const EXTERNAL_HISTORICAL_LIMIT_DAYS = 7;
 const LIVE_BACKFILL_ACTIVITY_WINDOW_MS = 5 * 60 * 1000;
-
-type HistoricalAccess = {
-    role: "guest" | "external" | "internal" | "admin";
-    canViewHistorical: boolean;
-    historicalLimitDays: number;
-};
-
-async function getHistoricalAccess(ctx: any, token?: string): Promise<HistoricalAccess> {
-    if (!token) {
-        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
-    }
-
-    const session = await ctx.db
-        .query("authSessions")
-        .withIndex("by_token", (q: any) => q.eq("token", token))
-        .first();
-
-    if (!session) {
-        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
-    }
-
-    const expiry = 24 * 60 * 60 * 1000;
-    if (Date.now() - session._creationTime > expiry) {
-        return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
-    }
-
-    const profile = await ctx.db
-        .query("user_profiles")
-        .withIndex("by_userId", (q: any) => q.eq("userId", session.userId))
-        .first();
-
-    const role = (profile?.role ?? "guest") as HistoricalAccess["role"];
-    if (role === "admin" || role === "internal") {
-        return { role, canViewHistorical: true, historicalLimitDays: Infinity };
-    }
-    if (role === "external") {
-        return { role, canViewHistorical: true, historicalLimitDays: EXTERNAL_HISTORICAL_LIMIT_DAYS };
-    }
-    return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
-}
-
-async function canAccessHistoricalSession(
-    ctx: any,
-    sessionId: string,
-    access: HistoricalAccess
-): Promise<boolean> {
-    if (!access.canViewHistorical) return false;
-    if (!Number.isFinite(access.historicalLimitDays)) return true;
-
-    const sessionMeta = await ctx.db
-        .query("sessions")
-        .withIndex("by_session_id", (q: any) => q.eq("session_id", sessionId))
-        .first();
-
-    const sessionStart = sessionMeta?.start_time;
-    if (!sessionStart) return false;
-
-    const startMs = new Date(sessionStart).getTime();
-    if (!Number.isFinite(startMs)) return false;
-
-    const cutoffMs = Date.now() - (access.historicalLimitDays * 24 * 60 * 60 * 1000);
-    return startMs >= cutoffMs;
-}
 
 async function canAccessLiveBackfillSession(ctx: any, sessionId: string): Promise<boolean> {
     const sessionMeta = await ctx.db
@@ -198,6 +138,40 @@ export const getSessionRecordsPage = query({
     },
 });
 
+/**
+ * Bounded preview for active or not-yet-archived sessions. This deliberately
+ * returns only a recent chart-ready tail so an initial open never triggers a
+ * full historical scan while the background archive is still catching up.
+ */
+export const getSessionPreviewTail = query({
+    args: {
+        sessionId: v.string(),
+        limit: v.optional(v.number()),
+        token: v.optional(v.string()),
+    },
+    returns: v.object({ records: v.array(v.any()), totalRecords: v.number() }),
+    handler: async (ctx, args) => {
+        const access = await getHistoricalAccess(ctx, args.token);
+        const allowed = await canAccessSessionRecords(ctx, args.sessionId, access);
+        if (!allowed) return { records: [], totalRecords: 0 };
+
+        const limit = Math.max(100, Math.min(1500, Math.floor(args.limit ?? 1500)));
+        const session = await ctx.db
+            .query("sessions")
+            .withIndex("by_session_id", (q) => q.eq("session_id", args.sessionId))
+            .first();
+        const records = await ctx.db
+            .query("telemetry")
+            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+            .order("desc")
+            .take(limit);
+        return {
+            records: records.reverse(),
+            totalRecords: session?.record_count ?? records.length,
+        };
+    },
+});
+
 
 /**
  * Get recent records for a session (for incremental updates)
@@ -292,20 +266,14 @@ export const getRecordsAfterTimestamp = query({
         limit: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const limit = args.limit ?? 500;
-        const afterTime = new Date(args.afterTimestamp).getTime();
-
-        // Get records ordered by timestamp ascending (oldest first)
-        const records = await ctx.db
+        const limit = Math.max(1, Math.min(3000, Math.floor(args.limit ?? 500)));
+        return await ctx.db
             .query("telemetry")
-            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+            .withIndex("by_session_timestamp", (q) =>
+                q.eq("session_id", args.sessionId).gt("timestamp", args.afterTimestamp)
+            )
             .order("asc")
-            .collect();
-
-        // Filter to only records after the specified timestamp
-        const filtered = records.filter(r => new Date(r.timestamp).getTime() > afterTime);
-
-        return filtered.slice(0, limit);
+            .take(limit);
     },
 });
 
@@ -396,6 +364,7 @@ export const insertTelemetryBatch = mutation({
             outlier_severity: v.optional(v.string()),
         })),
     },
+    returns: v.object({ inserted: v.number() }),
     handler: async (ctx, args) => {
         // ── Insert telemetry records ─────────────────────────────────────────
         const insertedIds = [];
@@ -446,6 +415,9 @@ export const insertTelemetryBatch = mutation({
                     start_time: update.start_time,
                     end_time: update.end_time,
                     record_count: update.record_count,
+                    archive_status: "pending",
+                    archived_record_count: 0,
+                    archive_part_count: 0,
                 });
             } else {
                 await ctx.db.patch(existingSession._id, {
@@ -455,6 +427,12 @@ export const insertTelemetryBatch = mutation({
                         ? update.start_time : existingSession.start_time,
                     record_count: existingSession.record_count + update.record_count,
                     session_name: update.session_name ?? existingSession.session_name,
+                    // A restarted session may receive a tail after it was archived.
+                    // The next bounded archive run will append that tail as a new part.
+                    archive_status: existingSession.archive_status === "complete"
+                        ? "pending"
+                        : (existingSession.archive_status ?? "pending"),
+                    archive_error: undefined,
                 });
             }
         }

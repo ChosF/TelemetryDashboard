@@ -1,5 +1,9 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  archivePartSummaryValidator,
+  archiveStatsValidator,
+} from "./archiveValidators";
 
 export default defineSchema({
   // Custom auth tables (simple email/password auth)
@@ -25,8 +29,45 @@ export default defineSchema({
     start_time: v.string(),   // ISO 8601 timestamp of first record
     end_time: v.string(),     // ISO 8601 timestamp of last record
     record_count: v.number(),
+    // Inactive sessions are moved out of the document database and into
+    // compressed, immutable file-storage parts. Only an active tail remains
+    // in `telemetry` while a session is still receiving data.
+    archive_status: v.optional(v.union(
+      v.literal("pending"),
+      v.literal("archiving"),
+      v.literal("complete"),
+      v.literal("error")
+    )),
+    archived_record_count: v.optional(v.number()),
+    archive_part_count: v.optional(v.number()),
+    archive_updated_at: v.optional(v.string()),
+    archive_error: v.optional(v.string()),
+    overview_storage_id: v.optional(v.id("_storage")),
+    overview_point_count: v.optional(v.number()),
+    archive_stats: v.optional(archiveStatsValidator),
   })
-    .index("by_session_id", ["session_id"]),
+    .index("by_session_id", ["session_id"])
+    .index("by_archive_status_end_time", ["archive_status", "end_time"])
+    .index("by_archive_overview_end_time", ["archive_status", "overview_storage_id", "end_time"]),
+
+  // Small database manifest for immutable telemetry blobs in file storage.
+  // A session normally has only a few parts, so opening historical mode reads
+  // metadata here instead of scanning thousands of wide telemetry documents.
+  telemetryArchives: defineTable({
+    session_id: v.string(),
+    part_number: v.number(),
+    storage_id: v.id("_storage"),
+    preview_storage_id: v.optional(v.id("_storage")),
+    record_count: v.number(),
+    start_time: v.string(),
+    end_time: v.string(),
+    uncompressed_bytes: v.number(),
+    compressed_bytes: v.number(),
+    format: v.literal("json-gzip-v1"),
+    summary: v.optional(archivePartSummaryValidator),
+    created_at: v.string(),
+  })
+    .index("by_session_part", ["session_id", "part_number"]),
 
   // Telemetry data table - stores all vehicle sensor data
 

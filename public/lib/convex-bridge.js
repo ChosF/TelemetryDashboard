@@ -153,13 +153,215 @@ const ConvexBridge = (function () {
 
 
 
+    async function fetchGzipJson(url) {
+        // Archive files are immutable, so revisits should reuse the browser
+        // cache instead of consuming file egress again.
+        const response = await fetch(url, { cache: 'force-cache' });
+        if (!response.ok) {
+            throw new Error(`Telemetry archive download failed with HTTP ${response.status}`);
+        }
+        if (!response.body) {
+            throw new Error('Telemetry archive response had no body');
+        }
+        if (typeof DecompressionStream === 'undefined') {
+            throw new Error('This browser does not support gzip archive decompression');
+        }
+
+        const text = await new Response(
+            response.body.pipeThrough(new DecompressionStream('gzip'))
+        ).text();
+        return JSON.parse(text);
+    }
+
+    async function fetchArchivePart(url) {
+        const records = await fetchGzipJson(url);
+        if (!Array.isArray(records)) {
+            throw new Error('Telemetry archive contained an invalid payload');
+        }
+        return records;
+    }
+
+    function sampleEvenly(records, maxPoints) {
+        if (records.length <= maxPoints) return records;
+        const sampled = [];
+        const stride = (records.length - 1) / (maxPoints - 1);
+        for (let index = 0; index < maxPoints; index++) {
+            sampled.push(records[Math.round(index * stride)]);
+        }
+        return sampled;
+    }
+
+    async function getSessionPreview(sessionId, onProgress = null) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        const token = getAuthToken();
+
+        let overview = null;
+        try {
+            overview = await client.query('archives:getSessionOverview', {
+                sessionId,
+                token: token || undefined,
+            });
+        } catch (error) {
+            console.warn('[ConvexBridge] Session overview endpoint unavailable; using compatibility fallback:', error);
+        }
+
+        if (overview?.available && overview.url) {
+            if (onProgress) onProgress(0, overview.pointCount || overview.recordCount || 0);
+            const payload = await fetchGzipJson(overview.url);
+            if (!payload || !Array.isArray(payload.records)) {
+                throw new Error('Telemetry overview contained an invalid payload');
+            }
+            if (onProgress) onProgress(payload.records.length, payload.records.length);
+            return {
+                records: payload.records,
+                stats: payload.stats || overview.stats || null,
+                isPreview: true,
+                totalRecords: overview.recordCount || payload.records.length,
+            };
+        }
+
+        if (overview?.complete) {
+            const records = await getSessionRecords(sessionId, onProgress);
+            return { records, stats: null, isPreview: false, totalRecords: records.length };
+        }
+
+        let archivedPreview = [];
+        if (overview?.status === 'archiving') {
+            try {
+                const manifest = await client.query('archives:getSessionArchiveManifest', {
+                    sessionId,
+                    token: token || undefined,
+                });
+                const previewParts = (manifest?.parts || []).filter(part => part.previewUrl);
+                const parallelDownloads = 4;
+                for (let index = 0; index < previewParts.length; index += parallelDownloads) {
+                    const batch = await Promise.all(
+                        previewParts.slice(index, index + parallelDownloads)
+                            .map(part => fetchArchivePart(part.previewUrl))
+                    );
+                    archivedPreview.push(...batch.flat());
+                }
+            } catch (error) {
+                console.warn('[ConvexBridge] In-progress archive previews unavailable:', error);
+            }
+        }
+
+        try {
+            const preview = await client.query('telemetry:getSessionPreviewTail', {
+                sessionId,
+                limit: 1500,
+                token: token || undefined,
+            });
+            const tailRecords = Array.isArray(preview?.records) ? preview.records : [];
+            const combined = archivedPreview.concat(tailRecords)
+                .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+            const records = sampleEvenly(combined, 1500);
+            if (onProgress) onProgress(records.length, preview?.totalRecords || records.length);
+            return {
+                records,
+                stats: null,
+                isPreview: overview?.status === 'archiving' || (preview?.totalRecords || 0) > records.length,
+                totalRecords: preview?.totalRecords || records.length,
+            };
+        } catch (error) {
+            console.warn('[ConvexBridge] Bounded session preview unavailable; using compatibility fallback:', error);
+            const records = await getSessionRecords(sessionId, onProgress);
+            return { records, stats: null, isPreview: false, totalRecords: records.length };
+        }
+    }
+
+    async function tryGetOptimizedSessionRecords(sessionId, token, onProgress, archiveAttempt = 0) {
+        let manifest;
+        try {
+            manifest = await client.query('archives:getSessionArchiveManifest', {
+                sessionId,
+                token: token || undefined,
+            });
+        } catch (_) {
+            // Temporary compatibility with a frontend deployed before the new
+            // Convex archive functions. Once deployed, this path is not used.
+            return null;
+        }
+
+        const archivedRecords = [];
+        const estimated = manifest.recordCount || manifest.archivedRecordCount || 0;
+        if (onProgress) onProgress(0, estimated);
+
+        const parts = [...manifest.parts].sort((a, b) => a.partNumber - b.partNumber);
+        const parallelDownloads = 4;
+        for (let i = 0; i < parts.length; i += parallelDownloads) {
+            const batch = parts.slice(i, i + parallelDownloads);
+            const batchRecords = await Promise.all(batch.map(async (part) => {
+                if (!part.url) {
+                    throw new Error(`Telemetry archive part ${part.partNumber} is unavailable`);
+                }
+                return await fetchArchivePart(part.url);
+            }));
+            for (const records of batchRecords) archivedRecords.push(...records);
+            if (onProgress) onProgress(archivedRecords.length, estimated || archivedRecords.length);
+        }
+
+        if (manifest.complete) return archivedRecords;
+
+        // Active sessions and in-progress migrations retain only a database tail.
+        const tailRecords = [];
+        let cursor = null;
+        while (true) {
+            const result = await client.query('telemetry:getSessionRecordsPage', {
+                sessionId,
+                paginationOpts: { numItems: 3000, cursor },
+                token: token || undefined,
+            });
+            if (!result || !Array.isArray(result.page)) {
+                throw new Error('Convex returned an invalid paginated telemetry response');
+            }
+            tailRecords.push(...result.page);
+            if (onProgress) {
+                onProgress(
+                    archivedRecords.length + tailRecords.length,
+                    estimated || archivedRecords.length + tailRecords.length
+                );
+            }
+            if (result.isDone) break;
+            if (!result.continueCursor) {
+                throw new Error('Convex pagination stopped without a continuation cursor');
+            }
+            cursor = result.continueCursor;
+        }
+
+        if (manifest.status === 'archiving') {
+            const refreshed = await client.query('archives:getSessionArchiveManifest', {
+                sessionId,
+                token: token || undefined,
+            });
+            const archiveChanged = refreshed.archivedRecordCount !== manifest.archivedRecordCount
+                || refreshed.parts.length !== manifest.parts.length
+                || refreshed.complete !== manifest.complete;
+            if (archiveChanged) {
+                if (archiveAttempt >= 3) {
+                    throw new Error('Telemetry archive is changing; retry the session load');
+                }
+                return await tryGetOptimizedSessionRecords(
+                    sessionId,
+                    token,
+                    onProgress,
+                    archiveAttempt + 1
+                );
+            }
+        }
+
+        const records = archivedRecords.concat(tailRecords);
+        records.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+        return records;
+    }
+
     /**
      * Get ALL records for a session.
      *
      * Strategy:
-     *   1. Try getSessionRecords (single .collect()) — fastest path, works for <14k records
-     *   2. If that fails OR returns exactly 16k (capped), fall back to looping
-     *      getSessionRecordsBatch with advancing timestamps (3000 records per call)
+     *   1. Load authorized gzip archive parts from Convex File Storage.
+     *   2. Cursor-paginate only the active/unarchived database tail.
+     *   3. Retain the old collect/batch path only for staggered deployments.
      *
      * Callers receive a flat sorted array and never need to know which path was taken.
      *
@@ -170,6 +372,9 @@ const ConvexBridge = (function () {
     async function getSessionRecords(sessionId, onProgress = null) {
         if (!client) throw new Error('ConvexBridge not initialized');
         const token = getAuthToken();
+
+        const optimizedRecords = await tryGetOptimizedSessionRecords(sessionId, token, onProgress);
+        if (optimizedRecords !== null) return optimizedRecords;
 
         const BATCH_SIZE = 3000;   // must match server BATCH_SIZE
         const COLLECT_CAP = 16000; // if collect() returns ≥ this, assume it was capped
@@ -584,6 +789,7 @@ const ConvexBridge = (function () {
         getConfig,
         listSessions,
         kickstartSessions,
+        getSessionPreview,
         getSessionRecords,
         getRecentRecords,
         getLatestRecord,

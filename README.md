@@ -78,12 +78,14 @@ flowchart LR
     ESP32[Hardware/Car Sensors]:::node --> |Raw Signal| AblyIn((Ably Ingest)):::pubsub
     AblyIn --> Bridge[Python Gateway]:::node
     
-    Bridge --> |Permanent Records| Convex[(Convex Database)]:::db
+    Bridge --> |Active Session Tail| Convex[(Convex Database)]:::db
+    Convex --> |Archive Inactive Sessions| Files[(Convex File Storage)]:::db
     Bridge --> |Live Streaming| AblyOut((Ably Egress)):::pubsub
     
     AblyOut --> GenUI[General Dashboard]:::node
     AblyIn --> DrvUI[Driver Dashboard]:::node
-    Convex --> HistUI[Historical Dashboard]:::node
+    Files --> |Overview + On-Demand Full Parts| HistUI[Historical Dashboard]:::node
+    Convex --> |Manifest + Bounded Active Preview| HistUI
     
     %% Session Context
     Convex -.-> GenUI
@@ -116,9 +118,19 @@ convex/
 ├── schema.ts         # Database schema
 ├── telemetry.ts      # Telemetry queries/mutations
 ├── sessions.ts       # Session management
+├── archives.ts       # Archive manifest and transactional part commits
+├── archiveActions.ts # Gzip file-storage migration
+├── archiveValidators.ts # Typed overview and exact-summary contracts
+├── crons.ts          # Bounded inactive-session archiver
 ├── auth.ts           # Authentication
 └── users.ts          # User management
 ```
+
+### Historical archive migration
+
+The archive schema is additive: existing sessions and telemetry documents remain valid. After the Convex functions are deployed, a bounded cron selects at most two sessions that have been inactive for 30 minutes. It writes at most eight 3,000-record gzip parts per session per run and resumes larger sessions on later runs. A source batch is deleted only in the same transaction that commits its durable file-storage manifest, so a failed file write leaves the database copy intact.
+
+Deploy the Convex functions before the updated frontend. During the gradual backfill, historical mode uses small per-part previews plus a bounded database tail; once finalization creates the single overview file, normal session opens become one metadata query and one small compressed download. Archive failures remain visible in `sessions.archive_status` and `sessions.archive_error` and are retried by later bounded runs.
 
 ---
 

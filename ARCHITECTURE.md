@@ -17,7 +17,8 @@ flowchart TD
     HW[ESP32 Vehicle Controller]:::hardware
     Bridge("Python Telemetry Bridge<br/>(Analyzes & Enriches)"):::bridge
     
-    Convex[(Convex Cloud DB)]:::backend
+    Convex[(Convex Database<br/>Active Session Tail)]:::backend
+    ConvexFiles[(Convex File Storage<br/>Gzip Session Archives)]:::backend
     AblyIngest((Ably Inbound Stream<br/>EcoTele Channel)):::realtime
     AblyOutbound((Ably Outbound Stream<br/>Dashboard Channel)):::realtime
     
@@ -31,6 +32,7 @@ flowchart TD
     %% 2. The Python Bridge processing pipeline
     AblyIngest -- Consumes Raw Data --> Bridge
     Bridge -- Batches via API `insertTelemetryBatch` --> Convex
+    Convex -- Bounded Inactive-Session Archiver --> ConvexFiles
     Bridge -- Publishes Enriched JSON --> AblyOutbound
     
     %% 3. The Driver Cockpit (Bypasses bridge for absolute minimal latency)
@@ -42,12 +44,15 @@ flowchart TD
     Convex -- Fetches Session Information Context --> General
     
     %% 5. The Historical Dashboard
-    Convex -- High-Volume Paginated Queries --> Historical
+    ConvexFiles -- Overview First; Full Parts On Demand --> Historical
+    Convex -- Manifest + Active Tail Pagination --> Historical
 ```
 
 ### Key Architectural Concepts
 1. **Zero-Processing Latency for Driver:** By having the Driver Dashboard tap straight into the `Ably Inbound Stream` (the exact same channel the ESP32 publishes to), the system completely removes the Python array processing, Z-score calculations, and network hops of the Bridge from the driver's critical path.
-2. **Dual-Sourcing for General Dashboard:** The General Dashboard leverages both **Convex** (to load session states and historical records upon initialization) and the **Ably Outbound Stream** (to parse the enriched mathematical derivations constructed by `maindata.py`).
+2. **Dual-Sourcing for General Dashboard:** The General Dashboard leverages both **Convex** (to load session state and the active database tail upon initialization) and the **Ably Outbound Stream** (to parse the enriched mathematical derivations constructed by `maindata.py`).
+3. **Hot/Cold Historical Storage:** Telemetry remains as indexed database documents while a session is active. After 30 minutes of inactivity, a bounded internal cron action writes ordered 3,000-record gzip parts to Convex File Storage, atomically records each part in `telemetryArchives`, and removes the corresponding wide database documents.
+4. **Progressive Historical Resolution:** Every archived part also produces a tiny preview and exact aggregate summary. Finalization consolidates them into one gzip overview capped at 1,500 representative points. Opening a session downloads only this overview, and browsing or focusing session cards performs no data fetch. Collapsed modules perform no rendering; charts, energy, driver, map, table preview, and comparisons use overview data; distribution statistics, anomaly analysis, regression, segmentation, custom analysis, and exports request full archive parts only when invoked. Active and not-yet-archived sessions use a bounded 1,500-record database preview rather than a full scan.
 
 ---
 
@@ -82,7 +87,7 @@ graph TD
 
     subgraph HistDB_Modules[Historical Dashboard Modules]
         ConvexClient[Convex DB Query Client]:::module
-        BatchLoader[Batch Session Pagintator]:::module
+        BatchLoader[Progressive Overview Loader<br/>+ On-Demand Full Hydration]:::module
     end
     HistDB --> HistDB_Modules
 
@@ -105,7 +110,7 @@ graph TD
 **Instance Workflows:**
 *   **General Dashboard (`app.js`):** Engineered for the pit crew. It connects directly to an **Ably** channel (`telemetry-dashboard-channel`). It retains a rolling window of telemetry data tightly coupled with charting libraries to display live anomalies and efficiency metrics. It queries Convex primarily for historical context and session boundaries.
 *   **Driver Dashboard (`DriverDashboard.tsx`):** A modern, mobile-optimized UI. It uses **SolidJS** to avoid heavy DOM reconciliations and maintains absolute minimal latency. It uses a **hybrid networking approach**: it connects to **Ably** directly against the inbound stream for instantaneous raw telemetry (speed, G-force, deltas), whilst simultaneously running a lightweight polling function against **Convex** to fetch critical team notifications and flags asynchronously. 
-*   **Historical Dashboard (`historical.js`):** Designed for deep, post-race analysis. It drops the Ably WebSocket connection completely and interfaces exclusively with **Convex**. Because race sessions generate tens of thousands of metrics bypassing the 16k collection limit, the Historical Dashboard explicitly leverages paginated batch loaders (`getSessionRecordsBatch`) to aggressively download and analyze large JSON blocks.
+*   **Historical Dashboard (`historical.js`):** Designed for deep, post-race analysis. It drops the Ably WebSocket connection completely and interfaces exclusively with **Convex**. Its default payload is a single compressed level-of-detail overview with exact session KPIs. Full gzip parts remain available for operations that need every sample, but are hydrated once and only on explicit demand. Cursor pagination remains as a deployment-compatibility fallback; normal session opens never scan the full telemetry table.
 
 ---
 

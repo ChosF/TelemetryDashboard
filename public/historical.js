@@ -7,7 +7,11 @@
     let convexReady = false;
     if (CONVEX_URL && window.ConvexBridge) { try { convexReady = await ConvexBridge.init(CONVEX_URL) } catch (e) { console.error('Convex init', e) } }
 
-    const S = { sessions: [], activeSessionId: null, activeSessionMeta: null, data: [], compareData: [], map: null, stats: null };
+    const S = {
+        sessions: [], activeSessionId: null, activeSessionMeta: null,
+        data: [], compareData: [], map: null, stats: null, compareStats: null,
+        isPreview: false, fullDataPromise: null,
+    };
     let historicalLimit = Infinity;
     let canAccessCustomAnalysis = true;
     let externalDataPointLimit = Infinity;
@@ -137,7 +141,7 @@
 
         controller.promise = (async () => {
             emitSessionLoad(controller);
-            const raw = await ConvexBridge.getSessionRecords(sessionId, (loaded, total) => {
+            const sessionPayload = await ConvexBridge.getSessionPreview(sessionId, (loaded, total) => {
                 const effectiveTotal = Number.isFinite(total) && total > 0
                     ? total
                     : (Number.isFinite(controller.expectedTotal) && controller.expectedTotal > 0 ? controller.expectedTotal : loaded);
@@ -148,7 +152,10 @@
                 emitSessionLoad(controller);
             });
 
-            const rawRecords = Array.isArray(raw) ? raw : [];
+            const rawRecords = Array.isArray(sessionPayload?.records) ? sessionPayload.records : [];
+            if (Number.isFinite(sessionPayload?.totalRecords)) {
+                controller.expectedTotal = sessionPayload.totalRecords;
+            }
             const metadataCount = Number.isFinite(controller.expectedTotal) ? controller.expectedTotal : 0;
 
             if (!rawRecords.length && metadataCount > 0) {
@@ -159,7 +166,7 @@
             controller.progress = Math.max(controller.progress, rawRecords.length > 0 ? 84 : 92);
             emitSessionLoad(controller);
 
-            const { normalized, stats } = await runHistoricalWorkerTask(
+            const { normalized, stats: computedStats } = await runHistoricalWorkerTask(
                 'NORMALIZE_RECORDS',
                 { records: rawRecords },
                 (workerProgress) => {
@@ -175,7 +182,17 @@
             emitSessionLoad(controller);
             trimSessionLoadCache(sessionId);
 
-            return { rawRecords, normalized, stats };
+            const effectiveStats = {
+                ...(sessionPayload?.stats || computedStats),
+                recordCount: sessionPayload?.totalRecords || rawRecords.length,
+            };
+            return {
+                rawRecords,
+                normalized,
+                stats: effectiveStats,
+                isPreview: !!sessionPayload?.isPreview,
+                totalRecords: sessionPayload?.totalRecords || rawRecords.length,
+            };
         })().catch((error) => {
             controller.status = 'error';
             controller.error = error;
@@ -197,13 +214,6 @@
             error: controller.error || null,
         });
         return () => controller.listeners.delete(listener);
-    }
-
-    function prewarmSessionLoad(sessionId) {
-        if (!sessionId) return;
-        const sessionMeta = S.sessions.find(session => session.session_id === sessionId) || null;
-        const controller = getOrCreateSessionLoadController(sessionId, sessionMeta);
-        controller.promise.catch(() => { /* warm path is best effort */ });
     }
 
     // ── Auth / Permissions ──
@@ -318,12 +328,6 @@
         }).join('');
         $$('.ha-session-card').forEach(c => {
             c.addEventListener('click', () => openSession(c.dataset.sid));
-            c.addEventListener('mouseenter', () => {
-                clearTimeout(c._prewarmTimer);
-                c._prewarmTimer = setTimeout(() => prewarmSessionLoad(c.dataset.sid), 120);
-            });
-            c.addEventListener('mouseleave', () => clearTimeout(c._prewarmTimer));
-            c.addEventListener('focus', () => prewarmSessionLoad(c.dataset.sid), true);
         });
     }
 
@@ -401,11 +405,14 @@
 
 
         try {
-            const { normalized, stats } = await controller.promise;
+            const { normalized, stats, isPreview } = await controller.promise;
+            if (S.activeSessionId !== sid) return;
 
             const cappedData = applyExternalDataCap(normalized);
             S.data = cappedData;
-            S.stats = stats; // Cache stats locally so we don't have to recompute on render
+            S.stats = stats;
+            S.isPreview = isPreview;
+            S.fullDataPromise = null;
 
             // Restore label after load
             if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
@@ -421,15 +428,16 @@
             if (cappedData.length < normalized.length) {
                 toast(`External access limited to ${externalDataPointLimit.toLocaleString()} representative points.`);
             }
-            renderAll();
+            renderInitialHistoricalView();
             if (grid) grid.style.opacity = '1';
         } catch (e) {
+            if (S.activeSessionId !== sid) return;
             console.error('Session Load Error:', e);
             toast('Failed to load session data');
             if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
             if (grid) grid.style.opacity = '1';
         } finally {
-            if (grid) grid.style.opacity = '1';
+            if (grid && S.activeSessionId === sid) grid.style.opacity = '1';
             if (unsubscribeProgress) unsubscribeProgress();
         }
         populateCompareSelect();
@@ -444,6 +452,7 @@
                     new URLSearchParams({ sessionId: sid })
                 );
             }
+            await ensureFullSessionData('custom analysis');
             initCustomAnalysis();
         }
     }
@@ -460,7 +469,8 @@
         showAnalysisActions(false);
         disposeCharts();
         if (S.map) { try { S.map.remove() } catch (e) { } } S.map = null;
-        S.data = []; S.activeSessionId = null;
+        S.data = []; S.stats = null; S.isPreview = false; S.fullDataPromise = null;
+        S.activeSessionId = null;
         if (!options.skipHistory) {
             updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, !!options.replaceHistory);
         }
@@ -469,7 +479,7 @@
     $('h-back-to-sessions')?.addEventListener('click', backToSessions);
 
     // ── Custom Analysis Routing ──
-    $('h-btn-custom-analysis')?.addEventListener('click', () => {
+    $('h-btn-custom-analysis')?.addEventListener('click', async () => {
         if (!canAccessCustomAnalysis) {
             toast('Custom Analysis is not available for external accounts.');
             return;
@@ -483,6 +493,7 @@
                 new URLSearchParams({ sessionId: S.activeSessionId })
             );
         }
+        await ensureFullSessionData('custom analysis');
         initCustomAnalysis();
     });
 
@@ -501,6 +512,90 @@
     });
 
     // ── Render All Analysis ──
+    const renderedHistoricalSections = new Set();
+    const fullResolutionSections = new Set([
+        'stats-body', 'anomaly-body', 'reg-body', 'seg-body',
+    ]);
+
+    function renderInitialHistoricalView() {
+        renderedHistoricalSections.clear();
+        if (!S.data.length) return;
+        renderSummary(S.data);
+        renderQualityBadge(S.data);
+    }
+
+    async function ensureFullSessionData(reason = 'full-resolution analysis') {
+        if (!S.isPreview) return S.data;
+        if (Number.isFinite(externalDataPointLimit)) return S.data;
+        if (S.fullDataPromise) return await S.fullDataPromise;
+        const sessionId = S.activeSessionId;
+        if (!sessionId) return [];
+
+        S.fullDataPromise = (async () => {
+            toast(`Loading full data for ${reason}…`);
+            const raw = await ConvexBridge.getSessionRecords(sessionId);
+            const rawRecords = Array.isArray(raw) ? raw : [];
+            const { normalized, stats } = await runHistoricalWorkerTask(
+                'NORMALIZE_RECORDS',
+                { records: rawRecords }
+            );
+            if (S.activeSessionId !== sessionId) return [];
+
+            S.data = applyExternalDataCap(normalized);
+            S.stats = stats;
+            S.isPreview = false;
+            renderSummary(S.data);
+            renderQualityBadge(S.data);
+
+            // Refresh any visual sections that were already rendered from the
+            // overview so they transparently gain full fidelity.
+            for (const bodyId of [...renderedHistoricalSections]) {
+                if (bodyId === 'ts-body') renderSyncedCharts(S.data);
+                else if (bodyId === 'energy-body') renderEnergy(S.data);
+                else if (bodyId === 'efficiency-body') renderEfficiencyAnalytics(S.data);
+                else if (bodyId === 'driver-body') renderDriverAnalysis(S.data);
+                else if (bodyId === 'map-body') renderMap(S.data);
+            }
+            toast(`Full session loaded · ${S.data.length.toLocaleString()} records`);
+            return S.data;
+        })();
+
+        try {
+            return await S.fullDataPromise;
+        } finally {
+            S.fullDataPromise = null;
+        }
+    }
+
+    async function renderHistoricalSection(bodyId) {
+        if (!bodyId || renderedHistoricalSections.has(bodyId) || !S.data.length) return;
+        const sessionId = S.activeSessionId;
+        const body = document.getElementById(bodyId);
+        if (body) body.setAttribute('aria-busy', 'true');
+        try {
+            if (fullResolutionSections.has(bodyId)) {
+                await ensureFullSessionData(bodyId.replace('-body', ''));
+            }
+            if (S.activeSessionId !== sessionId) return;
+            if (bodyId === 'ts-body') renderSyncedCharts(S.data);
+            else if (bodyId === 'energy-body') renderEnergy(S.data);
+            else if (bodyId === 'efficiency-body') renderEfficiencyAnalytics(S.data);
+            else if (bodyId === 'driver-body') renderDriverAnalysis(S.data);
+            else if (bodyId === 'stats-body') renderDescriptiveStats(S.data);
+            else if (bodyId === 'anomaly-body') renderAnomalies(S.data);
+            else if (bodyId === 'reg-body') renderRegression(S.data);
+            else if (bodyId === 'seg-body') renderSegments(S.data);
+            else if (bodyId === 'map-body') renderMap(S.data);
+            else if (bodyId === 'table-body') renderDataTable(S.data);
+            renderedHistoricalSections.add(bodyId);
+        } catch (error) {
+            console.error(`Failed to render historical section ${bodyId}:`, error);
+            toast('Could not load this analysis section');
+        } finally {
+            if (body) body.removeAttribute('aria-busy');
+        }
+    }
+
     function renderAll() {
         const d = S.data; if (!d.length) return;
         renderSummary(d); renderSyncedCharts(d); renderEnergy(d); renderEfficiencyAnalytics(d); renderDriverAnalysis(d);
@@ -508,6 +603,9 @@
         renderMap(d); renderDataTable(d); renderQualityBadge(d);
         // Inject chart image overlay menus after charts have had time to initialise
         setTimeout(() => initChartImageMenus(), 800);
+        ['ts-body', 'energy-body', 'efficiency-body', 'driver-body', 'stats-body',
+            'anomaly-body', 'reg-body', 'seg-body', 'map-body', 'table-body']
+            .forEach(id => renderedHistoricalSections.add(id));
     }
 
 
@@ -523,9 +621,9 @@
             $('hs-avgspeed').textContent = fmt(S.stats.avgSpeed, 1) + ' km/h';
             $('hs-records').textContent = fmtInt(S.stats.recordCount || d.length);
             $('hs-optimal-speed').textContent = S.stats.optimalSpeed ? fmt(S.stats.optimalSpeed, 1) + ' km/h' : 'N/A';
-            $('hs-maxpower').textContent = fmt(Math.max(...d.map(r => r.power_w)), 0) + ' W'; // fallbacks if missing
+            $('hs-maxpower').textContent = fmt(S.stats.maxPower ?? Math.max(...d.map(r => r.power_w)), 0) + ' W';
             $('hs-elevation').textContent = fmt(S.stats.elevationGain, 1) + ' m';
-            $('hs-avgvoltage').textContent = fmt(mean(d.map(r => r.voltage_v)), 1) + ' V';
+            $('hs-avgvoltage').textContent = fmt(S.stats.avgVoltage ?? mean(d.map(r => r.voltage_v)), 1) + ' V';
             return;
         }
 
@@ -1181,7 +1279,10 @@
         const labels = ['Time', 'Speed', 'Power', 'Voltage', 'Current', 'Motor V', 'Motor A', 'RPM', 'Phase 1 A', 'Phase 2 A', 'Phase 3 A', 'Throttle', 'Brake 1', 'Brake 2', 'G-Force', 'Lat', 'Lon', 'Alt', 'Motion'];
         const filter = ($('h-table-filter')?.value || '').toLowerCase();
         const filtered = filter ? d.filter(r => cols.some(c => { const v = r[c]; return v != null && String(v).toLowerCase().includes(filter) })) : d;
-        $('h-table-count').textContent = `${Math.min(filtered.length, 2000)} of ${filtered.length} rows`;
+        const totalRows = S.isPreview ? (S.stats?.recordCount || filtered.length) : filtered.length;
+        $('h-table-count').textContent = S.isPreview
+            ? `${Math.min(filtered.length, 2000)} representative rows · ${totalRows.toLocaleString()} total`
+            : `${Math.min(filtered.length, 2000)} of ${filtered.length} rows`;
         const colTpl = cols.map(c => (c === 'timestamp' ? '140px' : c === 'lat' || c === 'lon' ? '100px' : '80px')).join(' ');
         let html = `<div class="ha-datatable-row header-row" style="grid-template-columns:${colTpl}">${labels.map(l => `<div>${l}</div>`).join('')}</div>`;
         const mx = Math.min(filtered.length, 2000);
@@ -1192,8 +1293,10 @@
 
     // ── Quality Badge ──
     function renderQualityBadge(d) {
-        const qs = d.map(r => r.qualityScore).filter(v => v != null); if (!qs.length) { $('h-quality-badge').style.display = 'none'; return }
-        const avg = mean(qs); $('h-quality-badge').style.display = '';
+        const qs = d.map(r => r.qualityScore).filter(v => v != null);
+        const exactQuality = qs.length && Number.isFinite(S.stats?.qualityScore) ? S.stats.qualityScore : null;
+        if (!qs.length && exactQuality == null) { $('h-quality-badge').style.display = 'none'; return }
+        const avg = exactQuality ?? mean(qs); $('h-quality-badge').style.display = '';
         const dot = $('h-quality-dot'), txt = $('h-quality-text');
         dot.className = 'ha-quality-dot ' + (avg >= 80 ? 'good' : avg >= 50 ? 'warning' : 'poor');
         txt.textContent = `Quality: ${avg.toFixed(0)}%`;
@@ -1221,10 +1324,10 @@
         if (loading) loading.style.display = '';
         if (goBtn) goBtn.disabled = true;
         try {
-            const raw = await ConvexBridge.getSessionRecords(sid);
-            S.compareData = (Array.isArray(raw) ? raw : [])
-                .map(normalizeRecord)
-                .sort((a, b) => a._ts - b._ts);
+            const sessionMeta = S.sessions.find(session => session.session_id === sid) || null;
+            const payload = await getOrCreateSessionLoadController(sid, sessionMeta).promise;
+            S.compareData = applyExternalDataCap(payload.normalized);
+            S.compareStats = payload.stats || null;
             S.compareSessionName = $('h-compare-session')?.selectedOptions[0]?.textContent || 'Session B';
             renderComparison();
             $('h-compare-clear').style.display = '';
@@ -1243,8 +1346,8 @@
         if (resultsPanel) resultsPanel.style.display = '';
 
 
-        const a = computeSessionStats(S.data);
-        const b = computeSessionStats(S.compareData);
+        const a = S.stats || computeSessionStats(S.data);
+        const b = S.compareStats || computeSessionStats(S.compareData);
         const n1 = S.activeSessionMeta?.session_name || 'Session A';
         const n2 = S.compareSessionName || 'Session B';
 
@@ -1588,8 +1691,9 @@
         toast('✅ Python script downloaded');
     }
 
-    $$('.ha-export-btn').forEach(btn => btn.addEventListener('click', () => {
+    $$('.ha-export-btn').forEach(btn => btn.addEventListener('click', async () => {
         if (!S.data.length) { toast('⚠️ No session data loaded'); return; }
+        await ensureFullSessionData('export');
         const f = btn.dataset.format;
         if (f === 'csv') exportCSV();
         else if (f === 'json') exportJSON();
@@ -1600,7 +1704,11 @@
 
 
     // Quick CSV from header
-    $('h-btn-export-quick')?.addEventListener('click', () => { if (S.data.length) exportCSV(); else toast('No data loaded'); });
+    $('h-btn-export-quick')?.addEventListener('click', async () => {
+        if (!S.data.length) { toast('No data loaded'); return; }
+        await ensureFullSessionData('CSV export');
+        exportCSV();
+    });
 
 
     // ── Collapsible Sections ──
@@ -1626,7 +1734,7 @@
 
     function initCollapsibles() {
         $$('.ha-collapse-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
                 const bodyId = btn.dataset.target;
                 const body = document.getElementById(bodyId);
                 if (!body) return;
@@ -1643,12 +1751,18 @@
                     globalBtn.textContent = historicalAllSectionsCollapsed ? '⇱ Expand All' : '⇲ Collapse All';
                     globalBtn.title = historicalAllSectionsCollapsed ? 'Expand all sections' : 'Collapse all sections';
                 }
+                if (!collapsed) await renderHistoricalSection(bodyId);
             });
         });
 
         // Global Collapse / Expand All
-        $('h-btn-collapse-all')?.addEventListener('click', (e) => {
+        $('h-btn-collapse-all')?.addEventListener('click', async () => {
+            const expanding = historicalAllSectionsCollapsed;
             applyHistoricalSectionsCollapsed(!historicalAllSectionsCollapsed);
+            if (expanding) {
+                await ensureFullSessionData('expanded analysis');
+                renderAll();
+            }
         });
     }
 
@@ -1749,8 +1863,9 @@
     });
 
     // ── Table CSV Download ──
-    $('h-table-csv')?.addEventListener('click', () => {
+    $('h-table-csv')?.addEventListener('click', async () => {
         if (!S.data.length) { toast('No data'); return }
+        await ensureFullSessionData('table export');
         const filter = ($('h-table-filter')?.value || '').toLowerCase();
         const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'motor_voltage_v', 'motor_current_a', 'motor_rpm', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'throttle_pct', 'brake_pct', 'brake2_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
         const filtered = filter ? S.data.filter(r => cols.some(c => { const v = r[c]; return v != null && String(v).toLowerCase().includes(filter) })) : S.data;
@@ -1764,6 +1879,7 @@
     // ── Compare Clear ──
     $('h-compare-clear')?.addEventListener('click', () => {
         S.compareData = [];
+        S.compareStats = null;
         S.compareSessionName = '';
         const results = $('h-compare-results');
         if (results) results.style.display = 'none';
@@ -3185,6 +3301,7 @@
             }
             if (S.activeSessionId && S.data?.length) {
                 showCustomAnalysisView();
+                await ensureFullSessionData('custom analysis');
                 initCustomAnalysis();
             } else {
                 backToSessions({ skipHistory: true });
