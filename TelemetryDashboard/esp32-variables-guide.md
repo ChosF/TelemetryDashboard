@@ -1,0 +1,394 @@
+---
+description: ESP32 Telemetry Variables Guide - Complete reference for variable names and formats to send to maindata.py
+---
+
+# ESP32 Telemetry Variables Walkthrough Guide
+
+This document provides a comprehensive guide on which variables the ESP32 microcontroller should send to the `maindata.py` backend bridge and the exact variable names to use.
+
+---
+
+## 📡 Communication Overview
+
+| Setting | Value |
+|---------|-------|
+| **Protocol** | Ably Real-time |
+| **API Key** | See `ESP32_ABLY_API_KEY` in `maindata.py` |
+| **Channel Name** | `EcoTele` |
+| **Data Format** | JSON |
+| **Recommended Interval** | 200ms (5 Hz) |
+
+---
+
+## 🔌 Required Variables (Core Telemetry)
+
+These variables are **essential** and should always be sent by the ESP32:
+
+### Session & Timing
+
+| Variable Name | Type | Unit | Description | Example |
+|---------------|------|------|-------------|---------|
+| `timestamp` | `string` | ISO 8601 | UTC timestamp of the reading | `"2026-02-04T19:06:52.123Z"` |
+| `session_id` | `string` | - | Unique identifier for the telemetry session | `"esp32-session-2026-02-04"` |
+| `session_name` | `string` | - | Human-readable session name | `"Track Day Run 1"` |
+| `message_id` | `number` | count | Sequential message counter | `42` |
+| `uptime_seconds` | `number` | seconds | ESP32 uptime since boot | `1234.5` |
+
+---
+
+### ⚡ Electrical System (CRITICAL)
+
+These are the **most important** variables for efficiency calculations:
+
+| Variable Name | Type | Unit | Valid Range | Description |
+|---------------|------|------|-------------|-------------|
+| `voltage_v` | `number` | Volts | 35.0 - 60.0 | Battery/system voltage |
+| `current_a` | `number` | Amps | -10.0 - 35.0 | Current draw (negative = regen) |
+| `power_w` | `number` | Watts | -500 - 2500 | Instantaneous power (`voltage_v * current_a`) |
+
+> ⚠️ **Important**: These variables are flagged as `CRITICAL_FIELDS` in outlier detection. Ensure accuracy!
+
+---
+
+### 🚗 Speed & Motion
+
+| Variable Name | Type | Unit | Valid Range | Description |
+|---------------|------|------|-------------|-------------|
+| `speed_ms` | `number` | m/s | 0 - 50 | Vehicle speed in meters per second |
+
+> 💡 **Conversion**: To convert from km/h to m/s, divide by 3.6
+
+---
+
+### ⚡ Cumulative Metrics
+
+| Variable Name | Type | Unit | Rules | Description |
+|---------------|------|------|-------|-------------|
+| `energy_j` | `number` | Joules | Must be monotonically increasing | Total energy consumed since session start |
+| `distance_m` | `number` | Meters | Must be monotonically increasing | Total distance traveled since session start |
+
+> ⚠️ These values should **never decrease** during a session. The backend will flag decreasing values as outliers.
+
+### Efficiency (Recommended)
+
+Calculate and send both values from the ESP32 when available:
+
+| Variable Name | Type | Unit | Valid Range | Description |
+|---------------|------|------|-------------|-------------|
+| `inst_eff_km_kwh` | `number` | km/kWh | 0 - 500 | Instant efficiency for the current sample |
+| `acc_eff_km_kwh` | `number` | km/kWh | 0 - 500 | Accumulated efficiency since session start |
+
+The bridge treats finite ESP32 values in this range as authoritative. If either
+field is missing or invalid, `maindata.py` calculates only that field as a
+fallback. Instant efficiency falls back to its rolling speed/power window;
+accumulated efficiency falls back to `distance_m / energy_j`.
+
+---
+
+### 📍 GPS / Location (All Optional)
+
+| Variable Name | Type | Unit | Valid Range | Description |
+|---------------|------|------|-------------|-------------|
+| `latitude` | `number` | degrees | -90.0 to 90.0 | GPS latitude |
+| `longitude` | `number` | degrees | -180.0 to 180.0 | GPS longitude |
+| `altitude` | `number` | meters | -500 to 10000 | GPS altitude above sea level |
+
+> 📌 The schema also accepts `altitude_m` as an alternative name for altitude.
+
+---
+
+### 🎛️ IMU / Motion Sensors
+
+#### Planar G (recommended — compute on ESP32)
+
+Send **lateral** and **longitudinal** acceleration in **g** (dimensionless multiples of 9.80665 m/s²), in the **vehicle body frame** after your IMU fusion / mounting compensation:
+
+| Variable Name | Type | Unit | Typical range | Description |
+|---------------|------|------|---------------|-------------|
+| `g_lat` | `number` | **g** | about ±2 | Lateral acceleration (positive = one consistent side, e.g. right; match your firmware convention) |
+| `g_long` | `number` | **g** | about ±2 | Longitudinal acceleration (positive = forward) |
+
+**Aliases** (optional): `g_lateral` / `lateral_g` / `lat_g` → `g_lat`; `g_longitudinal` / `longitudinal_g` / `long_g` / `lon_g` → `g_long`.
+
+When **both** `g_lat` and `g_long` are present, `maindata.py` uses them for `current_g_force`, `max_g_force`, peak detection, and motion analytics (`current_g_force` = `√(g_lat² + g_long²)`). The same values are passed through (rounded) for live dashboards that plot a G-ball.
+
+If you omit them, the bridge falls back to raw accelerometer data below.
+
+#### Gyroscope (Angular Velocity)
+
+| Variable Name | Type | Unit | Max Rate | Description |
+|---------------|------|------|----------|-------------|
+| `gyro_x` | `number` | °/s | ±1000 | Roll rate |
+| `gyro_y` | `number` | °/s | ±1000 | Pitch rate |
+| `gyro_z` | `number` | °/s | ±1000 | Yaw rate (turning) |
+
+#### Accelerometer (Linear Acceleration)
+
+| Variable Name | Type | Unit | Max Magnitude | Description |
+|---------------|------|------|---------------|-------------|
+| `accel_x` | `number` | m/s² | 80 combined | Forward/backward acceleration |
+| `accel_y` | `number` | m/s² | 80 combined | Left/right acceleration |
+| `accel_z` | `number` | m/s² | 80 combined | Up/down (includes gravity ~9.81) |
+| `total_acceleration` | `number` | m/s² | - | Pre-calculated: `√(x² + y² + z²)` |
+
+> 💡 **Legacy G-force (no `g_lat` / `g_long`)**: The backend approximates horizontal G from accelerometer as `√(accel_x² + accel_y² + (accel_z − 9.81)²) / 9.80665`, and approximates `g_lat` / `g_long` for downstream consumers as `accel_y/9.80665` and `accel_x/9.80665` (same axis convention as above — adjust IMU mount docs if yours differ).
+
+---
+
+### 🎮 Driver Inputs (Optional but Recommended)
+
+| Variable Name | Type | Unit | Range | Description |
+|---------------|------|------|-------|-------------|
+| `throttle_pct` | `number` | % | 0 - 100 | Throttle position percentage |
+| `brake_pct` | `number` | % | 0 - 100 | Brake position percentage |
+| `brake2_pct` | `number` | % | 0 - 100 | Secondary brake position percentage |
+| `throttle` | `number` | ratio | 0.0 - 1.0 | Throttle as decimal (alternative) |
+| `brake` | `number` | ratio | 0.0 - 1.0 | Brake as decimal (alternative) |
+| `brake2` | `number` | ratio | 0.0 - 1.0 | Secondary brake as decimal (alternative) |
+
+> 💡 You can send either `throttle_pct`/`brake_pct`/`brake2_pct` OR `throttle`/`brake`/`brake2`. The `_pct` versions are preferred.
+
+---
+
+### ⚙️ Motor CAN Bus (Optional but Supported)
+
+These values are now supported end to end by `maindata.py`, Convex, Ably, the live dashboard, and historical custom-analysis tooling:
+
+| Variable Name | Type | Unit | Suggested Range | Description |
+|---------------|------|------|-----------------|-------------|
+| `motor_current_a` | `number` | Amps | -50 to 200 | Motor-side current from CAN bus |
+| `motor_voltage_v` | `number` | Volts | 0 to 120 | Motor-side voltage from CAN bus |
+| `motor_rpm` | `number` | RPM | 0 to 20000 | Motor rotational speed |
+| `motor_phase_1_current_a` | `number` | Amps | -50 to 250 | Instantaneous current on motor phase 1 |
+| `motor_phase_2_current_a` | `number` | Amps | -50 to 250 | Instantaneous current on motor phase 2 |
+| `motor_phase_3_current_a` | `number` | Amps | -50 to 250 | Instantaneous current on motor phase 3 |
+
+> 💡 Use these exact names when possible. The bridge also tolerates a few aliases such as `motor_voltage`, `motor_current`, `rpm`, `phase_1_current_a`, `phase_2_current_a`, and `phase_3_current_a`, but the canonical names above are preferred.
+>
+> Legacy note: `motor_phase_current_a` is still accepted for backwards compatibility, but it is now treated as a legacy single-phase/aggregate field. New integrations should send the three per-phase fields instead.
+
+#### 🔧 Throttle Hardware Configuration (Current Implementation)
+
+The ESP32 code is configured to read throttle from **GPIO 3** using ADC1_CHANNEL_3:
+
+| Setting | Value |
+|---------|-------|
+| **GPIO Pin** | GPIO 3 (ADC1_CHANNEL_3) |
+| **Min Voltage** | 0.83V = 0% throttle |
+| **Max Voltage** | 3.33V = 100% throttle |
+| **ADC Attenuation** | 11dB (0-3.9V range) |
+| **Samples** | 100 samples averaged |
+
+**Voltage-to-Percentage Formula:**
+```
+throttle_pct = (voltage - 0.83) / (3.33 - 0.83) × 100
+```
+
+> ⚠️ **Calibration**: If your throttle sensor has different min/max voltages, update the constants `THROTTLE_MIN_VOLTAGE` and `THROTTLE_MAX_VOLTAGE` in `adc_reader.h`
+
+---
+
+### 🏷️ Optional Metadata
+
+| Variable Name | Type | Description |
+|---------------|------|-------------|
+| `data_source` | `string` | Identifier for data origin (e.g., `"ESP32_LIVE"`) |
+
+---
+
+## 📋 Complete JSON Example
+
+Here's a complete example of a JSON payload the ESP32 should send:
+
+```json
+{
+  "timestamp": "2026-02-04T19:06:52.123Z",
+  "session_id": "esp32-track-day-20260204",
+  "session_name": "Track Day Run 1",
+  "message_id": 42,
+  "uptime_seconds": 1234.5,
+  
+  "voltage_v": 48.2,
+  "current_a": 12.5,
+  "power_w": 602.5,
+  
+  "speed_ms": 8.3,
+  
+  "energy_j": 125000.0,
+  "distance_m": 1520.5,
+  
+  "latitude": 40.7128,
+  "longitude": -74.0060,
+  "altitude": 105.2,
+  
+  "gyro_x": 0.15,
+  "gyro_y": -0.08,
+  "gyro_z": 2.35,
+  
+  "g_lat": 0.08,
+  "g_long": 0.12,
+
+  "accel_x": 0.52,
+  "accel_y": 0.18,
+  "accel_z": 9.78,
+  "total_acceleration": 9.81,
+  
+  "throttle_pct": 45.0,
+  "brake_pct": 0.0,
+  "brake2_pct": 12.0,
+
+  "motor_voltage_v": 45.3,
+  "motor_current_a": 18.4,
+  "motor_rpm": 2630.0,
+  "motor_phase_1_current_a": 21.7,
+  "motor_phase_2_current_a": 20.9,
+  "motor_phase_3_current_a": 22.3,
+  
+  "data_source": "ESP32_LIVE"
+}
+```
+
+---
+
+## 🔄 Minimal JSON Example (Bare Minimum)
+
+If you need to send minimal data:
+
+```json
+{
+  "timestamp": "2026-02-04T19:06:52.123Z",
+  "session_id": "my-session",
+  "voltage_v": 48.2,
+  "current_a": 12.5,
+  "power_w": 602.5,
+  "speed_ms": 8.3
+}
+```
+
+> ⚠️ Missing optional fields will result in `null` values in the database and may affect calculated metrics.
+
+---
+
+## 📊 Bridge Output Fields
+
+The following fields are added by `maindata.py`. Do not send these bridge-specific
+names from the ESP32; send `inst_eff_km_kwh` and `acc_eff_km_kwh` as documented above.
+
+| Calculated Field | Source Variables | Description |
+|------------------|------------------|-------------|
+| `current_efficiency_km_kwh` | `inst_eff_km_kwh` or `speed_ms`, `power_w` | Compatibility mirror of instant efficiency; rolling fallback when ESP32 data is unavailable |
+| `cumulative_energy_kwh` | `power_w` | Total energy in kWh |
+| `route_distance_km` | `latitude`, `longitude` | GPS-based distance |
+| `avg_speed_kmh` | `speed_ms` | Rolling average speed |
+| `max_speed_kmh` | `speed_ms` | Session maximum speed |
+| `avg_voltage` | `voltage_v` | Rolling average voltage |
+| `avg_current` | `current_a` | Rolling average current |
+| `avg_power` | `power_w` | Rolling average power |
+| `max_power_w` | `power_w` | Session maximum power |
+| `max_current_a` | `current_a` | Session maximum current |
+| `optimal_speed_kmh` | `speed_ms`, `power_w` | Calculated optimal cruising speed |
+| `optimal_speed_ms` | `speed_ms`, `power_w` | Optimal speed in m/s |
+| `optimal_efficiency_km_kwh` | `speed_ms`, `power_w` | Efficiency at optimal speed |
+| `optimal_speed_confidence` | - | Confidence in optimal speed calculation |
+| `motion_state` | `speed_ms`, `accel_*`, `gyro_z` | Current motion: `stationary`, `cruising`, `accelerating`, `braking`, `turning` |
+| `driver_mode` | `throttle_pct`, `brake_pct`, `speed_ms` | Driver style: `eco`, `normal`, `aggressive`, `coasting`, `braking` |
+| `throttle_intensity` | `throttle_pct` | Classification: `idle`, `light`, `moderate`, `heavy` |
+| `brake_intensity` | `brake_pct` | Classification: `idle`, `light`, `moderate`, `heavy` |
+| `g_lat`, `g_long` | `g_lat`, `g_long` **or** approximated from `accel_*` | Planar G components (g) for displays |
+| `current_g_force` | `g_lat`, `g_long` **or** `accel_*` | Magnitude in g: `√(g_lat² + g_long²)` or from accel |
+| `max_g_force` | same as above | Session maximum G-force |
+| `accel_magnitude` | same as above | Horizontal acceleration magnitude (m/s²) |
+| `avg_acceleration` | `accel_*` | Rolling average acceleration |
+| `elevation_gain_m` | `altitude` | Cumulative elevation gain |
+| `quality_score` | All fields | Data quality assessment |
+| `outliers` | All fields | Detected outliers (JSON object) |
+| `outlier_severity` | All fields | Outlier severity level |
+
+---
+
+## 🚨 Outlier Detection Thresholds
+
+The backend automatically flags values outside these ranges:
+
+| Variable | Min | Max | Notes |
+|----------|-----|-----|-------|
+| `voltage_v` | 35.0 V | 60.0 V | Absolute bounds |
+| `current_a` | -10.0 A | 35.0 A | Negative = regeneration |
+| `power_w` | -500 W | 2500 W | |
+| `speed_ms` | 0 m/s | 50 m/s | Negative values flagged |
+| `altitude` | -500 m | 10000 m | |
+| `latitude` | -90° | 90° | |
+| `longitude` | -180° | 180° | |
+
+### Dynamic Detection
+
+| Check | Trigger | Threshold |
+|-------|---------|-----------|
+| Sudden voltage jump | Change > 50% of mean | Within window |
+| Z-score outlier | > 5.0 standard deviations | Rolling window |
+| Stuck sensor | Same value repeated | 15+ consecutive readings |
+| GPS speed mismatch | GPS distance / reported speed | > 20:1 ratio |
+| Impossible speed | GPS-derived speed | > 500 m/s |
+| Altitude rate | Change between readings | > 50 m/interval |
+| Speed acceleration | Speed change rate | > 50 m/s² |
+
+---
+
+
+---
+
+## ✅ Variable Name Quick Reference
+
+| Variable | Required | Type | Unit |
+|----------|----------|------|------|
+| `timestamp` | ✅ | string | ISO 8601 |
+| `session_id` | ✅ | string | - |
+| `session_name` | ⬜ | string | - |
+| `message_id` | ⬜ | number | count |
+| `uptime_seconds` | ⬜ | number | seconds |
+| `voltage_v` | ✅ | number | V |
+| `current_a` | ✅ | number | A |
+| `power_w` | ✅ | number | W |
+| `speed_ms` | ✅ | number | m/s |
+| `energy_j` | ⬜ | number | J |
+| `distance_m` | ⬜ | number | m |
+| `latitude` | ⬜ | number | ° |
+| `longitude` | ⬜ | number | ° |
+| `altitude` | ⬜ | number | m |
+| `gyro_x` | ⬜ | number | °/s |
+| `gyro_y` | ⬜ | number | °/s |
+| `gyro_z` | ⬜ | number | °/s |
+| `g_lat` | ⬜ | number | g |
+| `g_long` | ⬜ | number | g |
+| `accel_x` | ⬜ | number | m/s² |
+| `accel_y` | ⬜ | number | m/s² |
+| `accel_z` | ⬜ | number | m/s² |
+| `total_acceleration` | ⬜ | number | m/s² |
+| `throttle_pct` | ⬜ | number | % |
+| `brake_pct` | ⬜ | number | % |
+| `brake2_pct` | ⬜ | number | % |
+| `throttle` | ⬜ | number | ratio |
+| `brake` | ⬜ | number | ratio |
+| `brake2` | ⬜ | number | ratio |
+| `motor_voltage_v` | ⬜ | number | V |
+| `motor_current_a` | ⬜ | number | A |
+| `motor_rpm` | ⬜ | number | rpm |
+| `motor_phase_1_current_a` | ⬜ | number | A |
+| `motor_phase_2_current_a` | ⬜ | number | A |
+| `motor_phase_3_current_a` | ⬜ | number | A |
+| `data_source` | ⬜ | string | - |
+
+**Legend:** ✅ = Required, ⬜ = Optional
+
+---
+
+## 📚 Additional Resources
+
+- **maindata.py**: `TelemetryDashboard/backend/maindata.py`
+- **Convex Schema**: `TelemetryDashboard/convex/schema.ts`
+- **Ably Channel**: `EcoTele` (ESP32 → maindata.py bridge)
+- **Dashboard Channel**: `telemetry-dashboard-channel` (maindata.py → Dashboard)
+
+---
+
+*Last Updated: March 22, 2026*

@@ -1,0 +1,1007 @@
+/**
+ * Utility functions for telemetry data processing
+ * Ported from app.js with TypeScript types
+ */
+
+import type { TelemetryRecord, TelemetryRow, KPISummary, DataQualityReport } from '@/types/telemetry';
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+/** Gravitational constant (m/s²) */
+export const G = 9.80665;
+
+/** Maximum telemetry points to keep in memory */
+export const MAX_TELEMETRY_POINTS = 100000;
+
+/** Chart update throttle interval (ms) - targets ~5 FPS */
+export const CHART_UPDATE_INTERVAL = 200;
+
+/** Required fields for complete telemetry record */
+export const REQUIRED_FIELDS = [
+    'speed_ms', 'voltage_v', 'current_a', 'power_w', 'energy_j', 'distance_m',
+    'latitude', 'longitude', 'altitude', 'gyro_x', 'gyro_y', 'gyro_z',
+    'accel_x', 'accel_y', 'accel_z', 'total_acceleration', 'message_id',
+    'uptime_seconds', 'session_id', 'throttle_pct', 'brake_pct', 'throttle', 'brake'
+] as const;
+
+// =============================================================================
+// BASIC UTILITIES
+// =============================================================================
+
+/** Clamp value between min and max */
+export function clamp(value: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, value));
+}
+
+/** Convert value to number with fallback */
+export function toNum(x: unknown, fallback: number | null = null): number | null {
+    const n = Number(x);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+/** Parse a finite efficiency value without turning bad telemetry into a boundary value. */
+function toEfficiency(x: unknown): number | null {
+    if (x == null || x === '') return null;
+    const efficiency = toNum(x, null);
+    return efficiency !== null && efficiency >= 0 && efficiency <= 500
+        ? efficiency
+        : null;
+}
+
+/** Get last element of array */
+export function last<T>(arr: T[]): T | undefined {
+    return arr[arr.length - 1];
+}
+
+/** Format date to ISO string */
+export function toISO(d: Date): string {
+    return d.toISOString();
+}
+
+/** Format seconds to HH:MM:SS */
+export function formatDuration(seconds: number): string {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return h > 0
+        ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+        : `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** Debounce function */
+export function debounce<T extends (...args: unknown[]) => void>(
+    func: T,
+    wait: number
+): (...args: Parameters<T>) => void {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    return (...args: Parameters<T>) => {
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(() => func(...args), wait);
+    };
+}
+
+/** Throttle function */
+export function throttle<T extends (...args: unknown[]) => void>(
+    func: T,
+    limit: number
+): (...args: Parameters<T>) => void {
+    let lastCall = 0;
+    return (...args: Parameters<T>) => {
+        const now = Date.now();
+        if (now - lastCall >= limit) {
+            lastCall = now;
+            func(...args);
+        }
+    };
+}
+
+// =============================================================================
+// DATA NORMALIZATION
+// =============================================================================
+
+/**
+ * Normalize field names for common variations
+ * Maps altitude variations, parses outliers JSON, ensures required fields exist
+ */
+export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
+    const normalized = { ...row } as TelemetryRow;
+
+    const voltage = toNum(normalized.voltage_v, null);
+    const current = toNum(normalized.current_a, null);
+    const power = toNum(normalized.power_w, null);
+    const motorVoltage = toNum(normalized.motor_voltage_v, null);
+    const motorCurrent = toNum(normalized.motor_current_a, null);
+    const motorRpm = toNum(normalized.motor_rpm, null);
+    const motorPhase1Current = toNum(normalized.motor_phase_1_current_a, null);
+    const motorPhase2Current = toNum(normalized.motor_phase_2_current_a, null);
+    const motorPhase3Current = toNum(normalized.motor_phase_3_current_a, null);
+    const motorPhaseCurrent = toNum(normalized.motor_phase_current_a, null);
+
+    if (voltage !== null) normalized.voltage_v = voltage;
+    if (current !== null) normalized.current_a = current;
+    if (power !== null) {
+        normalized.power_w = power;
+    } else if (voltage !== null && current !== null) {
+        // Some historical records omit power; recover it from V * A.
+        normalized.power_w = voltage * current;
+    }
+    if (motorVoltage !== null) normalized.motor_voltage_v = motorVoltage;
+    if (motorCurrent !== null) normalized.motor_current_a = motorCurrent;
+    if (motorRpm !== null) normalized.motor_rpm = motorRpm;
+    if (motorPhase1Current !== null) normalized.motor_phase_1_current_a = motorPhase1Current;
+    if (motorPhase2Current !== null) normalized.motor_phase_2_current_a = motorPhase2Current;
+    if (motorPhase3Current !== null) normalized.motor_phase_3_current_a = motorPhase3Current;
+    if (motorPhaseCurrent !== null) normalized.motor_phase_current_a = motorPhaseCurrent;
+
+    const instantEfficiency = toEfficiency(normalized.inst_eff_km_kwh)
+        ?? toEfficiency(normalized.current_efficiency_km_kwh);
+    if (instantEfficiency !== null) {
+        normalized.inst_eff_km_kwh = instantEfficiency;
+        normalized.current_efficiency_km_kwh = instantEfficiency;
+    } else {
+        normalized.inst_eff_km_kwh = undefined;
+        normalized.current_efficiency_km_kwh = undefined;
+    }
+
+    const accumulatedEfficiency = toEfficiency(normalized.acc_eff_km_kwh);
+    if (accumulatedEfficiency !== null) {
+        normalized.acc_eff_km_kwh = accumulatedEfficiency;
+    } else {
+        normalized.acc_eff_km_kwh = undefined;
+    }
+
+    const rowAny = row as unknown as Record<string, unknown>;
+    const normalizedAny = normalized as unknown as Record<string, unknown>;
+    const aliasGroups: Array<[string, string[]]> = [
+        ['brake2_pct', ['brake_2_pct', 'brake2_percent']],
+        ['brake2', ['brake2_ratio', 'brake_2_ratio']],
+        ['motor_current_a', ['motor_current', 'can_motor_current_a']],
+        ['motor_voltage_v', ['motor_voltage', 'can_motor_voltage_v']],
+        ['motor_rpm', ['rpm', 'motor_speed_rpm', 'can_motor_rpm']],
+        ['motor_phase_1_current_a', ['phase_1_current_a', 'motor_phase_1_current', 'can_phase_1_current_a']],
+        ['motor_phase_2_current_a', ['phase_2_current_a', 'motor_phase_2_current', 'can_phase_2_current_a']],
+        ['motor_phase_3_current_a', ['phase_3_current_a', 'motor_phase_3_current', 'can_phase_3_current_a']],
+        ['motor_phase_current_a', ['phase_current_a', 'motor_phase_current', 'can_phase_current_a']],
+    ];
+
+    for (const [canonical, aliases] of aliasGroups) {
+        if (normalizedAny[canonical] !== undefined && normalizedAny[canonical] !== null) continue;
+        for (const alias of aliases) {
+            if (rowAny[alias] !== undefined && rowAny[alias] !== null) {
+                normalizedAny[canonical] = rowAny[alias];
+                break;
+            }
+        }
+    }
+
+    const normalizedPhase1 = toNum(normalized.motor_phase_1_current_a, null);
+    const normalizedPhase2 = toNum(normalized.motor_phase_2_current_a, null);
+    const normalizedPhase3 = toNum(normalized.motor_phase_3_current_a, null);
+    const normalizedPhaseAvg = toNum(normalized.motor_phase_current_a, null);
+    if (normalizedPhase1 !== null) normalized.motor_phase_1_current_a = normalizedPhase1;
+    if (normalizedPhase2 !== null) normalized.motor_phase_2_current_a = normalizedPhase2;
+    if (normalizedPhase3 !== null) normalized.motor_phase_3_current_a = normalizedPhase3;
+    if (normalizedPhaseAvg !== null) normalized.motor_phase_current_a = normalizedPhaseAvg;
+
+    const brake2Pct = toNum(normalized.brake2_pct, null);
+    const brake2Ratio = toNum(normalized.brake2, null);
+    if (brake2Pct !== null) {
+        normalized.brake2_pct = brake2Pct;
+    }
+    if (brake2Ratio !== null) {
+        normalized.brake2 = brake2Ratio;
+    }
+    if (brake2Pct === null && brake2Ratio !== null) {
+        normalized.brake2_pct = clamp(brake2Ratio, 0, 1) * 100;
+    }
+    if (brake2Ratio === null && brake2Pct !== null) {
+        normalized.brake2 = clamp(brake2Pct / 100, 0, 1);
+    }
+
+    const perPhaseValues = [
+        toNum(normalized.motor_phase_1_current_a, null),
+        toNum(normalized.motor_phase_2_current_a, null),
+        toNum(normalized.motor_phase_3_current_a, null),
+    ].filter((value): value is number => value !== null);
+    if (perPhaseValues.length > 0) {
+        normalized.motor_phase_current_a = perPhaseValues.reduce((sum, value) => sum + value, 0) / perPhaseValues.length;
+    } else if (motorPhaseCurrent !== null && normalized.motor_phase_1_current_a == null) {
+        normalized.motor_phase_1_current_a = motorPhaseCurrent;
+    }
+
+    const altitudeFields = ['altitude_m', 'altitude', 'gps_altitude', 'elevation', 'alt'] as const;
+
+    if (!('altitude_m' in normalized) || normalized.altitude_m === undefined) {
+        for (const field of altitudeFields) {
+            if (rowAny[field] !== undefined) {
+                normalizedAny.altitude_m = rowAny[field];
+                break;
+            }
+        }
+    }
+
+    if (!('altitude' in normalized) || normalized.altitude === undefined) {
+        for (const field of altitudeFields) {
+            if (rowAny[field] !== undefined) {
+                normalizedAny.altitude = rowAny[field];
+                break;
+            }
+        }
+        if (normalizedAny.altitude === undefined && normalizedAny.altitude_m !== undefined) {
+            normalizedAny.altitude = normalizedAny.altitude_m;
+        }
+    }
+
+    const steeringKeys = [
+        'steering_gyro_x',
+        'steering_gyro_y',
+        'steering_gyro_z',
+        'steering_accel_x',
+        'steering_accel_y',
+        'steering_accel_z',
+    ] as const;
+    for (const key of steeringKeys) {
+        const v = toNum(normalized[key], null);
+        if (v !== null) {
+            (normalized as unknown as Record<string, number>)[key] = v;
+        }
+    }
+
+    // Parse outliers if stored as JSON string
+    if (normalized.outliers && typeof normalized.outliers === 'string') {
+        try {
+            normalized.outliers = JSON.parse(normalized.outliers);
+        } catch {
+            normalized.outliers = undefined;
+        }
+    }
+
+    // Ensure all required fields exist with defaults
+    for (const field of REQUIRED_FIELDS) {
+        if (!(field in normalized)) {
+            (normalized as unknown as Record<string, unknown>)[field] = 0;
+        }
+    }
+
+    return normalized;
+}
+
+// =============================================================================
+// DERIVED CALCULATIONS
+// =============================================================================
+
+/** Dynamic state for g-force EMA filtering */
+interface DynamicState {
+    axBias: number;
+    ayBias: number;
+    axEma: number;
+    ayEma: number;
+}
+
+/** Global dynamic state for g-force calculation */
+let dynamicState: DynamicState = {
+    axBias: 0,
+    ayBias: 0,
+    axEma: 0,
+    ayEma: 0,
+};
+
+/** Reset dynamic state (call when switching sessions) */
+export function resetDynamicState(): void {
+    dynamicState = { axBias: 0, ayBias: 0, axEma: 0, ayEma: 0 };
+}
+
+/**
+ * Compute roll and pitch from accelerometer data
+ */
+export function withRollPitch(rows: TelemetryRow[]): TelemetryRow[] {
+    for (const r of rows) {
+        const ax = toNum(r.accel_x, 0) ?? 0;
+        const ay = toNum(r.accel_y, 0) ?? 0;
+        const az = toNum(r.accel_z, 0) ?? 0;
+        const dr = Math.sqrt(ax * ax + az * az) || 1e-10;
+        const dp = Math.sqrt(ay * ay + az * az) || 1e-10;
+        r.roll_deg = (Math.atan2(ay, dr) * 180) / Math.PI;
+        r.pitch_deg = (Math.atan2(ax, dp) * 180) / Math.PI;
+    }
+    return rows;
+}
+
+/**
+ * Compute g-forces with EMA filtering and bias removal
+ */
+export function withGForces(rows: TelemetryRow[]): TelemetryRow[] {
+    const aAlpha = 0.22;
+    const bAlpha = 0.02;
+
+    for (const r of rows) {
+        const ax = toNum(r.accel_x, 0) ?? 0;
+        const ay = toNum(r.accel_y, 0) ?? 0;
+        const spd = Math.abs(toNum(r.speed_ms, 0) ?? 0);
+
+        // Update bias when stationary
+        if (spd < 0.6) {
+            dynamicState.axBias = (1 - bAlpha) * dynamicState.axBias + bAlpha * ax;
+            dynamicState.ayBias = (1 - bAlpha) * dynamicState.ayBias + bAlpha * ay;
+        }
+
+        // Remove bias and apply EMA
+        const axNet = ax - dynamicState.axBias;
+        const ayNet = ay - dynamicState.ayBias;
+        dynamicState.axEma = (1 - aAlpha) * dynamicState.axEma + aAlpha * axNet;
+        dynamicState.ayEma = (1 - aAlpha) * dynamicState.ayEma + aAlpha * ayNet;
+
+        r.g_longitudinal = dynamicState.axEma / G;
+        r.g_lateral = dynamicState.ayEma / G;
+        r.g_total = Math.sqrt(r.g_longitudinal ** 2 + r.g_lateral ** 2);
+    }
+    return rows;
+}
+
+/**
+ * Add all derived fields to telemetry rows
+ */
+export function withDerived(rows: TelemetryRow[]): TelemetryRow[] {
+    // Normalize first
+    const normalized = rows.map(normalizeFieldNames);
+
+    // Add roll/pitch
+    withRollPitch(normalized);
+
+    // Add g-forces
+    withGForces(normalized);
+
+    // Add speed in km/h
+    for (const r of normalized) {
+        r.speed_kmh = (toNum(r.speed_ms, 0) ?? 0) * 3.6;
+    }
+
+    return normalized;
+}
+
+// =============================================================================
+// KPI COMPUTATION
+// =============================================================================
+
+/**
+ * Compute key performance indicators from telemetry data
+ */
+export function computeKPIs(rows: TelemetryRow[]): KPISummary {
+    const out: KPISummary = {
+        distance_km: 0,
+        max_speed_kmh: 0,
+        avg_speed_kmh: 0,
+        total_energy_kwh: 0,
+        avg_voltage: 0,
+        avg_current: 0,
+        avg_power: 0,
+        max_power: 0,
+        efficiency_km_kwh: 0,
+        duration_seconds: 0,
+    };
+
+    if (!rows.length) return out;
+
+    const latest = last(rows);
+    if (!latest) return out;
+
+    // Extract valid values
+    const speeds = rows
+        .map(r => toNum(r.speed_ms, null))
+        .filter((v): v is number => v !== null && Number.isFinite(v));
+
+    const powers = rows
+        .map(r => toNum(r.power_w, null))
+        .filter((v): v is number => v !== null && Number.isFinite(v));
+
+    const currents = rows
+        .map(r => toNum(r.current_a, null))
+        .filter((v): v is number => v !== null && Number.isFinite(v));
+
+    const voltages = rows
+        .map(r => toNum(r.voltage_v, null))
+        .filter((v): v is number => v !== null && Number.isFinite(v));
+
+    // Helper functions
+    const nonZero = (arr: number[]) => arr.filter(v => v !== 0);
+    const mean = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+
+    // Distance and energy from latest record
+    const distM = toNum(latest.distance_m, 0) ?? 0;
+    const energyJ = toNum(latest.energy_j, 0) ?? 0;
+    out.distance_km = Math.max(0, distM / 1000);
+    out.total_energy_kwh = Math.max(0, energyJ / 3_600_000);
+
+    // Speed stats
+    if (speeds.length) {
+        out.max_speed_kmh = Math.max(...speeds) * 3.6;
+        const nzSpeeds = nonZero(speeds);
+        out.avg_speed_kmh = nzSpeeds.length ? mean(nzSpeeds) * 3.6 : 0;
+    }
+
+    // Power stats
+    if (powers.length) {
+        out.max_power = Math.max(...powers);
+        const nzPowers = nonZero(powers);
+        out.avg_power = nzPowers.length ? mean(nzPowers) : 0;
+    }
+
+    // Current stats
+    if (currents.length) {
+        const nzCurrents = nonZero(currents);
+        out.avg_current = nzCurrents.length ? mean(nzCurrents) : 0;
+    }
+
+    // Voltage stats
+    if (voltages.length) {
+        const nzVoltages = nonZero(voltages);
+        out.avg_voltage = nzVoltages.length ? mean(nzVoltages) : 0;
+    }
+
+    // Prefer the ESP32/bridge accumulated value; derive only for older records.
+    const reportedEfficiency = toNum(latest.acc_eff_km_kwh, null);
+    if (reportedEfficiency !== null && reportedEfficiency >= 0 && reportedEfficiency <= 500) {
+        out.efficiency_km_kwh = reportedEfficiency;
+    } else if (out.total_energy_kwh > 0) {
+        out.efficiency_km_kwh = out.distance_km / out.total_energy_kwh;
+    }
+
+    // Duration from first to last timestamp
+    if (rows.length >= 2) {
+        const first = rows[0];
+        const firstTs = new Date(first.timestamp).getTime();
+        const lastTs = new Date(latest.timestamp).getTime();
+        out.duration_seconds = Math.max(0, (lastTs - firstTs) / 1000);
+    }
+
+    return out;
+}
+
+// =============================================================================
+// DATA MERGING
+// =============================================================================
+
+/**
+ * Create unique key for telemetry record (timestamp + message_id)
+ */
+export function getTelemetryRecordKey(r: TelemetryRow): string {
+    const ts = new Date(r.timestamp).getTime();
+    const msgId = r.message_id ?? '';
+    return `${ts}::${msgId}`;
+}
+
+function getRecordKey(r: TelemetryRow): string {
+    return getTelemetryRecordKey(r);
+}
+
+/** Shallow merge: patch keys only when value is not undefined (avoids wiping merged rows from JSON holes). */
+function mergeDefinedTelemetry(
+    base: Record<string, unknown>,
+    patch: Record<string, unknown>
+): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...base };
+    for (const key of Object.keys(patch)) {
+        const v = patch[key];
+        if (v !== undefined) {
+            out[key] = v;
+        }
+    }
+    return out;
+}
+
+const ACCEL_REUSE_EPS = 1e-4;
+
+function accelerometersNearlyEqual(a: TelemetryRow, b: TelemetryRow): boolean {
+    const axes = ['accel_x', 'accel_y', 'accel_z'] as const;
+    for (const axis of axes) {
+        const av = toNum(a[axis], null);
+        const bv = toNum(b[axis], null);
+        if (av === null && bv === null) continue;
+        if (av === null || bv === null) return false;
+        if (Math.abs(av - bv) > ACCEL_REUSE_EPS) return false;
+    }
+    return true;
+}
+
+/**
+ * Derive fields for one live row, reusing g-force EMA state when this packet is an enrichment
+ * update for the same timestamp+message_id (same IMU samples → do not advance EMA twice).
+ */
+export function withDerivedLiveUpdate(
+    previousRow: TelemetryRow | undefined,
+    incoming: TelemetryRow
+): TelemetryRow {
+    const sameKey =
+        previousRow !== undefined && getRecordKey(previousRow) === getRecordKey(incoming);
+    const merged = sameKey
+        ? (mergeDefinedTelemetry(
+              previousRow as unknown as Record<string, unknown>,
+              incoming as unknown as Record<string, unknown>
+          ) as unknown as TelemetryRow)
+        : incoming;
+
+    const normalized = normalizeFieldNames(merged as TelemetryRecord) as TelemetryRow;
+    const rows = [normalized];
+    withRollPitch(rows);
+
+    const reuseG =
+        sameKey &&
+        previousRow !== undefined &&
+        accelerometersNearlyEqual(previousRow, normalized) &&
+        previousRow.g_total !== undefined;
+
+    if (reuseG) {
+        normalized.g_longitudinal = previousRow.g_longitudinal;
+        normalized.g_lateral = previousRow.g_lateral;
+        normalized.g_total = previousRow.g_total;
+    } else {
+        withGForces(rows);
+    }
+
+    for (const r of rows) {
+        r.speed_kmh = (toNum(r.speed_ms, 0) ?? 0) * 3.6;
+    }
+
+    return normalized;
+}
+
+/**
+ * Bridge sends a fast row (core sensors) then an enriched row (same message_id).
+ * The newest row may omit server-derived fields; copy them from the previous point
+ * so gauges (averages, peaks, session max) do not flash 0 between the two updates.
+ */
+const CARRY_FORWARD_BRIDGE_KEYS: readonly string[] = [
+    'avg_voltage',
+    'avg_current',
+    'avg_power',
+    'avg_speed_kmh',
+    'max_speed_kmh',
+    'max_power_w',
+    'max_current_a',
+    'max_g_force',
+    'cumulative_energy_kwh',
+    'inst_eff_km_kwh',
+    'acc_eff_km_kwh',
+    'current_efficiency_km_kwh',
+    'route_distance_km',
+    'elevation_gain_m',
+    'motion_state',
+    'driver_mode',
+    'throttle_intensity',
+    'brake_intensity',
+    'current_g_force',
+    'accel_magnitude',
+    'avg_acceleration',
+    'g_lat',
+    'g_long',
+    'optimal_speed_kmh',
+    'optimal_speed_ms',
+    'optimal_efficiency_km_kwh',
+    'optimal_speed_confidence',
+    'optimal_speed_data_points',
+    'optimal_speed_range',
+    'current_peaks',
+    'current_peak_count',
+    'acceleration_peaks',
+    'acceleration_peak_count',
+    'quality_score',
+    'outliers',
+    'outlier_severity',
+];
+
+export function carryBridgeDerivedFieldsForward(
+    prev: TelemetryRow | undefined,
+    cur: TelemetryRow
+): TelemetryRow {
+    if (!prev) return cur;
+    const out = { ...cur } as Record<string, unknown>;
+    const prevRec = prev as unknown as Record<string, unknown>;
+    for (const key of CARRY_FORWARD_BRIDGE_KEYS) {
+        const c = out[key];
+        if (c !== undefined && c !== null) continue;
+        const p = prevRec[key];
+        if (p === undefined || p === null) continue;
+        if (key === 'current_peaks' || key === 'acceleration_peaks') {
+            if (Array.isArray(p) && p.length > 0) {
+                out[key] = [...p];
+            }
+        } else {
+            out[key] = p;
+        }
+    }
+    return out as unknown as TelemetryRow;
+}
+
+/** Apply carry-forward to the last row only (live pipeline). */
+export function patchCarryForwardLastRow(rows: TelemetryRow[]): TelemetryRow[] {
+    if (rows.length < 2) return rows;
+    const copy = rows.slice();
+    const n = copy.length;
+    copy[n - 1] = carryBridgeDerivedFieldsForward(copy[n - 2], copy[n - 1]);
+    return copy;
+}
+
+function toTimestampMs(row: TelemetryRow): number {
+    return new Date(row.timestamp).getTime();
+}
+
+function interpolateNumericValue(a: unknown, b: unknown, ratio: number): number | undefined {
+    if (typeof a === 'number' && Number.isFinite(a) && typeof b === 'number' && Number.isFinite(b)) {
+        return a + ((b - a) * ratio);
+    }
+    return undefined;
+}
+
+function interpolateTelemetryPoint(
+    start: TelemetryRow,
+    end: TelemetryRow,
+    ratio: number,
+    timestamp: string
+): TelemetryRow {
+    const point: TelemetryRow = {
+        ...start,
+        timestamp,
+        message_id: undefined,
+        _interpolated: true,
+    } as TelemetryRow & { _interpolated?: boolean };
+
+    const startRecord = start as unknown as Record<string, unknown>;
+    const endRecord = end as unknown as Record<string, unknown>;
+    const pointRecord = point as unknown as Record<string, unknown>;
+
+    const numericFields = new Set<string>();
+    Object.keys(start).forEach((key) => {
+        if (typeof startRecord[key] === 'number') numericFields.add(key);
+    });
+    Object.keys(end).forEach((key) => {
+        if (typeof endRecord[key] === 'number') numericFields.add(key);
+    });
+
+    for (const key of numericFields) {
+        const interpolated = interpolateNumericValue(
+            startRecord[key],
+            endRecord[key],
+            ratio
+        );
+        if (interpolated !== undefined) {
+            pointRecord[key] = interpolated;
+        }
+    }
+
+    return point;
+}
+
+function interpolateSmallGaps(rows: TelemetryRow[]): TelemetryRow[] {
+    const MAX_ACCEPTABLE_GAP_MS = 800;
+    const EXPECTED_INTERVAL_MS = 200;
+    const GAP_THRESHOLD_MS = 250;
+
+    if (rows.length < 2) return rows;
+
+    const interpolated: TelemetryRow[] = [];
+
+    for (let index = 0; index < rows.length; index += 1) {
+        const current = rows[index];
+        interpolated.push(current);
+
+        if (index >= rows.length - 1) continue;
+
+        const next = rows[index + 1];
+        const gapMs = toTimestampMs(next) - toTimestampMs(current);
+        if (gapMs <= GAP_THRESHOLD_MS || gapMs > MAX_ACCEPTABLE_GAP_MS) continue;
+
+        const pointsToAdd = Math.floor(gapMs / EXPECTED_INTERVAL_MS) - 1;
+        if (pointsToAdd <= 0 || pointsToAdd > 4) continue;
+
+        for (let extra = 1; extra <= pointsToAdd; extra += 1) {
+            const ratio = extra / (pointsToAdd + 1);
+            const timestamp = new Date(toTimestampMs(current) + (gapMs * ratio)).toISOString();
+            interpolated.push(interpolateTelemetryPoint(current, next, ratio, timestamp));
+        }
+    }
+
+    interpolated.sort((left, right) => toTimestampMs(left) - toTimestampMs(right));
+    return interpolated;
+}
+
+/**
+ * Merge and deduplicate telemetry data
+ * Uses timestamp + message_id as unique key
+ */
+export function mergeTelemetry(
+    existing: TelemetryRow[],
+    incoming: TelemetryRow[],
+    maxPoints: number = MAX_TELEMETRY_POINTS
+): TelemetryRow[] {
+    if (incoming.length === 1) {
+        const next = incoming[0];
+        const lastExisting = last(existing);
+        const nextKey = getRecordKey(next);
+
+        if (!lastExisting) return [next];
+
+        if (getRecordKey(lastExisting) === nextKey) {
+            const copy = existing.slice();
+            copy[copy.length - 1] = mergeDefinedTelemetry(
+                lastExisting as unknown as Record<string, unknown>,
+                next as unknown as Record<string, unknown>
+            ) as unknown as TelemetryRow;
+            return copy;
+        }
+
+        if (toTimestampMs(next) > toTimestampMs(lastExisting)) {
+            const appended = existing.length >= maxPoints
+                ? [...existing.slice(1), next]
+                : [...existing, next];
+            return appended;
+        }
+    }
+
+    // Build map from existing, preferring real data over interpolated
+    const seen = new Map<string, TelemetryRow>();
+
+    for (const r of existing) {
+        seen.set(getRecordKey(r), r);
+    }
+
+    for (const r of incoming) {
+        const key = getRecordKey(r);
+        const existing = seen.get(key);
+        // Prefer real data over interpolated, or merge if both are real to add computed fields
+        if (!existing || ((existing as { _interpolated?: boolean })._interpolated && !(r as { _interpolated?: boolean })._interpolated)) {
+            seen.set(key, r);
+        } else if (!(existing as { _interpolated?: boolean })._interpolated && !(r as { _interpolated?: boolean })._interpolated) {
+            seen.set(
+                key,
+                mergeDefinedTelemetry(
+                    existing as unknown as Record<string, unknown>,
+                    r as unknown as Record<string, unknown>
+                ) as unknown as TelemetryRow
+            );
+        }
+    }
+
+    // Sort by timestamp
+    let result = Array.from(seen.values());
+    result.sort((a, b) => {
+        const ta = new Date(a.timestamp).getTime();
+        const tb = new Date(b.timestamp).getTime();
+        return ta - tb;
+    });
+
+    // Trim to maxPoints (keep most recent)
+    if (result.length > maxPoints) {
+        result = result.slice(result.length - maxPoints);
+    }
+
+    return result;
+}
+
+export function mergeHistoricalTelemetry(
+    existing: TelemetryRow[],
+    convexData: TelemetryRow[],
+    ablyData: TelemetryRow[],
+    maxPoints: number = MAX_TELEMETRY_POINTS
+): TelemetryRow[] {
+    const allHistorical = [...convexData, ...ablyData];
+    if (allHistorical.length === 0) return existing;
+
+    const merged = mergeTelemetry(existing, allHistorical, Math.max(maxPoints * 2, allHistorical.length + existing.length));
+    const interpolated = interpolateSmallGaps(merged);
+
+    if (interpolated.length > maxPoints) {
+        return interpolated.slice(interpolated.length - maxPoints);
+    }
+
+    return interpolated;
+}
+
+// =============================================================================
+// DOWNSAMPLING (LTTB)
+// =============================================================================
+
+/**
+ * Largest Triangle Three Buckets downsampling algorithm
+ * Preserves visual shape while reducing point count
+ */
+export function lttbDownsample<T extends { timestamp: string }>(
+    data: T[],
+    targetPoints: number,
+    getValue: (item: T) => number
+): T[] {
+    if (data.length <= targetPoints) return data;
+    if (targetPoints < 3) return data.slice(0, targetPoints);
+
+    const result: T[] = [];
+    const bucketSize = (data.length - 2) / (targetPoints - 2);
+
+    // Always include first point
+    result.push(data[0]);
+
+    for (let i = 0; i < targetPoints - 2; i++) {
+        const avgRangeStart = Math.floor((i + 1) * bucketSize) + 1;
+        const avgRangeEnd = Math.floor((i + 2) * bucketSize) + 1;
+        const avgRangeLength = Math.min(avgRangeEnd, data.length) - avgRangeStart;
+
+        // Calculate average point for next bucket
+        let avgX = 0;
+        let avgY = 0;
+        for (let j = avgRangeStart; j < avgRangeStart + avgRangeLength; j++) {
+            avgX += new Date(data[j].timestamp).getTime();
+            avgY += getValue(data[j]);
+        }
+        avgX /= avgRangeLength;
+        avgY /= avgRangeLength;
+
+        // Get range for current bucket
+        const rangeStart = Math.floor(i * bucketSize) + 1;
+        const rangeEnd = Math.floor((i + 1) * bucketSize) + 1;
+
+        // Find point with largest triangle area
+        const prevPoint = result[result.length - 1];
+        const prevX = new Date(prevPoint.timestamp).getTime();
+        const prevY = getValue(prevPoint);
+
+        let maxArea = -1;
+        let maxIndex = rangeStart;
+
+        for (let j = rangeStart; j < rangeEnd; j++) {
+            const pointX = new Date(data[j].timestamp).getTime();
+            const pointY = getValue(data[j]);
+
+            // Triangle area (simplified, sign doesn't matter)
+            const area = Math.abs(
+                (prevX - avgX) * (pointY - prevY) -
+                (prevX - pointX) * (avgY - prevY)
+            );
+
+            if (area > maxArea) {
+                maxArea = area;
+                maxIndex = j;
+            }
+        }
+
+        result.push(data[maxIndex]);
+    }
+
+    // Always include last point
+    result.push(data[data.length - 1]);
+
+    return result;
+}
+
+// =============================================================================
+// DATA QUALITY
+// =============================================================================
+
+/**
+ * Compute data quality report
+ */
+export function computeDataQualityReport(rows: TelemetryRow[]): DataQualityReport {
+    const report: DataQualityReport = {
+        quality_score: 100,
+        total_records: rows.length,
+        missing_fields: {},
+        missing_rates: {},
+        outliers: {
+            count: 0,
+            by_severity: { low: 0, medium: 0, high: 0, critical: 0 },
+            by_field: {},
+        },
+        outlier_count: 0,
+        outlier_severity: {
+            info: 0,
+            warning: 0,
+            critical: 0,
+        },
+        outlier_reasons: {},
+        dropouts: 0,
+        max_gap_s: null,
+        hz: null,
+        freshness: {
+            last_update: '',
+            age_seconds: 0,
+            is_stale: true,
+        },
+    };
+
+    if (!rows.length) return report;
+
+    const keyCols = [
+        'timestamp', 'speed_ms', 'power_w', 'voltage_v', 'current_a',
+        'distance_m', 'energy_j', 'latitude', 'longitude', 'altitude_m'
+    ];
+
+    // Calculate missing rates
+    for (const col of keyCols) {
+        const missing = rows.filter(r => {
+            const val = (r as unknown as Record<string, unknown>)[col];
+            return val == null || val === '' || (typeof val === 'number' && isNaN(val));
+        }).length;
+        report.missing_fields[col] = missing / rows.length;
+    }
+    report.missing_rates = { ...report.missing_fields };
+
+    const timestamps = rows
+        .map((row) => new Date(row.timestamp).getTime())
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+
+    if (timestamps.length >= 2) {
+        const deltas: number[] = [];
+        for (let index = 1; index < timestamps.length; index += 1) {
+            const deltaSeconds = (timestamps[index] - timestamps[index - 1]) / 1000;
+            if (deltaSeconds > 0 && Number.isFinite(deltaSeconds)) {
+                deltas.push(deltaSeconds);
+            }
+        }
+
+        if (deltas.length > 0) {
+            const sorted = [...deltas].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            report.hz = median > 0 ? 1 / median : null;
+            report.max_gap_s = Math.max(...sorted);
+            const dropoutGaps = sorted.filter((value) => value > 3 * (median || 1));
+            report.dropouts = dropoutGaps.length
+                ? Math.floor(dropoutGaps.reduce((sum, value) => sum + value, 0) / (median || 1))
+                : 0;
+        }
+    }
+
+    // Count outliers from bridge data
+    for (const r of rows) {
+        const fields = r.outliers?.flagged_fields ?? r.outliers?.fields ?? [];
+        if (!fields.length) continue;
+
+        report.outliers.count++;
+        report.outlier_count = report.outliers.count;
+
+        const severity = (r.outliers?.severity as string | undefined) ?? r.outlier_severity ?? 'low';
+        if (severity in report.outliers.by_severity) {
+            report.outliers.by_severity[severity as keyof typeof report.outliers.by_severity]++;
+        } else if (severity === 'warning') {
+            report.outliers.by_severity.medium += 1;
+        } else if (severity === 'info') {
+            report.outliers.by_severity.low += 1;
+        }
+
+        if (severity === 'critical' || severity === 'high') {
+            report.outlier_severity!.critical += 1;
+        } else if (severity === 'warning' || severity === 'medium') {
+            report.outlier_severity!.warning += 1;
+        } else {
+            report.outlier_severity!.info += 1;
+        }
+
+        for (const field of fields) {
+            report.outliers.by_field[field] = (report.outliers.by_field[field] || 0) + 1;
+        }
+
+        for (const reason of Object.values(r.outliers?.reasons ?? {})) {
+            report.outlier_reasons![reason] = (report.outlier_reasons![reason] || 0) + 1;
+        }
+    }
+
+    // Calculate freshness
+    const latest = last(rows);
+    if (latest) {
+        report.freshness.last_update = latest.timestamp;
+        report.freshness.age_seconds = (Date.now() - new Date(latest.timestamp).getTime()) / 1000;
+        report.freshness.is_stale = report.freshness.age_seconds > 10;
+    }
+
+    // Calculate quality score
+    let score = 100;
+    const avgMissing = Object.values(report.missing_fields).reduce((a, b) => a + b, 0) / keyCols.length;
+    score -= avgMissing * 40;
+    score -= Math.min(20, (report.dropouts ?? 0) * 0.2);
+    score -= Math.min(15, report.outlier_severity!.critical * 2);
+    score -= Math.min(10, report.outlier_severity!.warning * 0.5);
+    score -= Math.min(5, report.outlier_severity!.info * 0.1);
+    report.quality_score = Math.max(0, Math.round(score * 10) / 10);
+
+    return report;
+}
