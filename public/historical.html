@@ -14,7 +14,7 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="/historical.css?v=20260719.2" />
+    <link rel="stylesheet" href="/historical.css?v=20260719.3" />
     <script>
         window.CONFIG = window.CONFIG || { CONVEX_URL: "https://wonderful-kookabura-432.convex.cloud" };
     </script>
@@ -502,31 +502,6 @@
                 </div>
             </section>
 
-            <!-- ─── Regression ─── -->
-            <section class="ha-section ha-collapsible" id="ha-sec-regression" data-toc="Regression">
-                <div class="ha-sec-header">
-                    <div class="ha-sec-header-left">
-                        <button class="ha-collapse-btn" data-target="reg-body" title="Collapse">▾</button>
-                        <h2 class="ha-section-title"><span class="ha-section-icon">📐</span> Regression</h2>
-                        <span class="ha-sec-hint">Linear fits with R², slope & intercept</span>
-                    </div>
-                </div>
-                <div class="ha-sec-body" id="reg-body">
-                    <div class="ha-chart-grid-2">
-                        <div class="ha-card">
-                            <div class="ha-card-title">Speed vs Efficiency</div>
-                            <div class="ha-chart-box ha-chart-tall" id="hc-reg-speed-eff"></div>
-                            <div class="ha-regression-info" id="ha-reg-info-1"></div>
-                        </div>
-                        <div class="ha-card">
-                            <div class="ha-card-title">Power vs Speed</div>
-                            <div class="ha-chart-box ha-chart-tall" id="hc-reg-power-speed"></div>
-                            <div class="ha-regression-info" id="ha-reg-info-2"></div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
             <!-- ─── Segments ─── -->
             <section class="ha-section ha-collapsible" id="ha-sec-segments" data-toc="Segments">
                 <div class="ha-sec-header">
@@ -727,6 +702,7 @@
             <div class="ha-custom-header">
                 <h2>✨ Custom Analysis</h2>
                 <p>Build custom visualizations using historical session data.</p>
+                <p id="h-ca-data-scope" style="font-size:12px;color:var(--ha-text3);margin-top:6px"></p>
                 <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-ca-back" style="margin-top:12px;">← Back to Standard
                     Analysis</button>
             </div>
@@ -1251,13 +1227,13 @@
 
     <!-- Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/convex@1.17.4/dist/browser.bundle.js"></script>
-    <script src="/lib/convex-bridge.js?v=20260719.2"></script>
+    <script src="/lib/convex-bridge.js?v=20260719.3"></script>
     <script src="/auth.js"></script>
     <script src="/auth-ui.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
-    <script src="/historical-engine.js?v=20260719.2"></script>
-    <script src="/historical.js?v=20260719.2"></script>
+    <script src="/historical-engine.js?v=20260719.3"></script>
+    <script src="/historical.js?v=20260719.3"></script>
     <script>
         (() => {
             let dashboardPrewarmPromise = null;

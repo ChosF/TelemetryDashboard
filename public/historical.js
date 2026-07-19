@@ -1,7 +1,7 @@
 /* historical.js — Main Application (uses HA engine from historical-engine.js) */
 (async function () {
     'use strict';
-    const { fmt, fmtInt, fmtTime, esc, CHART_THEME, DATA_ZOOM, mkSeries, PIE_COLORS, initChart, disposeCharts, normalizeRecord, computeSessionStats, STAT_FIELDS, mean, median, stddev, percentile, skewness, kurtosis, pearson, linReg } = window.HA;
+    const { fmt, fmtInt, fmtTime, esc, CHART_THEME, DATA_ZOOM, mkSeries, PIE_COLORS, initChart, disposeCharts, normalizeRecord, computeSessionStats, STAT_FIELDS, mean, median, stddev, percentile, skewness, kurtosis, pearson } = window.HA;
     const $ = id => document.getElementById(id); const $$ = sel => document.querySelectorAll(sel);
     const CONVEX_URL = window.CONFIG?.CONVEX_URL || '';
     let convexReady = false;
@@ -50,7 +50,7 @@
     }
 
     // ── Web Worker Config ──
-    const histWorker = new Worker('/workers/historical-worker.js?v=20260719.2');
+    const histWorker = new Worker('/workers/historical-worker.js?v=20260719.3');
     let workerMsgId = 0;
     function runHistoricalWorkerTask(type, payload, onProgress = null) {
         return new Promise((resolve, reject) => {
@@ -584,7 +584,6 @@
             else if (bodyId === 'driver-body') renderDriverAnalysis(S.data);
             else if (bodyId === 'stats-body') renderDescriptiveStats(S.data);
             else if (bodyId === 'anomaly-body') renderAnomalies(S.data);
-            else if (bodyId === 'reg-body') renderRegression(S.data);
             else if (bodyId === 'seg-body') renderSegments(S.data);
             else if (bodyId === 'map-body') renderMap(S.data);
             else if (bodyId === 'table-body') renderDataTable(S.data);
@@ -600,12 +599,12 @@
     function renderAll() {
         const d = S.data; if (!d.length) return;
         renderSummary(d); renderSyncedCharts(d); renderEnergy(d); renderEfficiencyAnalytics(d); renderDriverAnalysis(d);
-        renderDescriptiveStats(d); renderAnomalies(d); renderRegression(d); renderSegments(d);
+        renderDescriptiveStats(d); renderAnomalies(d); renderSegments(d);
         renderMap(d); renderDataTable(d); renderQualityBadge(d);
         // Inject chart image overlay menus after charts have had time to initialise
         setTimeout(() => initChartImageMenus(), 800);
         ['ts-body', 'energy-body', 'efficiency-body', 'driver-body', 'stats-body',
-            'anomaly-body', 'reg-body', 'seg-body', 'map-body', 'table-body']
+            'anomaly-body', 'seg-body', 'map-body', 'table-body']
             .forEach(id => renderedHistoricalSections.add(id));
     }
 
@@ -1233,26 +1232,6 @@
                     }, 320); // after transition ends (0.35s close / 0.6s open)
                 }
             });
-        }
-    }
-
-    // ── Regression Analysis ──
-    function renderRegression(d) {
-        // Speed vs Efficiency
-        const se = d.filter(r => r.speed_kmh > 0 && r.efficiency != null && r.efficiency > 0 && r.efficiency < 200);
-        if (se.length > 10) {
-            const x = se.map(r => r.speed_kmh), y = se.map(r => r.efficiency); const reg = linReg(x, y);
-            const xMin = Math.min(...x), xMax = Math.max(...x);
-            initChart('hc-reg-speed-eff', { ...CHART_THEME, xAxis: { type: 'value', name: 'Speed (km/h)' }, yAxis: { type: 'value', name: 'Efficiency (km/kWh)' }, series: [{ type: 'scatter', data: se.map(r => [r.speed_kmh, r.efficiency]), symbolSize: 3, itemStyle: { color: 'rgba(0,212,190,0.4)' } }, { type: 'line', data: [[xMin, reg.slope * xMin + reg.intercept], [xMax, reg.slope * xMax + reg.intercept]], lineStyle: { color: '#ef4444', width: 2, type: 'dashed' }, showSymbol: false }] });
-            $('ha-reg-info-1').innerHTML = `<span class="ha-reg-stat"><span class="ha-reg-label">Slope</span><span class="ha-reg-value">${fmt(reg.slope, 3)}</span></span><span class="ha-reg-stat"><span class="ha-reg-label">Intercept</span><span class="ha-reg-value">${fmt(reg.intercept, 2)}</span></span><span class="ha-reg-stat"><span class="ha-reg-label">R²</span><span class="ha-reg-value">${fmt(reg.r2, 4)}</span></span><span class="ha-reg-stat"><span class="ha-reg-label">N</span><span class="ha-reg-value">${se.length}</span></span>`
-        }
-        // Power vs Speed
-        const ps = d.filter(r => r.speed_kmh > 0 && r.power_w > 0);
-        if (ps.length > 10) {
-            const x = ps.map(r => r.speed_kmh), y = ps.map(r => r.power_w); const reg = linReg(x, y);
-            const xMin = Math.min(...x), xMax = Math.max(...x);
-            initChart('hc-reg-power-speed', { ...CHART_THEME, xAxis: { type: 'value', name: 'Speed (km/h)' }, yAxis: { type: 'value', name: 'Power (W)' }, series: [{ type: 'scatter', data: ps.map(r => [r.speed_kmh, r.power_w]), symbolSize: 3, itemStyle: { color: 'rgba(168,85,247,0.4)' } }, { type: 'line', data: [[xMin, reg.slope * xMin + reg.intercept], [xMax, reg.slope * xMax + reg.intercept]], lineStyle: { color: '#f59e0b', width: 2, type: 'dashed' }, showSymbol: false }] });
-            $('ha-reg-info-2').innerHTML = `<span class="ha-reg-stat"><span class="ha-reg-label">Slope</span><span class="ha-reg-value">${fmt(reg.slope, 3)}</span></span><span class="ha-reg-stat"><span class="ha-reg-label">Intercept</span><span class="ha-reg-value">${fmt(reg.intercept, 2)}</span></span><span class="ha-reg-stat"><span class="ha-reg-label">R²</span><span class="ha-reg-value">${fmt(reg.r2, 4)}</span></span><span class="ha-reg-stat"><span class="ha-reg-label">N</span><span class="ha-reg-value">${ps.length}</span></span>`
         }
     }
 
@@ -2038,10 +2017,61 @@
     }
 
     // ── Custom Analysis Logic ──────────────────────────────────────────────
+    let customAnalysisInitialized = false;
+    let customAnalysisSessionId = null;
+
+    function resetCustomAnalysisSessionUi() {
+        ['hc-custom', 'hc-ml-engine'].forEach(chartId => {
+            const chart = HA.charts[chartId];
+            if (chart) {
+                try { chart.dispose() } catch (error) { console.warn(`[historical] Failed to dispose ${chartId}`, error) }
+                delete HA.charts[chartId];
+            }
+        });
+
+        const status = $('h-ca-status');
+        if (status) {
+            status.className = 'ha-ca-status';
+            status.textContent = 'Ready';
+        }
+        const stats = $('h-ca-stats-grid');
+        if (stats) stats.innerHTML = '<div class="ha-ca-stat-empty">Generate a chart to view statistics.</div>';
+        const filters = $('h-ca-filters');
+        if (filters) filters.innerHTML = '';
+        const highlights = $('h-ca-highlights');
+        if (highlights) highlights.innerHTML = '';
+        const variables = $('h-ca-lab-active-vars');
+        if (variables) variables.innerHTML = '';
+        const statResults = $('h-ca-lab-stat-results');
+        if (statResults) statResults.innerHTML = '';
+        const yAxes = $('h-ca-y-axes-container');
+        if (yAxes) yAxes.innerHTML = '';
+        const mlText = $('h-ml-text-content');
+        if (mlText) mlText.textContent = '';
+        window.HCA_DerivedVars = [];
+    }
+
+    function updateCustomAnalysisScope() {
+        const scope = $('h-ca-data-scope');
+        if (!scope) return;
+        const availablePoints = S.data.length;
+        const totalRecords = Number(S.stats?.recordCount || availablePoints);
+        scope.textContent = S.isPreview
+            ? `Optimized mode: ${availablePoints.toLocaleString()} evenly distributed points represent ${totalRecords.toLocaleString()} records. Custom calculations stay on this preview and do not fetch the full session.`
+            : `Full in-memory session: ${availablePoints.toLocaleString()} records available for custom calculations.`;
+    }
+
     function initCustomAnalysis() {
         if (!S.data || !S.data.length) return;
 
-        window.HCA_DerivedVars = []; // Reset on init
+        const sessionChanged = customAnalysisSessionId !== S.activeSessionId;
+        if (sessionChanged) {
+            customAnalysisSessionId = S.activeSessionId;
+            resetCustomAnalysisSessionUi();
+        } else if (!Array.isArray(window.HCA_DerivedVars)) {
+            window.HCA_DerivedVars = [];
+        }
+        updateCustomAnalysisScope();
 
         window.updateCaDropdowns = function () {
             const fields = [...HA.STAT_FIELDS, ...window.HCA_DerivedVars];
@@ -2066,15 +2096,6 @@
             });
         };
 
-        const xAxisSel = $('h-ca-x-axis');
-        if (xAxisSel && xAxisSel.options.length === 0) {
-            updateCaDropdowns();
-
-            // Setup dynamic Y Axes initial metric
-            const defaultY = HA.STAT_FIELDS.find(f => f.key === 'speed_kmh') ? 'speed_kmh' : HA.STAT_FIELDS[0]?.key || '_ts';
-            addYAxisField(defaultY);
-        }
-
         function addYAxisField(val = null) {
             const container = $('h-ca-y-axes-container');
             if (!container) return;
@@ -2095,6 +2116,20 @@
             });
             container.appendChild(row);
         }
+
+        updateCaDropdowns();
+        if (!$('h-ca-y-axes-container')?.querySelector('.ha-ca-y-axis-select')) {
+            const defaultY = HA.STAT_FIELDS.find(f => f.key === 'speed_kmh')
+                ? 'speed_kmh'
+                : HA.STAT_FIELDS[0]?.key || '_ts';
+            addYAxisField(defaultY);
+            updateCaDropdowns();
+        }
+
+        // All controls below are stable DOM nodes. Bind them exactly once;
+        // subsequent session opens only refresh their data-backed options.
+        if (customAnalysisInitialized) return;
+        customAnalysisInitialized = true;
 
         $('h-ca-add-y-axis')?.addEventListener('click', () => addYAxisField());
 

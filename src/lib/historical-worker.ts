@@ -29,7 +29,7 @@ let workerMsgId = 0;
 
 function getWorker(): Worker {
     if (workerRef) return workerRef;
-    workerRef = new Worker('/workers/historical-worker.js?v=20260719.2');
+    workerRef = new Worker('/workers/historical-worker.js?v=20260719.3');
     return workerRef;
 }
 
