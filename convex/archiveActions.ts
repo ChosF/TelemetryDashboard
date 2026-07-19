@@ -31,7 +31,10 @@ type ArchiveResult = {
   error?: string;
 };
 
-type ArchiveRecord = Omit<ArchiveSourceRecord, "_id" | "_creationTime">;
+type ArchiveRecord = Omit<ArchiveSourceRecord, "_id" | "_creationTime"> & {
+  session_id: string;
+  timestamp: string;
+};
 
 function finite(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;

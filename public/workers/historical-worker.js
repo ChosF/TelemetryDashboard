@@ -1,5 +1,5 @@
 /* workers/historical-worker.js */
-importScripts('../historical-engine.js');
+importScripts('../historical-engine.js?v=20260719.2');
 
 self.onmessage = function (e) {
     const { id, type, payload } = e.data;

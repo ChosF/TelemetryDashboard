@@ -65,9 +65,31 @@ interface HistoricalSessionStats {
     recordCount: number;
 }
 
+interface SessionPreviewPlan {
+    complete: boolean;
+    status: SessionArchiveManifest['status'];
+    recordCount: number;
+    overviewUrl: string | null;
+    overviewPointCount: number;
+    stats: HistoricalSessionStats | null;
+    previewParts: Array<{ partNumber: number; url: string | null }>;
+    tailRecords: TelemetryRecord[];
+}
+
+interface SessionOverviewResponse {
+    available: boolean;
+    complete: boolean;
+    status: SessionArchiveManifest['status'];
+    recordCount: number;
+    pointCount: number;
+    url: string | null;
+    stats: HistoricalSessionStats | null;
+}
+
 export interface HistoricalSessionPreview {
     records: TelemetryRecord[];
     stats: HistoricalSessionStats | null;
+    statsExact: boolean;
     isPreview: boolean;
     totalRecords: number;
 }
@@ -244,20 +266,86 @@ export async function getSessionPreview(
     if (!client) throw new Error('Convex not initialized');
     const token = getAuthToken();
 
-    let overview: {
-        available: boolean;
-        complete: boolean;
-        status: SessionArchiveManifest['status'];
-        recordCount: number;
-        pointCount: number;
-        url: string | null;
-        stats: HistoricalSessionStats | null;
-    } | null = null;
+    let previewPlan: SessionPreviewPlan | null = null;
+    try {
+        previewPlan = await client.query('archives:getSessionPreviewPlan', {
+            sessionId,
+            limit: 1500,
+            token,
+        }) as SessionPreviewPlan;
+    } catch (error) {
+        console.warn('[Convex] Consistent preview endpoint unavailable; using compatibility fallback:', error);
+    }
+
+    if (previewPlan) {
+        try {
+            if (previewPlan.overviewUrl) {
+                onProgress?.(0, previewPlan.overviewPointCount || previewPlan.recordCount);
+                const payload = await fetchGzipJson(previewPlan.overviewUrl) as {
+                    records?: unknown;
+                    stats?: HistoricalSessionStats;
+                };
+                if (!Array.isArray(payload.records)) {
+                    throw new Error('Telemetry overview contained an invalid payload');
+                }
+                const records = payload.records as TelemetryRecord[];
+                onProgress?.(records.length, records.length);
+                return {
+                    records,
+                    stats: payload.stats ?? previewPlan.stats,
+                    statsExact: !!(payload.stats ?? previewPlan.stats),
+                    isPreview: records.length < previewPlan.recordCount,
+                    totalRecords: previewPlan.recordCount || records.length,
+                };
+            }
+
+            const orderedParts = [...previewPlan.previewParts]
+                .sort((a, b) => a.partNumber - b.partNumber);
+            if (orderedParts.some((part) => !part.url)) {
+                throw new Error('One or more telemetry archive previews are unavailable');
+            }
+            const archivedPreview: TelemetryRecord[] = [];
+            const parallelDownloads = 4;
+            for (let index = 0; index < orderedParts.length; index += parallelDownloads) {
+                const batch = await Promise.all(
+                    orderedParts.slice(index, index + parallelDownloads)
+                        .map((part) => fetchArchivePart(part.url as string))
+                );
+                archivedPreview.push(...batch.flat());
+            }
+            const combined = archivedPreview.concat(previewPlan.tailRecords)
+                .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+            const records = sampleEvenly(combined, 1500);
+            if (!records.length && previewPlan.recordCount > 0) {
+                throw new Error('Consistent preview plan contained no telemetry points');
+            }
+            onProgress?.(records.length, previewPlan.recordCount || records.length);
+            return {
+                records,
+                stats: previewPlan.stats,
+                statsExact: !!previewPlan.stats,
+                isPreview: records.length < previewPlan.recordCount,
+                totalRecords: previewPlan.recordCount || records.length,
+            };
+        } catch (error) {
+            console.warn('[Convex] Optimized preview failed; loading the complete session:', error);
+            const records = await getSessionRecords(sessionId, onProgress);
+            return {
+                records,
+                stats: previewPlan.stats,
+                statsExact: !!previewPlan.stats,
+                isPreview: false,
+                totalRecords: previewPlan.recordCount || records.length,
+            };
+        }
+    }
+
+    let overview: SessionOverviewResponse | null = null;
     try {
         overview = await client.query('archives:getSessionOverview', {
             sessionId,
             token,
-        }) as typeof overview;
+        }) as SessionOverviewResponse;
     } catch (error) {
         console.warn('[Convex] Session overview endpoint unavailable; using compatibility fallback:', error);
     }
@@ -276,6 +364,7 @@ export async function getSessionPreview(
         return {
             records,
             stats: payload.stats ?? overview.stats,
+            statsExact: !!(payload.stats ?? overview.stats),
             isPreview: true,
             totalRecords: overview.recordCount,
         };
@@ -286,7 +375,7 @@ export async function getSessionPreview(
     // backfills it, even though this compatibility case requires one full load.
     if (overview?.complete) {
         const records = await getSessionRecords(sessionId, onProgress);
-        return { records, stats: null, isPreview: false, totalRecords: records.length };
+        return { records, stats: null, statsExact: false, isPreview: false, totalRecords: records.length };
     }
 
     let archivedPreview: TelemetryRecord[] = [];
@@ -323,13 +412,14 @@ export async function getSessionPreview(
         return {
             records,
             stats: null,
+            statsExact: false,
             isPreview: overview?.status === 'archiving' || preview.totalRecords > records.length,
             totalRecords: preview.totalRecords || records.length,
         };
     } catch (error) {
         console.warn('[Convex] Bounded session preview unavailable; using compatibility fallback:', error);
         const records = await getSessionRecords(sessionId, onProgress);
-        return { records, stats: null, isPreview: false, totalRecords: records.length };
+        return { records, stats: null, statsExact: false, isPreview: false, totalRecords: records.length };
     }
 }
 

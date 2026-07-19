@@ -14,7 +14,7 @@ __global.HA = __global.HA || {};
     // Regression
     HA.linReg = (x, y) => {
         const rx = HA.sma(x, 1), ry = HA.sma(y, 1);
-        if (rx.length < 2) return { m: 0, b: 0, r2: 0 };
+        if (rx.length < 2) return { m: 0, b: 0, slope: 0, intercept: 0, r2: 0 };
         const mX = HA.mean(rx), mY = HA.mean(ry);
         let num = 0, den = 0;
         for (let i = 0; i < rx.length; i++) {
@@ -29,7 +29,13 @@ __global.HA = __global.HA || {};
             ssTot += Math.pow(ry[i] - mY, 2);
             ssRes += Math.pow(ry[i] - f, 2);
         }
-        return { m, b, r2: ssTot === 0 ? 0 : 1 - (ssRes / ssTot) };
+        return {
+            m,
+            b,
+            slope: m,
+            intercept: b,
+            r2: ssTot === 0 ? 0 : 1 - (ssRes / ssTot),
+        };
     };
 
     // ── Physics Digital Twin / Simulation Models ──

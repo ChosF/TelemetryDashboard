@@ -10,7 +10,7 @@
     const S = {
         sessions: [], activeSessionId: null, activeSessionMeta: null,
         data: [], compareData: [], map: null, stats: null, compareStats: null,
-        isPreview: false, fullDataPromise: null,
+        isPreview: false, statsExact: false, fullDataPromise: null,
     };
     let historicalLimit = Infinity;
     let canAccessCustomAnalysis = true;
@@ -50,7 +50,7 @@
     }
 
     // ── Web Worker Config ──
-    const histWorker = new Worker('/workers/historical-worker.js');
+    const histWorker = new Worker('/workers/historical-worker.js?v=20260719.2');
     let workerMsgId = 0;
     function runHistoricalWorkerTask(type, payload, onProgress = null) {
         return new Promise((resolve, reject) => {
@@ -190,6 +190,7 @@
                 rawRecords,
                 normalized,
                 stats: effectiveStats,
+                statsExact: !!sessionPayload?.statsExact || !sessionPayload?.isPreview,
                 isPreview: !!sessionPayload?.isPreview,
                 totalRecords: sessionPayload?.totalRecords || rawRecords.length,
             };
@@ -197,6 +198,12 @@
             controller.status = 'error';
             controller.error = error;
             emitSessionLoad(controller);
+            // Authentication renewal, a newly deployed endpoint, or a brief
+            // network/archive transition must be retryable without reloading
+            // the whole tab. Never retain rejected promises in the load cache.
+            if (sessionLoadControllers.get(sessionId) === controller) {
+                sessionLoadControllers.delete(sessionId);
+            }
             throw error;
         });
 
@@ -405,12 +412,13 @@
 
 
         try {
-            const { normalized, stats, isPreview } = await controller.promise;
+            const { normalized, stats, statsExact, isPreview } = await controller.promise;
             if (S.activeSessionId !== sid) return;
 
             const cappedData = applyExternalDataCap(normalized);
             S.data = cappedData;
             S.stats = stats;
+            S.statsExact = !!statsExact;
             S.isPreview = isPreview;
             S.fullDataPromise = null;
 
@@ -452,7 +460,6 @@
                     new URLSearchParams({ sessionId: sid })
                 );
             }
-            await ensureFullSessionData('custom analysis');
             initCustomAnalysis();
         }
     }
@@ -469,7 +476,7 @@
         showAnalysisActions(false);
         disposeCharts();
         if (S.map) { try { S.map.remove() } catch (e) { } } S.map = null;
-        S.data = []; S.stats = null; S.isPreview = false; S.fullDataPromise = null;
+        S.data = []; S.stats = null; S.isPreview = false; S.statsExact = false; S.fullDataPromise = null;
         S.activeSessionId = null;
         if (!options.skipHistory) {
             updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, !!options.replaceHistory);
@@ -493,7 +500,6 @@
                 new URLSearchParams({ sessionId: S.activeSessionId })
             );
         }
-        await ensureFullSessionData('custom analysis');
         initCustomAnalysis();
     });
 
@@ -513,9 +519,6 @@
 
     // ── Render All Analysis ──
     const renderedHistoricalSections = new Set();
-    const fullResolutionSections = new Set([
-        'stats-body', 'anomaly-body', 'reg-body', 'seg-body',
-    ]);
 
     function renderInitialHistoricalView() {
         renderedHistoricalSections.clear();
@@ -544,6 +547,7 @@
             S.data = applyExternalDataCap(normalized);
             S.stats = stats;
             S.isPreview = false;
+            S.statsExact = true;
             renderSummary(S.data);
             renderQualityBadge(S.data);
 
@@ -573,9 +577,6 @@
         const body = document.getElementById(bodyId);
         if (body) body.setAttribute('aria-busy', 'true');
         try {
-            if (fullResolutionSections.has(bodyId)) {
-                await ensureFullSessionData(bodyId.replace('-body', ''));
-            }
             if (S.activeSessionId !== sessionId) return;
             if (bodyId === 'ts-body') renderSyncedCharts(S.data);
             else if (bodyId === 'energy-body') renderEnergy(S.data);
@@ -889,7 +890,10 @@
 
     // ── Descriptive Stats ──
     function renderDescriptiveStats(d) {
-        let html = '<table class="ha-stats-table"><thead><tr><th>Field</th><th>Count</th><th>Mean</th><th>Median</th><th>σ</th><th>Min</th><th>Q1</th><th>Q3</th><th>Max</th><th>Range</th><th>Skew</th><th>Kurt</th><th>CV%</th></tr></thead><tbody>';
+        const scopeNote = S.isPreview
+            ? `<div style="padding:8px 12px;color:var(--ha-text3);font-size:11px">Statistics use ${d.length.toLocaleString()} evenly distributed representative points from ${Number(S.stats?.recordCount || d.length).toLocaleString()} total records. Exact session aggregates are shown in the KPI grid.</div>`
+            : '';
+        let html = scopeNote + '<table class="ha-stats-table"><thead><tr><th>Field</th><th>Count</th><th>Mean</th><th>Median</th><th>σ</th><th>Min</th><th>Q1</th><th>Q3</th><th>Max</th><th>Range</th><th>Skew</th><th>Kurt</th><th>CV%</th></tr></thead><tbody>';
         for (const f of STAT_FIELDS) {
             const vals = d.map(r => r[f.key]).filter(v => v != null && isFinite(v)); if (!vals.length) continue; const mn = mean(vals), md = median(vals), sd = stddev(vals), q1 = percentile(vals, 25), q3 = percentile(vals, 75), sk = skewness(vals), ku = kurtosis(vals), cv = mn !== 0 ? (sd / Math.abs(mn) * 100) : 0;
             html += `<tr><td class="field-name">${f.label}</td><td>${vals.length}</td><td>${fmt(mn, 2)}</td><td>${fmt(md, 2)}</td><td>${fmt(sd, 2)}</td><td>${fmt(Math.min(...vals), 2)}</td><td>${fmt(q1, 2)}</td><td>${fmt(q3, 2)}</td><td>${fmt(Math.max(...vals), 2)}</td><td>${fmt(Math.max(...vals) - Math.min(...vals), 2)}</td><td>${fmt(sk, 2)}</td><td>${fmt(ku, 2)}</td><td>${fmt(cv, 1)}</td></tr>`
@@ -898,7 +902,14 @@
         // Correlation heatmap
         const fields = STAT_FIELDS.filter(f => d.some(r => r[f.key] != null && isFinite(r[f.key])));
         const labels = fields.map(f => f.label); const n = fields.length; const heatData = [];
-        for (let i = 0; i < n; i++)for (let j = 0; j < n; j++) { const x = d.map(r => r[fields[i].key]).filter(v => v != null && isFinite(v)); const y = d.map(r => r[fields[j].key]).filter(v => v != null && isFinite(v)); heatData.push([j, i, +pearson(x, y).toFixed(2)]) }
+        for (let i = 0; i < n; i++)for (let j = 0; j < n; j++) {
+            const pairs = d
+                .map(r => [r[fields[i].key], r[fields[j].key]])
+                .filter(([x, y]) => x != null && y != null && isFinite(x) && isFinite(y));
+            const x = pairs.map(pair => pair[0]);
+            const y = pairs.map(pair => pair[1]);
+            heatData.push([j, i, +pearson(x, y).toFixed(2)]);
+        }
         initChart('hc-correlation', { ...CHART_THEME, tooltip: { formatter: p => p.data ? `${labels[p.data[1]]} × ${labels[p.data[0]]}: ${p.data[2]}` : '' }, xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 9, rotate: 45 } }, yAxis: { type: 'category', data: labels, axisLabel: { fontSize: 9 } }, visualMap: { min: -1, max: 1, calculable: true, inRange: { color: ['#ef4444', '#1a1a2e', '#00d4be'] }, textStyle: { color: 'rgba(255,255,255,0.5)' }, bottom: 0, right: 0 }, series: [{ type: 'heatmap', data: heatData, label: { show: n <= 8, fontSize: 9, color: 'rgba(255,255,255,0.7)' }, itemStyle: { borderWidth: 1, borderColor: 'rgba(0,0,0,0.2)' } }], grid: { left: 100, right: 40, top: 10, bottom: 100 } });
     }
 
@@ -908,6 +919,7 @@
         const sevColors = { critical: '#dc2626', high: '#ef4444', medium: '#f97316', low: '#f59e0b' };
 
         // ── 1. Client-side IQR detection fallback ────────────────────────────
+        const isOutlier = r => r.outlierSeverity != null && r.outlierSeverity !== 'none';
         const hasBackendOutliers = d.some(r => r.outlierSeverity != null);
         let workingData = d;
 
@@ -935,26 +947,36 @@
             S.data = workingData;
         }
 
-        const outliers = workingData.filter(r => r.outlierSeverity != null);
+        const outliers = workingData.filter(isOutlier);
         const counts = {};
         outliers.forEach(r => { const s = r.outlierSeverity; counts[s] = (counts[s] || 0) + 1 });
+
+        const hasExactBackendCount = hasBackendOutliers
+            && S.statsExact
+            && Number.isFinite(S.stats?.anomalyCount)
+            && Number.isFinite(S.stats?.recordCount);
+        const totalAnomalyCount = hasExactBackendCount ? S.stats.anomalyCount : outliers.length;
+        const totalRecordCount = hasExactBackendCount ? S.stats.recordCount : d.length;
 
         // ── 2. Header badge ──────────────────────────────────────────────────
         const badge = $('ha-anomaly-count-badge');
         if (badge) {
-            badge.textContent = outliers.length ? `${outliers.length} detected` : '';
-            badge.style.display = outliers.length ? '' : 'none';
+            badge.textContent = totalAnomalyCount ? `${totalAnomalyCount} detected` : '';
+            badge.style.display = totalAnomalyCount ? '' : 'none';
         }
 
         // ── 3. Summary banner + severity chips ───────────────────────────────
         const chips = sevOrder.filter(s => counts[s]).map(s =>
             `<div class="ha-anomaly-chip ${s}"><span class="ha-anomaly-dot" style="background:${sevColors[s]}"></span>${s.charAt(0).toUpperCase() + s.slice(1)}: <b>${counts[s]}</b></div>`
         ).join('');
-        const cleanPct = ((1 - outliers.length / Math.max(d.length, 1)) * 100).toFixed(1);
+        const cleanPct = ((1 - totalAnomalyCount / Math.max(totalRecordCount, 1)) * 100).toFixed(1);
         const srcNote = !hasBackendOutliers ? `<span style="font-size:10px;color:rgba(255,255,255,0.3);margin-left:6px">(IQR fallback)</span>` : '';
-        const totalBanner = outliers.length
-            ? `<div class="ha-anomaly-chip-total">⚠️ ${outliers.length} anomalies in ${d.length} records (${(100 - +cleanPct).toFixed(1)}% flagged)${srcNote}</div>`
-            : `<div class="ha-anomaly-chip-total ha-anomaly-clean">✅ No anomalies detected in ${d.length} records</div>`;
+        const scopeLabel = hasExactBackendCount
+            ? 'exact session total; charts use representative events'
+            : (S.isPreview ? 'representative sample' : 'full session');
+        const totalBanner = totalAnomalyCount
+            ? `<div class="ha-anomaly-chip-total">⚠️ ${totalAnomalyCount} anomalies in ${totalRecordCount} records (${(100 - +cleanPct).toFixed(1)}% flagged) <span style="font-size:10px;color:rgba(255,255,255,0.3)">(${scopeLabel})</span>${srcNote}</div>`
+            : `<div class="ha-anomaly-chip-total ha-anomaly-clean">✅ No anomalies detected in ${totalRecordCount} records <span style="font-size:10px;color:rgba(255,255,255,0.3)">(${scopeLabel})</span></div>`;
         $('ha-anomaly-summary').innerHTML = totalBanner +
             (chips ? `<div class="ha-anomaly-chips-row">${chips}</div>` : '');
 
@@ -1046,7 +1068,7 @@
                 const t = d[i]._ts;
                 const wStart = t - windowMs;
                 const wSlice = d.filter(r => r._ts >= wStart && r._ts <= t);
-                const wOutliers = wSlice.filter(r => r.outlierSeverity != null).length;
+                const wOutliers = wSlice.filter(isOutlier).length;
                 rateData.push([t, wSlice.length > 0 ? +(wOutliers / wSlice.length * 100).toFixed(1) : 0]);
             }
             initChart('hc-anomaly-rate', {
@@ -1126,7 +1148,7 @@
 
         // ── 10. Voltage × Current scatter ───────────────────────────────────
         if (d.length > 1) {
-            const normalPts = workingData.filter(r => !r.outlierSeverity && r.voltage_v && r.current_a);
+            const normalPts = workingData.filter(r => !isOutlier(r) && r.voltage_v && r.current_a);
             const scatterSeries = [
                 { name: 'Normal', type: 'scatter', data: normalPts.map(r => [r.voltage_v, r.current_a, r.power_w || 0]), symbolSize: 4, itemStyle: { color: 'rgba(0,212,190,0.25)', opacity: 0.7 } },
                 ...sevOrder.filter(s => counts[s]).map(s => ({
@@ -1741,7 +1763,7 @@
                 const collapsed = body.classList.toggle('collapsed');
                 btn.classList.toggle('collapsed', collapsed);
                 btn.title = collapsed ? 'Expand' : 'Collapse';
-                historicalAllSectionsCollapsed = $$('.ha-collapse-btn').every(b => {
+                historicalAllSectionsCollapsed = [...$$('.ha-collapse-btn')].every(b => {
                     const id = b.dataset.target;
                     const el = id ? document.getElementById(id) : null;
                     return el && el.classList.contains('collapsed');
@@ -1760,7 +1782,6 @@
             const expanding = historicalAllSectionsCollapsed;
             applyHistoricalSectionsCollapsed(!historicalAllSectionsCollapsed);
             if (expanding) {
-                await ensureFullSessionData('expanded analysis');
                 renderAll();
             }
         });
@@ -3301,7 +3322,6 @@
             }
             if (S.activeSessionId && S.data?.length) {
                 showCustomAnalysisView();
-                await ensureFullSessionData('custom analysis');
                 initCustomAnalysis();
             } else {
                 backToSessions({ skipHistory: true });

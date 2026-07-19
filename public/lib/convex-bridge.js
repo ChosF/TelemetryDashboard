@@ -195,6 +195,86 @@ const ConvexBridge = (function () {
         if (!client) throw new Error('ConvexBridge not initialized');
         const token = getAuthToken();
 
+        // The preview plan is produced from one Convex query snapshot, so an
+        // archive commit cannot move rows from the database tail into file
+        // storage between separate client reads and temporarily return zero
+        // points. Keep the legacy path below for staggered deployments only.
+        let previewPlan = null;
+        try {
+            previewPlan = await client.query('archives:getSessionPreviewPlan', {
+                sessionId,
+                limit: 1500,
+                token: token || undefined,
+            });
+        } catch (error) {
+            console.warn('[ConvexBridge] Consistent preview endpoint unavailable; using compatibility fallback:', error);
+        }
+
+        if (previewPlan) {
+            try {
+                if (previewPlan.overviewUrl) {
+                    if (onProgress) onProgress(0, previewPlan.overviewPointCount || previewPlan.recordCount || 0);
+                    const payload = await fetchGzipJson(previewPlan.overviewUrl);
+                    if (!payload || !Array.isArray(payload.records)) {
+                        throw new Error('Telemetry overview contained an invalid payload');
+                    }
+                    if (onProgress) onProgress(payload.records.length, payload.records.length);
+                    return {
+                        records: payload.records,
+                        stats: payload.stats || previewPlan.stats || null,
+                        statsExact: !!(payload.stats || previewPlan.stats),
+                        isPreview: payload.records.length < previewPlan.recordCount,
+                        totalRecords: previewPlan.recordCount || payload.records.length,
+                    };
+                }
+
+                const previewParts = [...(previewPlan.previewParts || [])]
+                    .sort((a, b) => a.partNumber - b.partNumber);
+                if (previewParts.some(part => !part.url)) {
+                    throw new Error('One or more telemetry archive previews are unavailable');
+                }
+                const archivedPreview = [];
+                const parallelDownloads = 4;
+                for (let index = 0; index < previewParts.length; index += parallelDownloads) {
+                    const batch = await Promise.all(
+                        previewParts.slice(index, index + parallelDownloads)
+                            .map(part => fetchArchivePart(part.url))
+                    );
+                    archivedPreview.push(...batch.flat());
+                }
+                const tailRecords = Array.isArray(previewPlan.tailRecords)
+                    ? previewPlan.tailRecords
+                    : [];
+                const combined = archivedPreview.concat(tailRecords)
+                    .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+                const records = sampleEvenly(combined, 1500);
+
+                // A missing/corrupt optimized artifact should degrade to the
+                // complete loader, never to an empty historical screen.
+                if (!records.length && previewPlan.recordCount > 0) {
+                    throw new Error('Consistent preview plan contained no telemetry points');
+                }
+                if (onProgress) onProgress(records.length, previewPlan.recordCount || records.length);
+                return {
+                    records,
+                    stats: previewPlan.stats || null,
+                    statsExact: !!previewPlan.stats,
+                    isPreview: records.length < previewPlan.recordCount,
+                    totalRecords: previewPlan.recordCount || records.length,
+                };
+            } catch (error) {
+                console.warn('[ConvexBridge] Optimized preview failed; loading the complete session:', error);
+                const records = await getSessionRecords(sessionId, onProgress);
+                return {
+                    records,
+                    stats: previewPlan.stats || null,
+                    statsExact: !!previewPlan.stats,
+                    isPreview: false,
+                    totalRecords: previewPlan.recordCount || records.length,
+                };
+            }
+        }
+
         let overview = null;
         try {
             overview = await client.query('archives:getSessionOverview', {
@@ -215,6 +295,7 @@ const ConvexBridge = (function () {
             return {
                 records: payload.records,
                 stats: payload.stats || overview.stats || null,
+                statsExact: !!(payload.stats || overview.stats),
                 isPreview: true,
                 totalRecords: overview.recordCount || payload.records.length,
             };
@@ -222,7 +303,7 @@ const ConvexBridge = (function () {
 
         if (overview?.complete) {
             const records = await getSessionRecords(sessionId, onProgress);
-            return { records, stats: null, isPreview: false, totalRecords: records.length };
+            return { records, stats: null, statsExact: false, isPreview: false, totalRecords: records.length };
         }
 
         let archivedPreview = [];
@@ -260,13 +341,14 @@ const ConvexBridge = (function () {
             return {
                 records,
                 stats: null,
+                statsExact: false,
                 isPreview: overview?.status === 'archiving' || (preview?.totalRecords || 0) > records.length,
                 totalRecords: preview?.totalRecords || records.length,
             };
         } catch (error) {
             console.warn('[ConvexBridge] Bounded session preview unavailable; using compatibility fallback:', error);
             const records = await getSessionRecords(sessionId, onProgress);
-            return { records, stats: null, isPreview: false, totalRecords: records.length };
+            return { records, stats: null, statsExact: false, isPreview: false, totalRecords: records.length };
         }
     }
 

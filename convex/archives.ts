@@ -24,6 +24,15 @@ const archiveStatusValidator = v.union(
   v.literal("missing"),
 );
 
+type ArchiveStatus =
+  | "none"
+  | "pending"
+  | "archiving"
+  | "complete"
+  | "error"
+  | "restricted"
+  | "missing";
+
 const archivePartValidator = v.object({
   partNumber: v.number(),
   recordCount: v.number(),
@@ -51,6 +60,20 @@ const sessionOverviewValidator = v.object({
   pointCount: v.number(),
   url: v.union(v.string(), v.null()),
   stats: v.union(archiveStatsValidator, v.null()),
+});
+
+const sessionPreviewPlanValidator = v.object({
+  complete: v.boolean(),
+  status: archiveStatusValidator,
+  recordCount: v.number(),
+  overviewUrl: v.union(v.string(), v.null()),
+  overviewPointCount: v.number(),
+  stats: v.union(archiveStatsValidator, v.null()),
+  previewParts: v.array(v.object({
+    partNumber: v.number(),
+    url: v.union(v.string(), v.null()),
+  })),
+  tailRecords: v.array(v.any()),
 });
 
 /**
@@ -117,7 +140,7 @@ export const getSessionArchiveManifest = query({
       };
     }));
 
-    const status = session.archive_status ?? "none";
+    const status: ArchiveStatus = session.archive_status ?? "none";
     return {
       available: parts.length > 0,
       complete: status === "complete",
@@ -173,11 +196,105 @@ export const getSessionOverview = query({
     return {
       available: session.archive_status === "complete" && url !== null,
       complete: session.archive_status === "complete",
-      status: session.archive_status ?? "none",
+      status: (session.archive_status ?? "none") as ArchiveStatus,
       recordCount: session.record_count,
       pointCount: session.overview_point_count ?? 0,
       url,
       stats: session.archive_stats ?? null,
+    };
+  },
+});
+
+/**
+ * Return a consistent, chart-ready read plan in one reactive query snapshot.
+ *
+ * Archive commits atomically add a file part and remove its database rows. If
+ * clients fetch the manifest and database tail in separate queries, a commit
+ * between those calls can make the same rows appear in neither response. This
+ * query reads the session, immutable preview-part URLs, and remaining tail from
+ * one snapshot so historical mode never observes that transient gap.
+ */
+export const getSessionPreviewPlan = query({
+  args: {
+    sessionId: v.string(),
+    limit: v.optional(v.number()),
+    token: v.optional(v.string()),
+  },
+  returns: sessionPreviewPlanValidator,
+  handler: async (ctx, args) => {
+    const empty = (status: "restricted" | "missing") => ({
+      complete: false,
+      status,
+      recordCount: 0,
+      overviewUrl: null,
+      overviewPointCount: 0,
+      stats: null,
+      previewParts: [],
+      tailRecords: [],
+    });
+
+    const access = await getHistoricalAccess(ctx, args.token);
+    const allowed = await canAccessHistoricalSession(ctx, args.sessionId, access);
+    if (!allowed) return empty("restricted");
+
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_session_id", (q) => q.eq("session_id", args.sessionId))
+      .first();
+    if (!session) return empty("missing");
+
+    const status: ArchiveStatus = session.archive_status ?? "none";
+    const complete = status === "complete";
+    const overviewUrl = session.overview_storage_id
+      ? await ctx.storage.getUrl(session.overview_storage_id)
+      : null;
+
+    // The exact aggregate plus the small overview file is the cheapest path
+    // for completed sessions. No telemetry rows or archive manifests are read.
+    if (complete && overviewUrl) {
+      return {
+        complete,
+        status,
+        recordCount: session.record_count,
+        overviewUrl,
+        overviewPointCount: session.overview_point_count ?? 0,
+        stats: session.archive_stats ?? null,
+        previewParts: [],
+        tailRecords: [],
+      };
+    }
+
+    const limit = Math.max(100, Math.min(1500, Math.floor(args.limit ?? 1500)));
+    const [archiveParts, newestTail] = await Promise.all([
+      ctx.db
+        .query("telemetryArchives")
+        .withIndex("by_session_part", (q) => q.eq("session_id", args.sessionId))
+        .order("asc")
+        .collect(),
+      complete
+        ? Promise.resolve([])
+        : ctx.db
+          .query("telemetry")
+          .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+          .order("desc")
+          .take(limit),
+    ]);
+    const previewParts = await Promise.all(archiveParts.map(async (part) => ({
+      partNumber: part.part_number,
+      url: part.preview_storage_id
+        ? await ctx.storage.getUrl(part.preview_storage_id)
+        : null,
+    })));
+
+    return {
+      complete,
+      status,
+      recordCount: session.record_count,
+      overviewUrl,
+      overviewPointCount: session.overview_point_count ?? 0,
+      stats: session.archive_stats ?? null,
+      previewParts,
+      tailRecords: newestTail.reverse(),
     };
   },
 });
