@@ -145,6 +145,9 @@ export function OverviewPanel(props: OverviewPanelProps): JSX.Element {
         if (props.data.length === 0) return null;
         return props.data[props.data.length - 1];
     });
+    const instantEfficiency = createMemo(
+        () => latest()?.inst_eff_km_kwh ?? latest()?.current_efficiency_km_kwh,
+    );
 
     createEffect(() => {
         const rows = props.data;
@@ -200,10 +203,10 @@ export function OverviewPanel(props: OverviewPanelProps): JSX.Element {
                     <div class="overview-metric">
                         <span class="metric-icon">⚡</span>
                         <div class="metric-info">
-                            <span class="metric-label">Current Efficiency</span>
+                            <span class="metric-label">Instant Efficiency</span>
                             <span id="overview-efficiency" class="metric-value">
-                                {latest()?.current_efficiency_km_kwh != null
-                                    ? `${latest()!.current_efficiency_km_kwh!.toFixed(1)} km/kWh`
+                                {instantEfficiency() != null
+                                    ? `${instantEfficiency()!.toFixed(1)} km/kWh`
                                     : '— km/kWh'}
                             </span>
                         </div>
@@ -308,9 +311,9 @@ export function OverviewPanel(props: OverviewPanelProps): JSX.Element {
                         </div>
                         <div class="gauge-wrap">
                             <div class="gauge">
-                                <EfficiencyGauge value={latest()?.current_efficiency_km_kwh ?? 0} active={props.active} />
+                                <EfficiencyGauge value={instantEfficiency() ?? 0} active={props.active} />
                             </div>
-                            <div class="gauge-title">Efficiency (km/kWh)</div>
+                            <div class="gauge-title">Instant Efficiency (km/kWh)</div>
                         </div>
                         <div class="gauge-wrap gauge-wrap--gforce">
                             <div class="gauge gauge--gforce">

@@ -44,7 +44,8 @@ const ExportPanel: Component<ExportPanelProps> = (props) => {
             'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a',
             'motor_phase_current_a',
             'gyro_x', 'gyro_y', 'gyro_z', 'accel_x', 'accel_y', 'accel_z',
-            'total_acceleration', 'current_efficiency_km_kwh', 'cumulative_energy_kwh',
+            'total_acceleration', 'inst_eff_km_kwh', 'acc_eff_km_kwh',
+            'current_efficiency_km_kwh', 'cumulative_energy_kwh',
             'motion_state', 'driver_mode', 'quality_score',
         ];
 

@@ -69,6 +69,20 @@ These are the **most important** variables for efficiency calculations:
 
 > ⚠️ These values should **never decrease** during a session. The backend will flag decreasing values as outliers.
 
+### Efficiency (Recommended)
+
+Calculate and send both values from the ESP32 when available:
+
+| Variable Name | Type | Unit | Valid Range | Description |
+|---------------|------|------|-------------|-------------|
+| `inst_eff_km_kwh` | `number` | km/kWh | 0 - 500 | Instant efficiency for the current sample |
+| `acc_eff_km_kwh` | `number` | km/kWh | 0 - 500 | Accumulated efficiency since session start |
+
+The bridge treats finite ESP32 values in this range as authoritative. If either
+field is missing or invalid, `maindata.py` calculates only that field as a
+fallback. Instant efficiency falls back to its rolling speed/power window;
+accumulated efficiency falls back to `distance_m / energy_j`.
+
 ---
 
 ### 📍 GPS / Location (All Optional)
@@ -255,13 +269,14 @@ If you need to send minimal data:
 
 ---
 
-## 📊 Calculated Fields (Backend)
+## 📊 Bridge Output Fields
 
-The following fields are **automatically calculated** by `maindata.py` from the raw data you send. **DO NOT send these from ESP32**:
+The following fields are added by `maindata.py`. Do not send these bridge-specific
+names from the ESP32; send `inst_eff_km_kwh` and `acc_eff_km_kwh` as documented above.
 
 | Calculated Field | Source Variables | Description |
 |------------------|------------------|-------------|
-| `current_efficiency_km_kwh` | `speed_ms`, `power_w` | Rolling efficiency in km/kWh |
+| `current_efficiency_km_kwh` | `inst_eff_km_kwh` or `speed_ms`, `power_w` | Compatibility mirror of instant efficiency; rolling fallback when ESP32 data is unavailable |
 | `cumulative_energy_kwh` | `power_w` | Total energy in kWh |
 | `route_distance_km` | `latitude`, `longitude` | GPS-based distance |
 | `avg_speed_kmh` | `speed_ms` | Rolling average speed |

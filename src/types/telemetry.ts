@@ -89,6 +89,10 @@ export interface TelemetryRecord {
     uptime_seconds?: number;
     data_source?: string;
 
+    // Efficiency (ESP32 values, with bridge fallbacks)
+    inst_eff_km_kwh?: number;
+    acc_eff_km_kwh?: number;
+
     // Backend-computed fields
     current_efficiency_km_kwh?: number;
     cumulative_energy_kwh?: number;

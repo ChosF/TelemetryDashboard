@@ -29,3 +29,7 @@ Thumbs.db
 logs/
 *.log
 public/test-account-button*.html
+
+# Python
+__pycache__/
+*.py[cod]

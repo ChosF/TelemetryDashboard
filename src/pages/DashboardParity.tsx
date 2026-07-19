@@ -377,7 +377,11 @@ const DashboardParity: Component = () => {
             return 'timing';
         }
         if (
-            ['energy_j', 'distance_m', 'route_distance_km', 'cumulative_energy_kwh', 'current_efficiency_km_kwh', 'quality_score', 'outlier_severity'].includes(field)
+            [
+                'energy_j', 'distance_m', 'route_distance_km', 'cumulative_energy_kwh',
+                'inst_eff_km_kwh', 'acc_eff_km_kwh', 'current_efficiency_km_kwh',
+                'quality_score', 'outlier_severity',
+            ].includes(field)
         ) {
             return 'energy';
         }

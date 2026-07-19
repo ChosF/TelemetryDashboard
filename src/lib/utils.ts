@@ -41,6 +41,15 @@ export function toNum(x: unknown, fallback: number | null = null): number | null
     return Number.isFinite(n) ? n : fallback;
 }
 
+/** Parse a finite efficiency value without turning bad telemetry into a boundary value. */
+function toEfficiency(x: unknown): number | null {
+    if (x == null || x === '') return null;
+    const efficiency = toNum(x, null);
+    return efficiency !== null && efficiency >= 0 && efficiency <= 500
+        ? efficiency
+        : null;
+}
+
 /** Get last element of array */
 export function last<T>(arr: T[]): T | undefined {
     return arr[arr.length - 1];
@@ -126,10 +135,21 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
     if (motorPhase3Current !== null) normalized.motor_phase_3_current_a = motorPhase3Current;
     if (motorPhaseCurrent !== null) normalized.motor_phase_current_a = motorPhaseCurrent;
 
-    const efficiency = toNum(normalized.current_efficiency_km_kwh, null);
-    if (efficiency !== null) {
-        // Guard against invalid spikes from tiny instantaneous energy.
-        normalized.current_efficiency_km_kwh = clamp(efficiency, 0, 200);
+    const instantEfficiency = toEfficiency(normalized.inst_eff_km_kwh)
+        ?? toEfficiency(normalized.current_efficiency_km_kwh);
+    if (instantEfficiency !== null) {
+        normalized.inst_eff_km_kwh = instantEfficiency;
+        normalized.current_efficiency_km_kwh = instantEfficiency;
+    } else {
+        normalized.inst_eff_km_kwh = undefined;
+        normalized.current_efficiency_km_kwh = undefined;
+    }
+
+    const accumulatedEfficiency = toEfficiency(normalized.acc_eff_km_kwh);
+    if (accumulatedEfficiency !== null) {
+        normalized.acc_eff_km_kwh = accumulatedEfficiency;
+    } else {
+        normalized.acc_eff_km_kwh = undefined;
     }
 
     const rowAny = row as unknown as Record<string, unknown>;
@@ -420,8 +440,11 @@ export function computeKPIs(rows: TelemetryRow[]): KPISummary {
         out.avg_voltage = nzVoltages.length ? mean(nzVoltages) : 0;
     }
 
-    // Efficiency
-    if (out.total_energy_kwh > 0) {
+    // Prefer the ESP32/bridge accumulated value; derive only for older records.
+    const reportedEfficiency = toNum(latest.acc_eff_km_kwh, null);
+    if (reportedEfficiency !== null && reportedEfficiency >= 0 && reportedEfficiency <= 500) {
+        out.efficiency_km_kwh = reportedEfficiency;
+    } else if (out.total_energy_kwh > 0) {
         out.efficiency_km_kwh = out.distance_km / out.total_energy_kwh;
     }
 
@@ -539,6 +562,8 @@ const CARRY_FORWARD_BRIDGE_KEYS: readonly string[] = [
     'max_current_a',
     'max_g_force',
     'cumulative_energy_kwh',
+    'inst_eff_km_kwh',
+    'acc_eff_km_kwh',
     'current_efficiency_km_kwh',
     'route_distance_km',
     'elevation_gain_m',

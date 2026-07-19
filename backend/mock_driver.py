@@ -231,10 +231,11 @@ class SimState:
             2,
         )
 
-        # Efficiency km/kWh
+        # Efficiency km/kWh (same names and semantics as the ESP32 contract)
         energy_kwh = self.cumulative_energy_j / 3_600_000
         dist_km    = self.cumulative_dist_m / 1000
-        eff = round(dist_km / energy_kwh, 2) if energy_kwh > 0.001 else None
+        acc_eff = round(dist_km / energy_kwh, 2) if energy_kwh > 0.001 else None
+        inst_eff = round(v * 3600 / power_w, 2) if power_w > 0.001 else None
 
         # Planar G (g) — vehicle frame; matches maindata.py / ESP32 convention
         long_g = ((v - self._prev_speed_ms) / INTERVAL) / 9.80665
@@ -319,7 +320,8 @@ class SimState:
             "motion_state": motion_state,
 
             # Efficiency
-            "current_efficiency_km_kwh": eff,
+            "acc_eff_km_kwh": acc_eff,
+            "inst_eff_km_kwh": inst_eff,
             "cumulative_energy_kwh": round(energy_kwh, 6),
             "route_distance_km":     round(dist_km, 3),
 

@@ -49,6 +49,13 @@ function toOptionalFiniteNumber(value: unknown): number | null {
     return null;
 }
 
+function toOptionalEfficiency(value: unknown): number | null {
+    const efficiency = toOptionalFiniteNumber(value);
+    return efficiency !== null && efficiency >= 0 && efficiency <= 500
+        ? efficiency
+        : null;
+}
+
 function toMessageId(value: unknown): number {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return Math.trunc(value);
@@ -67,7 +74,8 @@ const EMPTY_SNAPSHOT: DriverTelemetrySnapshot = {
     voltage_v: 0,
     current_a: 0,
     power_w: 0,
-    current_efficiency_km_kwh: null,
+    inst_eff_km_kwh: null,
+    acc_eff_km_kwh: null,
     optimal_speed_kmh: null,
     optimal_speed_confidence: 0,
     throttle_pct: 0,
@@ -173,6 +181,9 @@ function ingestTelemetry(raw: Record<string, unknown>): void {
     if (powerW === 0 && voltageV !== 0 && currentA !== 0) {
         powerW = voltageV * currentA;
     }
+    const instantEfficiency = toOptionalEfficiency(
+        raw.inst_eff_km_kwh ?? raw.current_efficiency_km_kwh,
+    );
 
     const data: DriverTelemetrySnapshot = {
         speed_kmh: speedKmh,
@@ -181,7 +192,8 @@ function ingestTelemetry(raw: Record<string, unknown>): void {
         voltage_v: voltageV,
         current_a: currentA,
         power_w: powerW,
-        current_efficiency_km_kwh: toOptionalFiniteNumber(raw.current_efficiency_km_kwh),
+        inst_eff_km_kwh: instantEfficiency,
+        acc_eff_km_kwh: toOptionalEfficiency(raw.acc_eff_km_kwh),
         optimal_speed_kmh: toOptionalFiniteNumber(raw.optimal_speed_kmh),
         optimal_speed_confidence: toFiniteNumber(raw.optimal_speed_confidence),
         throttle_pct: toFiniteNumber(raw.throttle_pct),

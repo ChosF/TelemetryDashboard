@@ -13,6 +13,8 @@ interface TelemetryRecord {
     power_w?: number;
     energy_j?: number;
     distance_m?: number;
+    inst_eff_km_kwh?: number;
+    acc_eff_km_kwh?: number;
     accel_x?: number;
     accel_y?: number;
     accel_z?: number;
@@ -192,7 +194,10 @@ function computeKPIs(rows: ProcessedRow[]) {
         out.avg_power = mean(nonZero(powers));
     }
 
-    if (out.total_energy_kwh > 0) {
+    const reportedEfficiency = toNum(latest.acc_eff_km_kwh, null);
+    if (reportedEfficiency !== null && reportedEfficiency >= 0 && reportedEfficiency <= 500) {
+        out.efficiency_km_kwh = reportedEfficiency;
+    } else if (out.total_energy_kwh > 0) {
         out.efficiency_km_kwh = out.distance_km / out.total_energy_kwh;
     }
 

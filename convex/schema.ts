@@ -74,6 +74,9 @@ export default defineSchema({
     motor_phase_current_a: v.optional(v.number()),
     data_source: v.optional(v.string()),
     outliers: v.optional(v.any()), // JSON object for outlier detection data
+    // ESP32 efficiency values, resolved by the bridge with calculation fallbacks
+    inst_eff_km_kwh: v.optional(v.number()),
+    acc_eff_km_kwh: v.optional(v.number()),
     // Calculated fields from backend bridge
     current_efficiency_km_kwh: v.optional(v.number()),
     cumulative_energy_kwh: v.optional(v.number()),

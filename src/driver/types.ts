@@ -33,7 +33,8 @@ export interface DriverTelemetrySnapshot {
     power_w: number;
 
     // Efficiency
-    current_efficiency_km_kwh: number | null;
+    inst_eff_km_kwh: number | null;
+    acc_eff_km_kwh: number | null;
 
     // Optimal speed
     optimal_speed_kmh: number | null;

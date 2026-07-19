@@ -687,6 +687,17 @@ class TelemetryCalculator:
         g_long = accel_x / 9.80665
         return g_lat, g_long, accel_mag, g_force
 
+    @staticmethod
+    def _valid_efficiency(value: Any) -> Optional[float]:
+        """Return a finite, plausible efficiency value or None."""
+        try:
+            efficiency = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(efficiency) or efficiency < 0 or efficiency > 500:
+            return None
+        return round(efficiency, 2)
+
     def _classify_motion_state(self, speed: float, accel_mag: float, gyro_z: float) -> str:
         """Classify current motion state"""
         if speed < 0.5:
@@ -813,18 +824,31 @@ class TelemetryCalculator:
         self.energy_deltas.push(energy_delta_kwh)
         self.cumulative_energy_kwh += energy_delta_kwh
         
-        # Current efficiency (rolling window) — O(1) sums
-        total_dist = self.distance_deltas.sum_values
-        total_energy = self.energy_deltas.sum_values
-        
-        if total_energy > 0.00001:
-            efficiency = total_dist / total_energy
-            if 0 < efficiency < 500:
-                result["current_efficiency_km_kwh"] = round(efficiency, 2)
-            else:
-                result["current_efficiency_km_kwh"] = None
-        else:
-            result["current_efficiency_km_kwh"] = None
+        # ESP32 efficiency is authoritative. Calculate only the missing/invalid value.
+        instant_efficiency = self._valid_efficiency(data.get("inst_eff_km_kwh"))
+        if instant_efficiency is None:
+            total_energy = self.energy_deltas.sum_values
+            if total_energy > 0.00001:
+                instant_efficiency = self._valid_efficiency(
+                    self.distance_deltas.sum_values / total_energy
+                )
+
+        accumulated_efficiency = self._valid_efficiency(data.get("acc_eff_km_kwh"))
+        if accumulated_efficiency is None:
+            try:
+                energy_j = float(data.get("energy_j", 0.0))
+                distance_m = float(data.get("distance_m", 0.0))
+                if math.isfinite(energy_j) and math.isfinite(distance_m) and energy_j > 0:
+                    accumulated_efficiency = self._valid_efficiency(
+                        distance_m * 3600.0 / energy_j
+                    )
+            except (TypeError, ValueError):
+                accumulated_efficiency = None
+
+        result["inst_eff_km_kwh"] = instant_efficiency
+        result["acc_eff_km_kwh"] = accumulated_efficiency
+        # Preserve the established pit-dashboard field while migrating consumers.
+        result["current_efficiency_km_kwh"] = instant_efficiency
         
         # --- Session Maximums ---
         self.max_speed_ms = max(self.max_speed_ms, speed)
@@ -2342,6 +2366,8 @@ class TelemetryBridgeWithDB:
 
         heavy_fields = {
             "outliers",
+            "inst_eff_km_kwh",
+            "acc_eff_km_kwh",
             "current_efficiency_km_kwh",
             "max_speed_kmh",
             "max_power_w",
@@ -2547,12 +2573,13 @@ class TelemetryBridgeWithDB:
         if not has_core:
             return False, f"Missing all core fields {core_fields}. Keys found: {list(data.keys())[:10]}"
         
-        # Sanity check numeric values (prevent NaN/Inf)
+        # Sanity check numeric values (prevent NaN/Inf). Efficiency uses None so
+        # TelemetryCalculator can detect the failure and activate its fallback.
         for key, val in data.items():
             if isinstance(val, float):
                 if math.isnan(val) or math.isinf(val):
                     logger.warning(f"⚠️ Invalid value for {key}: {val}")
-                    data[key] = 0.0
+                    data[key] = None if key in {"inst_eff_km_kwh", "acc_eff_km_kwh"} else 0.0
         
         return True, ""
 
@@ -2601,6 +2628,17 @@ class TelemetryBridgeWithDB:
                 if alias in out and out.get(alias) is not None:
                     out[canonical] = out[alias]
                     break
+
+        # Preserve absence so the calculator can distinguish ESP32 data from
+        # fallback values, including when the optional raw fast path is enabled.
+        for efficiency_field in ("inst_eff_km_kwh", "acc_eff_km_kwh"):
+            efficiency = TelemetryCalculator._valid_efficiency(out.get(efficiency_field))
+            if efficiency is None:
+                out.pop(efficiency_field, None)
+            else:
+                out[efficiency_field] = efficiency
+        # This compatibility field is bridge-owned and always mirrors resolved instant efficiency.
+        out.pop("current_efficiency_km_kwh", None)
 
         legacy_phase_current = out.get("motor_phase_current_a")
         phase_fields = [
@@ -3172,7 +3210,8 @@ class TelemetryBridgeWithDB:
                     
                     # Calculated fields from TelemetryCalculator
                     calculated_fields = [
-                        "current_efficiency_km_kwh", "cumulative_energy_kwh", "route_distance_km",
+                        "inst_eff_km_kwh", "acc_eff_km_kwh", "current_efficiency_km_kwh",
+                        "cumulative_energy_kwh", "route_distance_km",
                         "avg_speed_kmh", "max_speed_kmh", "avg_power", "avg_voltage", "avg_current",
                         "max_power_w", "max_current_a",
                         # Optimal speed

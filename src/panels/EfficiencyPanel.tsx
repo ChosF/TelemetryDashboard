@@ -48,38 +48,21 @@ export function EfficiencyPanel(props: EfficiencyPanelProps): JSX.Element {
     });
 
     const trendData = createMemo((): AlignedData => {
-        if (props.data.length < 10) return [[], []];
-
-        const windowSize = 20;
         const timestamps: number[] = [];
         const efficiencies: number[] = [];
 
-        for (let index = windowSize; index < props.data.length; index += 1) {
-            const window = props.data.slice(index - windowSize, index);
-            let distance = 0;
-            let energy = 0;
-
-            for (let windowIndex = 1; windowIndex < window.length; windowIndex += 1) {
-                const prev = window[windowIndex - 1];
-                const current = window[windowIndex];
-                const t1 = new Date(prev.timestamp).getTime();
-                const t2 = new Date(current.timestamp).getTime();
-                const deltaSeconds = (t2 - t1) / 1000;
-
-                if (deltaSeconds <= 0 || deltaSeconds >= 10) continue;
-
-                const speedMs = current.speed_ms ?? (typeof current.speed_kmh === 'number' ? current.speed_kmh / 3.6 : 0);
-                const power = current.power_w ?? 0;
-                distance += (speedMs * deltaSeconds) / 1000;
-                energy += (power * deltaSeconds) / 3600000;
-            }
-
-            if (energy > 0.00001) {
-                const efficiency = distance / energy;
-                if (efficiency > 0 && efficiency < 500) {
-                    timestamps.push(new Date(props.data[index].timestamp).getTime() / 1000);
-                    efficiencies.push(efficiency);
-                }
+        for (const row of props.data) {
+            const efficiency = row.inst_eff_km_kwh ?? row.current_efficiency_km_kwh;
+            const timestamp = new Date(row.timestamp).getTime() / 1000;
+            if (
+                typeof efficiency === 'number'
+                && Number.isFinite(efficiency)
+                && efficiency >= 0
+                && efficiency <= 500
+                && Number.isFinite(timestamp)
+            ) {
+                timestamps.push(timestamp);
+                efficiencies.push(efficiency);
             }
         }
 
@@ -93,32 +76,29 @@ export function EfficiencyPanel(props: EfficiencyPanelProps): JSX.Element {
             { min: 20, max: 30, label: '20-30' },
             { min: 30, max: 40, label: '30-40' },
             { min: 40, max: 100, label: '40+' },
-        ].map((range) => ({ ...range, distance: 0, energy: 0 }));
+        ].map((range) => ({ ...range, efficiencyTotal: 0, sampleCount: 0 }));
 
-        for (let index = 1; index < props.data.length; index += 1) {
-            const prev = props.data[index - 1];
-            const current = props.data[index];
-            const t1 = new Date(prev.timestamp).getTime();
-            const t2 = new Date(current.timestamp).getTime();
-            const deltaSeconds = (t2 - t1) / 1000;
-
-            if (deltaSeconds <= 0 || deltaSeconds >= 10) continue;
-
-            const speedMs = current.speed_ms ?? (typeof current.speed_kmh === 'number' ? current.speed_kmh / 3.6 : 0);
+        for (const current of props.data) {
+            const speedMs = current.speed_ms
+                ?? (typeof current.speed_kmh === 'number' ? current.speed_kmh / 3.6 : 0);
             const speedKmh = speedMs * 3.6;
-            const power = current.power_w ?? 0;
-            const distanceSegment = (speedMs * deltaSeconds) / 1000;
-            const energySegment = (power * deltaSeconds) / 3600000;
+            const efficiency = current.inst_eff_km_kwh ?? current.current_efficiency_km_kwh;
+            if (
+                typeof efficiency !== 'number'
+                || !Number.isFinite(efficiency)
+                || efficiency < 0
+                || efficiency > 500
+            ) continue;
 
             const range = ranges.find((candidate) => speedKmh >= candidate.min && speedKmh < candidate.max);
             if (!range) continue;
-            range.distance += distanceSegment;
-            range.energy += energySegment;
+            range.efficiencyTotal += efficiency;
+            range.sampleCount += 1;
         }
 
         return ranges.map((range) => ({
             label: range.label,
-            value: range.energy > 0.00001 ? Math.min(range.distance / range.energy, 200) : 0,
+            value: range.sampleCount > 0 ? range.efficiencyTotal / range.sampleCount : 0,
         }));
     });
 
@@ -133,10 +113,16 @@ export function EfficiencyPanel(props: EfficiencyPanelProps): JSX.Element {
             };
         }
 
-        const currentEfficiency = typeof last.current_efficiency_km_kwh === 'number'
-            && last.current_efficiency_km_kwh > 0
-            && last.current_efficiency_km_kwh < 1000
-            ? last.current_efficiency_km_kwh.toFixed(1)
+        const instantEfficiency = last.inst_eff_km_kwh ?? last.current_efficiency_km_kwh;
+        const currentEfficiency = typeof instantEfficiency === 'number'
+            && instantEfficiency >= 0
+            && instantEfficiency <= 500
+            ? instantEfficiency.toFixed(1)
+            : '—';
+        const accumulatedEfficiency = typeof last.acc_eff_km_kwh === 'number'
+            && last.acc_eff_km_kwh >= 0
+            && last.acc_eff_km_kwh <= 500
+            ? last.acc_eff_km_kwh.toFixed(1)
             : '—';
         const optimalSpeed = typeof last.optimal_speed_kmh === 'number' && (last.optimal_speed_confidence ?? 0) >= 0.3
             ? last.optimal_speed_kmh.toFixed(1)
@@ -144,7 +130,7 @@ export function EfficiencyPanel(props: EfficiencyPanelProps): JSX.Element {
 
         return {
             current: currentEfficiency,
-            avg: '—',
+            avg: accumulatedEfficiency,
             optimalSpeed,
             distance: typeof last.route_distance_km === 'number' ? last.route_distance_km.toFixed(3) : '—',
         };
@@ -241,8 +227,8 @@ export function EfficiencyPanel(props: EfficiencyPanelProps): JSX.Element {
     return (
         <div style={{ display: 'flex', 'flex-direction': 'column', gap: '20px' }}>
             <div class="stat-card-grid mb-4">
-                <StatCard label="Current Efficiency" value={stats().current} unit="km/kWh" accent="accent-green" />
-                <StatCard label="Average Efficiency" value={stats().avg} unit="km/kWh" />
+                <StatCard label="Instant Efficiency" value={stats().current} unit="km/kWh" accent="accent-green" />
+                <StatCard label="Accumulated Efficiency" value={stats().avg} unit="km/kWh" />
                 <StatCard label="Optimal Speed" value={stats().optimalSpeed} unit="km/h" accent="accent-blue" />
                 <StatCard label="Total Distance" value={stats().distance} unit="km" />
             </div>
@@ -268,7 +254,7 @@ export function EfficiencyPanel(props: EfficiencyPanelProps): JSX.Element {
 
                 <div class="glass-panel">
                     <div class="chart-header">
-                        <h4>📊 Efficiency by Speed Range</h4>
+                        <h4>📊 Avg Instant Efficiency by Speed Range</h4>
                     </div>
                     <div class="speed-range-bars">
                         <For each={speedRanges()}>

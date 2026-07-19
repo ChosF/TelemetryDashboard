@@ -1,8 +1,8 @@
 /**
  * DriverDashboard — Compact race cockpit (portrait phone)
  *
- * Priority stack: header (EcoVolt + clock) → large speed → F1-style RPM bar →
- * current | map → secondary strip (eff) → G-force + pedals. Dense telemetry-first UI.
+ * Priority stack: header (EcoVolt + clock) → large speed → efficiency + RPM strip →
+ * current | map → G-force + pedals. Dense telemetry-first UI.
  */
 
 import { Component, onMount, onCleanup, Show, For, createMemo, createSignal } from 'solid-js';
@@ -184,24 +184,42 @@ const RevBar: Component = () => {
     );
 };
 
-/** Efficiency above T/B bars */
-const PedalsMeta: Component = () => {
-    const effStr = createMemo(() => {
-        const eff = driverStore.snapshot().current_efficiency_km_kwh;
-        return eff !== null ? `${eff.toFixed(1)} km/kWh` : '— km/kWh';
-    });
+const EfficiencyTile: Component<{
+    label: string;
+    value: number | null;
+}> = (props) => {
+    const valueText = createMemo(() => (
+        props.value !== null ? props.value.toFixed(1) : '—'
+    ));
 
     return (
-        <div class="drv-inputs-meta">
-            <span class="drv-inputs-meta-item">{effStr()}</span>
+        <div
+            class="drv-eff-tile"
+            aria-label={`${props.label} efficiency ${valueText()} kilometers per kilowatt-hour`}
+        >
+            <span class="drv-eff-label">
+                {props.label}
+                <span class="drv-eff-unit">km/kWh</span>
+            </span>
+            <span class="drv-eff-value">{valueText()}</span>
         </div>
     );
 };
 
-/** Throttle / brake bars + current & efficiency in the same card */
+/** One compact line: two efficiency readouts on the left, RPM on the right. */
+const EfficiencyRevStrip: Component = () => (
+    <div class="drv-eff-rev-strip">
+        <div class="drv-eff-pair">
+            <EfficiencyTile label="ACC" value={driverStore.snapshot().acc_eff_km_kwh} />
+            <EfficiencyTile label="INST" value={driverStore.snapshot().inst_eff_km_kwh} />
+        </div>
+        <RevBar />
+    </div>
+);
+
+/** Throttle / brake bars */
 const PedalsPanel: Component = () => (
     <div class="drv-inputs-right">
-        <PedalsMeta />
         <InputBars />
     </div>
 );
@@ -478,7 +496,7 @@ const DriverDashboard: Component = () => {
                     <NotificationStack />
 
                     <PrimarySpeedBar />
-                    <RevBar />
+                    <EfficiencyRevStrip />
 
                     {/* Current | GPS — inner split is flex-sized + clipped (no paint over pedals) */}
                     <div class="drv-center-row">
@@ -490,7 +508,7 @@ const DriverDashboard: Component = () => {
                         </div>
                     </div>
 
-                    {/* G-Force | pedals + current / efficiency */}
+                    {/* G-Force | pedals */}
                     <div class="drv-inputs-row">
                         <GForceMeter />
                         <PedalsPanel />

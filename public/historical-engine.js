@@ -561,7 +561,9 @@ __global.HA = __global.HA || {};
         n.accel_magnitude = r.accel_magnitude || r.total_acceleration || 0;
         n.lat = r.latitude || 0; n.lon = r.longitude || 0; n.alt = r.altitude_m || 0;
         n.elevation_gain_m = r.elevation_gain_m || 0;
-        n.efficiency = r.current_efficiency_km_kwh ?? null;
+        n.instEfficiency = r.inst_eff_km_kwh ?? r.current_efficiency_km_kwh ?? null;
+        n.accEfficiency = r.acc_eff_km_kwh ?? null;
+        n.efficiency = n.instEfficiency;
         n.cumEnergy = r.cumulative_energy_kwh ?? null;
         n.routeDist = r.route_distance_km ?? null;
         n.energy_j = r.energy_j || 0; n.distance_m = r.distance_m || 0;
@@ -610,13 +612,20 @@ __global.HA = __global.HA || {};
         const distKm = serverDistanceKm ?? (distMeters / 1000);
         const energyWh = serverEnergyWh ?? integratedEnergyWh;
         const durationMs = data.length > 1 ? data[data.length - 1]._ts - data[0]._ts : 0;
-        const backendEfficiency = last && Number.isFinite(last.efficiency) && last.efficiency > 0 && last.efficiency < 1000
-            ? last.efficiency
+        const accumulatedEfficiency = last && Number.isFinite(last.accEfficiency)
+            && last.accEfficiency > 0 && last.accEfficiency <= 500
+            ? last.accEfficiency
             : null;
         const computedEfficiency = energyWh > 0 ? distKm / (energyWh / 1000) : 0;
+        const instantEfficiency = last && Number.isFinite(last.instEfficiency)
+            && last.instEfficiency > 0 && last.instEfficiency <= 500
+            ? last.instEfficiency
+            : 0;
         return {
             distance: distKm, maxSpeed: speeds.length ? Math.max(...speeds) : 0, avgSpeed: HA.mean(speeds),
-            energyWh, efficiency: backendEfficiency ?? computedEfficiency, durationMin: durationMs / 60000,
+            energyWh,
+            efficiency: accumulatedEfficiency ?? (computedEfficiency || instantEfficiency),
+            durationMin: durationMs / 60000,
             avgPower: HA.mean(data.map(r => r.power_w)), maxG: data.length ? Math.max(...data.map(r => r.g_force)) : 0,
             optimalSpeed: data.find(r => r.optimalSpeed != null)?.optimalSpeed || 0,
             qualityScore: (() => { const q = data.map(r => r.qualityScore).filter(v => v != null); return q.length ? q.reduce((a, b) => a + b, 0) / q.length : 0 })(),
