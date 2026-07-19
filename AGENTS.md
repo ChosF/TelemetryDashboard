@@ -3,9 +3,8 @@
 ## Scope and current layout
 
 - This file applies to the entire repository.
-- The active application is currently under `TelemetryDashboard/`. Run Node, Convex, Vite, and Python commands from that directory.
-- The checkout is in the middle of a repository re-layout: Git still tracks the application at the repository root, while the on-disk copy is nested and untracked. Preserve this state. Do not restore the deleted root tree, move `TelemetryDashboard/`, or discard either side of the move unless the user explicitly asks.
-- Treat paths below as relative to `TelemetryDashboard/` unless stated otherwise.
+- Run Node, Convex, Vite, and Python commands from the repository root.
+- Treat paths below as relative to the repository root unless stated otherwise.
 - Before editing, inspect `git status` and preserve unrelated user work.
 
 ## What this project is
@@ -155,7 +154,7 @@ Do not extend `public/legacy-dashboard-do-not-use/` for normal work. The active 
 
 - `npm run build` produces `dist/`.
 - `vercel.json` is authoritative: Vercel runs `npm run build`, serves `dist`, and rewrites the application routes.
-- While the application remains nested, the Vercel project root must be `TelemetryDashboard/`.
+- The Vercel project root is the repository root.
 - `npm run deploy` deploys Convex only; it does not deploy the frontend.
 - The Python bridge is a separate local/on-premises process and is not hosted by Vercel.
 
