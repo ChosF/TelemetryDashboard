@@ -28,7 +28,7 @@ export function LoginModal(props: LoginModalProps): JSX.Element {
         e.preventDefault();
         setError(null);
 
-        if (!email().trim() || !password().trim()) {
+        if (!email().trim() || password().length === 0) {
             setError('Please fill in all fields');
             return;
         }
@@ -76,6 +76,7 @@ export function LoginModal(props: LoginModalProps): JSX.Element {
                         onInput={(e) => setEmail(e.currentTarget.value)}
                         placeholder="you@example.com"
                         autocomplete="email"
+                        maxlength={254}
                     />
                 </div>
 
@@ -89,6 +90,7 @@ export function LoginModal(props: LoginModalProps): JSX.Element {
                         onInput={(e) => setPassword(e.currentTarget.value)}
                         placeholder="Enter your password"
                         autocomplete="current-password"
+                        maxlength={128}
                     />
                 </div>
 

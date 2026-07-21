@@ -67,7 +67,7 @@ type TimeRangePanel = typeof TIME_RANGE_PANELS[number];
 const TIME_RANGE_PANEL_SET = new Set<DashboardPanel>(TIME_RANGE_PANELS);
 const DEFAULT_RUNTIME_CONFIG: Record<string, string> = {
     ABLY_CHANNEL_NAME: 'telemetry-dashboard-channel',
-    ABLY_API_KEY: 'DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ',
+    ABLY_AUTH_URL: '/ably/token',
     CONVEX_URL: 'https://wonderful-kookabura-432.convex.cloud',
 };
 
@@ -876,28 +876,21 @@ const DashboardParity: Component = () => {
 
             const channelName = runtimeConfig.ABLY_CHANNEL_NAME ?? 'telemetry-dashboard-channel';
             const convexUrl = runtimeConfig.CONVEX_URL ?? '';
-            const ablyApiKey = runtimeConfig.ABLY_API_KEY;
-            const ablyAuthUrl = ablyApiKey
-                ? undefined
-                : resolveAblyAuthUrl(runtimeConfig.ABLY_AUTH_URL, convexUrl);
+            const ablyAuthUrl = resolveAblyAuthUrl(runtimeConfig.ABLY_AUTH_URL, convexUrl);
             debugRewind('dashboard.connection.config', {
                 channelName,
-                hasApiKey: Boolean(ablyApiKey),
                 authUrl: ablyAuthUrl ?? null,
                 convexUrl,
             });
 
             const ablyReady = await ablyClient.init({
-                apiKey: ablyApiKey,
                 authUrl: ablyAuthUrl,
             });
             debugRewind('dashboard.connection.initResult', { channelName, ablyReady });
 
             if (!ablyReady) {
                 setRealtimeActivity('idle');
-                setConnectionNote(ablyApiKey
-                    ? 'Ably rejected the configured API key.'
-                    : `Ably auth endpoint unavailable: ${ablyAuthUrl ?? 'missing auth URL'}`);
+                setConnectionNote(`Ably auth endpoint unavailable: ${ablyAuthUrl ?? 'missing auth URL'}`);
                 return;
             }
 

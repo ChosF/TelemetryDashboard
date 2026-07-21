@@ -16,6 +16,7 @@ Requirements:
 import asyncio
 import json
 import math
+import os
 import random
 import sys
 import time
@@ -37,9 +38,7 @@ except ImportError:
 # CONFIG  (same ESP32 uplink as maindata.py — not DASHBOARD_*)
 # ──────────────────────────────────────────────────────────────────────────────
 
-ESP32_ABLY_API_KEY = (
-    "ja_fwQ.K6CTEw:F-aWFMdJXPCv9MvxhYztCGna3XdRJZVgA0qm9pMfDOQ"
-)
+ESP32_ABLY_API_KEY = os.environ.get("ESP32_ABLY_API_KEY", "").strip()
 ESP32_CHANNEL_NAME = "EcoTele"
 PUBLISH_HZ      = 5          # messages per second
 INTERVAL        = 1 / PUBLISH_HZ
@@ -342,6 +341,10 @@ class SimState:
 # ──────────────────────────────────────────────────────────────────────────────
 
 async def run():
+    if not ESP32_ABLY_API_KEY:
+        print("[ERR] ESP32_ABLY_API_KEY is required in the environment")
+        return
+
     print("=" * 55)
     print("  EcoVolt Driver Dashboard — Mock Publisher")
     print("=" * 55)

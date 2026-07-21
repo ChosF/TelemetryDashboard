@@ -5,6 +5,12 @@
 
 import { createSignal, createMemo, batch } from 'solid-js';
 import type { UserProfile, UserRole } from '@/types/telemetry';
+import {
+    clearStoredSessionToken,
+    getStoredSessionToken,
+    isAuthStorageEvent,
+    persistSessionToken,
+} from '@/lib/authSession';
 
 // =============================================================================
 // CONSTANTS
@@ -65,48 +71,15 @@ interface AuthConvexClient {
     query: (name: string, args: Record<string, unknown>) => Promise<unknown>;
     mutation: (name: string, args: Record<string, unknown>) => Promise<unknown>;
     action: (name: string, args: Record<string, unknown>) => Promise<unknown>;
-    setAuth?: (fetchToken: () => Promise<string | null | undefined>) => void;
 }
 
 // Convex client reference (set during init)
 let convexClient: AuthConvexClient | null = null;
+let storageListenerRegistered = false;
 
 type AdminUserProfile = UserProfile & {
     _creationTime?: number;
 };
-
-function getStoredAuthToken(): string | null {
-    return localStorage.getItem('convex_auth_token')
-        ?? sessionStorage.getItem('convex_auth_token')
-        ?? localStorage.getItem('auth_session_token')
-        ?? sessionStorage.getItem('auth_session_token');
-}
-
-function persistAuthToken(token: string, rememberMe = true): void {
-    localStorage.removeItem('auth_session_token');
-    localStorage.removeItem('convex_auth_token');
-    sessionStorage.removeItem('auth_session_token');
-    sessionStorage.removeItem('convex_auth_token');
-
-    const primary = rememberMe ? localStorage : sessionStorage;
-    primary.setItem('auth_session_token', token);
-    primary.setItem('convex_auth_token', token);
-}
-
-function clearStoredAuthToken(): void {
-    localStorage.removeItem('auth_session_token');
-    localStorage.removeItem('convex_auth_token');
-    sessionStorage.removeItem('auth_session_token');
-    sessionStorage.removeItem('convex_auth_token');
-}
-
-function setConvexAuthToken(token: string | null): void {
-    try {
-        convexClient?.setAuth?.(() => Promise.resolve(token));
-    } catch {
-        // Some Convex client variants may not support setAuth in all contexts.
-    }
-}
 
 function requireAuthClient(): AuthConvexClient {
     if (!convexClient) {
@@ -116,7 +89,7 @@ function requireAuthClient(): AuthConvexClient {
 }
 
 function requireSessionToken(): string {
-    const token = sessionToken() ?? getStoredAuthToken();
+    const token = sessionToken() ?? getStoredSessionToken();
     if (!token) {
         throw new Error('Not authenticated');
     }
@@ -186,20 +159,28 @@ const canAccessAdmin = createMemo(() => hasPermission('canAccessAdmin'));
 async function initAuth(client: unknown): Promise<boolean> {
     convexClient = client as AuthConvexClient;
 
+    if (!storageListenerRegistered) {
+        window.addEventListener('storage', (event) => {
+            if (!isAuthStorageEvent(event)) return;
+            const token = getStoredSessionToken();
+            batch(() => {
+                setSessionToken(token);
+                if (!token) setUser(null);
+            });
+            if (token) void loadUserProfile();
+        });
+        window.addEventListener('online', () => {
+            if (sessionToken()) void loadUserProfile();
+        });
+        storageListenerRegistered = true;
+    }
+
     // Check for stored session
-    const storedToken = getStoredAuthToken();
+    const storedToken = getStoredSessionToken();
     if (storedToken) {
         setSessionToken(storedToken);
-        setConvexAuthToken(storedToken);
-        // Try to load profile
-        try {
-            await loadUserProfile();
-            return true;
-        } catch {
-            // Token invalid, clear it
-            clearStoredAuthToken();
-            setSessionToken(null);
-        }
+        await loadUserProfile();
+        return sessionToken() !== null;
     }
 
     return false;
@@ -221,12 +202,12 @@ async function loadUserProfile(): Promise<void> {
             setUser((profile as UserProfile | null) ?? null);
             if (!(profile as UserProfile | null)) {
                 setSessionToken(null);
-                clearStoredAuthToken();
+                clearStoredSessionToken();
             }
         });
     } catch (error) {
-        console.error('[AuthStore] Failed to load profile:', error);
-        setAuthError('Failed to load profile');
+        console.error('[AuthStore] Failed to load profile');
+        setAuthError(error instanceof Error ? error.message : 'Failed to load profile');
     } finally {
         setIsLoading(false);
     }
@@ -249,12 +230,9 @@ async function signIn(
 
     try {
         const result = await convexClient.action('auth:signIn', {
-            provider: 'password',
-            params: {
-                email,
-                password,
-                flow: 'signIn',
-            },
+            email,
+            password,
+            rememberMe,
         }) as { token?: string; error?: string };
 
         if (result?.error) {
@@ -265,9 +243,8 @@ async function signIn(
             throw new Error('Authentication succeeded without a session token');
         }
 
-        persistAuthToken(result.token, rememberMe);
+        persistSessionToken(result.token, rememberMe);
         setSessionToken(result.token);
-        setConvexAuthToken(result.token);
         await loadUserProfile();
         return { success: true };
     } catch (error) {
@@ -296,14 +273,14 @@ async function signUp(
     setAuthError(null);
 
     try {
-        const result = await convexClient.action('auth:signIn', {
-            provider: 'password',
-            params: {
-                email,
-                password,
-                name,
-                flow: 'signUp',
-            },
+        const normalizedRequestedRole = requestedRole === USER_ROLES.INTERNAL
+            ? USER_ROLES.INTERNAL
+            : USER_ROLES.EXTERNAL;
+        const result = await convexClient.action('auth:signUp', {
+            email,
+            password,
+            name: name || undefined,
+            requestedRole: normalizedRequestedRole,
         }) as { token?: string; userId?: string; error?: string };
 
         if (result?.error) {
@@ -314,22 +291,8 @@ async function signUp(
             throw new Error('Registration succeeded without creating a session');
         }
 
-        const isInternalRequest = requestedRole === USER_ROLES.INTERNAL;
-        const normalizedRole: UserRole = requestedRole === USER_ROLES.ADMIN
-            ? USER_ROLES.GUEST
-            : USER_ROLES.EXTERNAL;
-
-        await convexClient.mutation('users:upsertProfile', {
-            userId: result.userId,
-            email,
-            name,
-            role: normalizedRole,
-            requestedRole: isInternalRequest ? USER_ROLES.INTERNAL : undefined,
-        });
-
-        persistAuthToken(result.token, true);
+        persistSessionToken(result.token, true);
         setSessionToken(result.token);
-        setConvexAuthToken(result.token);
         await loadUserProfile();
         return { success: true };
     } catch (error) {
@@ -361,8 +324,7 @@ async function signOut(): Promise<void> {
         setAuthError(null);
     });
 
-    clearStoredAuthToken();
-    setConvexAuthToken(null);
+    clearStoredSessionToken();
 }
 
 async function getPendingUsers(): Promise<AdminUserProfile[]> {

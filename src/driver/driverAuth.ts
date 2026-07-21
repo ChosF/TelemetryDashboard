@@ -6,17 +6,9 @@
  */
 
 import { TELEMETRY_DASHBOARD_HREF } from '@/lib/appEntrypoints';
+import { getStoredSessionToken } from '@/lib/authSession';
 
 export type DriverAccessResult = 'allowed' | 'no_session' | 'forbidden' | 'error';
-
-function getStoredSessionToken(): string | null {
-    return (
-        localStorage.getItem('convex_auth_token')
-        ?? sessionStorage.getItem('convex_auth_token')
-        ?? localStorage.getItem('auth_session_token')
-        ?? sessionStorage.getItem('auth_session_token')
-    );
-}
 
 function getConvexUrl(): string {
     const cfg = (window as unknown as { CONFIG?: Record<string, string> }).CONFIG ?? {};

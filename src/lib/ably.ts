@@ -18,7 +18,6 @@ export type AblyConnectionState =
     | 'failed';
 
 interface AblyConfig {
-    apiKey?: string;
     authUrl?: string;
     clientId?: string;
 }
@@ -154,12 +153,10 @@ export async function initAbly(config: AblyConfig): Promise<boolean> {
             clientId: config.clientId ?? 'dashboard-web',
         };
 
-        if (config.apiKey) {
-            options.key = config.apiKey;
-        } else if (config.authUrl) {
+        if (config.authUrl) {
             options.authUrl = config.authUrl;
         } else {
-            console.error('[Ably] No API key or auth URL provided');
+            console.error('[Ably] No auth URL provided');
             return false;
         }
 

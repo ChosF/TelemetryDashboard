@@ -22,10 +22,8 @@ const ConvexBridge = (function () {
     let activeSubscriptions = new Map();
 
     function getAuthToken() {
-        return localStorage.getItem('convex_auth_token')
-            || sessionStorage.getItem('convex_auth_token')
-            || localStorage.getItem('auth_session_token')
-            || sessionStorage.getItem('auth_session_token');
+        return localStorage.getItem('ecovolt_auth_session_v2')
+            || sessionStorage.getItem('ecovolt_auth_session_v2');
     }
 
     function shouldRetryWithoutToken(error) {

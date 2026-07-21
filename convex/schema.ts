@@ -6,20 +6,64 @@ import {
 } from "./archiveValidators";
 
 export default defineSchema({
-  // Custom auth tables (simple email/password auth)
+  // Custom Convex-native auth tables. Passwords use versioned, adaptive hashes;
+  // session bearer tokens are never stored directly.
   authUsers: defineTable({
     email: v.string(),
+    normalizedEmail: v.optional(v.string()),
     passwordHash: v.string(),
     name: v.optional(v.string()),
+    passwordUpdatedAt: v.optional(v.number()),
   })
-    .index("by_email", ["email"]),
+    .index("by_email", ["email"])
+    .index("by_normalizedEmail", ["normalizedEmail"]),
 
   authSessions: defineTable({
     userId: v.id("authUsers"),
-    token: v.string(),
+    // `token` is retained only so the schema can migrate existing rows. New
+    // sessions set tokenHash and never persist the bearer token itself.
+    token: v.optional(v.string()),
+    tokenHash: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    lastSeenAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    persistent: v.optional(v.boolean()),
+    revokedAt: v.optional(v.number()),
   })
-    .index("by_token", ["token"])
+    .index("by_tokenHash", ["tokenHash"])
     .index("by_userId", ["userId"]),
+
+  authRateLimits: defineTable({
+    key: v.string(),
+    attempts: v.number(),
+    windowStartedAt: v.number(),
+    blockedUntil: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_key", ["key"]),
+
+  authAuditLog: defineTable({
+    event: v.union(
+      v.literal("sign_up_succeeded"),
+      v.literal("sign_up_rejected"),
+      v.literal("sign_up_blocked"),
+      v.literal("sign_in_succeeded"),
+      v.literal("sign_in_failed"),
+      v.literal("sign_in_blocked"),
+      v.literal("sign_out"),
+      v.literal("session_expired"),
+      v.literal("role_changed"),
+      v.literal("user_rejected"),
+      v.literal("user_banned"),
+      v.literal("user_deleted")
+    ),
+    userId: v.optional(v.id("authUsers")),
+    emailHash: v.optional(v.string()),
+    actorUserId: v.optional(v.id("authUsers")),
+    createdAt: v.number(),
+  })
+    .index("by_createdAt", ["createdAt"])
+    .index("by_userId_createdAt", ["userId", "createdAt"]),
 
   // Session metadata table — ONE document per session.
   // Maintained by insertTelemetryBatch so listSessions is O(sessions) not O(records).

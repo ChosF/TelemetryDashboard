@@ -5,6 +5,7 @@
 
 import type { TelemetryRecord, TelemetrySession } from '@/types/telemetry';
 import { debugRewind } from '@/lib/rewindDebug';
+import { getStoredSessionToken } from '@/lib/authSession';
 
 // =============================================================================
 // TYPES
@@ -106,11 +107,7 @@ let isInitialized = false;
 const activeSubscriptions = new Map<string, Unsubscribe>();
 
 function getAuthToken(): string | undefined {
-    return localStorage.getItem('convex_auth_token')
-        ?? sessionStorage.getItem('convex_auth_token')
-        ?? localStorage.getItem('auth_session_token')
-        ?? sessionStorage.getItem('auth_session_token')
-        ?? undefined;
+    return getStoredSessionToken() ?? undefined;
 }
 
 function shouldRetryWithoutToken(error: unknown): boolean {

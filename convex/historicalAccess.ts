@@ -1,7 +1,7 @@
 import type { QueryCtx } from "./_generated/server";
+import { getCurrentUserId } from "./authHelpers";
 
 export const EXTERNAL_HISTORICAL_LIMIT_DAYS = 7;
-const AUTH_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type HistoricalAccess = {
   role: "guest" | "external" | "internal" | "admin";
@@ -17,19 +17,15 @@ export async function getHistoricalAccess(
     return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
   }
 
-  const session = await ctx.db
-    .query("authSessions")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .first();
-
-  if (!session || Date.now() - session._creationTime > AUTH_SESSION_TTL_MS) {
+  const userId = await getCurrentUserId(ctx, token);
+  if (!userId) {
     return { role: "guest", canViewHistorical: false, historicalLimitDays: 0 };
   }
 
   const profile = await ctx.db
     .query("user_profiles")
-    .withIndex("by_userId", (q) => q.eq("userId", session.userId))
-    .first();
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .unique();
 
   const role = profile?.role ?? "guest";
   if (role === "admin" || role === "internal") {

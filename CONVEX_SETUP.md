@@ -114,10 +114,8 @@ The frontend configuration is set in `public/index.html`:
 <script>
   window.CONFIG = {
     ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
-    // Option 1: Direct API key (simpler, but exposes key in client)
-    ABLY_API_KEY: "your-ably-api-key",
-    // Option 2: Use Convex HTTP endpoint for token auth (more secure)
-    // ABLY_AUTH_URL: "https://your-project.convex.site/ably/token",
+    // Browser clients must use the Convex HTTP action; never embed an Ably key.
+    ABLY_AUTH_URL: "https://your-project.convex.site/ably/token",
     CONVEX_URL: "https://your-project-name-123.convex.cloud",
   };
 </script>
@@ -439,7 +437,7 @@ pip install convex ably numpy
 CONVEX_URL = "https://your-project-name-123.convex.cloud"
 
 # Ably configuration
-DASHBOARD_ABLY_API_KEY = "your-ably-api-key"
+DASHBOARD_ABLY_API_KEY = "set-this-in-the-process-environment"
 DASHBOARD_CHANNEL_NAME = "telemetry-dashboard-channel"
 ```
 

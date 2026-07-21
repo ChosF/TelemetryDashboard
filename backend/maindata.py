@@ -73,34 +73,20 @@ _load_env_from_files()
 # Configuration
 # ------------------------------
 
-# ESP32 MQTT source
-ESP32_ABLY_API_KEY = (
-    "ja_fwQ.K6CTEw:F-aWFMdJXPCv9MvxhYztCGna3XdRJZVgA0qm9pMfDOQ"
-)
-# Driver dashboard (driver.html / ablyDriver.ts) subscribes here for raw ESP32 telemetry — keep names in sync.
-ESP32_CHANNEL_NAME = "EcoTele"
+# ESP32 MQTT source. Secrets are loaded only from environment/.env files.
+ESP32_ABLY_API_KEY = os.environ.get("ESP32_ABLY_API_KEY", "").strip()
+# Driver dashboard subscribes here for raw ESP32 telemetry — keep names in sync.
+ESP32_CHANNEL_NAME = os.environ.get("ESP32_CHANNEL_NAME", "EcoTele").strip()
 
 # Dashboard output
-DASHBOARD_ABLY_API_KEY = (
-    "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ"
-)
-DASHBOARD_CHANNEL_NAME = "telemetry-dashboard-channel"
+DASHBOARD_ABLY_API_KEY = os.environ.get("DASHBOARD_ABLY_API_KEY", "").strip()
+DASHBOARD_CHANNEL_NAME = os.environ.get("DASHBOARD_CHANNEL_NAME", "telemetry-dashboard-channel").strip()
 
-# -----------------------------------------------------------------------------
-# Convex — team production deployment (edit here; env vars override if set)
-#   Cloud URL          → ConvexClient / HTTP API (mutations)
-#   HTTP Actions URL   → routes on .convex.site (e.g. /ably/token)
-#   Deploy key         → server-side HTTP API auth (Dashboard → Deploy keys)
-# -----------------------------------------------------------------------------
+# Convex deployment. The URL is public; the deploy key must be provided via environment.
 CONVEX_CLOUD_URL = "https://wonderful-kookabura-432.convex.cloud"
 CONVEX_HTTP_ACTIONS_URL = "https://wonderful-kookabura-432.convex.site"
-CONVEX_DEPLOY_KEY_DEFAULT = (
-    "prod:wonderful-kookabura-432|"
-    "eyJ2MiI6IjkwYTVjYjA0MjM0NjRiNzdhMzIyM2VmOWNhYjlhMDViIn0="
-)
-
 CONVEX_URL = os.environ.get("CONVEX_URL", CONVEX_CLOUD_URL).strip()
-CONVEX_DEPLOY_KEY = os.environ.get("CONVEX_DEPLOY_KEY", CONVEX_DEPLOY_KEY_DEFAULT).strip()
+CONVEX_DEPLOY_KEY = os.environ.get("CONVEX_DEPLOY_KEY", "").strip()
 
 # Timings
 MOCK_DATA_INTERVAL = 0.2  # seconds
@@ -2307,6 +2293,11 @@ class TelemetryBridgeWithDB:
     async def connect_esp32_subscriber(self) -> bool:
         if self.mock_mode:
             return True
+        if not ESP32_ABLY_API_KEY:
+            logger.error(
+                "ESP32_ABLY_API_KEY is required when the bridge is not in mock mode."
+            )
+            return False
         try:
             self.esp32_client = AblyRealtime(ESP32_ABLY_API_KEY)
             await self._wait_for_connection(self.esp32_client, "ESP32", CONNECTION_TIMEOUT)
@@ -2322,6 +2313,9 @@ class TelemetryBridgeWithDB:
             return False
 
     async def connect_dashboard_publisher(self) -> bool:
+        if not DASHBOARD_ABLY_API_KEY:
+            logger.error("DASHBOARD_ABLY_API_KEY is required to publish telemetry.")
+            return False
         try:
             self.dashboard_client = AblyRealtime(DASHBOARD_ABLY_API_KEY)
             await self._wait_for_connection(self.dashboard_client, "Dashboard", CONNECTION_TIMEOUT)

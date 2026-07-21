@@ -34,17 +34,21 @@ const ESP32_BINARY_SIZE = 6 * 4 + 4; // 6x float32 + uint32
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface DriverAblyConfig {
-    apiKey?: string;
     authUrl?: string;
     channelName: string;
 }
 
 function getConfig(): DriverAblyConfig {
     const cfg = (window as unknown as { CONFIG?: Record<string, string> }).CONFIG ?? {};
+    const convexUrl = cfg.CONVEX_URL || '';
+    const rawAuthUrl = cfg.ABLY_ESP32_AUTH_URL || cfg.ABLY_AUTH_URL || '/ably/token';
+    const convexSiteUrl = convexUrl.includes('.convex.cloud')
+        ? convexUrl.replace('.convex.cloud', '.convex.site')
+        : convexUrl;
     return {
-        // Device channel credentials (required for EcoTele / ESP32 publish key)
-        apiKey: cfg.ABLY_ESP32_API_KEY || cfg.ABLY_API_KEY || cfg.DASHBOARD_ABLY_API_KEY,
-        authUrl: cfg.ABLY_ESP32_AUTH_URL || cfg.ABLY_AUTH_URL,
+        authUrl: /^https?:\/\//.test(rawAuthUrl)
+            ? rawAuthUrl
+            : `${convexSiteUrl}${rawAuthUrl.startsWith('/') ? rawAuthUrl : `/${rawAuthUrl}`}`,
         channelName: cfg.ABLY_ESP32_CHANNEL_NAME || 'EcoTele',
     };
 }
@@ -204,12 +208,10 @@ export function connectDriverAbly(): () => void {
         suspendedRetryTimeout: 5000,
     };
 
-    if (config.apiKey) {
-        opts.key = config.apiKey;
-    } else if (config.authUrl) {
+    if (config.authUrl) {
         opts.authUrl = config.authUrl;
     } else {
-        console.error('[Driver Ably] No API key or auth URL configured (set ABLY_ESP32_API_KEY or ABLY_API_KEY)');
+        console.error('[Driver Ably] No auth URL configured');
         driverStore.setConnectionState('failed');
         return () => {};
     }

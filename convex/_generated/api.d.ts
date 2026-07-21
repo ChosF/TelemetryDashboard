@@ -12,6 +12,8 @@ import type * as archiveActions from "../archiveActions.js";
 import type * as archiveValidators from "../archiveValidators.js";
 import type * as archives from "../archives.js";
 import type * as auth from "../auth.js";
+import type * as authHelpers from "../authHelpers.js";
+import type * as authInternal from "../authInternal.js";
 import type * as config from "../config.js";
 import type * as crons from "../crons.js";
 import type * as driverNotifications from "../driverNotifications.js";
@@ -32,6 +34,8 @@ declare const fullApi: ApiFromModules<{
   archiveValidators: typeof archiveValidators;
   archives: typeof archives;
   auth: typeof auth;
+  authHelpers: typeof authHelpers;
+  authInternal: typeof authInternal;
   config: typeof config;
   crons: typeof crons;
   driverNotifications: typeof driverNotifications;

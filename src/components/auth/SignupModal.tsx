@@ -34,13 +34,24 @@ export function SignupModal(props: SignupModalProps): JSX.Element {
             return false;
         }
 
-        if (!password().trim()) {
+        if (password().length === 0) {
             setError('Password is required');
             return false;
         }
 
-        if (password().length < 8) {
-            setError('Password must be at least 8 characters');
+        if (password().length < 12) {
+            setError('Password must be at least 12 characters');
+            return false;
+        }
+
+        if (password().length > 128) {
+            setError('Password must be at most 128 characters');
+            return false;
+        }
+
+        const normalizedName = name().normalize('NFKC').trim().replace(/\s+/g, ' ');
+        if (normalizedName && !/^[\p{L}\p{M}\p{N} .'-]+$/u.test(normalizedName)) {
+            setError('Name contains unsupported characters');
             return false;
         }
 
@@ -121,6 +132,7 @@ export function SignupModal(props: SignupModalProps): JSX.Element {
                             onInput={(e) => setName(e.currentTarget.value)}
                             placeholder="Your name"
                             autocomplete="name"
+                            maxlength={80}
                         />
                     </div>
 
@@ -134,6 +146,7 @@ export function SignupModal(props: SignupModalProps): JSX.Element {
                             onInput={(e) => setEmail(e.currentTarget.value)}
                             placeholder="your@email.com"
                             autocomplete="email"
+                            maxlength={254}
                             required
                         />
                     </div>
@@ -146,8 +159,10 @@ export function SignupModal(props: SignupModalProps): JSX.Element {
                             type="password"
                             value={password()}
                             onInput={(e) => setPassword(e.currentTarget.value)}
-                            placeholder="Min 8 characters"
+                            placeholder="Min 12 characters"
                             autocomplete="new-password"
+                            minlength={12}
+                            maxlength={128}
                             required
                         />
                     </div>
@@ -162,6 +177,8 @@ export function SignupModal(props: SignupModalProps): JSX.Element {
                             onInput={(e) => setConfirmPassword(e.currentTarget.value)}
                             placeholder="Repeat password"
                             autocomplete="new-password"
+                            minlength={12}
+                            maxlength={128}
                             required
                         />
                     </div>

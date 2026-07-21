@@ -51,8 +51,8 @@ flowchart LR
     end
 
     subgraph Step2["Step 2"]
-        B1[Update index.html] --> B2[Set CONVEX_URL]
-        B2 --> B3[Set ABLY config]
+        B1[Set Convex server environment] --> B2[Verify .env.production]
+        B2 --> B3[Build Vite entries]
     end
 
     subgraph Step3["Step 3"]
@@ -113,10 +113,10 @@ flowchart TB
         S3[⚠️ Never expose in frontend!]
     end
 
-    subgraph ClientSide["✅ Client-Side (index.html)"]
+    subgraph ClientSide["✅ Client-Side (Vite build/runtime)"]
         direction TB
-        C1["CONVEX_URL"] --> C2["https://your-project.convex.cloud"]
-        C3["ABLY_AUTH_URL"] --> C4["https://your-project.convex.site/ably/token"]
+        C1["VITE_CONVEX_URL"] --> C2["https://your-project.convex.cloud"]
+        C3["Derived ABLY_AUTH_URL"] --> C4["https://your-project.convex.site/ably/token"]
         C5["ABLY_CHANNEL_NAME"] --> C6["telemetry-dashboard-channel"]
     end
 
@@ -130,6 +130,13 @@ In Convex Dashboard → Settings → Environment Variables, add:
 | Variable | Description | Where to Get It |
 |----------|-------------|-----------------|
 | `ABLY_API_KEY` | Ably API key for token generation | [Ably Dashboard](https://ably.com/dashboard) → Your App → API Keys |
+| `AUTH_PASSWORD_PEPPER` | High-entropy secret mixed into new password hashes | Generate and store as a deployment secret |
+| `ALLOWED_WEB_ORIGINS` | Comma-separated HTTPS origins allowed to call HTTP actions | Production Vercel/custom domains |
+
+These are Convex deployment variables; hosted functions do **not** read them
+from `.env.production`. Configure production values in the Convex dashboard or
+with `npx convex env set NAME --prod`. Keep secret values out of shell history,
+source files, and all `VITE_*` variables.
 
 ---
 
@@ -153,8 +160,8 @@ git push origin main
 4. **Configure Your Project**
    - **Framework Preset**: Other
    - **Root Directory**: `./`
-   - **Build Command**: Leave as default
-   - **Output Directory**: `public`
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
 
 5. **Deploy**
    - Click "Deploy"
@@ -187,43 +194,45 @@ vercel --prod
 
 ## Part 3: Configure Frontend for Production
 
-### Update public/index.html
+### Configure the production frontend
 
-Before deploying, update the configuration in `public/index.html`:
+`.env.production` contains only browser-safe build configuration:
 
-```html
-<script>
-  window.CONFIG = {
-    ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",
-    // For production, use token auth (more secure):
-    ABLY_AUTH_URL: "https://your-project.convex.site/ably/token",
-    // Your Convex deployment URL:
-    CONVEX_URL: "https://your-project.convex.cloud",
-  };
-</script>
+```dotenv
+VITE_CONVEX_URL=https://your-project.convex.cloud
 ```
 
-### Security Recommendation
+The dashboard and driver entry points derive the corresponding
+`https://your-project.convex.site/ably/token` URL at runtime. Do not add Ably
+keys, the password pepper, deploy keys, or other secrets to `.env.production`.
+`vite.config.ts` builds the landing, dashboard, and driver entries to `dist/`,
+and `vercel.json` supplies the production rewrites and security headers.
+
+### Security requirements
 
 For production:
-1. Remove `ABLY_API_KEY` from frontend code
-2. Use `ABLY_AUTH_URL` pointing to Convex HTTP endpoint
-3. Set `ABLY_API_KEY` in Convex environment variables only
+1. Keep `ABLY_API_KEY` in Convex environment variables only.
+2. Keep `AUTH_PASSWORD_PEPPER` in Convex environment variables only.
+3. Restrict `ALLOWED_WEB_ORIGINS` to the actual production origins.
+4. Rotate any credential that was previously committed or shipped to a browser.
 
 ---
 
 ## Part 4: Configure Python Bridge
 
-### Update backend/maindata.py
+### Configure backend/maindata.py
 
-```python
-# Production Convex URL
-CONVEX_URL = "https://your-project.convex.cloud"
-
-# Ably configuration
-DASHBOARD_ABLY_API_KEY = "your-ably-api-key"
-DASHBOARD_CHANNEL_NAME = "telemetry-dashboard-channel"
+```dotenv
+CONVEX_URL=https://your-project.convex.cloud
+CONVEX_DEPLOY_KEY=
+ESP32_ABLY_API_KEY=
+DASHBOARD_ABLY_API_KEY=
+ESP32_CHANNEL_NAME=EcoTele
+DASHBOARD_CHANNEL_NAME=telemetry-dashboard-channel
 ```
+
+Put these values in the bridge process environment or an untracked
+`.env.local`. Never put them in frontend configuration.
 
 ### Deploy Python Bridge
 

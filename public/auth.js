@@ -1,5 +1,5 @@
-/* auth.js — Authentication and user management with Convex Auth
-   - Handles login, signup, logout via Convex Auth
+/* auth.js — Authentication and user management with Convex
+   - Handles login, signup, and logout through Convex actions
    - Role-based access control
    - User profile management
 */
@@ -12,6 +12,40 @@
   let currentProfile = null;
   let authUnsubscribe = null;
   let authStateUnsubscribe = null;
+  const AUTH_STORAGE_KEY = 'ecovolt_auth_session_v2';
+  const LEGACY_AUTH_STORAGE_KEYS = ['convex_auth_token', 'auth_session_token'];
+  const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+  function clearStoredToken() {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    LEGACY_AUTH_STORAGE_KEYS.forEach(key => {
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
+    });
+  }
+
+  function getAuthToken() {
+    const token = localStorage.getItem(AUTH_STORAGE_KEY)
+      || sessionStorage.getItem(AUTH_STORAGE_KEY);
+    LEGACY_AUTH_STORAGE_KEYS.forEach(key => {
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
+    });
+    if (!token || !SESSION_TOKEN_PATTERN.test(token)) {
+      if (token) clearStoredToken();
+      return null;
+    }
+    return token;
+  }
+
+  function persistAuthToken(token, rememberMe) {
+    if (!SESSION_TOKEN_PATTERN.test(token)) {
+      throw new Error('The server returned an invalid session token');
+    }
+    clearStoredToken();
+    (rememberMe ? localStorage : sessionStorage).setItem(AUTH_STORAGE_KEY, token);
+  }
 
   // User roles and their permissions
   const USER_ROLES = {
@@ -91,7 +125,6 @@
       // Subscribe to profile changes
       subscribeToAuthState();
 
-      console.log('✅ Auth initialized with Convex');
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize auth:', error);
@@ -104,16 +137,13 @@
    */
   async function checkStoredSession() {
     try {
-      const storedToken = localStorage.getItem('convex_auth_token') || sessionStorage.getItem('convex_auth_token');
+      const storedToken = getAuthToken();
       if (storedToken) {
-        // setAuth expects a function that returns the token
-        convexClient.setAuth(() => Promise.resolve(storedToken));
         await loadUserProfile();
       }
     } catch (error) {
       console.log('No stored session found');
-      localStorage.removeItem('convex_auth_token');
-      sessionStorage.removeItem('convex_auth_token');
+      clearStoredToken();
     }
   }
 
@@ -137,6 +167,10 @@
       { token },
       (profile) => {
         currentProfile = profile;
+        if (!profile) {
+          currentUser = null;
+          clearStoredToken();
+        }
 
         // Dispatch auth state change event
         window.dispatchEvent(new CustomEvent('auth-state-changed', {
@@ -144,13 +178,6 @@
         }));
       }
     );
-  }
-
-  /**
-   * Get current auth token
-   */
-  function getAuthToken() {
-    return localStorage.getItem('convex_auth_token') || sessionStorage.getItem('convex_auth_token');
   }
 
   /**
@@ -170,8 +197,10 @@
       currentProfile = profile;
       if (profile) {
         currentUser = { email: profile.email, name: profile.name };
+      } else {
+        currentUser = null;
+        clearStoredToken();
       }
-      console.log('✅ Profile loaded:', profile);
       return profile;
     } catch (error) {
       console.log('No profile found (user may not be authenticated)');
@@ -188,44 +217,21 @@
     }
 
     try {
-      console.log('📝 Signing up user...', { email, requestedRole, name });
-
-      // Call Convex Auth signIn action with signUp flow
-      const result = await convexClient.action('auth:signIn', {
-        provider: 'password',
-        params: {
-          email,
-          password,
-          name,
-          flow: 'signUp'
-        }
+      const isInternalRequest = requestedRole === 'internal_user' || requestedRole === USER_ROLES.INTERNAL;
+      const result = await convexClient.action('auth:signUp', {
+        email,
+        password,
+        name: name || undefined,
+        requestedRole: isInternalRequest ? USER_ROLES.INTERNAL : USER_ROLES.EXTERNAL
       });
 
       if (result?.error) {
         throw new Error(result.error);
       }
 
-      // Store the auth token
       if (result?.token) {
-        localStorage.setItem('convex_auth_token', result.token);
-        // setAuth expects a function that returns the token
-        convexClient.setAuth(() => Promise.resolve(result.token));
+        persistAuthToken(result.token, true);
       }
-
-      // Create/update user profile after signup
-      // Map form values to schema-compatible roles
-      // Form uses "internal_user" but schema expects "internal"
-      const isInternalRequest = requestedRole === 'internal_user' || requestedRole === USER_ROLES.INTERNAL;
-      const isExternalRequest = requestedRole === 'external_user' || requestedRole === 'external' || requestedRole === USER_ROLES.EXTERNAL;
-      const normalizedRole = isInternalRequest ? 'external' : (isExternalRequest ? 'external' : 'guest');
-
-      await convexClient.mutation('users:upsertProfile', {
-        userId: result.userId,  // Pass userId directly from signIn result
-        email,
-        name,
-        role: normalizedRole,
-        requestedRole: isInternalRequest ? 'internal' : undefined,
-      });
 
       currentUser = { email, name };
       await loadUserProfile();
@@ -255,29 +261,18 @@
     }
 
     try {
-      // Call Convex Auth signIn action
       const result = await convexClient.action('auth:signIn', {
-        provider: 'password',
-        params: {
-          email,
-          password,
-          flow: 'signIn'
-        }
+        email,
+        password,
+        rememberMe
       });
 
       if (result?.error) {
         throw new Error(result.error);
       }
 
-      // Store the auth token
       if (result?.token) {
-        if (rememberMe) {
-          localStorage.setItem('convex_auth_token', result.token);
-        } else {
-          sessionStorage.setItem('convex_auth_token', result.token);
-        }
-        // setAuth expects a function that returns the token
-        convexClient.setAuth(() => Promise.resolve(result.token));
+        persistAuthToken(result.token, rememberMe);
       }
 
       currentUser = { email };
@@ -307,7 +302,7 @@
     }
 
     try {
-      await convexClient.action('auth:signOut', {});
+      await convexClient.action('auth:signOut', { token: getAuthToken() || undefined });
     } catch (error) {
       console.log('Sign out action error (may be expected):', error.message);
     }
@@ -315,14 +310,7 @@
     // Clear local state
     currentUser = null;
     currentProfile = null;
-    localStorage.removeItem('convex_auth_token');
-    sessionStorage.removeItem('convex_auth_token');
-    // Clear auth by setting to null-returning function
-    try {
-      convexClient.setAuth(() => Promise.resolve(null));
-    } catch (e) {
-      // Ignore if clearAuth fails
-    }
+    clearStoredToken();
 
     // Dispatch auth state change
     window.dispatchEvent(new CustomEvent('auth-state-changed', {

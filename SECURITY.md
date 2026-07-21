@@ -1,352 +1,109 @@
 # Security Guidelines
 
-## Overview
+## Security model
 
-This application uses Convex as the backend, which provides built-in security features. This guide outlines the security architecture and best practices.
+EcoVolt uses a Convex-native email/password system. Convex functions are the trust boundary: browser role checks are only UI affordances, and every protected query or mutation must validate the session and permission again on the server.
 
-## Architecture Security
+The authentication implementation is split by responsibility:
 
-### Convex Security Model
+- `convex/auth.ts`: Node actions for password hashing and public sign-in/sign-up/sign-out flows.
+- `convex/authInternal.ts`: transactional account, session, rate-limit, expiry, and audit-log operations.
+- `convex/authHelpers.ts`: shared session validation for protected Convex functions.
+- `convex/users.ts`: server-enforced role and account administration.
+- `src/lib/authSession.ts`: the single browser session-storage contract used by the Solid dashboard and driver cockpit.
+- `public/auth.js`: equivalent session handling for the active vanilla historical application.
 
-Convex provides several built-in security features:
-- **Automatic HTTPS**: All connections are encrypted
-- **Authentication**: Built-in session management with secure tokens
-- **Authorization**: Role-based access control in mutation/query handlers
-- **Input Validation**: Type-safe arguments via Convex validators
-- **No SQL Injection**: NoSQL database with type-safe queries
+## Passwords and registration
 
-### Data Flow Security
+- New passwords must be 12–128 characters. Unicode and whitespace are allowed and passwords are never silently trimmed.
+- Passwords are hashed with scrypt (`N=2^17`, `r=8`, `p=1`) and a unique 128-bit salt.
+- Hashes are versioned so work factors can be upgraded later.
+- Legacy fast SHA-256 hashes are accepted only for a successful login and immediately replaced with scrypt.
+- `AUTH_PASSWORD_PEPPER` is optional but strongly recommended. Configure it as a high-entropy Convex environment variable before creating accounts. Do not change or remove it without a password-migration plan.
+- Email is normalized and length/format checked on the server.
+- Display names are normalized, limited to 80 characters, and restricted to plain-name characters. They are still treated as untrusted when rendered.
+- Registration can request only `external` or `internal`. Account and profile creation happen in one server transaction; the client cannot provide a user ID, effective role, or approval state.
+- Sign-in and sign-up are rate-limited per normalized-email digest. Error messages do not reveal whether an account exists.
 
-```mermaid
-flowchart TB
-    subgraph ServerTrust["Server-Side Trust Boundary"]
-        subgraph Convex["Convex Cloud"]
-            EnvVars["Environment Variables<br/>ABLY_API_KEY (secret)"]
-            PwdHash["Password Hashes<br/>SHA-256 + salt"]
-            Sessions["Session Tokens<br/>32-byte random hex"]
-            AuthChecks["Authorization Checks<br/>• Token validation<br/>• Role verification<br/>• Input sanitization"]
-        end
-    end
+## Sessions
 
-    subgraph ClientBoundary["🌐 Client-Side Boundary"]
-        subgraph Browser["Browser"]
-            SafeConfig["Safe Config<br/>CONVEX_URL<br/>CHANNEL_NAME"]
-            UserToken["Session Token<br/>localStorage"]
-            NoAccess["❌ No Access To<br/>API Keys<br/>Passwords<br/>Other Users"]
-        end
-    end
+- Session identifiers contain 256 bits of cryptographic randomness.
+- Convex stores only SHA-256 digests of session tokens, never the bearer tokens themselves.
+- Non-remembered sessions expire after 12 hours and live in `sessionStorage`.
+- “Remember me” sessions expire after 30 days and live in `localStorage`.
+- A user can have at most eight current sessions. Creating another removes the oldest.
+- Expiry is enforced during validation and by a durable scheduled Convex mutation.
+- Sign-out deletes the server-side session. Banning or deleting a user revokes every session.
+- Old `convex_auth_token` and `auth_session_token` browser keys are removed. Legacy database sessions are invalid because they have no token digest and are removed when that user next signs in.
 
-    ServerTrust <-->|"HTTPS Only<br/>TLS 1.3"| ClientBoundary
-```
+The browser storage key is `ecovolt_auth_session_v2`. Do not introduce aliases or duplicate a token across both storage types; that was the cause of the previous “Remember me” persistence failures.
 
-### Authentication Flow
+### Browser-storage limitation
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant B as Browser
-    participant C as Convex
+Because the current application is a static multi-page SPA that calls Convex directly, JavaScript must be able to read its bearer token. A successful same-origin XSS exploit could therefore steal a remembered token. The application reduces this risk through strict server input validation, Solid's escaped text rendering, explicit output encoding in the vanilla admin UI, short/capped sessions, server-side token hashing, and restrictive response headers.
 
-    rect rgb(200, 230, 200)
-        Note over U,C: Sign Up Flow
-        U->>B: Enter email, password, name
-        B->>C: auth:signIn (flow: signUp)
-        C->>C: Hash password (SHA-256 + salt)
-        C->>C: Create authUser record
-        C->>C: Create user_profile
-        C->>C: Generate 64-char session token
-        C->>B: Return token + userId
-        B->>B: Store in localStorage
-    end
-
-    rect rgb(200, 200, 230)
-        Note over U,C: Sign In Flow
-        U->>B: Enter email, password
-        B->>C: auth:signIn
-        C->>C: Lookup user by email
-        C->>C: Verify password hash
-        C->>C: Generate new session token
-        C->>B: Return token
-        B->>B: Store in localStorage
-    end
-
-    rect rgb(230, 200, 200)
-        Note over U,C: Session Validation (Every Request)
-        B->>C: Query/Mutation + token
-        C->>C: Lookup session by_token index
-        C->>C: Check expiry (< 24hrs?)
-        alt Valid Session
-            C->>C: Execute function
-            C->>B: Return result
-        else Invalid/Expired
-            C->>B: Return null/error
-        end
-    end
-```
-
-## Secrets Management
-
-### What Goes Where
-
-| Secret | Storage Location | Exposure |
-|--------|-----------------|----------|
-| `ABLY_API_KEY` | Convex Environment Variables | Server-side only |
-| Session Tokens | localStorage (client), Convex DB (server) | Per-user |
-| Password Hashes | Convex `authUsers` table | Server-side only |
-| Convex URL | Frontend config | Safe to expose |
-| Ably Channel Name | Frontend config | Safe to expose |
-
-### Environment Variables in Convex
-
-Set environment variables in Convex Dashboard:
-
-1. Go to [dashboard.convex.dev](https://dashboard.convex.dev)
-2. Select your project
-3. Navigate to Settings → Environment Variables
-4. Add variables (they're only accessible in server-side functions)
-
-### Frontend Configuration
-
-The frontend config in `public/index.html` contains only safe-to-expose values:
-
-```javascript
-window.CONFIG = {
-  ABLY_CHANNEL_NAME: "telemetry-dashboard-channel",  // Safe
-  ABLY_AUTH_URL: "/ably/token",                      // Safe - URL only
-  CONVEX_URL: "https://your-project.convex.cloud",   // Safe
-};
-```
-
-**Never include in frontend config:**
-- `ABLY_API_KEY` (use `ABLY_AUTH_URL` instead)
-- Database credentials
-- Service account keys
-
-## Authentication Security
-
-### Password Storage
-
-Passwords are hashed using SHA-256 with a salt before storage:
-
-```typescript
-// In convex/auth.ts
-async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + "ecovolt-salt-v1");
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  // ... convert to hex string
-}
-```
-
-**Note**: For production systems handling sensitive data, consider upgrading to bcrypt or Argon2.
-
-### Session Management
-
-- Sessions are stored in Convex with secure random tokens
-- Tokens expire after 24 hours
-- Tokens are validated on every authenticated request
-- Sign out invalidates the session server-side
-
-### Token Security
-
-```javascript
-// Token format: 64-character hex string (32 random bytes)
-// Example: "a1b2c3d4e5f6..."
-
-// Storage: localStorage (client-side)
-localStorage.setItem('convex_auth_token', token);
-
-// Transmission: Passed as argument to Convex functions
-await ConvexBridge.getCurrentProfile(token);
-```
+If the threat model later requires tokens to be unreadable by JavaScript, place authentication behind a same-origin backend-for-frontend and use `HttpOnly; Secure; SameSite=Strict` cookies. Do not switch to JavaScript-created cookies; they do not provide the HttpOnly protection.
 
 ## Authorization
 
-### Role-Based Access Control
-
+Roles are `guest`, `external`, `internal`, and `admin`.
 
 | Feature | Guest | External | Internal | Admin |
-|---------|:-----:|:--------:|:--------:|:-----:|
-| Live telemetry | ✅ | ✅ | ✅ | ✅ |
-| CSV export | ❌ | ≤1000 | Unlimited | Unlimited |
-| Historical sessions | ❌ | Last only | All | All |
-| Historical data points in analysis/export | ❌ | ≤1000 total | Unlimited | Unlimited |
-| Custom analysis view | ❌ | ❌ | ✅ | ✅ |
-| Admin panel | ❌ | ❌ | ❌ | ✅ |
+|---|:---:|:---:|:---:|:---:|
+| Live telemetry | Yes | Yes | Yes | Yes |
+| CSV export | No | Limited | Unlimited | Unlimited |
+| Historical sessions | No | Recent only | All | All |
+| Driver cockpit | No | No | Yes | Yes |
+| User administration | No | No | No | Yes |
 
-Four user roles with increasing privileges:
+Administrative rules are enforced in Convex:
 
-| Role | Capabilities |
-|------|-------------|
-| `guest` | View real-time data only |
-| `external` | + Download limited CSV, view last session |
-| `internal` | + Unlimited CSV, all sessions |
-| `admin` | + User management, approve requests |
+- unauthenticated or non-admin callers cannot list or modify users;
+- admins cannot change, ban, or delete themselves;
+- the final admin cannot be demoted, banned, or deleted;
+- banning revokes all target-user sessions;
+- rejected access-upgrade requests do not implicitly ban an external account;
+- public profile-by-email/user-ID lookups and the old unauthenticated profile-upsert endpoint do not exist.
 
-### Server-Side Authorization
+## XSS and untrusted content
 
-Authorization is checked in Convex functions:
+- Never interpolate account fields into `innerHTML`. Solid JSX text expressions escape values automatically; vanilla code must call `escapeHtml` or build nodes with `textContent`.
+- Keep validation on the server even when equivalent browser constraints improve feedback.
+- Never log passwords, session tokens, complete authentication payloads, or secrets.
+- Do not use user-controlled strings as HTML, URLs, CSS, event-handler attributes, selectors, or script source.
+- The active historical application contains legacy dynamic HTML and a custom-analysis expression evaluator. Treat changes there as security-sensitive and keep authentication/user data out of those sinks.
 
-```typescript
-// Example from convex/users.ts
-export const getAllUsers = query({
-  args: { token: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    // Verify token and get user ID
-    const userId = await getCurrentUserId(ctx, args.token);
-    if (!userId) return [];
+## Ably browser access
 
-    // Check role
-    const profile = await ctx.db.query("user_profiles")
-      .withIndex("by_userId", q => q.eq("userId", userId))
-      .first();
+- Browser code never accepts or embeds an Ably API key. It obtains a one-hour signed token request from the Convex `/ably/token` HTTP action.
+- Browser capabilities are limited to `subscribe` and `history` on the dashboard and ESP32 telemetry channels; tokens cannot publish or administer channels.
+- Set `ALLOWED_WEB_ORIGINS` in Convex to a comma-separated list of production web origins. When it is unset, CORS remains open for local-development compatibility, although the token is still read-only and channel-scoped.
+- Any key that was previously committed or deployed in browser code must be treated as compromised and rotated in Ably after the server-side environment variable is updated.
 
-    if (profile?.role !== "admin") {
-      return [];  // Non-admins get empty result
-    }
+## Audit and incident response
 
-    // Admin gets all users
-    return await ctx.db.query("user_profiles").collect();
-  },
-});
-```
+`authAuditLog` records security event types, timestamps, user references, actor references for admin operations, and one-way email digests where useful. It intentionally contains no passwords, tokens, or raw login payloads.
 
-## Best Practices
+If compromise is suspected:
 
-### Do
+1. Delete all `authSessions` rows to force reauthentication.
+2. Rotate `AUTH_PASSWORD_PEPPER` only with a forced password-reset or deliberate hash-migration plan; existing peppered hashes cannot be verified without the old value.
+3. Rotate the Ably key and update the Convex environment variable.
+4. Review `authAuditLog`, Convex logs, Ably activity, and hosting logs.
+5. Notify affected users and require password resets when appropriate.
 
-1. **Use ABLY_AUTH_URL for token authentication**
-   - More secure than exposing API key in frontend
-   - Tokens are short-lived and can be revoked
+## Deployment checklist
 
-2. **Validate all inputs server-side**
-   - Convex validators handle this automatically
-   - Never trust client-side validation alone
+- [ ] `AUTH_PASSWORD_PEPPER` is set in the intended Convex deployment.
+- [ ] `ABLY_API_KEY` exists only in Convex environment variables.
+- [ ] Previously browser-exposed Ably keys have been rotated.
+- [ ] `ALLOWED_WEB_ORIGINS` contains only the intended production origins.
+- [ ] No secrets or session tokens appear in frontend configuration, source, logs, or diffs.
+- [ ] `npm run typecheck` succeeds.
+- [ ] `npx tsc -p convex/tsconfig.json --noEmit` succeeds.
+- [ ] `npm run build` succeeds.
+- [ ] Sign-up, sign-in with and without “Remember me,” reload, new-tab, sign-out, expiry, and banned-user flows are manually verified.
+- [ ] Admin list and mutation functions reject unauthenticated and non-admin callers.
+- [ ] Registration XSS payloads render only as text or are rejected.
 
-3. **Check authorization in every mutation/query**
-   - Verify user has permission for the operation
-   - Don't rely on UI hiding features
-
-4. **Use HTTPS everywhere**
-   - Convex and Vercel provide this automatically
-   - Ensure Python bridge uses HTTPS URLs
-
-5. **Keep secrets in environment variables**
-   - Convex environment variables for backend
-   - Never commit secrets to git
-
-6. **Rotate credentials periodically**
-   - Update Ably API keys
-   - Force password resets if compromised
-
-### Don't
-
-1. **Never expose ABLY_API_KEY in frontend**
-   - Use token authentication via Convex HTTP endpoint
-
-2. **Never log sensitive data**
-   - Don't log passwords, tokens, or API keys
-   - Mask values if debugging is necessary
-
-3. **Never trust client-side data**
-   - Validate everything server-side
-   - Re-check permissions in Convex functions
-
-4. **Never store plain-text passwords**
-   - Always hash with salt
-
-5. **Never bypass authorization checks**
-   - Even for "read-only" queries
-
-## HTTP Endpoint Security
-
-The Convex HTTP endpoint (`convex/http.ts`) includes:
-
-### CORS Headers
-
-```typescript
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",  // Consider restricting in production
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Max-Age": "86400",
-};
-```
-
-**Production Recommendation**: Restrict `Access-Control-Allow-Origin` to your domain.
-
-### Ably Token Endpoint
-
-The `/ably/token` endpoint:
-1. Reads `ABLY_API_KEY` from Convex environment variables
-2. Generates a signed token request
-3. Returns token to client (never the API key)
-
-## Vercel Security Headers
-
-The `vercel.json` includes security headers:
-
-```json
-{
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" }
-      ]
-    }
-  ]
-}
-```
-
-## Incident Response
-
-If credentials are compromised:
-
-### 1. Immediately Rotate Credentials
-
-**Ably API Key:**
-1. Go to Ably Dashboard → Your App → API Keys
-2. Create new key, update Convex environment variable
-3. Revoke old key
-
-**User Sessions:**
-1. In Convex Dashboard → Data → `authSessions`
-2. Delete all sessions to force re-login
-
-### 2. Review Logs
-
-- Check Convex logs for unauthorized access
-- Review Ably stats for unusual activity
-- Check Vercel function logs
-
-### 3. Notify Users
-
-If user data may be compromised:
-- Force password resets
-- Notify affected users
-
-## Security Checklist
-
-Before going to production:
-
-- [ ] `ABLY_API_KEY` stored in Convex environment variables only
-- [ ] Frontend uses `ABLY_AUTH_URL`, not raw API key
-- [ ] No secrets in git repository
-- [ ] All Convex mutations check authorization
-- [ ] Password hashing implemented
-- [ ] Session expiry configured
-- [ ] CORS restricted to your domain (optional but recommended)
-- [ ] Security headers configured in Vercel
-- [ ] First admin user created through secure process
-- [ ] Audit logging enabled (Convex logs)
-
-## Contact
-
-For security issues, contact the repository maintainer.
-
----
-
-*Last updated: January 2026*
+Last updated: July 2026.

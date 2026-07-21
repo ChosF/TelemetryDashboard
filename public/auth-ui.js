@@ -16,7 +16,8 @@
     notificationStack = notificationStack.filter(n => document.body.contains(n));
 
     const notification = document.createElement('div');
-    notification.className = `custom-notification custom-notification-${type}`;
+    const safeType = ['error', 'critical', 'warning', 'success', 'info'].includes(type) ? type : 'info';
+    notification.className = `custom-notification custom-notification-${safeType}`;
 
     // Color mapping for notification types
     const iconColors = {
@@ -26,11 +27,11 @@
       success: '#4CAF50',
       info: '#2196F3'
     };
-    const iconColor = iconColors[type] || iconColors.info;
+    const iconColor = iconColors[safeType] || iconColors.info;
 
     // SVG icons - different icon for critical vs other types
     let iconSvg;
-    if (type === 'critical') {
+    if (safeType === 'critical') {
       // Exclamation triangle for critical alerts
       iconSvg = `
         <svg class="custom-notification-icon-svg" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -51,7 +52,7 @@
     notification.innerHTML = `
       <div class="custom-notification-content">
         <span class="custom-notification-icon">${iconSvg}</span>
-        <span class="custom-notification-message">${message}</span>
+        <span class="custom-notification-message">${escapeHtml(message)}</span>
         <button class="custom-notification-ok" aria-label="OK">OK</button>
       </div>
     `;
@@ -328,6 +329,7 @@
                 placeholder="Your full name"
                 required
                 autocomplete="name"
+                maxlength="80"
               />
             </div>
           ` : ''}
@@ -350,10 +352,11 @@
               type="password" 
               id="auth-password" 
               class="form-input" 
-              placeholder="${isLogin ? 'Enter your password' : 'Create a password (min 6 characters)'}"
+              placeholder="${isLogin ? 'Enter your password' : 'Create a password (min 12 characters)'}"
               required
               autocomplete="${isLogin ? 'current-password' : 'new-password'}"
-              minlength="6"
+              minlength="${isLogin ? '1' : '12'}"
+              maxlength="128"
             />
           </div>
 
@@ -790,19 +793,23 @@
     // Use Convex field names: userId (not user_id), _creationTime (not created_at)
     const userIdForActions = user.userId; // This is the authUsers ID reference
     const creationDate = user._creationTime; // Convex automatic timestamp
-    const displayName = user.name || user.email.split('@')[0];
+    const displayName = String(user.name || user.email.split('@')[0]);
+    const safeDisplayName = escapeHtml(displayName);
+    const safeEmail = escapeHtml(user.email);
+    const safeUserId = escapeHtml(userIdForActions);
+    const safeRequestedRole = escapeHtml(roleLabels[user.requested_role] || user.requested_role || 'External User');
     const isCurrentUser = options.currentUserId && userIdForActions === options.currentUserId;
 
     if (isPending) {
       return `
         <div class="admin-user-card glass-panel">
           <div class="admin-user-info">
-            <div class="admin-user-avatar">${displayName.charAt(0).toUpperCase()}</div>
+            <div class="admin-user-avatar">${escapeHtml(displayName.charAt(0).toUpperCase())}</div>
             <div class="admin-user-details">
-              <div class="admin-user-name">${displayName}</div>
-              <div class="admin-user-email">${user.email}</div>
+              <div class="admin-user-name">${safeDisplayName}</div>
+              <div class="admin-user-email">${safeEmail}</div>
               <div class="admin-user-meta">
-                Requested: <strong>${roleLabels[user.requested_role] || user.requested_role}</strong>
+                Requested: <strong>${safeRequestedRole}</strong>
                 <span class="admin-user-date">• ${formatDate(creationDate)}</span>
               </div>
             </div>
@@ -810,14 +817,14 @@
           <div class="admin-user-actions">
             <button 
               class="admin-user-approve liquid-hover" 
-              data-user-id="${userIdForActions}"
-              data-role="${user.requested_role}"
+              data-user-id="${safeUserId}"
+              data-role="${escapeHtml(user.requested_role || 'external')}"
             >
               ✓ Approve
             </button>
             <button 
               class="admin-user-reject liquid-hover" 
-              data-user-id="${userIdForActions}"
+              data-user-id="${safeUserId}"
             >
               × Reject
             </button>
@@ -828,10 +835,10 @@
       return `
         <div class="admin-user-card glass-panel">
           <div class="admin-user-info">
-            <div class="admin-user-avatar">${displayName.charAt(0).toUpperCase()}</div>
+            <div class="admin-user-avatar">${escapeHtml(displayName.charAt(0).toUpperCase())}</div>
             <div class="admin-user-details">
-              <div class="admin-user-name">${displayName}</div>
-              <div class="admin-user-email">${user.email}</div>
+              <div class="admin-user-name">${safeDisplayName}</div>
+              <div class="admin-user-email">${safeEmail}</div>
               <div class="admin-user-meta">
                 ${statusBadge}
                 <span class="admin-user-date">• ${formatDate(creationDate)}</span>
@@ -840,7 +847,7 @@
           </div>
           <div class="admin-user-controls">
             <div class="admin-user-role">
-              <select class="admin-user-role-select form-select" data-user-id="${userIdForActions}" ${isCurrentUser ? 'disabled' : ''}>
+              <select class="admin-user-role-select form-select" data-user-id="${safeUserId}" ${isCurrentUser ? 'disabled' : ''}>
                 <option value="guest" ${user.role === 'guest' ? 'selected' : ''}>Guest</option>
                 <option value="external" ${user.role === 'external' ? 'selected' : ''}>External User</option>
                 <option value="internal" ${user.role === 'internal' ? 'selected' : ''}>Internal User</option>
@@ -850,14 +857,14 @@
             <div class="admin-user-actions admin-user-actions-secondary">
               <button
                 class="admin-user-ban liquid-hover"
-                data-user-id="${userIdForActions}"
+                data-user-id="${safeUserId}"
                 ${isCurrentUser ? 'disabled title="You cannot ban yourself"' : ''}
               >
                 Ban
               </button>
               <button
                 class="admin-user-delete liquid-hover"
-                data-user-id="${userIdForActions}"
+                data-user-id="${safeUserId}"
                 ${isCurrentUser ? 'disabled title="You cannot delete yourself"' : ''}
               >
                 Delete
@@ -984,7 +991,7 @@
     const strip = document.createElement('div');
     strip.className = 'icc-strip';
     strip.innerHTML = `
-      <span class="icc-text">${promptText}</span>
+      <span class="icc-text">${escapeHtml(promptText)}</span>
       <div class="icc-btns">
         <button class="icc-btn icc-cancel">Cancel</button>
         <button class="icc-btn icc-yes">Yes</button>
@@ -1150,7 +1157,7 @@
 
     if (isAuth && user) {
       // Show enhanced account menu with View Transitions API
-      const fullName = profile?.name || user.user_metadata?.name || user.email;
+      const fullName = String(profile?.name || user.user_metadata?.name || user.email || 'User');
       const isAdmin = window.AuthModule.hasPermission('canAccessAdmin');
 
       const authButtons = document.createElement('div');
@@ -1158,7 +1165,7 @@
       authButtons.innerHTML = `
         <div class="enhanced-account-menu" id="enhanced-account-menu">
           <button class="account-trigger liquid-hover" id="account-trigger" aria-label="Account menu" aria-expanded="false">
-            <span class="account-avatar">${fullName.charAt(0).toUpperCase()}</span>
+            <span class="account-avatar">${escapeHtml(fullName.charAt(0).toUpperCase())}</span>
           </button>
           <div class="account-actions" id="account-actions">
             ${isAdmin ? `
