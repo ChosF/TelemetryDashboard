@@ -55,6 +55,7 @@ interface AblyErrorInfo {
 interface AblyConnectionStateChange {
     current: AblyConnectionState;
     reason?: AblyErrorInfo;
+    retryIn?: number;
 }
 
 interface AblyHistoryPage {
@@ -150,16 +151,42 @@ async function waitForConnected(connection: AblyRealtimeHandle['connection']): P
     if (connection.state === 'connected') return;
 
     await new Promise<void>((resolve, reject) => {
-        const timeout = window.setTimeout(() => reject(new Error('Timed out waiting for Ably connection')), 10000);
-        connection.once('connected', () => {
+        let settled = false;
+        let lastState = connection.state;
+        let lastReason: AblyErrorInfo | undefined;
+
+        const describeFailure = (prefix: string): Error => {
+            const reason = lastReason;
+            const code = reason?.code ? ` code ${reason.code}` : '';
+            const status = reason?.statusCode ? `, HTTP ${reason.statusCode}` : '';
+            const detail = reason?.message ? `: ${reason.message}` : '';
+            return new Error(`${prefix}; last state ${lastState}${code}${status}${detail}`);
+        };
+        const finish = (error?: Error): void => {
+            if (settled) return;
+            settled = true;
             window.clearTimeout(timeout);
-            resolve();
-        });
-        connection.once('failed', (stateChange) => {
-            window.clearTimeout(timeout);
-            const reason = stateChange.reason;
-            const code = reason?.code ? ` (${reason.code})` : '';
-            reject(new Error(reason?.message ? `${reason.message}${code}` : `Ably connection failed${code}`));
+            if (error) reject(error);
+            else resolve();
+        };
+        const timeout = window.setTimeout(() => {
+            finish(describeFailure('Timed out waiting 45s for Ably connection recovery'));
+        }, 45_000);
+
+        connection.on((stateChange) => {
+            lastState = stateChange.current;
+            if (stateChange.reason) lastReason = stateChange.reason;
+            debugRewind('ably.connection.state', {
+                state: stateChange.current,
+                errorCode: stateChange.reason?.code ?? null,
+                statusCode: stateChange.reason?.statusCode ?? null,
+                retryIn: stateChange.retryIn ?? null,
+            });
+
+            if (stateChange.current === 'connected') finish();
+            if (stateChange.current === 'failed') {
+                finish(describeFailure('Ably connection entered a terminal failure'));
+            }
         });
         connection.connect();
     });
@@ -170,6 +197,7 @@ export async function initAbly(config: AblyConfig): Promise<boolean> {
         lastInitializationError = null;
         const options: Record<string, unknown> = {
             clientId: config.clientId ?? 'dashboard-web',
+            autoConnect: false,
         };
 
         if (config.authUrl) {
