@@ -1,5 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 const http = httpRouter();
 
@@ -23,22 +24,6 @@ function corsHeaders(allowedOrigin: string): Record<string, string> {
         "Cache-Control": "no-store",
         "Vary": "Origin",
     };
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let output = "";
-    for (let index = 0; index < bytes.length; index += 3) {
-        const first = bytes[index];
-        const second = bytes[index + 1];
-        const third = bytes[index + 2];
-        const value = (first << 16) | ((second ?? 0) << 8) | (third ?? 0);
-        output += alphabet[(value >> 18) & 63];
-        output += alphabet[(value >> 12) & 63];
-        output += second === undefined ? "=" : alphabet[(value >> 6) & 63];
-        output += third === undefined ? "=" : alphabet[value & 63];
-    }
-    return output;
 }
 
 /**
@@ -66,7 +51,7 @@ http.route({
 http.route({
     path: "/ably/token",
     method: "GET",
-    handler: httpAction(async (_ctx, request) => {
+    handler: httpAction(async (ctx, request) => {
         const allowedOrigin = getAllowedOrigin(request);
         if (!allowedOrigin) {
             return new Response(JSON.stringify({ error: "Origin not allowed" }), {
@@ -95,68 +80,16 @@ http.route({
         }
 
         try {
-            // Create a token request using Ably REST API
-            const [keyName, keySecret] = ablyApiKey.split(":");
-            
-            if (!keyName || !keySecret) {
-                throw new Error("Invalid ABLY_API_KEY format. Expected 'keyName:keySecret'");
-            }
-
-            const timestamp = Date.now();
-            const ttl = 3600000; // 1 hour
-            const nonce = globalThis.crypto.randomUUID();
-
             // Get clientId from query params if provided
             const url = new URL(request.url);
             const requestedClientId = url.searchParams.get("clientId") || "dashboard-web";
             const clientId = /^[A-Za-z0-9._-]{1,64}$/.test(requestedClientId)
                 ? requestedClientId
                 : "dashboard-web";
-            const dashboardChannel = process.env.ABLY_CHANNEL_NAME || "telemetry-dashboard-channel";
-            const esp32Channel = process.env.ESP32_ABLY_CHANNEL_NAME || "EcoTele";
-            const capability = JSON.stringify({
-                [dashboardChannel]: ["subscribe", "history"],
-                [esp32Channel]: ["subscribe", "history"],
-            });
-
-            // For simple token requests, we can return basic token params
-            // The client will use these to request a token from Ably
-            const tokenParams = {
-                keyName: keyName,
-                timestamp: timestamp,
-                ttl: ttl,
-                capability,
-                clientId: clientId,
-                nonce,
-            };
-
-            // Sign the token request
-            const signText = [
-                keyName,
-                ttl,
-                capability,
-                clientId,
-                timestamp,
-                nonce,
-            ].join("\n");
-            const signingKey = await globalThis.crypto.subtle.importKey(
-                "raw",
-                new TextEncoder().encode(keySecret),
-                { name: "HMAC", hash: "SHA-256" },
-                false,
-                ["sign"],
+            const tokenRequest = await ctx.runAction(
+                internal.ablyAuth.createTokenRequest,
+                { clientId },
             );
-            const signature = await globalThis.crypto.subtle.sign(
-                "HMAC",
-                signingKey,
-                new TextEncoder().encode(signText),
-            );
-            const mac = bytesToBase64(new Uint8Array(signature));
-
-            const tokenRequest = {
-                ...tokenParams,
-                mac: mac,
-            };
 
             return new Response(
                 JSON.stringify(tokenRequest),

@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as ablyAuth from "../ablyAuth.js";
 import type * as archiveActions from "../archiveActions.js";
 import type * as archiveValidators from "../archiveValidators.js";
 import type * as archives from "../archives.js";
@@ -30,6 +31,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  ablyAuth: typeof ablyAuth;
   archiveActions: typeof archiveActions;
   archiveValidators: typeof archiveValidators;
   archives: typeof archives;
