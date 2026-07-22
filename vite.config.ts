@@ -2,7 +2,7 @@ import { defineConfig, type Plugin } from 'vite';
 import solidPlugin from 'vite-plugin-solid';
 import { resolve } from 'path';
 /**
- * Match production Vercel rewrites in dev/preview: /driver → driver.html, /dashboard → dashboard.html
+ * Match production Vercel rewrites in dev/preview for the multi-page entries.
  */
 function mpaEntryRewrite(): Plugin {
   const rewrite: (
@@ -15,6 +15,14 @@ function mpaEntryRewrite(): Plugin {
     const qs = raw.includes('?') ? raw.slice(raw.indexOf('?')) : '';
     if (pathOnly === '/driver' || pathOnly === '/driver/') {
       req.url = '/driver.html' + qs;
+    } else if (pathOnly === '/dashboard/sessions' || pathOnly === '/dashboard/sessions/') {
+      req.url = '/historical.html' + qs;
+    } else if (pathOnly === '/historical/custom' || pathOnly === '/historical/custom/' || /^\/historical\/[^/]+\/?$/.test(pathOnly)) {
+      req.url = '/historical.html' + qs;
+    } else if (pathOnly === '/dashboard-legacy' || pathOnly === '/dashboard-legacy/') {
+      req.url = '/legacy-dashboard-do-not-use/dashboard.html' + qs;
+    } else if (pathOnly === '/dashboard/old' || pathOnly === '/dashboard/old/') {
+      req.url = '/dashboard-old.html' + qs;
     } else if (pathOnly === '/dashboard' || pathOnly === '/dashboard/') {
       req.url = '/dashboard.html' + qs;
     }
@@ -75,6 +83,7 @@ export default defineConfig(({ mode }) => {
         input: {
           main: resolve(__dirname, 'index.html'),
           dashboard: resolve(__dirname, 'dashboard.html'),
+          dashboardOld: resolve(__dirname, 'dashboard-old.html'),
           driver: resolve(__dirname, 'driver.html'),
           legacyCompat: resolve(__dirname, 'src/legacy/legacyCompat.ts'),
         },
@@ -85,7 +94,7 @@ export default defineConfig(({ mode }) => {
             'vendor-charts': ['uplot'],
             'vendor-map': ['maplibre-gl'],
             'vendor-table': ['@tanstack/solid-table'],
-                'vendor-ably': ['ably'],
+            'vendor-ably': ['ably'],
           },
           // Asset file naming for cache busting
           assetFileNames: 'assets/[name]-[hash][extname]',

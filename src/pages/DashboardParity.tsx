@@ -1,1663 +1,621 @@
 import {
     Component,
-    type JSX,
+    For,
     Show,
     createEffect,
     createMemo,
     createSignal,
     onCleanup,
     onMount,
+    type JSX,
 } from 'solid-js';
-import { OverviewPanel } from '@/panels/OverviewPanel';
-import { SpeedPanel } from '@/panels/SpeedPanel';
-import { PowerPanel } from '@/panels/PowerPanel';
-import { IMUPanel } from '@/panels/IMUPanel';
-import { IMUDetailPanel } from '@/panels/IMUDetailPanel';
-import { EfficiencyPanel } from '@/panels/EfficiencyPanel';
-import { GPSPanel } from '@/panels/GPSPanel';
-import { MotorPanel } from '@/panels/MotorPanel';
-import { CustomPanel } from '@/panels/CustomPanel';
-import { DataPanel } from '@/panels/DataPanel';
-import { UserMenu, LoginModal, SignupModal, AdminDashboardModal } from '@/components/auth';
-import { telemetryStore } from '@/stores/telemetry';
+import { Dynamic } from 'solid-js/web';
+import DashboardOld, { type DashboardRuntimeApi } from '@/pages/DashboardOld';
+import { LoginModal, SignupModal, AdminDashboardModal } from '@/components/auth';
 import { authStore } from '@/stores/auth';
+import { telemetryStore } from '@/stores/telemetry';
 import { convexClient } from '@/lib/convex';
-import { ablyClient } from '@/lib/ably';
-import { debugRewind } from '@/lib/rewindDebug';
-import { ensureLegacyNotificationApi, showLegacyNotification } from '@/lib/legacyNotifications';
-import { mergeHistoricalTelemetry } from '@/lib/utils';
+import { getTelemetryRecordKey } from '@/lib/utils';
 import { DRIVER_DASHBOARD_HREF } from '@/lib/appEntrypoints';
-import type { TelemetryRow } from '@/types/telemetry';
+import { createOperationalEventStore } from '@/dashboard/events';
+import { SYSTEM_VIEWS, WIDGET_REGISTRY } from '@/dashboard/registry';
+import type {
+    PersistedDashboardView,
+    SystemViewId,
+    WidgetLayout,
+} from '@/dashboard/types';
+import '@/styles/live-dashboard.css';
 
-type WindowWithConfig = Window & {
-    CONFIG?: Record<string, string>;
-};
+const VIEW_STORAGE_KEY = 'ecovolt-dashboard-views-v1';
+const LAST_VIEW_STORAGE_KEY = 'ecovolt-dashboard-last-view-v1';
+const SYSTEM_VIEW_VERSION = 1;
+const LEGACY_CUSTOM_CHART_KEY = 'custom-panel-widgets-v2';
+const LEGACY_IMPORT_VERSION = 1;
 
-type DashboardPanel =
-    | 'overview'
-    | 'speed'
-    | 'power'
-    | 'motor'
-    | 'imu'
-    | 'imu-detail'
-    | 'efficiency'
-    | 'gps'
-    | 'custom'
-    | 'data';
+interface LocalView {
+    viewKey: string;
+    name: string;
+    systemViewId?: SystemViewId;
+    widgets: WidgetLayout[];
+}
 
-type TimeRangePreset = '30s' | '1m' | '5m' | 'all';
-type RealtimeActivity = 'idle' | 'probing' | 'waiting' | 'hydrating' | 'recovering';
-
-const PANEL_META: Array<{ id: DashboardPanel; label: string; icon: string }> = [
-    { id: 'overview', label: 'Overview', icon: '📊' },
-    { id: 'speed', label: 'Speed', icon: '🚗' },
-    { id: 'power', label: 'Power', icon: '⚡' },
-    { id: 'motor', label: 'Motor', icon: '⚙️' },
-    { id: 'imu', label: 'IMU', icon: '🧭' },
-    { id: 'imu-detail', label: 'IMU Detail', icon: '🎮' },
-    { id: 'efficiency', label: 'Efficiency', icon: '📈' },
-    { id: 'gps', label: 'GPS', icon: '🗺️' },
-    { id: 'custom', label: 'Custom', icon: '🎨' },
-    { id: 'data', label: 'Data', icon: '📋' },
-];
-
-const VALID_PANELS = new Set<DashboardPanel>(PANEL_META.map((item) => item.id));
-const TIME_RANGE_PANELS = ['speed', 'power', 'motor', 'imu', 'imu-detail', 'efficiency', 'gps'] as const;
-type TimeRangePanel = typeof TIME_RANGE_PANELS[number];
-const TIME_RANGE_PANEL_SET = new Set<DashboardPanel>(TIME_RANGE_PANELS);
-const DEFAULT_RUNTIME_CONFIG: Record<string, string> = {
-    ABLY_CHANNEL_NAME: 'telemetry-dashboard-channel',
-    ABLY_AUTH_URL: '/ably/token',
-    CONVEX_URL: 'https://wonderful-kookabura-432.convex.cloud',
-};
-
-const TIME_RANGE_PRESET_MS: Record<Exclude<TimeRangePreset, 'all'>, number> = {
-    '30s': 30_000,
-    '1m': 60_000,
-    '5m': 5 * 60_000,
-};
-
-function getPanelFromUrl(): DashboardPanel {
+function readViewFromUrl(): string {
     try {
-        const panel = new URL(window.location.href).searchParams.get('panel') as DashboardPanel | null;
-        return panel && VALID_PANELS.has(panel) ? panel : 'overview';
+        return new URL(window.location.href).searchParams.get('view') ?? localStorage.getItem(LAST_VIEW_STORAGE_KEY) ?? 'pit-wall';
     } catch {
-        return 'overview';
+        return 'pit-wall';
     }
 }
 
-function loadScriptOnce(src: string): Promise<void> {
-    const normalized = new URL(src, window.location.origin).href;
-    const existing = Array.from(document.scripts).find((script) => {
-        const attr = script.getAttribute('src');
-        if (!attr) return false;
-        return new URL(attr, window.location.origin).href === normalized;
-    });
-
-    if (existing) return Promise.resolve();
-
-    return new Promise<void>((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = true;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`Failed loading script: ${src}`));
-        document.head.appendChild(script);
-    });
+function makeViewKey(name: string): string {
+    const slug = name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'custom';
+    return `${slug}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function isJsonResponse(response: Response): boolean {
-    return (response.headers.get('content-type') ?? '').includes('application/json');
+function cloneLayout(layout: WidgetLayout[]): WidgetLayout[] {
+    return layout.map((widget) => ({ ...widget, config: { ...widget.config, series: widget.config.series ? [...widget.config.series] : undefined } }));
 }
 
-function toConvexSiteUrl(convexUrl: string): string | null {
-    if (!convexUrl) return null;
-    return convexUrl.includes('.convex.cloud')
-        ? convexUrl.replace('.convex.cloud', '.convex.site')
-        : null;
+function sanitizeLocalViews(raw: unknown): LocalView[] {
+    if (!Array.isArray(raw)) return [];
+    return raw.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
+        const view = entry as Partial<LocalView>;
+        if (typeof view.viewKey !== 'string' || typeof view.name !== 'string' || !Array.isArray(view.widgets)) return [];
+        const widgets = view.widgets.filter((widget) => widget && widget.widgetType in WIDGET_REGISTRY).slice(0, 24);
+        return [{ viewKey: view.viewKey, name: view.name, systemViewId: view.systemViewId, widgets }];
+    }).slice(0, 12);
 }
 
-function resolveAblyAuthUrl(rawAuthUrl: string | undefined, convexUrl: string): string | undefined {
-    if (rawAuthUrl && /^https?:\/\//.test(rawAuthUrl)) {
-        return rawAuthUrl;
+function readLegacyCustomCharts(): WidgetLayout[] {
+    try {
+        const raw = JSON.parse(localStorage.getItem(LEGACY_CUSTOM_CHART_KEY) ?? '[]') as unknown;
+        if (!Array.isArray(raw)) return [];
+        const metrics = new Set(['speed', 'power', 'voltage', 'current', 'motorVoltage', 'motorCurrent', 'motorRpm', 'motorPhase1Current', 'motorPhase2Current', 'motorPhase3Current', 'motorPhaseCurrent', 'efficiency', 'throttle', 'brake', 'brake2', 'gforce', 'altitude', 'gyroZ']);
+        const windows = new Set(['60s', '5m', '15m', 'session']);
+        const styles = new Set(['line', 'area', 'scatter', 'bar', 'histogram']);
+        return raw.flatMap((entry, index) => {
+            if (!entry || typeof entry !== 'object') return [];
+            const candidate = entry as Record<string, unknown>;
+            if (typeof candidate.primary !== 'string' || !metrics.has(candidate.primary)) return [];
+            const secondary = typeof candidate.secondary === 'string' && candidate.secondary !== 'none' && metrics.has(candidate.secondary) ? candidate.secondary : undefined;
+            const timeWindow = typeof candidate.window === 'string' && windows.has(candidate.window) ? candidate.window : '60s';
+            const chartStyle = typeof candidate.style === 'string' && styles.has(candidate.style) ? candidate.style : 'line';
+            return [{
+                instanceId: `legacy-chart-${index}-${String(candidate.id ?? index).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32)}`,
+                widgetType: 'custom-chart' as const,
+                title: typeof candidate.title === 'string' ? candidate.title.slice(0, 80) : 'Imported custom chart',
+                column: 0,
+                row: index,
+                width: 12,
+                height: 3,
+                pinned: false,
+                config: { metric: candidate.primary, comparisonMetric: secondary, timeWindow, chartStyle },
+            } as WidgetLayout];
+        }).slice(0, 24);
+    } catch {
+        return [];
     }
-
-    const convexSiteUrl = toConvexSiteUrl(convexUrl);
-    if (!convexSiteUrl) return rawAuthUrl;
-
-    if (!rawAuthUrl) return `${convexSiteUrl}/ably/token`;
-    if (rawAuthUrl.startsWith('/api/')) return `${convexSiteUrl}${rawAuthUrl.slice(4)}`;
-    return `${convexSiteUrl}${rawAuthUrl.startsWith('/') ? rawAuthUrl : `/${rawAuthUrl}`}`;
-}
-
-function timeAgoLabel(timestamp: number | null): string {
-    if (!timestamp) return 'Never';
-
-    const diffMs = Date.now() - timestamp;
-    if (diffMs < 1000) return 'Just now';
-
-    const seconds = Math.floor(diffMs / 1000);
-    if (seconds < 60) return `${seconds}s ago`;
-
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-
-    const hours = Math.floor(minutes / 60);
-    return `${hours}h ago`;
-}
-
-function filterRowsByTimeRange(rows: TelemetryRow[], preset: TimeRangePreset): TelemetryRow[] {
-    if (preset === 'all' || rows.length === 0) return rows;
-
-    const latestTimestamp = new Date(rows[rows.length - 1].timestamp).getTime();
-    if (!Number.isFinite(latestTimestamp)) return rows;
-
-    const cutoff = latestTimestamp - TIME_RANGE_PRESET_MS[preset];
-
-    let left = 0;
-    let right = rows.length;
-
-    while (left < right) {
-        const mid = Math.floor((left + right) / 2);
-        const timestamp = new Date(rows[mid].timestamp).getTime();
-        if (!Number.isFinite(timestamp) || timestamp < cutoff) {
-            left = mid + 1;
-        } else {
-            right = mid;
-        }
-    }
-
-    return left <= 0 ? rows : rows.slice(left);
 }
 
 const DashboardParity: Component = () => {
-    const [booting, setBooting] = createSignal(true);
-    const [bootError, setBootError] = createSignal<string | null>(null);
-    const [activePanel, setActivePanel] = createSignal<DashboardPanel>(getPanelFromUrl());
+    const [runtime, setRuntime] = createSignal<DashboardRuntimeApi | null>(null);
+    const [activeViewKey, setActiveViewKey] = createSignal(readViewFromUrl());
+    const [localViews, setLocalViews] = createSignal<LocalView[]>([]);
+    const [remoteViews, setRemoteViews] = createSignal<PersistedDashboardView[]>([]);
+    const [remoteLayouts, setRemoteLayouts] = createSignal<Record<string, WidgetLayout[]>>({});
+    const [layoutsLoaded, setLayoutsLoaded] = createSignal(false);
+    const [editing, setEditing] = createSignal(false);
+    const [draftLayout, setDraftLayout] = createSignal<WidgetLayout[]>([]);
+    const [saveState, setSaveState] = createSignal<'idle' | 'saving' | 'saved' | 'offline' | 'conflict' | 'error'>('idle');
+    const [saveMessage, setSaveMessage] = createSignal<string | null>(null);
+    const [showCatalog, setShowCatalog] = createSignal(false);
+    const [catalogSearch, setCatalogSearch] = createSignal('');
+    const [showCreateView, setShowCreateView] = createSignal(false);
+    const [showRenameView, setShowRenameView] = createSignal(false);
+    const [renameViewName, setRenameViewName] = createSignal('');
+    const [newViewName, setNewViewName] = createSignal('My telemetry view');
+    const [createMode, setCreateMode] = createSignal<'clone' | 'blank'>('clone');
     const [showLogin, setShowLogin] = createSignal(false);
     const [showSignup, setShowSignup] = createSignal(false);
     const [showAdmin, setShowAdmin] = createSignal(false);
-    const [theme, setTheme] = createSignal<'dark' | 'light'>('dark');
-    const [driverInputsCollapsed, setDriverInputsCollapsed] = createSignal(false);
-    const [isRealtimeConnecting, setIsRealtimeConnecting] = createSignal(false);
-    const [connectionNote, setConnectionNote] = createSignal<string | null>(null);
-    const [realtimeActivity, setRealtimeActivity] = createSignal<RealtimeActivity>('idle');
-    const [panelTimeRanges, setPanelTimeRanges] = createSignal<Record<TimeRangePanel, TimeRangePreset>>({
-        speed: 'all',
-        power: 'all',
-        motor: 'all',
-        imu: 'all',
-        'imu-detail': 'all',
-        efficiency: 'all',
-        gps: 'all',
+    const [accountOpen, setAccountOpen] = createSignal(false);
+    const [notice, setNotice] = createSignal<string | null>(null);
+    const [legacyImportAvailable, setLegacyImportAvailable] = createSignal(false);
+    const [mode, setMode] = createSignal<'live' | 'inspect'>('live');
+    const [selectedRecordKey, setSelectedRecordKey] = createSignal<string | null>(null);
+    const [clock, setClock] = createSignal(Date.now());
+    const eventStore = createOperationalEventStore();
+    let loadedForUserId: string | null = null;
+    let saveResetTimer: number | null = null;
+
+    const rows = createMemo(() => telemetryStore.telemetryData());
+    const selectedIndex = createMemo(() => {
+        if (mode() !== 'inspect' || rows().length === 0) return rows().length - 1;
+        const key = selectedRecordKey();
+        const found = key ? rows().findIndex((row) => getTelemetryRecordKey(row) === key) : -1;
+        return found >= 0 ? found : Math.max(0, rows().length - 1);
+    });
+    const displayRows = createMemo(() => mode() === 'inspect' ? rows().slice(0, selectedIndex() + 1) : rows());
+    const selected = createMemo(() => displayRows().at(-1));
+    const previousSelected = createMemo(() => displayRows().at(-2));
+    const liveLatest = createMemo(() => rows().at(-1));
+
+    const systemView = createMemo(() => SYSTEM_VIEWS.find((view) => view.id === activeViewKey()));
+    const remoteView = createMemo(() => remoteViews().find((view) => view.viewKey === activeViewKey()));
+    const localView = createMemo(() => localViews().find((view) => view.viewKey === activeViewKey()));
+    const currentViewName = createMemo(() => systemView()?.label ?? remoteView()?.name ?? localView()?.name ?? 'Pit Wall');
+    const currentViewDescription = createMemo(() => systemView()?.description ?? 'A user-defined telemetry workspace.');
+    const persistedSystemOverride = createMemo(() => remoteViews().find((view) => view.kind === 'system-override' && view.systemViewId === systemView()?.id));
+    const currentLayout = createMemo(() => {
+        if (editing()) return draftLayout();
+        const systemOverride = persistedSystemOverride();
+        if (systemOverride && remoteLayouts()[systemOverride.viewKey]) return remoteLayouts()[systemOverride.viewKey];
+        if (systemView()) {
+            const localOverride = localViews().find((view) => view.systemViewId === systemView()!.id);
+            return localOverride?.widgets ?? systemView()!.widgets;
+        }
+        if (remoteView()) return remoteLayouts()[remoteView()!.viewKey] ?? [];
+        return localView()?.widgets ?? [];
     });
 
-    let unsubscribeAbly: (() => void) | null = null;
-    let activeHistoryLoad: Promise<void> | null = null;
-    let activeHistorySessionId: string | null = null;
-    let hydratedSessionId: string | null = null;
-    let hydrationVersion = 0;
-    let runtimeConfig: Record<string, string> | null = null;
-    let bufferedRealtime: TelemetryRow[] = [];
-    let bufferedMessageLogCount = 0;
-    let liveAppendLogCount = 0;
-    let notificationTimer: number | null = null;
-    let lastMessageLabelTimer: number | null = null;
-    let connectionEstablishedAt: number | null = null;
-    let lastLoadedSessionNotificationId: string | null = null;
-    let connectionCycle = 0;
-    let historicalPrewarmPromise: Promise<void> | null = null;
-    const notificationHistory = new Map<string, {
-        lastShownAt: number;
-        repeatCount: number;
-        signature: string;
-    }>();
-    const [lastMessageClock, setLastMessageClock] = createSignal(Date.now());
-
-    const data = createMemo(() => telemetryStore.telemetryData());
-    const activeRangeData = createMemo(() => {
-        const panel = activePanel();
-        if (!TIME_RANGE_PANEL_SET.has(panel)) return data();
-        return filterRowsByTimeRange(data(), panelTimeRanges()[panel as TimeRangePanel]);
+    const visibleCatalog = createMemo(() => {
+        const query = catalogSearch().trim().toLowerCase();
+        return Object.values(WIDGET_REGISTRY).filter((definition) => !query
+            || definition.displayName.toLowerCase().includes(query)
+            || definition.description.toLowerCase().includes(query));
     });
-    const latest = createMemo(() => telemetryStore.latestRecord());
-    const sessionId = createMemo(() => telemetryStore.currentSessionId() ?? latest()?.session_id ?? undefined);
-    const scheduleLastMessageLabelUpdate = (timestamp: number | null): void => {
-        if (lastMessageLabelTimer !== null) {
-            window.clearTimeout(lastMessageLabelTimer);
-            lastMessageLabelTimer = null;
-        }
-        if (!timestamp) return;
+    const switcherViews = createMemo(() => [
+        ...SYSTEM_VIEWS.map((view) => ({ key: view.id, label: view.shortLabel, custom: false })),
+        ...(authStore.isAuthenticated() ? remoteViews().filter((view) => view.kind === 'custom').map((view) => ({ key: view.viewKey, label: view.name, custom: true })) : localViews().filter((view) => !view.systemViewId).map((view) => ({ key: view.viewKey, label: view.name, custom: true }))),
+    ]);
 
-        const diffMs = Math.max(0, Date.now() - timestamp);
-        let delay = 1000;
-
-        if (diffMs < 60_000) {
-            delay = Math.max(250, 1000 - (diffMs % 1000));
-        } else if (diffMs < 3_600_000) {
-            const seconds = Math.floor(diffMs / 1000);
-            delay = Math.max(1000, (60 - (seconds % 60)) * 1000);
-        } else {
-            const minutes = Math.floor(diffMs / 60_000);
-            delay = Math.max(60_000, (60 - (minutes % 60)) * 60_000);
-        }
-
-        lastMessageLabelTimer = window.setTimeout(() => {
-            setLastMessageClock(Date.now());
-            scheduleLastMessageLabelUpdate(timestamp);
-        }, delay);
-    };
-    const lastMessageLabel = createMemo(() => {
-        lastMessageClock();
-        return timeAgoLabel(telemetryStore.lastMessageTime());
-    });
-    const statusText = createMemo(() => {
-        switch (telemetryStore.connectionStatus()) {
-            case 'connected':
-                switch (realtimeActivity()) {
-                    case 'probing': return 'Connected - Checking';
-                    case 'waiting': return 'Connected - Waiting';
-                    case 'hydrating': return 'Connected - Loading Data';
-                    case 'recovering': return 'Connected - Recovering';
-                    default:
-                        if (!telemetryStore.currentSessionId()) return 'Connected - Waiting';
-                        return telemetryStore.isDataFresh() ? 'Live' : 'Connected';
-                }
-            case 'connecting': return 'Connecting';
-            case 'suspended': return 'Reconnecting';
-            case 'failed': return 'Failed';
-            default: return 'Disconnected';
-        }
-    });
-    const statusDetail = createMemo(() => {
-        const explicitNote = connectionNote();
-        if (explicitNote) return explicitNote;
-
-        if (telemetryStore.connectionStatus() === 'connected') {
-            switch (realtimeActivity()) {
-                case 'probing':
-                    return 'Checking the recent stream for an active session.';
-                case 'waiting':
-                    return 'Connected to realtime. Waiting for an active session to start.';
-                case 'hydrating':
-                    return 'Retrieving past data points and stitching them into the live session.';
-                case 'recovering':
-                    return 'Recovering missed realtime telemetry after a stream interruption.';
-                default:
-                    if (!telemetryStore.currentSessionId()) {
-                        return 'Connected to realtime. Waiting for an active session to start.';
-                    }
-                    if (!telemetryStore.isDataFresh()) {
-                        return 'Connected to the stream, waiting for the next live message.';
-                    }
-                    return null;
-            }
-        }
-
-        if (telemetryStore.connectionStatus() === 'connecting') {
-            return 'Establishing the realtime connection.';
-        }
-
-        return null;
-    });
-    const canRetryConnection = createMemo(() =>
-        telemetryStore.connectionStatus() !== 'connected' && !isRealtimeConnecting(),
-    );
-    const statusTone = createMemo(() => {
-        switch (telemetryStore.connectionStatus()) {
-            case 'connected':
-                return {
-                    background: 'rgba(34, 197, 94, 0.12)',
-                    border: '1px solid rgba(34, 197, 94, 0.28)',
-                    dot: '#22c55e',
-                };
-            case 'connecting':
-            case 'suspended':
-                return {
-                    background: 'rgba(245, 158, 11, 0.12)',
-                    border: '1px solid rgba(245, 158, 11, 0.28)',
-                    dot: '#f59e0b',
-                };
-            case 'failed':
-            default:
-                return {
-                    background: 'rgba(239, 68, 68, 0.12)',
-                    border: '1px solid rgba(239, 68, 68, 0.28)',
-                    dot: '#ef4444',
-                };
-        }
-    });
-    const historyHref = createMemo(() => {
-        if (!authStore.canViewHistory()) return '/dashboard/sessions';
-        return '/dashboard/sessions';
-    });
-
-    /** Driver dashboard: admins and internal users only (not external / guest). */
-    const canAccessDriverDashboard = createMemo(() => {
-        const role = authStore.userRole();
-        return role === authStore.USER_ROLES.ADMIN || role === authStore.USER_ROLES.INTERNAL;
-    });
-    const summarizeRows = (rows: TelemetryRow[]) => ({
-        count: rows.length,
-        firstTimestamp: rows[0]?.timestamp ?? null,
-        lastTimestamp: rows[rows.length - 1]?.timestamp ?? null,
-    });
-    const SENSOR_DOMAIN_LABELS: Record<string, string> = {
-        gps: 'GPS sensor',
-        power: 'power system',
-        imu: 'IMU sensor',
-        controls: 'driver controls',
-        timing: 'timing telemetry',
-        energy: 'energy model',
-        telemetry: 'telemetry stream',
-    };
-    const sensorDomainForField = (field: string): string => {
-        if (['latitude', 'longitude', 'altitude', 'altitude_m', 'gps_accuracy', 'elevation_gain_m'].includes(field)) {
-            return 'gps';
-        }
-        if ([
-            'current_a', 'voltage_v', 'power_w', 'max_power_w', 'max_current_a', 'avg_current', 'avg_voltage', 'avg_power',
-            'motor_current_a', 'motor_voltage_v', 'motor_rpm',
-            'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'motor_phase_current_a',
-        ].includes(field)) {
-            return 'power';
-        }
-        if (
-            field.startsWith('accel_')
-            || field.startsWith('gyro_')
-            || field.includes('g_force')
-            || ['total_acceleration', 'accel_magnitude', 'avg_acceleration', 'g_total', 'g_lateral', 'g_longitudinal'].includes(field)
-        ) {
-            return 'imu';
-        }
-        if (field.startsWith('throttle') || field.startsWith('brake') || ['driver_mode', 'motion_state'].includes(field)) {
-            return 'controls';
-        }
-        if (['timestamp', 'message_id', 'uptime_seconds'].includes(field)) {
-            return 'timing';
-        }
-        if (
-            [
-                'energy_j', 'distance_m', 'route_distance_km', 'cumulative_energy_kwh',
-                'inst_eff_km_kwh', 'acc_eff_km_kwh', 'current_efficiency_km_kwh',
-                'quality_score', 'outlier_severity',
-            ].includes(field)
-        ) {
-            return 'energy';
-        }
-        return 'telemetry';
-    };
-    const formatSensorBundle = (domains: string[]): string => {
-        const labels = domains
-            .map((domain) => SENSOR_DOMAIN_LABELS[domain] ?? domain)
-            .filter((label, index, array) => array.indexOf(label) === index);
-
-        if (labels.length === 0) return 'Multiple sensors';
-        if (labels.length === 1) return labels[0];
-        if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
-        return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
-    };
-    const notifyWithSmartCooldown = (
-        key: string,
-        message: string,
-        type: 'info' | 'success' | 'warning' | 'error' | 'critical',
-        duration: number,
-        baseCooldownMs: number,
-        signature = message,
-        maxCooldownMs = baseCooldownMs * 8,
-    ): boolean => {
-        const now = Date.now();
-        const entry = notificationHistory.get(key);
-        const sameSignature = entry?.signature === signature;
-        const repeatCount = sameSignature ? entry?.repeatCount ?? 0 : 0;
-        const effectiveCooldown = Math.min(baseCooldownMs * (2 ** Math.min(repeatCount, 3)), maxCooldownMs);
-
-        if (entry && sameSignature && (now - entry.lastShownAt) < effectiveCooldown) {
-            return false;
-        }
-
-        notificationHistory.set(key, {
-            lastShownAt: now,
-            repeatCount: sameSignature ? repeatCount + 1 : 1,
-            signature,
-        });
-        showLegacyNotification(message, type, duration);
-        return true;
-    };
-    const hasOutlierColumn = (rows: TelemetryRow[]): boolean =>
-        rows.some((row) => Object.prototype.hasOwnProperty.call(row, 'outliers'));
-    const analyzeRealtimeNotifications = (): void => {
-        const rows = data();
-        const now = Date.now();
-        const currentSessionId = telemetryStore.currentSessionId();
-        const isRealtime = telemetryStore.connectionStatus() === 'connected';
-
-        if (
-            isRealtime &&
-            !currentSessionId &&
-            connectionEstablishedAt !== null &&
-            (now - connectionEstablishedAt) > 5000
-        ) {
-            notifyWithSmartCooldown(
-                `no-session:${connectionCycle}`,
-                'No active realtime session found — waiting for data stream to begin.',
-                'info',
-                6000,
-                60000,
-                `conn-${connectionCycle}`,
-                5 * 60 * 1000,
-            );
-        }
-
-        if (!isRealtime || rows.length < 10) return;
-
-        const lastTimestamp = new Date(rows[rows.length - 1]?.timestamp ?? '').getTime();
-        if (Number.isFinite(lastTimestamp)) {
-            const diffs: number[] = [];
-            for (let index = rows.length - 1; index > 0 && diffs.length < 50; index -= 1) {
-                const current = new Date(rows[index].timestamp).getTime();
-                const previous = new Date(rows[index - 1].timestamp).getTime();
-                const delta = (current - previous) / 1000;
-                if (delta > 0 && Number.isFinite(delta)) diffs.push(delta);
-            }
-
-            const avgDelta = diffs.length > 0
-                ? diffs.reduce((sum, value) => sum + value, 0) / diffs.length
-                : 1;
-            const stallThresholdSeconds = Math.max(5, avgDelta * 5);
-            const ageSeconds = (now - lastTimestamp) / 1000;
-
-            if (ageSeconds > stallThresholdSeconds) {
-                notifyWithSmartCooldown(
-                    `data-stall:${currentSessionId ?? 'unknown'}`,
-                    `Data stream paused — no updates for ${ageSeconds.toFixed(0)}s. Check sensor connection.`,
-                    'critical',
-                    8000,
-                    60000,
-                    `stall:${currentSessionId ?? 'unknown'}`,
-                    10 * 60 * 1000,
-                );
-            }
-        }
-
-        const recentRows = rows.slice(-20);
-        const criticalOutliers: unknown[] = [];
-        const warningOutliers: unknown[] = [];
-        const affectedFields = new Set<string>();
-
-        for (const row of recentRows) {
-            const fields = row.outliers?.flagged_fields ?? row.outliers?.fields ?? [];
-            for (const field of fields) {
-                affectedFields.add(field);
-            }
-
-            const severity = String(row.outliers?.severity ?? row.outlier_severity ?? 'low');
-            if (!fields.length) continue;
-
-            if (severity === 'critical' || severity === 'high') {
-                criticalOutliers.push(row.outliers ?? row);
-            } else if (severity === 'warning' || severity === 'medium') {
-                warningOutliers.push(row.outliers ?? row);
-            }
-        }
-
-        if ((rows.length >= 30) && !hasOutlierColumn(rows.slice(-30))) {
-            notifyWithSmartCooldown(
-                `outlier-unavailable:${currentSessionId ?? 'unknown'}`,
-                'Sensor failure detection unavailable. Check server connection.',
-                'error',
-                10000,
-                120000,
-                `outlier-unavailable:${currentSessionId ?? 'unknown'}`,
-                15 * 60 * 1000,
-            );
-        }
-
-        const bundledDomains = [...affectedFields]
-            .map(sensorDomainForField)
-            .filter((domain, index, array) => array.indexOf(domain) === index)
-            .sort();
-        const bundledLabel = formatSensorBundle(bundledDomains);
-        const bundleSignature = bundledDomains.join('|') || 'generic';
-
-        if (criticalOutliers.length >= 3) {
-            notifyWithSmartCooldown(
-                `sensor-critical:${currentSessionId ?? 'unknown'}:${bundleSignature}`,
-                `Sensor alert: ${bundledLabel} showing anomalous readings. ${criticalOutliers.length} critical events detected.`,
-                'error',
-                10000,
-                90000,
-                `critical:${bundleSignature}`,
-                15 * 60 * 1000,
-            );
-            return;
-        }
-
-        if (warningOutliers.length >= 5 || (criticalOutliers.length >= 1 && warningOutliers.length >= 2)) {
-            notifyWithSmartCooldown(
-                `sensor-warning:${currentSessionId ?? 'unknown'}:${bundleSignature}`,
-                `Sensor alert: ${bundledLabel} showing unusual readings.`,
-                'warning',
-                8000,
-                90000,
-                `warning:${bundleSignature}`,
-                15 * 60 * 1000,
-            );
-        }
-    };
-
-    const hasBufferedRealtimeForSession = (targetSessionId: string): boolean =>
-        bufferedRealtime.some((row) => row.session_id === targetSessionId);
-
-    const takeBufferedRealtimeForSession = (targetSessionId: string): TelemetryRow[] => {
-        const retained: TelemetryRow[] = [];
-        const taken: TelemetryRow[] = [];
-
-        for (const row of bufferedRealtime) {
-            if (row.session_id === targetSessionId) {
-                taken.push(row);
-            } else {
-                retained.push(row);
-            }
-        }
-
-        bufferedRealtime = retained;
-        return taken;
-    };
-
-    const loadRecentSessionFromAbly = async (channelName: string): Promise<void> => {
-        setRealtimeActivity('probing');
-        setConnectionNote('Checking the recent stream for an active session.');
-        debugRewind('dashboard.loadRecentSessionFromAbly.start', { channelName });
-        const latestHistory = await ablyClient.getLatestHistoryMessage(channelName);
-        if (!latestHistory?.record?.session_id) {
-            debugRewind('dashboard.loadRecentSessionFromAbly.empty', { channelName });
-            setRealtimeActivity('waiting');
-            setConnectionNote(null);
-            return;
-        }
-
-        const ageMs = Date.now() - (latestHistory.timestamp ?? Date.now());
-        if (ageMs >= 60000) {
-            debugRewind('dashboard.loadRecentSessionFromAbly.tooOld', {
-                channelName,
-                sessionId: latestHistory.record.session_id,
-                ageMs,
-            });
-            setRealtimeActivity('waiting');
-            setConnectionNote(null);
-            return;
-        }
-
-        debugRewind('dashboard.loadRecentSessionFromAbly.useSession', {
-            channelName,
-            sessionId: latestHistory.record.session_id,
-            ageMs,
-        });
-        setRealtimeActivity('hydrating');
-        setConnectionNote('Active session detected. Loading past data points.');
-
-        await hydrateLiveSession(
-            channelName,
-            latestHistory.record.session_id,
-            latestHistory.record.session_name ?? null
-        );
-    };
-
-    const recoverRealtimeContinuity = async (channelName: string): Promise<void> => {
-        const currentSession = telemetryStore.currentSessionId();
-        const currentSessionName = telemetryStore.currentSessionName();
-        debugRewind('dashboard.recoverRealtimeContinuity.start', {
-            channelName,
-            currentSession,
-            currentSessionName,
-        });
-
-        hydrationVersion += 1;
-        hydratedSessionId = null;
-        activeHistorySessionId = null;
-        activeHistoryLoad = null;
-        setRealtimeActivity('recovering');
-        setConnectionNote('Recovering missed realtime telemetry...');
-
-        if (currentSession) {
-            await hydrateLiveSession(channelName, currentSession, currentSessionName);
-            debugRewind('dashboard.recoverRealtimeContinuity.completedCurrentSession', {
-                channelName,
-                currentSession,
-            });
-            return;
-        }
-
-        await loadRecentSessionFromAbly(channelName);
-        debugRewind('dashboard.recoverRealtimeContinuity.completedProbe', { channelName });
-    };
-    createEffect(() => {
-        const record = latest();
-        if (!record?.session_id) return;
-        telemetryStore.setSession(record.session_id, record.session_name ?? null);
-    });
-
-    const hydrateLiveSession = async (
-        channelName: string,
-        targetSessionId: string,
-        sessionName?: string | null,
-        retryCount = 0
-    ): Promise<void> => {
-        if (!targetSessionId) return;
-        debugRewind('dashboard.hydrate.start', {
-            channelName,
-            targetSessionId,
-            sessionName: sessionName ?? null,
-            retryCount,
-            hydratedSessionId,
-            activeHistorySessionId,
-            bufferedForTarget: bufferedRealtime.filter((row) => row.session_id === targetSessionId).length,
-        });
-        if (hydratedSessionId === targetSessionId && !hasBufferedRealtimeForSession(targetSessionId)) {
-            debugRewind('dashboard.hydrate.skip.alreadyHydrated', {
-                channelName,
-                targetSessionId,
-            });
-            return;
-        }
-        if (activeHistorySessionId === targetSessionId && activeHistoryLoad) {
-            debugRewind('dashboard.hydrate.skip.activeLoad', {
-                channelName,
-                targetSessionId,
-            });
-            return activeHistoryLoad;
-        }
-
-        activeHistorySessionId = targetSessionId;
-        const loadVersion = ++hydrationVersion;
-
-        activeHistoryLoad = (async () => {
-            setRealtimeActivity('hydrating');
-            setConnectionNote(
-                retryCount > 0
-                    ? 'Retrying rewind sync to capture past data points.'
-                    : 'Loading past data points for the active session.',
-            );
-            telemetryStore.setSession(targetSessionId, sessionName ?? null);
-            const bufferedBeforeFetch = takeBufferedRealtimeForSession(targetSessionId);
-            debugRewind('dashboard.hydrate.buffer.before', {
-                channelName,
-                targetSessionId,
-                ...summarizeRows(bufferedBeforeFetch),
-            });
-
-            let convexRows: TelemetryRow[] = [];
-
-            try {
-                convexRows = await convexClient.getSessionRecords(targetSessionId);
-                debugRewind('dashboard.hydrate.convex.result', {
-                    channelName,
-                    targetSessionId,
-                    ...summarizeRows(convexRows),
-                });
-            } catch (error) {
-                debugRewind('dashboard.hydrate.convex.error', {
-                    channelName,
-                    targetSessionId,
-                    error: String(error instanceof Error ? error.message : error),
-                });
-                console.warn('[DashboardParity] Convex backfill failed:', error);
-            }
-
-            const convexLatestTimestamp = convexRows[convexRows.length - 1]?.timestamp;
-            const convexLatestMs = convexLatestTimestamp ? new Date(convexLatestTimestamp).getTime() : Number.NaN;
-            const historyStart = Number.isFinite(convexLatestMs)
-                ? Math.max(0, convexLatestMs - 3000)
-                : (Date.now() - 120000);
-            setConnectionNote('Fetching recent rewind data from the live stream.');
-            debugRewind('dashboard.hydrate.ably.request', {
-                channelName,
-                targetSessionId,
-                historyStart,
-                convexLatestTimestamp: convexLatestTimestamp ?? null,
-                limit: convexRows.length > 0 ? 2000 : 4000,
-            });
-            const ablyRows = await ablyClient.fetchHistory(channelName, {
-                sessionId: targetSessionId,
-                start: historyStart,
-                limit: convexRows.length > 0 ? 2000 : 4000,
-                untilAttach: true,
-            });
-            debugRewind('dashboard.hydrate.ably.result', {
-                channelName,
-                targetSessionId,
-                ...summarizeRows(ablyRows),
-            });
-
-            const bufferedAfterFetch = takeBufferedRealtimeForSession(targetSessionId);
-            const bufferedRows = [...bufferedBeforeFetch, ...bufferedAfterFetch];
-            debugRewind('dashboard.hydrate.buffer.after', {
-                channelName,
-                targetSessionId,
-                ...summarizeRows(bufferedAfterFetch),
-                combinedBuffered: bufferedRows.length,
-            });
-
-            if (loadVersion !== hydrationVersion) {
-                debugRewind('dashboard.hydrate.skip.staleVersion', {
-                    channelName,
-                    targetSessionId,
-                    loadVersion,
-                    hydrationVersion,
-                });
-                return;
-            }
-
-            if (targetSessionId !== (telemetryStore.currentSessionId() ?? targetSessionId)) {
-                debugRewind('dashboard.hydrate.skip.sessionMismatch', {
-                    channelName,
-                    targetSessionId,
-                    currentSessionId: telemetryStore.currentSessionId() ?? null,
-                });
-                return;
-            }
-
-            if (convexRows.length > 0 || ablyRows.length > 0 || bufferedRows.length > 0) {
-                setConnectionNote('Merging past data points into the live session.');
-                const merged = mergeHistoricalTelemetry(telemetryStore.telemetryData(), convexRows, [...ablyRows, ...bufferedRows]);
-                const interpolatedCount = merged.filter((row) => (row as TelemetryRow & { _interpolated?: boolean })._interpolated).length;
-                debugRewind('dashboard.hydrate.merge.success', {
-                    channelName,
-                    targetSessionId,
-                    existingCount: telemetryStore.telemetryData().length,
-                    convexCount: convexRows.length,
-                    ablyCount: ablyRows.length,
-                    bufferedCount: bufferedRows.length,
-                    mergedCount: merged.length,
-                    firstTimestamp: merged[0]?.timestamp ?? null,
-                    lastTimestamp: merged[merged.length - 1]?.timestamp ?? null,
-                });
-                telemetryStore.setData(merged);
-                if ((convexRows.length + ablyRows.length) > 0 && lastLoadedSessionNotificationId !== targetSessionId) {
-                    notifyWithSmartCooldown(
-                        `session-loaded:${targetSessionId}`,
-                        `Session loaded: ${merged.length.toLocaleString()} data points`,
-                        'success',
-                        3000,
-                        10 * 60 * 1000,
-                        targetSessionId,
-                    );
-                    lastLoadedSessionNotificationId = targetSessionId;
-                }
-                if (interpolatedCount > 5) {
-                    notifyWithSmartCooldown(
-                        `interpolation:${targetSessionId}`,
-                        `Filled ${interpolatedCount.toLocaleString()} short gaps while syncing the live session.`,
-                        'info',
-                        5000,
-                        30000,
-                        `${targetSessionId}:${interpolatedCount}`,
-                        5 * 60 * 1000,
-                    );
-                }
-                hydratedSessionId = targetSessionId;
-                setRealtimeActivity('idle');
-                setConnectionNote(null);
-                return;
-            }
-
-            if (retryCount < 3 && (telemetryStore.telemetryData().length + bufferedRows.length) < 50) {
-                setRealtimeActivity('hydrating');
-                setConnectionNote('Still collecting rewind data points. Retrying shortly.');
-                debugRewind('dashboard.hydrate.retryScheduled', {
-                    channelName,
-                    targetSessionId,
-                    retryCount,
-                    storeCount: telemetryStore.telemetryData().length,
-                    bufferedCount: bufferedRows.length,
-                });
-                window.setTimeout(() => {
-                    activeHistorySessionId = null;
-                    activeHistoryLoad = null;
-                    void hydrateLiveSession(channelName, targetSessionId, sessionName, retryCount + 1);
-                }, 2500);
-                return;
-            }
-
-            debugRewind('dashboard.hydrate.completed.noData', {
-                channelName,
-                targetSessionId,
-                retryCount,
-            });
-            hydratedSessionId = targetSessionId;
-            setRealtimeActivity('idle');
-            setConnectionNote(null);
-        })().finally(() => {
-            debugRewind('dashboard.hydrate.finally', {
-                channelName,
-                targetSessionId,
-                hydratedSessionId,
-                activeHistorySessionId,
-            });
-            if (activeHistorySessionId === targetSessionId) {
-                activeHistorySessionId = null;
-            }
-            activeHistoryLoad = null;
-        });
-
-        return activeHistoryLoad;
-    };
-
-    const attemptRealtimeConnection = async (forceReconnect = false): Promise<void> => {
-        if (!runtimeConfig || isRealtimeConnecting()) return;
-        if (!forceReconnect && telemetryStore.connectionStatus() === 'connected') return;
-
-        debugRewind('dashboard.connection.start', {
-            forceReconnect,
-            currentStatus: telemetryStore.connectionStatus(),
-        });
-        setIsRealtimeConnecting(true);
-        setRealtimeActivity('idle');
-        setConnectionNote(null);
-
-        try {
-            if (forceReconnect) {
-                unsubscribeAbly?.();
-                unsubscribeAbly = null;
-                ablyClient.disconnect();
-            }
-
-            hydrationVersion += 1;
-            hydratedSessionId = null;
-            activeHistorySessionId = null;
-            activeHistoryLoad = null;
-            bufferedRealtime = [];
-            bufferedMessageLogCount = 0;
-            liveAppendLogCount = 0;
-            lastLoadedSessionNotificationId = null;
-            connectionEstablishedAt = null;
-            connectionCycle += 1;
-
-            const channelName = runtimeConfig.ABLY_CHANNEL_NAME ?? 'telemetry-dashboard-channel';
-            const convexUrl = runtimeConfig.CONVEX_URL ?? '';
-            const ablyAuthUrl = resolveAblyAuthUrl(runtimeConfig.ABLY_AUTH_URL, convexUrl);
-            debugRewind('dashboard.connection.config', {
-                channelName,
-                authUrl: ablyAuthUrl ?? null,
-                convexUrl,
-            });
-
-            const ablyReady = await ablyClient.init({
-                authUrl: ablyAuthUrl,
-            });
-            debugRewind('dashboard.connection.initResult', { channelName, ablyReady });
-
-            if (!ablyReady) {
-                setRealtimeActivity('idle');
-                const errorDetail = ablyClient.getLastError();
-                setConnectionNote(errorDetail
-                    ? `Ably connection failed: ${errorDetail}`
-                    : `Ably auth endpoint unavailable: ${ablyAuthUrl ?? 'missing auth URL'}`);
-                return;
-            }
-
-            unsubscribeAbly = await ablyClient.subscribe(channelName, {
-                eventName: 'telemetry_update',
-                rewind: '5s',
-                autoAddToStore: false,
-                onDiscontinuity: () => {
-                    debugRewind('dashboard.connection.discontinuity', { channelName });
-                    void recoverRealtimeContinuity(channelName);
-                },
-                onMessage: (record) => {
-                    if (!record.session_id) return;
-
-                    const currentSession = telemetryStore.currentSessionId();
-                    if (currentSession && currentSession !== record.session_id) {
-                        debugRewind('dashboard.message.sessionSwitch', {
-                            fromSessionId: currentSession,
-                            toSessionId: record.session_id,
-                            messageTimestamp: record.timestamp ?? null,
-                        });
-                        hydrationVersion += 1;
-                        hydratedSessionId = null;
-                        activeHistorySessionId = null;
-                        activeHistoryLoad = null;
-                        bufferedRealtime = [];
-                        lastLoadedSessionNotificationId = null;
-                        telemetryStore.setSession(record.session_id, record.session_name ?? null);
-                    } else if (!currentSession) {
-                        debugRewind('dashboard.message.firstSessionDetected', {
-                            sessionId: record.session_id,
-                            messageTimestamp: record.timestamp ?? null,
-                        });
-                        telemetryStore.setSession(record.session_id, record.session_name ?? null);
-                    }
-
-                    if (hydratedSessionId !== record.session_id || (activeHistorySessionId === record.session_id && activeHistoryLoad)) {
-                        bufferedRealtime.push(record);
-                        bufferedMessageLogCount += 1;
-                        if (bufferedMessageLogCount <= 12 || bufferedMessageLogCount % 50 === 0) {
-                            debugRewind('dashboard.message.buffered', {
-                                sessionId: record.session_id,
-                                hydratedSessionId,
-                                activeHistorySessionId,
-                                bufferSize: bufferedRealtime.length,
-                                messageTimestamp: record.timestamp ?? null,
-                                logCount: bufferedMessageLogCount,
-                            });
-                        }
-                        if (!activeHistoryLoad) {
-                            debugRewind('dashboard.message.buffered.triggerHydrate', {
-                                sessionId: record.session_id,
-                            });
-                            setRealtimeActivity('hydrating');
-                            setConnectionNote('Active session detected. Loading past data points.');
-                            void hydrateLiveSession(channelName, record.session_id, record.session_name ?? null);
-                        }
-                        return;
-                    }
-
-                    liveAppendLogCount += 1;
-                    if (liveAppendLogCount <= 8 || liveAppendLogCount % 100 === 0) {
-                        debugRewind('dashboard.message.liveAppend', {
-                            sessionId: record.session_id,
-                            messageTimestamp: record.timestamp ?? null,
-                            currentStoreCount: telemetryStore.telemetryData().length,
-                            logCount: liveAppendLogCount,
-                        });
-                    }
-                    if (realtimeActivity() !== 'idle') {
-                        setRealtimeActivity('idle');
-                        setConnectionNote(null);
-                    }
-                    telemetryStore.addData(record);
-                },
-            });
-            debugRewind('dashboard.connection.subscribed', {
-                channelName,
-                rewind: '5s',
-            });
-            connectionEstablishedAt = Date.now();
-            setRealtimeActivity('probing');
-            setConnectionNote('Connected to realtime. Checking for an active session.');
-
-            await loadRecentSessionFromAbly(channelName);
-            debugRewind('dashboard.connection.probeCompleted', { channelName });
-        } catch (error) {
-            debugRewind('dashboard.connection.error', {
-                error: String(error instanceof Error ? error.message : error),
-            });
-            console.error('[DashboardParity] Realtime connect failed:', error);
-            setRealtimeActivity('idle');
-            setConnectionNote(error instanceof Error ? error.message : 'Unknown realtime connection error');
-        } finally {
-            debugRewind('dashboard.connection.finally', {
-                currentStatus: telemetryStore.connectionStatus(),
-                currentSessionId: telemetryStore.currentSessionId() ?? null,
-                storeCount: telemetryStore.telemetryData().length,
-            });
-            setIsRealtimeConnecting(false);
-        }
-    };
-
-    createEffect(() => {
-        document.documentElement.setAttribute('data-theme', theme());
-        localStorage.setItem('theme', theme());
-    });
-
-    createEffect(() => {
+    const activateView = (view: SystemViewId | string, push = true) => {
+        setEditing(false);
+        setActiveViewKey(view);
+        localStorage.setItem(LAST_VIEW_STORAGE_KEY, view);
         try {
             const url = new URL(window.location.href);
-            url.searchParams.set('panel', activePanel());
+            url.searchParams.set('view', view);
             const next = `${url.pathname}${url.search}${url.hash}`;
-            const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-            if (next !== current) {
-                window.history.replaceState(
-                    { ...(window.history.state ?? {}), panel: activePanel() },
-                    '',
-                    next
-                );
-            }
+            if (push) window.history.pushState({ ...(window.history.state ?? {}), view }, '', next);
+            else window.history.replaceState({ ...(window.history.state ?? {}), view }, '', next);
         } catch {
-            // Ignore URL sync failures.
+            // URL state is an enhancement; the live dashboard remains usable without it.
+        }
+        if (authStore.isAuthenticated()) {
+            void convexClient.updateDashboardPreferences({ lastViewKey: view, systemViewVersion: SYSTEM_VIEW_VERSION }).catch(() => undefined);
+        }
+    };
+
+    const loadRemoteLayouts = async () => {
+        const userId = authStore.user()?.userId;
+        if (!userId || loadedForUserId === userId) return;
+        loadedForUserId = userId;
+        try {
+            const [views, preferences, acknowledgements] = await Promise.all([
+                convexClient.listDashboardViews(),
+                convexClient.getDashboardPreferences(),
+                convexClient.listDashboardEventAcknowledgements(),
+            ]);
+            const layouts = await Promise.all(views.map(async (view) => [view.viewKey, await convexClient.getDashboardWidgets(view._id)] as const));
+            setRemoteViews(views);
+            setRemoteLayouts(Object.fromEntries(layouts.map(([key, widgets]) => [
+                key,
+                widgets.map((widget) => ({
+                    instanceId: widget.instanceId,
+                    widgetType: widget.widgetType,
+                    column: widget.column,
+                    row: widget.row,
+                    width: widget.width,
+                    height: widget.height,
+                    pinned: widget.pinned,
+                    config: widget.config,
+                })),
+            ])));
+            const preferred = String(preferences?.lastViewKey ?? preferences?.defaultViewKey ?? '');
+            eventStore.hydrateAcknowledgements(acknowledgements.map((entry) => entry.eventKey));
+            setLegacyImportAvailable(Number(preferences?.legacyImportVersion ?? 0) < LEGACY_IMPORT_VERSION && readLegacyCustomCharts().length > 0);
+            if (!new URL(window.location.href).searchParams.has('view') && preferred) activateView(preferred, false);
+            setLayoutsLoaded(true);
+        } catch (error) {
+            setSaveState(navigator.onLine ? 'error' : 'offline');
+            setSaveMessage(error instanceof Error ? error.message : 'Could not load dashboard views.');
+            setLayoutsLoaded(true);
+        }
+    };
+
+    createEffect(() => {
+        const api = runtime();
+        clock();
+        if (!api) return;
+        eventStore.evaluate({
+            rows: rows(), now: Date.now(), connectionStatus: telemetryStore.connectionStatus(),
+            currentSessionId: telemetryStore.currentSessionId(), lastMessageTime: telemetryStore.lastMessageTime(),
+            realtimeActivity: api.realtimeActivity(), connectionNote: api.connectionNote(),
+        });
+    });
+
+    createEffect(() => {
+        if (!runtime()?.booting() && authStore.isAuthenticated()) void loadRemoteLayouts();
+        if (!authStore.isAuthenticated()) {
+            loadedForUserId = null;
+            setRemoteViews([]);
+            setRemoteLayouts({});
         }
     });
 
     createEffect(() => {
-        const timestamp = telemetryStore.lastMessageTime();
-        setLastMessageClock(Date.now());
-        scheduleLastMessageLabelUpdate(timestamp);
+        if (!layoutsLoaded() || authStore.isAuthenticated()) return;
+        localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify(localViews()));
     });
 
-    onMount(async () => {
-        const handleVisibilityChange = () => {
-            if (!document.hidden) {
-                setLastMessageClock(Date.now());
-                scheduleLastMessageLabelUpdate(telemetryStore.lastMessageTime());
-                analyzeRealtimeNotifications();
-            }
-        };
-        document.addEventListener('visibilitychange', handleVisibilityChange);
+    onMount(() => {
         try {
-            const savedTheme = (localStorage.getItem('theme') as 'dark' | 'light' | null) ?? 'dark';
-            setTheme(savedTheme === 'light' ? 'light' : 'dark');
-            ensureLegacyNotificationApi();
-
-            try {
-                const params = new URLSearchParams(window.location.search);
-                const gate = params.get('driverGate');
-                if (gate) {
-                    const messages: Record<string, string> = {
-                        login: 'Sign in as internal or admin to use the driver cockpit.',
-                        forbidden: 'Driver cockpit is restricted to internal and admin users.',
-                        error: 'Could not verify driver cockpit access. Check your connection and try again.',
-                    };
-                    const text = messages[gate];
-                    if (text) {
-                        showLegacyNotification(text, gate === 'error' ? 'error' : 'warning', 7000);
-                    }
-                    params.delete('driverGate');
-                    const next = params.toString();
-                    window.history.replaceState(
-                        {},
-                        '',
-                        `${window.location.pathname}${next ? `?${next}` : ''}${window.location.hash}`,
-                    );
-                }
-            } catch {
-                // ignore URL / notification edge cases
-            }
-
-            notificationTimer = window.setInterval(analyzeRealtimeNotifications, 1000);
-
-            const w = window as WindowWithConfig;
-            const fallbackConfig = w.CONFIG ?? {};
-            let apiConfig: Record<string, string> = {};
-
-            try {
-                const response = await fetch('/api/config');
-                apiConfig = response.ok && isJsonResponse(response) ? await response.json() : {};
-            } catch {
-                apiConfig = {};
-            }
-
-            w.CONFIG = {
-                ...DEFAULT_RUNTIME_CONFIG,
-                ABLY_AUTH_URL: '/api/ably/token',
-                ...fallbackConfig,
-                ...apiConfig,
-            };
-            runtimeConfig = w.CONFIG;
-
-            await loadScriptOnce('https://unpkg.com/convex@1.17.0/dist/browser.bundle.js');
-
-            const convexUrl = w.CONFIG.CONVEX_URL ?? '';
-            if (!convexUrl) {
-                throw new Error('Missing CONVEX_URL configuration');
-            }
-
-            const convexReady = await convexClient.init(convexUrl);
-            if (!convexReady) {
-                throw new Error('Failed to initialize Convex client');
-            }
-
-            await authStore.initAuth(convexClient.getClient());
-            setBooting(false);
-            void convexClient.kickstartSessions();
-            void attemptRealtimeConnection();
-        } catch (error) {
-            setBootError(error instanceof Error ? error.message : 'Failed to initialize dashboard');
-            setBooting(false);
+            setLocalViews(sanitizeLocalViews(JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) ?? '[]')));
+        } catch {
+            setLocalViews([]);
         }
+        setLayoutsLoaded(true);
+        const timer = window.setInterval(() => setClock(Date.now()), 1000);
+        const onPopState = () => activateView(readViewFromUrl(), false);
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && mode() === 'inspect' && !showCatalog() && !showCreateView()) returnToLive();
+        };
+        window.addEventListener('popstate', onPopState);
+        document.addEventListener('keydown', onKeyDown);
         onCleanup(() => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.clearInterval(timer);
+            window.removeEventListener('popstate', onPopState);
+            document.removeEventListener('keydown', onKeyDown);
         });
     });
 
     onCleanup(() => {
-        if (lastMessageLabelTimer !== null) {
-            window.clearTimeout(lastMessageLabelTimer);
-            lastMessageLabelTimer = null;
-        }
-        if (notificationTimer !== null) {
-            window.clearInterval(notificationTimer);
-            notificationTimer = null;
-        }
-        try {
-            unsubscribeAbly?.();
-            ablyClient.disconnect();
-        } catch {
-            // Ignore disconnect failures during route transitions.
-        }
+        if (saveResetTimer !== null) window.clearTimeout(saveResetTimer);
     });
 
-    const toggleTheme = () => {
-        setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+    const enterInspection = () => {
+        if (rows().length === 0) {
+            setNotice('Inspection mode becomes available after telemetry records arrive.');
+            return;
+        }
+        setSelectedRecordKey(getTelemetryRecordKey(rows().at(-1)!));
+        setMode('inspect');
+    };
+    const returnToLive = () => {
+        setMode('live');
+        setSelectedRecordKey(null);
+    };
+    const updateInspectionIndex = (index: number) => {
+        const row = rows()[Math.max(0, Math.min(rows().length - 1, index))];
+        if (row) setSelectedRecordKey(getTelemetryRecordKey(row));
     };
 
-    const prewarmHistoricalMode = (): void => {
-        if (historicalPrewarmPromise) return;
-        historicalPrewarmPromise = (async () => {
-            const assetUrls = [
-                '/historical.html',
-                '/historical.css',
-                '/historical-engine.js',
-                '/historical.js',
-                '/auth.js',
-                '/auth-ui.js',
-                '/lib/convex-bridge.js',
-                '/workers/historical-worker.js',
-            ];
+    const acknowledgeEvent = (key: string, acknowledged: boolean) => {
+        eventStore.acknowledge(key, acknowledged);
+        if (authStore.isAuthenticated()) {
+            void convexClient.setDashboardEventAcknowledged(key, acknowledged, telemetryStore.currentSessionId() ?? undefined).catch(() => {
+                setNotice('The acknowledgment is local until the connection recovers.');
+            });
+        }
+    };
 
-            await Promise.allSettled([
-                ...assetUrls.map((url) =>
-                    fetch(url, { cache: 'force-cache', credentials: 'same-origin' }),
-                ),
-                convexClient.listSessions().catch(() => null),
-            ]);
-        })().catch(() => {
-            historicalPrewarmPromise = null;
+    const startEditing = () => {
+        setDraftLayout(cloneLayout(currentLayout()));
+        setSaveState('idle');
+        setSaveMessage(null);
+        setEditing(true);
+    };
+    const cancelEditing = () => {
+        setEditing(false);
+        setDraftLayout([]);
+    };
+    const patchWidget = (instanceId: string, patch: Partial<WidgetLayout>) => {
+        setDraftLayout((layout) => layout.map((widget) => widget.instanceId === instanceId ? { ...widget, ...patch } : widget));
+    };
+    const moveWidget = (index: number, direction: -1 | 1) => {
+        setDraftLayout((layout) => {
+            const target = index + direction;
+            if (target < 0 || target >= layout.length) return layout;
+            const copy = [...layout];
+            [copy[index], copy[target]] = [copy[target], copy[index]];
+            return copy.map((widget, row) => ({ ...widget, row }));
         });
     };
+    const duplicateWidget = (widget: WidgetLayout) => {
+        setDraftLayout((layout) => [...layout, { ...widget, instanceId: `${widget.instanceId}-${Math.random().toString(36).slice(2, 7)}`, pinned: false, row: layout.length }]);
+    };
+    const addWidget = (widgetType: WidgetLayout['widgetType']) => {
+        setDraftLayout((layout) => [...layout, {
+            instanceId: `${widgetType}-${Math.random().toString(36).slice(2, 9)}`,
+            widgetType, column: 0, row: layout.length, width: 12, height: 2, pinned: false, config: {},
+        }]);
+        setShowCatalog(false);
+    };
 
-    const setPanelTimeRange = (panel: TimeRangePanel, preset: TimeRangePreset) => {
-        setPanelTimeRanges((current) => ({
-            ...current,
-            [panel]: preset,
-        }));
+    const saveLayout = async () => {
+        const layout = cloneLayout(draftLayout());
+        setSaveState('saving');
+        setSaveMessage('Saving view…');
+        try {
+            if (!authStore.isAuthenticated()) {
+                const key = systemView() ? `override-${systemView()!.id}` : activeViewKey();
+                const view: LocalView = { viewKey: key, name: currentViewName(), systemViewId: systemView()?.id, widgets: layout };
+                setLocalViews((views) => [...views.filter((entry) => entry.viewKey !== key && entry.systemViewId !== view.systemViewId), view]);
+            } else {
+                let target = remoteView() ?? persistedSystemOverride();
+                if (!target) {
+                    target = await convexClient.createDashboardView({
+                        viewKey: systemView() ? `override-${systemView()!.id}` : activeViewKey(),
+                        name: currentViewName(), kind: systemView() ? 'system-override' : 'custom', systemViewId: systemView()?.id,
+                    });
+                    setRemoteViews((views) => [...views, target!]);
+                }
+                const result = await convexClient.replaceDashboardLayout(target._id, layout, target.revision);
+                setRemoteViews((views) => views.map((view) => view._id === target!._id ? { ...view, revision: result.revision } : view));
+                setRemoteLayouts((layouts) => ({ ...layouts, [target!.viewKey]: layout }));
+            }
+            setSaveState('saved');
+            setSaveMessage('Saved');
+            setEditing(false);
+            saveResetTimer = window.setTimeout(() => { setSaveState('idle'); setSaveMessage(null); }, 2500);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to save this view.';
+            const conflict = message.toLowerCase().includes('conflict') || message.includes('VIEW_CONFLICT');
+            setSaveState(!navigator.onLine ? 'offline' : conflict ? 'conflict' : 'error');
+            setSaveMessage(!navigator.onLine ? 'Offline — draft remains open.' : conflict ? 'This view changed in another window. Reload before saving.' : message);
+        }
+    };
+
+    const createCustomView = async () => {
+        const name = newViewName().trim();
+        if (!name) return;
+        const viewKey = makeViewKey(name);
+        const widgets = createMode() === 'clone' ? cloneLayout(currentLayout()).map((widget, index) => ({ ...widget, instanceId: `${widget.widgetType}-${index}-${Math.random().toString(36).slice(2, 6)}` })) : [];
+        try {
+            if (authStore.isAuthenticated()) {
+                const view = await convexClient.createDashboardView({ viewKey, name, kind: 'custom' });
+                if (widgets.length) {
+                    const result = await convexClient.replaceDashboardLayout(view._id, widgets, view.revision);
+                    view.revision = result.revision;
+                }
+                setRemoteViews((views) => [...views, view]);
+                setRemoteLayouts((layouts) => ({ ...layouts, [viewKey]: widgets }));
+            } else {
+                setLocalViews((views) => [...views, { viewKey, name, widgets }]);
+            }
+            setShowCreateView(false);
+            activateView(viewKey);
+        } catch (error) {
+            setSaveState('error');
+            setSaveMessage(error instanceof Error ? error.message : 'Could not create the view.');
+        }
+    };
+
+    const importLegacyCharts = async () => {
+        const widgets = readLegacyCustomCharts();
+        if (!widgets.length || !authStore.isAuthenticated()) {
+            setLegacyImportAvailable(false);
+            return;
+        }
+        setSaveState('saving');
+        setSaveMessage('Importing legacy charts…');
+        try {
+            let view = remoteViews().find((candidate) => candidate.viewKey === 'imported-custom-charts');
+            if (!view) {
+                view = await convexClient.createDashboardView({ viewKey: 'imported-custom-charts', name: 'Imported custom charts', kind: 'custom' });
+            }
+            const result = await convexClient.importDashboardLocalDraft(view._id, LEGACY_IMPORT_VERSION, widgets);
+            const importedView = { ...view, revision: result.revision };
+            setRemoteViews((views) => [...views.filter((candidate) => candidate._id !== importedView._id), importedView]);
+            setRemoteLayouts((layouts) => ({ ...layouts, [importedView.viewKey]: widgets }));
+            setLegacyImportAvailable(false);
+            setSaveState('saved');
+            setSaveMessage(result.imported ? 'Legacy charts imported. The old local copy was preserved.' : 'Legacy charts were already imported.');
+            activateView(importedView.viewKey);
+        } catch (error) {
+            setSaveState(!navigator.onLine ? 'offline' : 'error');
+            setSaveMessage(error instanceof Error ? error.message : 'Could not import the legacy charts. The local copy is unchanged.');
+        }
+    };
+
+    const removeCurrentCustomView = async () => {
+        if (systemView() || !window.confirm(`Delete “${currentViewName()}”?`)) return;
+        try {
+            if (remoteView()) await convexClient.removeDashboardView(remoteView()!._id);
+            setRemoteViews((views) => views.filter((view) => view.viewKey !== activeViewKey()));
+            setLocalViews((views) => views.filter((view) => view.viewKey !== activeViewKey()));
+            activateView('pit-wall');
+        } catch (error) {
+            setNotice(error instanceof Error ? error.message : 'Could not delete the view.');
+        }
+    };
+
+    const renameCurrentView = async () => {
+        const name = renameViewName().trim();
+        if (!name || systemView()) return;
+        try {
+            if (remoteView()) {
+                const renamed = await convexClient.renameDashboardView(remoteView()!._id, name);
+                setRemoteViews((views) => views.map((view) => view._id === renamed._id ? renamed : view));
+            } else {
+                setLocalViews((views) => views.map((view) => view.viewKey === activeViewKey() ? { ...view, name } : view));
+            }
+            setShowRenameView(false);
+        } catch (error) {
+            setSaveState('error');
+            setSaveMessage(error instanceof Error ? error.message : 'Could not rename the view.');
+        }
+    };
+
+    const duplicateCurrentView = async () => {
+        const name = `${currentViewName()} copy`.slice(0, 60);
+        const viewKey = makeViewKey(name);
+        const widgets = cloneLayout(currentLayout()).map((widget, index) => ({ ...widget, instanceId: `${widget.widgetType}-${index}-${Math.random().toString(36).slice(2, 7)}`, row: index }));
+        try {
+            if (authStore.isAuthenticated()) {
+                const view = await convexClient.createDashboardView({ viewKey, name, kind: 'custom' });
+                const result = await convexClient.replaceDashboardLayout(view._id, widgets, view.revision);
+                const saved = { ...view, revision: result.revision };
+                setRemoteViews((views) => [...views, saved]);
+                setRemoteLayouts((layouts) => ({ ...layouts, [viewKey]: widgets }));
+            } else {
+                setLocalViews((views) => [...views, { viewKey, name, widgets }]);
+            }
+            activateView(viewKey);
+        } catch (error) {
+            setSaveState('error');
+            setSaveMessage(error instanceof Error ? error.message : 'Could not duplicate the view.');
+        }
+    };
+
+    const moveCurrentView = async (direction: -1 | 1) => {
+        if (systemView()) return;
+        if (remoteView()) {
+            const ordered = [...remoteViews()];
+            const index = ordered.findIndex((view) => view._id === remoteView()!._id);
+            const target = index + direction;
+            if (index < 0 || target < 0 || target >= ordered.length) return;
+            [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+            setRemoteViews(ordered.map((view, position) => ({ ...view, position })));
+            try {
+                await convexClient.reorderDashboardViews(ordered.map((view) => view._id));
+            } catch (error) {
+                setSaveState('error');
+                setSaveMessage(error instanceof Error ? error.message : 'Could not reorder the views.');
+                loadedForUserId = null;
+                void loadRemoteLayouts();
+            }
+        } else {
+            setLocalViews((views) => {
+                const ordered = [...views];
+                const index = ordered.findIndex((view) => view.viewKey === activeViewKey());
+                const target = index + direction;
+                if (index < 0 || target < 0 || target >= ordered.length) return views;
+                [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+                return ordered;
+            });
+        }
+    };
+
+    const setCurrentAsDefault = async () => {
+        try {
+            if (authStore.isAuthenticated()) await convexClient.setDefaultDashboardView(activeViewKey());
+            else localStorage.setItem(LAST_VIEW_STORAGE_KEY, activeViewKey());
+            setSaveState('saved');
+            setSaveMessage(`${currentViewName()} is now the default view.`);
+        } catch (error) {
+            setSaveState('error');
+            setSaveMessage(error instanceof Error ? error.message : 'Could not set the default view.');
+        }
+    };
+
+    const resetCurrentSystemView = async () => {
+        const selectedSystem = systemView();
+        if (!selectedSystem || (!persistedSystemOverride() && !localViews().some((view) => view.systemViewId === selectedSystem.id))) return;
+        if (!window.confirm(`Reset ${selectedSystem.label} to the built-in layout?`)) return;
+        try {
+            if (authStore.isAuthenticated()) await convexClient.resetSystemDashboardView(selectedSystem.id);
+            const override = persistedSystemOverride();
+            if (override) {
+                setRemoteViews((views) => views.filter((view) => view._id !== override._id));
+                setRemoteLayouts((layouts) => { const next = { ...layouts }; delete next[override.viewKey]; return next; });
+            }
+            setLocalViews((views) => views.filter((view) => view.systemViewId !== selectedSystem.id));
+            setSaveState('saved');
+            setSaveMessage('Built-in layout restored.');
+        } catch (error) {
+            setSaveState('error');
+            setSaveMessage(error instanceof Error ? error.message : 'Could not reset the view.');
+        }
+    };
+
+    const openHistorical = () => {
+        if (!authStore.canViewHistory()) {
+            setNotice('Historical Analysis requires an approved external, internal, or admin account.');
+            if (!authStore.isAuthenticated()) setShowLogin(true);
+            return;
+        }
+        runtime()?.prewarmHistoricalMode();
+        window.location.assign('/dashboard/sessions');
     };
 
     return (
-        <div class="app-container" style={{ 'min-height': '100vh', background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
-            <Show
-                when={!booting()}
-                fallback={
-                    <div style={{ 'min-height': '100vh', background: '#000' }} />
-                }
-            >
-                <Show
-                    when={!bootError()}
-                    fallback={
-                        <div style={loadingScreenStyle}>
-                            <div style={{ ...loadingTitleStyle, color: '#f87171' }}>Dashboard startup failed</div>
-                            <div style={loadingTextStyle}>{bootError()}</div>
-                            <a href="/dashboard-legacy" style={fallbackLinkStyle}>Open legacy dashboard</a>
-                        </div>
-                    }
-                >
-                    <header class="hero-header">
-                        <div class="hero-content">
-                            <div class="hero-title-wrapper">
-                                <h1 class="hero-title" data-full-text="Shell Eco-marathon" data-short-text="Shell">
-                                    Shell Eco-marathon
-                                </h1>
-                                <p
-                                    class="hero-subtitle"
-                                    data-full-text="Real-time Telemetry Dashboard"
-                                    data-short-text="DASHBOARD"
-                                >
-                                    Real-time Telemetry Dashboard
-                                </p>
-                            </div>
-                            <div class="header-actions hero-header-actions">
-                                <Show when={canAccessDriverDashboard()}>
-                                    <a
-                                        href={DRIVER_DASHBOARD_HREF}
-                                        class="header-historical-link liquid-hover"
-                                        title="Driver dashboard"
-                                        onClick={(e) => {
-                                            e.preventDefault();
-                                            window.location.assign(DRIVER_DASHBOARD_HREF);
-                                        }}
-                                    >
-                                        <span>🎮</span>
-                                    </a>
-                                </Show>
-                                <a
-                                    href={historyHref()}
-                                    class="header-historical-link liquid-hover"
-                                    title="Historical Analysis"
-                                    onMouseEnter={prewarmHistoricalMode}
-                                    onFocus={prewarmHistoricalMode}
-                                >
-                                    <span>📊</span>
-                                </a>
-                                <button
-                                    id="theme-toggle"
-                                    class="theme-toggle liquid-hover"
-                                    aria-label="Toggle theme"
-                                    title="Toggle light/dark mode"
-                                    onClick={toggleTheme}
-                                >
-                                    <span class="theme-icon theme-icon-sun">☀️</span>
-                                    <span class="theme-icon theme-icon-moon">🌙</span>
-                                </button>
-                                <UserMenu
-                                    onLogin={() => setShowLogin(true)}
-                                    onSignup={() => setShowSignup(true)}
-                                    onAdmin={() => setShowAdmin(true)}
-                                />
-                            </div>
-                            <div class="hero-status">
-                                <div class="status-cluster">
-                                    <button
-                                        type="button"
-                                        class="status-badge liquid-hover"
-                                        id="connection-status"
-                                        onClick={() => {
-                                            if (canRetryConnection()) {
-                                                void attemptRealtimeConnection(true);
-                                            }
-                                        }}
-                                        title={canRetryConnection()
-                                            ? (statusDetail() ?? 'Click to retry realtime connection')
-                                            : (statusDetail() ?? statusText())}
-                                        style={{
-                                            background: statusTone().background,
-                                            border: statusTone().border,
-                                            cursor: canRetryConnection() ? 'pointer' : 'default',
-                                        }}
-                                    >
-                                        <span
-                                            class="status-dot"
-                                            style={{
-                                                background: statusTone().dot,
-                                                'box-shadow': `0 0 12px ${statusTone().dot}`,
-                                                animation: telemetryStore.connectionStatus() === 'connected'
-                                                    ? 'pulse 2s ease-in-out infinite'
-                                                    : 'none',
-                                            }}
-                                        />
-                                        <span class="status-text">{statusText()}</span>
-                                    </button>
-                                    <Show when={statusDetail()}>
-                                        <div class="status-note">{statusDetail()}</div>
-                                    </Show>
+        <div class="ev-live">
+            <DashboardOld headless onRuntime={(api) => setRuntime(() => api)} />
+            <Show when={runtime()} fallback={<div class="ev-boot-screen"><span>ECOVOLT // INITIALIZING</span></div>}>
+                {(api) => <Show when={!api().booting()} fallback={<div class="ev-boot-screen"><span>ECOVOLT // LINKING SYSTEMS</span></div>}>
+                    <Show when={!api().bootError()} fallback={<StartupFailure message={api().bootError()!} />}>
+                        <header class="ev-topbar" aria-label="Telemetry status">
+                            <div class="ev-topbar-inner">
+                                <a class="ev-brand" href="/" aria-label="EcoVolt home"><i aria-hidden="true" /><strong>ECOVOLT<span>CCM // PIT WALL 02</span></strong></a>
+                                <div class="ev-signal-rail" aria-live="polite">
+                                    <SignalNode label={api().statusText()} detail={api().statusDetail() ?? 'Realtime link stable'} tone={telemetryStore.connectionStatus() === 'connected' ? 'green' : telemetryStore.connectionStatus() === 'failed' ? 'red' : 'amber'} active={telemetryStore.connectionStatus() === 'connected'} action={api().canRetryConnection() ? () => void api().retryConnection() : undefined} />
+                                    <SignalNode label={telemetryStore.isDataFresh() ? 'Data fresh' : rows().length ? 'Data stale' : 'No samples'} detail={rows().length ? `Updated ${api().lastMessageLabel()}` : 'Waiting for first valid sample'} tone={telemetryStore.isDataFresh() ? 'green' : 'amber'} active={telemetryStore.isDataFresh()} />
+                                    <SignalNode label={telemetryStore.currentSessionId() ? 'Session active' : 'Session waiting'} detail={telemetryStore.currentSessionName() ?? telemetryStore.currentSessionId()?.slice(0, 12) ?? 'No active run detected'} tone={telemetryStore.currentSessionId() ? 'orange' : 'quiet'} active={Boolean(telemetryStore.currentSessionId())} />
+                                    <SignalNode label={eventStore.events().some((event) => event.status === 'active' && !event.acknowledged && (event.severity === 'critical' || event.severity === 'warning')) ? 'Review required' : 'Vehicle normal'} detail={eventStore.events().find((event) => event.status === 'active' && !event.acknowledged)?.title ?? 'No intervention'} tone={eventStore.events().some((event) => event.status === 'active' && event.severity === 'critical') ? 'red' : eventStore.events().some((event) => event.status === 'active' && event.severity === 'warning') ? 'amber' : 'green'} active />
                                 </div>
-                                <div class="stats-mini">
-                                    <div class="stat-mini">
-                                        <span class="stat-mini-value">{telemetryStore.messageCount()}</span>
-                                        <span class="stat-mini-label">Messages</span>
-                                    </div>
-                                    <div class="stat-mini">
-                                        <span class="stat-mini-value">{lastMessageLabel()}</span>
-                                        <span class="stat-mini-label">Last Update</span>
-                                    </div>
-                                </div>
+                                <div class="ev-mode-switch" aria-label="Display mode"><button classList={{ active: mode() === 'live' }} onClick={returnToLive}>Live</button><button classList={{ active: mode() === 'inspect' }} onClick={enterInspection}>Inspect</button></div>
                             </div>
-                        </div>
-                    </header>
+                        </header>
 
-                    <main class="main-content">
-                        <div class="main">
-                            <div class="tabs-nav-wrapper">
-                                <nav class="tabs-nav">
-                                    {PANEL_META.map((panel) => (
-                                        <button
-                                            class={`tab liquid-hover ${activePanel() === panel.id ? 'active' : ''}`}
-                                            data-panel={panel.id}
-                                            onClick={() => setActivePanel(panel.id)}
-                                        >
-                                            <span class="tab-icon">{panel.icon}</span>
-                                            <span class="tab-label">{panel.label}</span>
-                                        </button>
-                                    ))}
-                                </nav>
-                            </div>
+                        <Show when={mode() === 'inspect'}>
+                            <div class="ev-inspection-banner" role="status"><div><strong>Inspection mode</strong><span>Values frozen at {selected() ? new Date(selected()!.timestamp).toLocaleTimeString() : '—'} · acquisition continues</span><input type="range" aria-label="Inspect telemetry record" min="0" max={Math.max(0, rows().length - 1)} value={selectedIndex()} onInput={(event) => updateInspectionIndex(Number(event.currentTarget.value))} /><span class="ev-compare">Δ previous: {selected() && previousSelected() ? `${((selected()!.speed_ms ?? 0) - (previousSelected()!.speed_ms ?? 0)).toFixed(2)} m/s` : '—'} · Δ live: {selected() && liveLatest() ? `${((selected()!.speed_ms ?? 0) - (liveLatest()!.speed_ms ?? 0)).toFixed(2)} m/s` : '—'}</span></div><button onClick={returnToLive}>Return to live →</button></div>
+                        </Show>
 
-                            <div class="main-panels">
-                                <div style={{ display: activePanel() === 'overview' ? 'block' : 'none' }}>
-                                    <OverviewPanel data={data()} loading={booting()} sessionId={sessionId()} active={activePanel() === 'overview'} />
-                                    <div class="glass-panel driver-box mb-4">
-                                        <div
-                                            class={`collapsible-header ${driverInputsCollapsed() ? 'collapsed' : ''}`}
-                                            onClick={() => setDriverInputsCollapsed((value) => !value)}
-                                            role="button"
-                                            tabindex="0"
-                                            onKeyDown={(event) => {
-                                                if (event.key === 'Enter' || event.key === ' ') {
-                                                    event.preventDefault();
-                                                    setDriverInputsCollapsed((value) => !value);
-                                                }
-                                            }}
-                                        >
-                                            <h3>🎮 Driver Inputs (Live)</h3>
-                                            <span class="collapse-icon">{driverInputsCollapsed() ? '+' : '−'}</span>
-                                        </div>
-                                        <div class={`collapsible-content ${driverInputsCollapsed() ? 'collapsed' : ''}`} style={{ padding: driverInputsCollapsed() ? '0' : '20px' }}>
-                                            <DriverInputBars
-                                                throttle={latest()?.throttle_pct ?? 0}
-                                                brake={latest()?.brake_pct ?? 0}
-                                                brake2={latest()?.brake2_pct ?? 0}
-                                                steeringDeg={telemetryStore.liveSteeringAngleDeg()}
-                                                showSteering={activePanel() === 'overview'}
-                                            />
-                                            <div class="center fine">
-                                                Live steering (gyro estimate), throttle, and brakes (0–100%)
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                        <main class="ev-frame" id="main">
+                            <section class="ev-session-header" aria-labelledby="session-heading">
+                                <div><span class="ev-eyebrow">Live telemetry workspace</span><h1 id="session-heading">{telemetryStore.currentSessionName() ?? (telemetryStore.currentSessionId() ? 'Active vehicle session' : 'Waiting for vehicle session')}</h1><p>{telemetryStore.currentSessionId() ? `${telemetryStore.currentSessionId()!.slice(0, 18)} · ${rows().length.toLocaleString()} records` : 'The dashboard is read-only. Start telemetry at the vehicle or bridge.'}</p></div>
+                                <div class="ev-session-actions"><button class="ev-primary-action" onMouseEnter={() => runtime()?.prewarmHistoricalMode()} onFocus={() => runtime()?.prewarmHistoricalMode()} onClick={openHistorical}>Historical Analysis</button><Show when={authStore.userRole() === 'internal' || authStore.userRole() === 'admin'}><a class="ev-secondary-action" href={DRIVER_DASHBOARD_HREF}>Driver cockpit</a></Show><AccountMenu open={accountOpen()} setOpen={setAccountOpen} onLogin={() => setShowLogin(true)} onSignup={() => setShowSignup(true)} onAdmin={() => setShowAdmin(true)} /></div>
+                            </section>
 
-                                <Show when={activePanel() === 'speed'}>
-                                    <div style={{ display: 'grid', gap: '16px' }}>
-                                        <RealtimeTimeRangeSelector
-                                            value={panelTimeRanges().speed}
-                                            onChange={(preset) => setPanelTimeRange('speed', preset)}
-                                        />
-                                        <SpeedPanel data={activeRangeData()} loading={booting()} />
-                                    </div>
-                                </Show>
+                            <section class="ev-view-toolbar">
+                                <div class="ev-view-copy"><span class="ev-eyebrow">Current operational view</span><h2>{currentViewName()}</h2><p>{currentViewDescription()}</p></div>
+                                <nav class="ev-view-switcher" aria-label="Dashboard views"><For each={switcherViews()}>{(view) => <button classList={{ active: activeViewKey() === view.key, custom: view.custom }} onClick={() => activateView(view.key)}>{view.label}</button>}</For><button class="ev-add-view" onClick={() => setShowCreateView(true)}>+ New view</button></nav>
+                                <div class="ev-customize-actions"><Show when={legacyImportAvailable()}><button onClick={() => void importLegacyCharts()}>Import legacy charts</button></Show><Show when={!editing()} fallback={<><button onClick={() => setShowCatalog(true)}>Add widget</button><button class="ev-primary-action" disabled={saveState() === 'saving'} onClick={() => void saveLayout()}>{saveState() === 'saving' ? 'Saving…' : 'Save view'}</button><button onClick={cancelEditing}>Cancel</button></>}><button onClick={startEditing}>Customize current view</button><details class="ev-view-options"><summary>View options</summary><div><button onClick={() => void setCurrentAsDefault()}>Set as default</button><button onClick={() => void duplicateCurrentView()}>Duplicate view</button><Show when={!systemView()}><button onClick={() => { setRenameViewName(currentViewName()); setShowRenameView(true); }}>Rename</button><button onClick={() => void moveCurrentView(-1)}>Move left</button><button onClick={() => void moveCurrentView(1)}>Move right</button><button class="ev-danger-action" onClick={() => void removeCurrentCustomView()}>Delete view</button></Show><Show when={systemView() && (persistedSystemOverride() || localViews().some((view) => view.systemViewId === systemView()!.id))}><button class="ev-danger-action" onClick={() => void resetCurrentSystemView()}>Reset built-in layout</button></Show></div></details></Show><Show when={saveMessage()}><span class={`ev-save-state state-${saveState()}`}>{saveMessage()}</span></Show></div>
+                            </section>
 
-                                <Show when={activePanel() === 'power'}>
-                                    <div style={{ display: 'grid', gap: '16px' }}>
-                                        <RealtimeTimeRangeSelector
-                                            value={panelTimeRanges().power}
-                                            onChange={(preset) => setPanelTimeRange('power', preset)}
-                                        />
-                                        <PowerPanel data={activeRangeData()} loading={booting()} />
-                                    </div>
-                                </Show>
+                            <Show when={notice()}><div class="ev-notice" role="status"><span>{notice()}</span><button aria-label="Dismiss message" onClick={() => setNotice(null)}>×</button></div></Show>
 
-                                <Show when={activePanel() === 'motor'}>
-                                    <div style={{ display: 'grid', gap: '16px' }}>
-                                        <RealtimeTimeRangeSelector
-                                            value={panelTimeRanges().motor}
-                                            onChange={(preset) => setPanelTimeRange('motor', preset)}
-                                        />
-                                        <MotorPanel data={activeRangeData()} loading={booting()} />
-                                    </div>
-                                </Show>
+                            <section class="ev-widget-grid" aria-label={`${currentViewName()} widgets`}>
+                                <For each={currentLayout()} fallback={<div class="ev-empty-view"><h2>Empty custom view</h2><p>Add a widget to build this workspace. Connection, freshness, session, and attention remain available above.</p><button onClick={() => { startEditing(); setShowCatalog(true); }}>Add first widget</button></div>}>
+                                    {(widget, index) => {
+                                        const definition = WIDGET_REGISTRY[widget.widgetType];
+                                        return <article class={`ev-widget-frame ev-widget-${widget.widgetType}`} style={{ '--ev-span': String(Math.max(1, Math.min(12, widget.width))) } as JSX.CSSProperties} data-pinned={widget.pinned ? 'true' : 'false'}>
+                                            <Show when={editing()}><div class="ev-widget-editbar"><strong>{definition.displayName}</strong><div><button aria-label="Move widget earlier" disabled={index() === 0} onClick={() => moveWidget(index(), -1)}>↑</button><button aria-label="Move widget later" disabled={index() === draftLayout().length - 1} onClick={() => moveWidget(index(), 1)}>↓</button><button onClick={() => patchWidget(widget.instanceId, { width: widget.width >= 12 ? 4 : widget.width + 2 })}>Width {widget.width}/12</button><button onClick={() => patchWidget(widget.instanceId, { pinned: !widget.pinned })}>{widget.pinned ? 'Unpin' : 'Pin'}</button><button onClick={() => duplicateWidget(widget)}>Duplicate</button><button disabled={widget.pinned} onClick={() => setDraftLayout((layout) => layout.filter((entry) => entry.instanceId !== widget.instanceId))}>Remove</button></div></div></Show>
+                                            <Dynamic component={definition.component} rows={displayRows()} liveRows={rows()} inspectionMode={mode() === 'inspect'} eventList={eventStore.events()} acknowledgeEvent={acknowledgeEvent} activateView={(view: SystemViewId) => activateView(view)} title={widget.title} config={widget.config} />
+                                        </article>;
+                                    }}
+                                </For>
+                            </section>
+                        </main>
 
-                                <Show when={activePanel() === 'imu'}>
-                                    <div style={{ display: 'grid', gap: '16px' }}>
-                                        <RealtimeTimeRangeSelector
-                                            value={panelTimeRanges().imu}
-                                            onChange={(preset) => setPanelTimeRange('imu', preset)}
-                                        />
-                                        <IMUPanel data={activeRangeData()} loading={booting()} />
-                                    </div>
-                                </Show>
+                        <Show when={showCatalog()}><Modal title="Add widget" onClose={() => setShowCatalog(false)}><label class="ev-field"><span>Search widget catalog</span><input autofocus value={catalogSearch()} onInput={(event) => setCatalogSearch(event.currentTarget.value)} /></label><div class="ev-widget-catalog"><For each={visibleCatalog()}>{(definition) => <button onClick={() => addWidget(definition.type)}><strong>{definition.displayName}</strong><span>{definition.description}</span><small>{definition.importance} · {definition.performanceCost} cost</small></button>}</For></div></Modal></Show>
+                        <Show when={showCreateView()}><Modal title="Create custom view" onClose={() => setShowCreateView(false)}><label class="ev-field"><span>View name</span><input autofocus maxlength="60" value={newViewName()} onInput={(event) => setNewViewName(event.currentTarget.value)} /></label><div class="ev-choice-row"><button classList={{ active: createMode() === 'clone' }} onClick={() => setCreateMode('clone')}>Clone current view</button><button classList={{ active: createMode() === 'blank' }} onClick={() => setCreateMode('blank')}>Start blank</button></div><div class="ev-dialog-actions"><button onClick={() => setShowCreateView(false)}>Cancel</button><button class="ev-primary-action" onClick={() => void createCustomView()}>Create view</button></div></Modal></Show>
+                        <Show when={showRenameView()}><Modal title="Rename custom view" onClose={() => setShowRenameView(false)}><label class="ev-field"><span>View name</span><input autofocus maxlength="60" value={renameViewName()} onInput={(event) => setRenameViewName(event.currentTarget.value)} /></label><div class="ev-dialog-actions"><button onClick={() => setShowRenameView(false)}>Cancel</button><button class="ev-primary-action" onClick={() => void renameCurrentView()}>Save name</button></div></Modal></Show>
 
-                                <Show when={activePanel() === 'imu-detail'}>
-                                    <div style={{ display: 'grid', gap: '16px' }}>
-                                        <RealtimeTimeRangeSelector
-                                            value={panelTimeRanges()['imu-detail']}
-                                            onChange={(preset) => setPanelTimeRange('imu-detail', preset)}
-                                        />
-                                        <IMUDetailPanel data={activeRangeData()} loading={booting()} />
-                                    </div>
-                                </Show>
-
-                                <Show when={activePanel() === 'efficiency'}>
-                                    <div style={{ display: 'grid', gap: '16px' }}>
-                                        <RealtimeTimeRangeSelector
-                                            value={panelTimeRanges().efficiency}
-                                            onChange={(preset) => setPanelTimeRange('efficiency', preset)}
-                                        />
-                                        <EfficiencyPanel data={activeRangeData()} loading={booting()} />
-                                    </div>
-                                </Show>
-
-                                <Show when={activePanel() === 'gps'}>
-                                    <div style={{ display: 'grid', gap: '16px' }}>
-                                        <RealtimeTimeRangeSelector
-                                            value={panelTimeRanges().gps}
-                                            onChange={(preset) => setPanelTimeRange('gps', preset)}
-                                        />
-                                        <GPSPanel data={activeRangeData()} loading={booting()} />
-                                    </div>
-                                </Show>
-
-                                <Show when={activePanel() === 'custom'}>
-                                    <CustomPanel data={data()} loading={booting()} />
-                                </Show>
-
-                                <Show when={activePanel() === 'data'}>
-                                    <DataPanel data={data()} loading={booting()} sessionId={sessionId()} />
-                                </Show>
-                            </div>
-                        </div>
-                    </main>
-
-                    <LoginModal
-                        isOpen={showLogin()}
-                        onClose={() => setShowLogin(false)}
-                        onSwitchToSignup={() => {
-                            setShowLogin(false);
-                            setShowSignup(true);
-                        }}
-                    />
-                    <SignupModal
-                        isOpen={showSignup()}
-                        onClose={() => setShowSignup(false)}
-                        onSwitchToLogin={() => {
-                            setShowSignup(false);
-                            setShowLogin(true);
-                        }}
-                    />
-                    <AdminDashboardModal
-                        isOpen={showAdmin()}
-                        onClose={() => setShowAdmin(false)}
-                    />
-                </Show>
+                        <LoginModal isOpen={showLogin()} onClose={() => setShowLogin(false)} onSwitchToSignup={() => { setShowLogin(false); setShowSignup(true); }} />
+                        <SignupModal isOpen={showSignup()} onClose={() => setShowSignup(false)} onSwitchToLogin={() => { setShowSignup(false); setShowLogin(true); }} />
+                        <AdminDashboardModal isOpen={showAdmin()} onClose={() => setShowAdmin(false)} />
+                    </Show>
+                </Show>}
             </Show>
         </div>
     );
 };
 
-const DriverInputBars: Component<{
-    throttle: number;
-    brake: number;
-    brake2: number;
-    steeringDeg: number;
-    showSteering: boolean;
-}> = (props) => {
-    return (
-        <div
-            style={{
-                display: 'flex',
-                gap: '14px',
-                'align-items': 'stretch',
-                'margin-bottom': '14px',
-                'flex-wrap': 'wrap',
-            }}
-        >
-            <Show when={props.showSteering}>
-                <SteeringWheelLive angleDeg={props.steeringDeg} />
-            </Show>
-            <div style={{ flex: '1', 'min-width': 'min(100%, 200px)' }}>
-                <div style={{ display: 'grid', gap: '10px' }}>
-                    <InputBar label="Throttle" value={props.throttle} color="linear-gradient(90deg, #22c55e, #86efac)" compact />
-                    <InputBar label="Brake 1" value={props.brake} color="linear-gradient(90deg, #ef4444, #fb7185)" compact />
-                    <InputBar label="Brake 2" value={props.brake2} color="linear-gradient(90deg, #f59e0b, #f97316)" compact />
-                </div>
-            </div>
-        </div>
-    );
+const SignalNode: Component<{ label: string; detail: string; tone: 'green' | 'amber' | 'red' | 'orange' | 'quiet'; active: boolean; action?: () => void }> = (props) => {
+    const content = <><span><i aria-hidden="true" />{props.label}</span><small>{props.detail}</small></>;
+    return <Show when={props.action} fallback={<div class={`ev-signal-node tone-${props.tone}`} data-active={props.active ? 'true' : 'false'}>{content}</div>}>{(action) => <button class={`ev-signal-node tone-${props.tone}`} data-active={props.active ? 'true' : 'false'} onClick={action()}>{content}</button>}</Show>;
 };
 
-/** Minimal CSS steering indicator; only mounted when overview + `showSteering` is true. */
-const SteeringWheelLive: Component<{ angleDeg: number }> = (props) => {
-    return (
-        <div
-            style={{
-                width: '88px',
-                'flex-shrink': 0,
-                display: 'flex',
-                'flex-direction': 'column',
-                'align-items': 'center',
-                gap: '6px',
-            }}
-            aria-hidden="true"
-        >
-            <div
-                style={{
-                    position: 'relative',
-                    width: '76px',
-                    height: '76px',
-                    'border-radius': '50%',
-                    border: '2px solid var(--border-default)',
-                    background:
-                        'radial-gradient(circle at 32% 28%, rgba(255,255,255,0.07), transparent 52%), var(--surface-secondary)',
-                    'box-shadow': 'inset 0 2px 8px rgba(0,0,0,0.5)',
-                }}
-            >
-                <div
-                    style={{
-                        position: 'absolute',
-                        inset: '0',
-                        transform: `rotate(${props.angleDeg}deg)`,
-                        'transform-origin': '50% 50%',
-                    }}
-                >
-                    <div
-                        style={{
-                            position: 'absolute',
-                            left: '50%',
-                            top: '9%',
-                            width: '3px',
-                            height: '34%',
-                            'margin-left': '-1.5px',
-                            'border-radius': '2px',
-                            background: 'linear-gradient(180deg, #ddd6fe, #7c3aed)',
-                            'box-shadow': '0 0 10px rgba(124,58,237,0.35)',
-                        }}
-                    />
-                </div>
-                <div
-                    style={{
-                        position: 'absolute',
-                        left: '50%',
-                        top: '50%',
-                        width: '12px',
-                        height: '12px',
-                        'margin-left': '-6px',
-                        'margin-top': '-6px',
-                        'border-radius': '50%',
-                        background: 'var(--surface-primary)',
-                        border: '1px solid var(--border-default)',
-                    }}
-                />
-            </div>
-            <span
-                style={{
-                    color: 'var(--text-secondary)',
-                    'font-size': '10px',
-                    'font-weight': 600,
-                    'letter-spacing': '0.08em',
-                    'text-transform': 'uppercase',
-                }}
-            >
-                Steering
-            </span>
-        </div>
-    );
-};
+const StartupFailure: Component<{ message: string }> = (props) => <main class="ev-startup-failure"><span class="ev-eyebrow">Dashboard startup failed</span><h1>Live telemetry is unavailable</h1><p>{props.message}</p><div><a class="ev-primary-action" href="/dashboard/old">Open previous dashboard</a><a class="ev-secondary-action" href="/dashboard-legacy">Emergency fallback</a></div></main>;
 
-const InputBar: Component<{ label: string; value: number; color: string; compact?: boolean }> = (props) => {
-    const clamped = createMemo(() => Math.max(0, Math.min(100, props.value)));
-
-    return (
-        <div
-            style={{
-                display: 'grid',
-                'grid-template-columns': props.compact ? '72px minmax(0,1fr) 44px' : '96px 1fr 60px',
-                gap: props.compact ? '8px' : '12px',
-                'align-items': 'center',
-            }}
-        >
-            <span
-                style={{
-                    color: 'var(--text-secondary)',
-                    'font-size': props.compact ? '12px' : '13px',
-                    'font-weight': 600,
-                }}
-            >
-                {props.label}
-            </span>
-            <div style={{
-                height: props.compact ? '13px' : '16px',
-                background: 'var(--surface-secondary)',
-                border: '1px solid var(--border-default)',
-                'border-radius': '999px',
-                overflow: 'hidden',
-                'box-shadow': 'inset 0 1px 2px rgba(0,0,0,0.35)',
-            }}>
-                <div style={{
-                    width: `${clamped()}%`,
-                    height: '100%',
-                    background: props.color,
-                    transition: 'width 120ms ease-out',
-                }} />
-            </div>
-            <span
-                style={{
-                    'text-align': 'right',
-                    'font-variant-numeric': 'tabular-nums',
-                    'font-size': props.compact ? '12px' : '13px',
-                    'font-weight': 700,
-                    color: 'var(--text-primary)',
-                }}
-            >
-                {Math.round(clamped())}%
-            </span>
-        </div>
-    );
-};
-
-const RealtimeTimeRangeSelector: Component<{
-    value: TimeRangePreset;
-    onChange: (preset: TimeRangePreset) => void;
-}> = (props) => (
-    <div class="glass-panel tab-filter-bar" style={{ 'justify-content': 'flex-start' }}>
-        <div class="time-range-selector" role="tablist" aria-label="Time range selector">
-            {(['30s', '1m', '5m', 'all'] as const).map((preset) => (
-                <button
-                    type="button"
-                    class={`time-btn ${props.value === preset ? 'active' : ''}`}
-                    onClick={() => props.onChange(preset)}
-                >
-                    {preset === 'all' ? 'All' : preset}
-                </button>
-            ))}
-        </div>
-    </div>
+const AccountMenu: Component<{ open: boolean; setOpen: (open: boolean) => void; onLogin: () => void; onSignup: () => void; onAdmin: () => void }> = (props) => (
+    <div class="ev-account-menu"><button class="ev-account-trigger" aria-label="Account and dashboard preferences" aria-expanded={props.open} onClick={() => props.setOpen(!props.open)}>{authStore.user()?.name?.charAt(0).toUpperCase() ?? authStore.user()?.email?.charAt(0).toUpperCase() ?? 'A'}</button><Show when={props.open}><div class="ev-account-popover"><Show when={authStore.isAuthenticated()} fallback={<><strong>Guest monitoring</strong><span>Sign in to sync views and preferences.</span><button onClick={() => { props.setOpen(false); props.onLogin(); }}>Sign in</button><button onClick={() => { props.setOpen(false); props.onSignup(); }}>Create account</button></>}><strong>{authStore.user()?.name ?? authStore.user()?.email}</strong><span>{authStore.userRole()} · {authStore.user()?.approval_status}</span><Show when={authStore.canAccessAdmin()}><button onClick={() => { props.setOpen(false); props.onAdmin(); }}>User management</button></Show><button onClick={() => void authStore.signOut()}>Sign out</button></Show><a href="/dashboard/old">Previous dashboard</a></div></Show></div>
 );
 
-const loadingScreenStyle: JSX.CSSProperties = {
-    display: 'flex',
-    'flex-direction': 'column',
-    'align-items': 'center',
-    'justify-content': 'center',
-    gap: '16px',
-    'min-height': '100vh',
-    background: '#000',
-    color: '#fff',
-    padding: '24px',
-    'text-align': 'center' as const,
-};
-
-const loadingTitleStyle: JSX.CSSProperties = {
-    'font-size': '22px',
-    'font-weight': 700,
-    'letter-spacing': '-0.02em',
-};
-
-const loadingTextStyle: JSX.CSSProperties = {
-    color: 'rgba(255,255,255,0.62)',
-    'max-width': '560px',
-    'font-size': '14px',
-    'line-height': 1.6,
-};
-
-const fallbackLinkStyle: JSX.CSSProperties = {
-    display: 'inline-flex',
-    'align-items': 'center',
-    'justify-content': 'center',
-    padding: '10px 16px',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    'border-radius': '999px',
-    color: '#fff',
-    'text-decoration': 'none',
-};
+const Modal: Component<{ title: string; onClose: () => void; children: JSX.Element }> = (props) => <div class="ev-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}><section class="ev-dialog" role="dialog" aria-modal="true" aria-label={props.title}><header><h2>{props.title}</h2><button aria-label="Close dialog" onClick={props.onClose}>×</button></header><div>{props.children}</div></section></div>;
 
 export default DashboardParity;

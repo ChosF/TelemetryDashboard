@@ -4,6 +4,7 @@
  */
 
 import type { TelemetryRecord, TelemetrySession } from '@/types/telemetry';
+import type { PersistedDashboardView, WidgetLayout } from '@/dashboard/types';
 import { debugRewind } from '@/lib/rewindDebug';
 import { getStoredSessionToken } from '@/lib/authSession';
 
@@ -779,6 +780,107 @@ export async function getLatestSessionTimestamp(sessionId: string): Promise<{
     return typedResult;
 }
 
+export async function getDashboardPreferences(): Promise<Record<string, unknown> | null> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.query('dashboardPreferences:getMine', { token: getAuthToken() }) as Record<string, unknown> | null;
+}
+
+export async function updateDashboardPreferences(update: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.mutation('dashboardPreferences:updateMine', { token: getAuthToken(), ...update }) as Record<string, unknown>;
+}
+
+export async function listDashboardViews(): Promise<PersistedDashboardView[]> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.query('dashboardViews:listMine', { token: getAuthToken() }) as PersistedDashboardView[];
+}
+
+export async function createDashboardView(args: {
+    viewKey: string;
+    name: string;
+    kind: 'system-override' | 'custom';
+    systemViewId?: string;
+}): Promise<PersistedDashboardView> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.mutation('dashboardViews:create', { token: getAuthToken(), ...args }) as PersistedDashboardView;
+}
+
+export async function renameDashboardView(viewId: string, name: string): Promise<PersistedDashboardView> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.mutation('dashboardViews:rename', { token: getAuthToken(), viewId, name }) as PersistedDashboardView;
+}
+
+export async function duplicateDashboardView(sourceViewId: string, viewKey: string, name: string): Promise<PersistedDashboardView> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.mutation('dashboardViews:duplicate', { token: getAuthToken(), sourceViewId, viewKey, name }) as PersistedDashboardView;
+}
+
+export async function removeDashboardView(viewId: string): Promise<void> {
+    if (!client) throw new Error('Convex not initialized');
+    await client.mutation('dashboardViews:remove', { token: getAuthToken(), viewId });
+}
+
+export async function setDefaultDashboardView(viewKey: string): Promise<void> {
+    if (!client) throw new Error('Convex not initialized');
+    await client.mutation('dashboardViews:setDefault', { token: getAuthToken(), viewKey });
+}
+
+export async function reorderDashboardViews(viewIds: string[]): Promise<void> {
+    if (!client) throw new Error('Convex not initialized');
+    await client.mutation('dashboardViews:reorder', { token: getAuthToken(), viewIds });
+}
+
+export async function resetSystemDashboardView(systemViewId: string): Promise<void> {
+    if (!client) throw new Error('Convex not initialized');
+    await client.mutation('dashboardViews:resetSystemOverride', { token: getAuthToken(), systemViewId });
+}
+
+export async function getDashboardWidgets(viewId: string): Promise<Array<WidgetLayout & { _id: string }>> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.query('dashboardWidgets:listMine', { token: getAuthToken(), viewId }) as Array<WidgetLayout & { _id: string }>;
+}
+
+export async function replaceDashboardLayout(
+    viewId: string,
+    widgets: WidgetLayout[],
+    expectedRevision?: number,
+): Promise<{ success: boolean; revision: number }> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.mutation('dashboardWidgets:replaceViewLayout', {
+        token: getAuthToken(),
+        viewId,
+        widgets,
+        expectedRevision,
+    }) as { success: boolean; revision: number };
+}
+
+export async function setDashboardEventAcknowledged(
+    eventKey: string,
+    acknowledged: boolean,
+    sessionId?: string,
+): Promise<void> {
+    if (!client) throw new Error('Convex not initialized');
+    await client.mutation('dashboardAlerts:setAcknowledged', {
+        token: getAuthToken(), eventKey, acknowledged, sessionId,
+    });
+}
+
+export async function listDashboardEventAcknowledgements(): Promise<Array<{ eventKey: string }>> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.query('dashboardAlerts:listAcknowledgements', { token: getAuthToken() }) as Array<{ eventKey: string }>;
+}
+
+export async function importDashboardLocalDraft(
+    viewId: string,
+    importVersion: number,
+    widgets: WidgetLayout[],
+): Promise<{ imported: boolean; revision: number }> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.mutation('dashboardWidgets:importLocalDraft', {
+        token: getAuthToken(), viewId, importVersion, widgets,
+    }) as { imported: boolean; revision: number };
+}
+
 /**
  * Subscribe to session records (reactive)
  */
@@ -939,6 +1041,21 @@ export const convexClient = {
     getRecentRecords,
     getLatestRecord,
     getLatestSessionTimestamp,
+    getDashboardPreferences,
+    updateDashboardPreferences,
+    listDashboardViews,
+    createDashboardView,
+    renameDashboardView,
+    duplicateDashboardView,
+    removeDashboardView,
+    setDefaultDashboardView,
+    reorderDashboardViews,
+    resetSystemDashboardView,
+    getDashboardWidgets,
+    replaceDashboardLayout,
+    setDashboardEventAcknowledged,
+    listDashboardEventAcknowledgements,
+    importDashboardLocalDraft,
     subscribeToSession,
     subscribeToRecentRecords,
     subscribeToSessions,

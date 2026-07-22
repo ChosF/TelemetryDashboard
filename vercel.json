@@ -8,8 +8,24 @@
       "destination": "/driver.html"
     },
     {
+      "source": "/driver/",
+      "destination": "/driver.html"
+    },
+    {
       "source": "/dashboard",
       "destination": "/dashboard.html"
+    },
+    {
+      "source": "/dashboard/",
+      "destination": "/dashboard.html"
+    },
+    {
+      "source": "/dashboard/old",
+      "destination": "/dashboard-old.html"
+    },
+    {
+      "source": "/dashboard/old/",
+      "destination": "/dashboard-old.html"
     },
     {
       "source": "/dashboard-solid",
@@ -20,7 +36,15 @@
       "destination": "/legacy-dashboard-do-not-use/dashboard.html"
     },
     {
+      "source": "/dashboard-legacy/",
+      "destination": "/legacy-dashboard-do-not-use/dashboard.html"
+    },
+    {
       "source": "/dashboard/sessions",
+      "destination": "/historical.html"
+    },
+    {
+      "source": "/dashboard/sessions/",
       "destination": "/historical.html"
     },
     {

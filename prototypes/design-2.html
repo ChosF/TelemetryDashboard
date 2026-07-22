@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EcoVolt — Pit Telemetry (Design 2: Decision Spine)</title>
+<!--
+  EcoVolt dashboard redesign prototype — Design 2 "The Decision Spine"
+  Concept: a fixed left rail answers the pit operator's questions in strict
+  priority order (link → session → attention) while the instrument bay on the
+  right never reflows: vitals, run strip, energy budget, events.
+  Standalone prototype. Simulated telemetry only. No backend.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        circuit:  '#0A0A0A',
+        charcoal: '#141414',
+        graphite: '#1E1E1E',
+        slate2:   '#2A2A2A',
+        signal:   '#FAFAFA',
+        volt:     '#FF6B35',
+        ember:    '#FF4500',
+        energy:   '#22C55E',
+        teal2:    '#14B8A6',
+        cyan2:    '#06B6D4',
+      },
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+        mono: ['"Space Grotesk"', 'monospace'],
+      },
+    },
+  },
+}
+</script>
+<style>
+  :root {
+    --circuit: #0A0A0A;
+    --charcoal: #141414;
+    --graphite: #1E1E1E;
+    --slate: #2A2A2A;
+    --signal: #FAFAFA;
+    --volt: #FF6B35;
+    --ember: #FF4500;
+    --energy: #22C55E;
+    --teal: #14B8A6;
+    --cyan: #06B6D4;
+    --rule: rgba(250,250,250,0.08);
+    --rule-strong: rgba(250,250,250,0.2);
+  }
+
+  html { background: var(--circuit); }
+  body {
+    font-family: "Plus Jakarta Sans", sans-serif;
+    color: var(--signal);
+    background:
+      linear-gradient(rgba(255,107,53,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,107,53,0.025) 1px, transparent 1px),
+      var(--circuit);
+    background-size: 80px 80px, 80px 80px, auto;
+  }
+
+  .font-data { font-family: "Space Grotesk", monospace; font-variant-numeric: tabular-nums; }
+  .eyebrow {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.3em;
+    color: rgba(250,250,250,0.4); font-weight: 600;
+  }
+  .eyebrow .idx { color: var(--volt); }
+  .eyebrow::after {
+    content: ""; display: inline-block; width: 24px; height: 1px;
+    background: rgba(250,250,250,0.2); vertical-align: middle; margin-left: 10px;
+  }
+
+  /* Corner brackets for the dominant readout */
+  .brackets { position: relative; }
+  .brackets::before, .brackets::after {
+    content: ""; position: absolute; width: 16px; height: 16px; pointer-events: none;
+  }
+  .brackets::before { top: -1px; left: -1px; border-top: 2px solid var(--volt); border-left: 2px solid var(--volt); }
+  .brackets::after  { bottom: -1px; right: -1px; border-bottom: 2px solid var(--volt); border-right: 2px solid var(--volt); }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; padding: 0 20px;
+    font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    border: 1px solid transparent; cursor: pointer;
+    transition: background-color 0.3s, border-color 0.3s, color 0.3s;
+  }
+  .btn-primary { background: var(--volt); color: var(--circuit); }
+  .btn-primary:hover { background: var(--ember); }
+  .btn-secondary { background: transparent; border-color: var(--rule-strong); color: var(--signal); }
+  .btn-secondary:hover { background: var(--signal); color: var(--circuit); }
+  .btn-quiet { background: transparent; border-color: transparent; color: rgba(250,250,250,0.6); min-height: 44px; }
+  .btn-quiet:hover { color: var(--signal); border-color: var(--rule-strong); }
+  .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+  .btn[disabled]:hover { background: inherit; color: inherit; }
+  .btn-primary[disabled]:hover { background: var(--volt); color: var(--circuit); }
+
+  :focus-visible { outline: 2px solid var(--volt); outline-offset: 2px; }
+
+  /* Segmented control (mode switch) */
+  .seg { display: inline-flex; border: 1px solid var(--rule-strong); }
+  .seg button {
+    min-height: 44px; padding: 0 20px; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em; color: rgba(250,250,250,0.6);
+    background: transparent; transition: background-color 0.3s, color 0.3s;
+  }
+  .seg button[aria-pressed="true"] { background: var(--signal); color: var(--circuit); }
+  .seg button[aria-pressed="true"].seg-inspect { background: var(--teal); color: var(--circuit); }
+
+  /* Link simulator radios */
+  .simrad input { position: absolute; opacity: 0; }
+  .simrad label {
+    display: flex; align-items: center; min-height: 44px; padding: 0 12px; gap: 8px;
+    font-size: 12px; font-weight: 600; color: rgba(250,250,250,0.6);
+    border: 1px solid var(--rule); cursor: pointer; transition: border-color 0.3s, color 0.3s;
+  }
+  .simrad label:hover { color: var(--signal); }
+  .simrad input:checked + label { border-color: var(--volt); color: var(--signal); background: rgba(255,107,53,0.06); }
+  .simrad input:focus-visible + label { outline: 2px solid var(--volt); outline-offset: 2px; }
+
+  /* Status lamp: shape + color (never color alone) */
+  .lamp { width: 10px; height: 10px; border-radius: 9999px; flex: none; }
+  .lamp[data-tone="ok"]    { background: var(--energy); }
+  .lamp[data-tone="warn"]  { background: var(--volt); }
+  .lamp[data-tone="bad"]   { background: transparent; border: 2px solid var(--ember); }
+  .lamp[data-tone="idle"]  { background: transparent; border: 2px solid rgba(250,250,250,0.4); }
+  .lamp[data-tone="pulse"] { background: var(--volt); animation: lamp-pulse 1.2s steps(2, end) infinite; }
+  @keyframes lamp-pulse { 50% { opacity: 0.25; } }
+
+  /* Stale hatch across frozen values */
+  .stale-hatch {
+    background-image: repeating-linear-gradient(-45deg,
+      transparent, transparent 10px, rgba(250,250,250,0.045) 10px, rgba(250,250,250,0.045) 12px);
+  }
+  [data-frozen="true"] .vital-num { color: rgba(250,250,250,0.55); }
+
+  /* Vitals numbers stay spatially stable */
+  .vital-num { font-family: "Space Grotesk", monospace; font-variant-numeric: tabular-nums; line-height: 1; }
+
+  /* Alert severity glyphs */
+  .sev { font-family: "Space Grotesk", monospace; font-size: 11px; font-weight: 700; padding: 1px 6px; border: 1px solid; flex: none; }
+  .sev-critical { color: var(--ember); border-color: var(--ember); }
+  .sev-warning  { color: var(--volt); border-color: var(--volt); }
+  .sev-info     { color: rgba(250,250,250,0.55); border-color: rgba(250,250,250,0.3); }
+  .alert-acked  { opacity: 0.42; }
+
+  /* Chart tooltip */
+  #chart-tip {
+    position: absolute; pointer-events: none; z-index: 30; display: none;
+    background: var(--charcoal); border: 1px solid var(--rule-strong);
+    padding: 8px 12px; font-size: 12px; min-width: 150px;
+  }
+
+  /* Entrance sequence: one coordinated reveal */
+  .reveal { opacity: 0; transform: translateY(8px); animation: reveal 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+  .reveal-1 { animation-delay: 0ms; } .reveal-2 { animation-delay: 100ms; }
+  .reveal-3 { animation-delay: 200ms; } .reveal-4 { animation-delay: 300ms; }
+  .reveal-5 { animation-delay: 400ms; }
+  @keyframes reveal { to { opacity: 1; transform: none; } }
+
+  /* Mode banner transitions */
+  .banner { transition: background-color 0.35s, border-color 0.35s; }
+
+  dialog { background: var(--charcoal); color: var(--signal); border: 1px solid var(--rule-strong); padding: 0; max-width: 420px; }
+  dialog::backdrop { background: rgba(0,0,0,0.75); }
+
+  .skip-link {
+    position: absolute; left: -9999px; top: 8px; z-index: 100;
+    background: var(--volt); color: var(--circuit); padding: 10px 16px; font-weight: 700;
+  }
+  .skip-link:focus { left: 8px; }
+
+  input[type="range"].scrub { -webkit-appearance: none; appearance: none; width: 100%; height: 44px; background: transparent; cursor: pointer; }
+  input[type="range"].scrub::-webkit-slider-runnable-track { height: 4px; background: var(--slate); }
+  input[type="range"].scrub::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 28px; margin-top: -12px;
+    background: var(--teal); border: 2px solid var(--circuit);
+  }
+  input[type="range"].scrub::-moz-range-track { height: 4px; background: var(--slate); }
+  input[type="range"].scrub::-moz-range-thumb { width: 18px; height: 28px; border-radius: 0; background: var(--teal); border: 2px solid var(--circuit); }
+
+  details > summary { cursor: pointer; list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary .disc-arrow { transition: transform 0.3s; display: inline-block; }
+  details[open] > summary .disc-arrow { transform: rotate(90deg); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    .reveal { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+
+<body class="min-h-screen antialiased">
+<a href="#vitals" class="skip-link">Skip to live vitals</a>
+
+<!-- Mobile-only sticky immediate-state bar: fast path back to live state -->
+<div id="mini-bar" class="lg:hidden sticky top-0 z-40 border-b border-white/10 bg-circuit/90 backdrop-blur-sm px-4 h-12 flex items-center justify-between gap-3" aria-hidden="false">
+  <a href="#vitals" class="flex items-center gap-2 min-h-[44px]">
+    <span class="lamp" data-tone="idle" data-bind="lamp"></span>
+    <span class="text-xs font-bold uppercase tracking-widest" data-bind="link-word">Offline</span>
+  </a>
+  <div class="font-data text-sm">
+    <span data-bind="mini-speed">0.0</span><span class="text-white/40 text-xs"> m/s</span>
+    <span class="text-white/40 text-xs ml-2" data-bind="mini-age">no data</span>
+  </div>
+</div>
+
+<div class="mx-auto max-w-[1600px] px-4 lg:px-12 py-6 lg:py-10 grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-6 lg:gap-12">
+
+  <!-- ══════════════════════ DECISION SPINE ══════════════════════ -->
+  <aside class="reveal reveal-1 flex flex-col gap-6" aria-label="Pit decision spine">
+
+    <header class="border-b border-white/10 pb-4">
+      <p class="text-lg font-extrabold tracking-tight leading-none">ECO<span class="text-volt">VOLT</span></p>
+      <p class="eyebrow mt-1" style="letter-spacing:0.2em">Pit Telemetry · Design 2</p>
+    </header>
+
+    <!-- 01 LINK: is the vehicle connected and fresh? -->
+    <section aria-labelledby="h-link" class="bg-charcoal border border-white/[0.07] p-6">
+      <h2 id="h-link" class="eyebrow"><span class="idx">01</span> · Link</h2>
+      <div class="mt-4 flex items-center gap-3">
+        <span class="lamp" data-tone="idle" data-bind="lamp"></span>
+        <p class="text-2xl font-extrabold tracking-tight uppercase" data-bind="link-word">Offline</p>
+      </div>
+      <p class="mt-2 text-sm text-white/60 leading-relaxed" data-bind="link-explain">The telemetry bridge is not connected.</p>
+      <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <dt class="text-white/40">Last packet</dt><dd class="font-data text-right" data-bind="age">—</dd>
+        <dt class="text-white/40">Rate</dt><dd class="font-data text-right" data-bind="rate">0.0 Hz</dd>
+        <dt class="text-white/40">Packets</dt><dd class="font-data text-right" data-bind="packets">0</dd>
+      </dl>
+      <div class="mt-4" data-bind="link-action"></div>
+    </section>
+
+    <!-- 02 SESSION: is the run being recorded? -->
+    <section aria-labelledby="h-session" class="bg-charcoal border border-white/[0.07] p-6">
+      <h2 id="h-session" class="eyebrow"><span class="idx">02</span> · Session</h2>
+      <div class="mt-4 flex items-baseline justify-between gap-2">
+        <p class="font-bold" data-bind="session-name">No session</p>
+        <p class="text-xs font-bold uppercase tracking-widest" data-bind="session-state">Idle</p>
+      </div>
+      <p class="mt-3 font-data text-4xl" data-bind="elapsed">00:00:00</p>
+      <p class="text-xs text-white/40 mt-1">Elapsed · <span class="font-data" data-bind="records">0</span> records stored</p>
+      <div class="mt-5 flex flex-col gap-2">
+        <button id="btn-session-primary" class="btn btn-primary w-full" type="button">Start session</button>
+        <div class="grid grid-cols-2 gap-2">
+          <button id="btn-session-end" class="btn btn-secondary" type="button" disabled>End</button>
+          <button id="btn-session-reset" class="btn btn-secondary" type="button">Reset</button>
+        </div>
+      </div>
+      <p class="mt-3 text-xs text-white/40 font-data min-h-[16px]" data-bind="action-feedback" aria-live="polite"></p>
+    </section>
+
+    <!-- 03 ATTENTION: what needs me right now? -->
+    <section aria-labelledby="h-attn" class="bg-charcoal border border-white/[0.07] p-6">
+      <h2 id="h-attn" class="eyebrow"><span class="idx">03</span> · Attention</h2>
+      <div class="mt-4" data-bind="attention">
+        <p class="text-sm text-white/60">All clear. Nothing needs intervention.</p>
+      </div>
+      <a href="#events" class="btn btn-quiet w-full mt-4 justify-between">Open event ledger <span aria-hidden="true">→</span></a>
+    </section>
+
+    <!-- Prototype-only link simulator -->
+    <section aria-labelledby="h-sim" class="border border-dashed border-white/20 p-6">
+      <h2 id="h-sim" class="eyebrow">Prototype · Link simulator</h2>
+      <p class="mt-2 text-xs text-white/40 leading-relaxed">Simulate transport states to preview how the dashboard degrades.</p>
+      <fieldset class="mt-3">
+        <legend class="sr-only">Simulated link state</legend>
+        <div class="simrad grid grid-cols-2 gap-2">
+          <span class="relative"><input type="radio" name="linksim" id="ls-connected" value="connected" checked><label for="ls-connected">Connected</label></span>
+          <span class="relative"><input type="radio" name="linksim" id="ls-reconnecting" value="reconnecting"><label for="ls-reconnecting">Reconnecting</label></span>
+          <span class="relative"><input type="radio" name="linksim" id="ls-offline" value="offline"><label for="ls-offline">Offline</label></span>
+          <span class="relative"><input type="radio" name="linksim" id="ls-stale" value="stale"><label for="ls-stale">Stale data</label></span>
+          <span class="relative"><input type="radio" name="linksim" id="ls-partial" value="partial"><label for="ls-partial">Partial data</label></span>
+          <span class="relative"><input type="radio" name="linksim" id="ls-error" value="error"><label for="ls-error">Error</label></span>
+        </div>
+      </fieldset>
+    </section>
+  </aside>
+
+  <!-- ══════════════════════ INSTRUMENT BAY ══════════════════════ -->
+  <main class="flex flex-col gap-6 min-w-0">
+
+    <!-- Mode bar -->
+    <div class="reveal reveal-2 flex flex-wrap items-center justify-between gap-3">
+      <div class="seg" role="group" aria-label="Viewing mode">
+        <button id="btn-mode-live" type="button" aria-pressed="true">Live</button>
+        <button id="btn-mode-inspect" type="button" class="seg-inspect" aria-pressed="false">Inspect</button>
+      </div>
+      <p class="font-data text-xs text-white/40">UTC <span data-bind="clock">--:--:--</span> · feed <span data-bind="feed-hz">5 Hz</span> nominal</p>
+    </div>
+
+    <!-- State banner: appears for offline / stale / inspect. Structure + text, not color alone. -->
+    <div id="state-banner" class="banner hidden border px-5 py-4 text-sm leading-relaxed" role="status" aria-live="polite"></div>
+
+    <!-- ── VITALS: the dominant immediate-state region ── -->
+    <section id="vitals" aria-labelledby="h-vitals" class="reveal reveal-2 brackets bg-charcoal border border-white/[0.07]" data-frozen="false">
+      <header class="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] px-6 lg:px-8 py-4">
+        <h2 class="eyebrow" id="h-vitals"><span class="idx">04</span> · Immediate state</h2>
+        <p class="text-xs font-data">
+          <span class="font-bold uppercase tracking-widest" data-bind="vitals-tag">Waiting</span>
+          <span class="text-white/40 ml-2" data-bind="vitals-ts">no data yet</span>
+        </p>
+      </header>
+
+      <div id="vitals-body" class="px-6 lg:px-8 py-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-12 gap-x-6 gap-y-8 items-end">
+        <!-- Speed: single largest element on the screen -->
+        <div class="col-span-2 md:col-span-2 lg:col-span-4">
+          <p class="text-xs uppercase tracking-widest text-white/60 font-semibold">Speed</p>
+          <p class="mt-2">
+            <span class="vital-num text-7xl lg:text-8xl font-medium" data-v="speed">0.0</span>
+            <span class="text-white/60 text-lg font-semibold ml-1">m/s</span>
+          </p>
+          <p class="font-data text-sm text-white/40 mt-2"><span data-v="speed_kmh">0.0</span> km/h · <span data-v="motion">stationary</span></p>
+          <p class="font-data text-xs mt-1 text-teal2 hidden" data-v="speed_delta"></p>
+        </div>
+
+        <!-- Power -->
+        <div class="lg:col-span-3">
+          <p class="text-xs uppercase tracking-widest text-white/60 font-semibold">Power</p>
+          <p class="mt-2">
+            <span class="vital-num text-5xl font-medium" data-v="power">0</span>
+            <span class="text-white/60 text-base font-semibold ml-1">W</span>
+          </p>
+          <p class="font-data text-sm text-white/40 mt-2" data-v="power_dir">drawing</p>
+          <p class="font-data text-xs mt-1 text-teal2 hidden" data-v="power_delta"></p>
+        </div>
+
+        <!-- Battery -->
+        <div class="lg:col-span-3">
+          <p class="text-xs uppercase tracking-widest text-white/60 font-semibold">Battery</p>
+          <p class="mt-2">
+            <span class="vital-num text-5xl font-medium" data-v="voltage">0.0</span>
+            <span class="text-white/60 text-base font-semibold ml-1">V</span>
+          </p>
+          <div class="mt-2 h-1.5 bg-graphite w-full max-w-[160px]" role="img" aria-label="Battery charge estimate">
+            <div class="h-full bg-energy transition-[width] duration-500" style="width:0%" data-v="battbar"></div>
+          </div>
+          <p class="font-data text-sm text-white/40 mt-1">≈ <span data-v="battery_pct">0</span>% · <span data-v="current">0.0</span> A</p>
+        </div>
+
+        <!-- Efficiency -->
+        <div class="lg:col-span-2">
+          <p class="text-xs uppercase tracking-widest text-white/60 font-semibold">Efficiency</p>
+          <p class="mt-2">
+            <span class="vital-num text-5xl font-medium" data-v="eff">—</span>
+          </p>
+          <p class="font-data text-sm text-white/40 mt-2">km/kWh (session)</p>
+        </div>
+      </div>
+
+      <!-- Track ribbon inside vitals: where is the car? -->
+      <div class="border-t border-white/[0.07] px-6 lg:px-8 py-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p class="text-xs uppercase tracking-widest text-white/60 font-semibold">Track position · lap <span class="font-data" data-v="lap">0</span></p>
+          <p class="font-data text-xs text-white/40" data-v="coords">GPS —</p>
+        </div>
+        <div class="relative h-10" id="ribbon" role="img" aria-label="Linearized lap ribbon with vehicle marker">
+          <svg viewBox="0 0 1000 40" preserveAspectRatio="none" class="w-full h-full" aria-hidden="true">
+            <rect x="0" y="16" width="1000" height="8" fill="#1E1E1E"/>
+            <!-- sector rules -->
+            <rect x="0"   y="16" width="2" height="8" fill="rgba(250,250,250,0.3)"/>
+            <rect x="380" y="16" width="2" height="8" fill="rgba(250,250,250,0.3)"/>
+            <rect x="700" y="16" width="2" height="8" fill="rgba(250,250,250,0.3)"/>
+            <rect x="998" y="16" width="2" height="8" fill="rgba(250,250,250,0.3)"/>
+            <!-- covered distance this lap -->
+            <rect x="0" y="16" width="0" height="8" fill="#06B6D4" opacity="0.5" id="ribbon-fill"/>
+            <!-- car marker -->
+            <g id="ribbon-car" transform="translate(0,0)">
+              <polygon points="0,4 8,20 -8,20" fill="#FF6B35"/>
+            </g>
+          </svg>
+          <div class="absolute inset-x-0 bottom-0 flex justify-between font-data text-[10px] text-white/35 select-none" aria-hidden="true">
+            <span>S1 · 0 m</span><span style="margin-left:-2%">S2 · 361 m</span><span style="margin-right:22%">S3 · 665 m</span><span>950 m</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inspect scrubber lives inside vitals so inspected values sit where live values sit -->
+      <div id="inspect-strip" class="hidden border-t border-teal2/40 bg-teal2/5 px-6 lg:px-8 py-4">
+        <div class="flex flex-wrap items-center gap-4">
+          <label for="scrub" class="text-xs font-bold uppercase tracking-widest text-teal2 flex-none">Inspect point</label>
+          <input type="range" id="scrub" class="scrub flex-1 min-w-[160px]" min="0" max="0" value="0" step="1"
+                 aria-label="Scrub through recorded telemetry history">
+          <p class="font-data text-xs text-white/60 flex-none">
+            <span data-bind="scrub-when">—</span> · <span data-bind="scrub-rel">—</span>
+          </p>
+          <button id="btn-return-live" class="btn btn-primary flex-none" type="button">Return to live</button>
+        </div>
+        <p class="text-xs text-white/40 mt-2">Values above show the selected moment. Teal deltas compare it against the current live value.</p>
+      </div>
+    </section>
+
+    <!-- ── Row: run strip chart + energy budget tape ── -->
+    <div class="reveal reveal-3 grid grid-cols-1 xl:grid-cols-12 gap-6">
+
+      <!-- Run strip -->
+      <section aria-labelledby="h-trend" class="xl:col-span-8 bg-charcoal border border-white/[0.07] flex flex-col">
+        <header class="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.07] px-6 py-4">
+          <h2 class="eyebrow" id="h-trend"><span class="idx">05</span> · Run strip · last 120 s</h2>
+          <div class="flex gap-2" role="group" aria-label="Chart series">
+            <button class="btn btn-quiet !min-h-[36px] !px-3 text-xs series-toggle" data-series="speed" aria-pressed="true" type="button">
+              <span class="inline-block w-3 h-[3px] bg-signal" aria-hidden="true"></span> Speed m/s
+            </button>
+            <button class="btn btn-quiet !min-h-[36px] !px-3 text-xs series-toggle" data-series="power" aria-pressed="true" type="button">
+              <span class="inline-block w-3 h-[3px] bg-volt" aria-hidden="true"></span> Power W
+            </button>
+            <button class="btn btn-quiet !min-h-[36px] !px-3 text-xs series-toggle" data-series="current" aria-pressed="false" type="button">
+              <span class="inline-block w-3 h-[3px] bg-teal2" aria-hidden="true"></span> Current A
+            </button>
+          </div>
+        </header>
+        <div class="relative flex-1 min-h-[260px]" id="chart-wrap">
+          <canvas id="chart" class="absolute inset-0 w-full h-full" role="img" aria-describedby="chart-summary"></canvas>
+          <div id="chart-tip" class="font-data"></div>
+        </div>
+        <p id="chart-summary" class="sr-only" aria-live="off">Chart textual summary unavailable until data arrives.</p>
+        <footer class="border-t border-white/[0.07] px-6 py-3 font-data text-[11px] text-white/40 flex flex-wrap gap-x-6 gap-y-1">
+          <span>SPEED window <span data-bind="rng-speed">0.0–0.0</span> m/s</span>
+          <span>POWER window <span data-bind="rng-power">0–0</span> W</span>
+          <span>CURRENT window <span data-bind="rng-current">0.0–0.0</span> A</span>
+          <span class="ml-auto">hover / touch for exact readings</span>
+        </footer>
+      </section>
+
+      <!-- Energy budget tape: original visualization -->
+      <section aria-labelledby="h-energy" class="xl:col-span-4 bg-charcoal border border-white/[0.07] flex flex-col">
+        <header class="border-b border-white/[0.07] px-6 py-4">
+          <h2 class="eyebrow" id="h-energy"><span class="idx">06</span> · Energy budget</h2>
+        </header>
+        <div class="flex-1 px-6 py-5 flex gap-5 min-h-[280px]">
+          <!-- vertical tape -->
+          <div class="relative w-16 flex-none self-stretch bg-graphite" id="energy-tape"
+               role="img" aria-label="Vertical energy budget tape: consumed energy against the run allowance and the pace line.">
+            <div class="absolute inset-x-0 bottom-0 bg-cyan2/70 transition-[height] duration-500" style="height:0%" id="tape-fill"></div>
+            <!-- pace marker: where consumption *should* be at this elapsed time -->
+            <div class="absolute inset-x-[-8px] h-[2px] bg-signal" style="bottom:0%" id="tape-pace">
+              <span class="absolute left-full ml-2 -translate-y-1/2 font-data text-[10px] text-white/60 whitespace-nowrap">pace</span>
+            </div>
+          </div>
+          <div class="flex flex-col justify-between py-1 min-w-0">
+            <div>
+              <p class="text-xs uppercase tracking-widest text-white/60 font-semibold">Consumed</p>
+              <p class="font-data text-3xl mt-1"><span data-v="energy_wh">0.0</span><span class="text-white/40 text-base"> Wh</span></p>
+              <p class="font-data text-xs text-white/40 mt-1"><span data-v="energy_j">0</span> J of 216 000 J allowance</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-widest text-white/60 font-semibold">Verdict</p>
+              <p class="text-sm mt-1 leading-relaxed" data-v="energy_verdict">Waiting for the session to start.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-widest text-white/60 font-semibold">Distance</p>
+              <p class="font-data text-lg mt-1"><span data-v="distance">0.00</span><span class="text-white/40 text-sm"> km</span></p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ── Row: secondary channels (progressive disclosure) + events ── -->
+    <div class="reveal reveal-4 grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+
+      <section class="xl:col-span-5 bg-charcoal border border-white/[0.07]">
+        <details>
+          <summary class="flex items-center justify-between px-6 py-4 min-h-[56px]">
+            <h2 class="eyebrow"><span class="idx">07</span> · Secondary channels</h2>
+            <span class="disc-arrow text-white/40" aria-hidden="true">▸</span>
+          </summary>
+          <div class="border-t border-white/[0.07] px-6 py-5">
+            <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+              <dt class="text-white/40">Lateral G</dt><dd class="font-data text-right" data-v="g_lat">— g</dd>
+              <dt class="text-white/40">Longitudinal G</dt><dd class="font-data text-right" data-v="g_long">— g</dd>
+              <dt class="text-white/40">Combined G</dt><dd class="font-data text-right" data-v="g_total">— g</dd>
+              <dt class="text-white/40">Yaw rate</dt><dd class="font-data text-right" data-v="gyro_z">— °/s</dd>
+              <dt class="text-white/40">Throttle</dt><dd class="font-data text-right" data-v="throttle">— %</dd>
+              <dt class="text-white/40">Latitude</dt><dd class="font-data text-right" data-v="lat">—</dd>
+              <dt class="text-white/40">Longitude</dt><dd class="font-data text-right" data-v="lon">—</dd>
+              <dt class="text-white/40">Sample ID</dt><dd class="font-data text-right" data-v="msgid">—</dd>
+            </dl>
+            <p class="text-xs text-white/40 mt-4 leading-relaxed" data-v="secondary-note"></p>
+          </div>
+        </details>
+      </section>
+
+      <!-- Event ledger -->
+      <section id="events" aria-labelledby="h-events" class="xl:col-span-7 bg-charcoal border border-white/[0.07]">
+        <header class="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.07] px-6 py-4">
+          <h2 class="eyebrow" id="h-events"><span class="idx">08</span> · Event ledger</h2>
+          <div class="flex flex-wrap gap-2 items-center">
+            <div class="seg" role="group" aria-label="Filter events by severity">
+              <button type="button" class="ev-filter" data-filter="all" aria-pressed="true">All</button>
+              <button type="button" class="ev-filter" data-filter="critical" aria-pressed="false">Critical</button>
+              <button type="button" class="ev-filter" data-filter="warning" aria-pressed="false">Warning</button>
+              <button type="button" class="ev-filter" data-filter="info" aria-pressed="false">Info</button>
+            </div>
+            <button id="btn-clear-acked" class="btn btn-quiet !min-h-[36px] text-xs" type="button">Clear acknowledged</button>
+          </div>
+        </header>
+        <ol id="event-list" class="divide-y divide-white/[0.06] max-h-[420px] overflow-y-auto" aria-live="polite" aria-relevant="additions">
+          <!-- populated by JS -->
+        </ol>
+        <p id="events-empty" class="px-6 py-10 text-sm text-white/40 text-center">No events yet. Session activity, link changes and threshold crossings will be logged here.</p>
+      </section>
+    </div>
+
+    <footer class="reveal reveal-5 border-t border-white/[0.05] pt-4 pb-8 flex flex-wrap justify-between gap-2 font-data text-[11px] text-white/35">
+      <span>ECOVOLT CCM · prototype design 2 · simulated data only</span>
+      <span>units: speed m/s · power W · energy J · efficiency km/kWh</span>
+    </footer>
+  </main>
+</div>
+
+<!-- Confirmation dialog for consequential actions only -->
+<dialog id="confirm-dialog" aria-labelledby="confirm-title">
+  <form method="dialog">
+    <div class="px-6 pt-6 pb-4">
+      <h2 id="confirm-title" class="text-lg font-extrabold tracking-tight">Confirm</h2>
+      <p id="confirm-msg" class="mt-2 text-sm text-white/60 leading-relaxed"></p>
+    </div>
+    <div class="flex justify-end gap-2 border-t border-white/[0.07] px-6 py-4">
+      <button value="cancel" class="btn btn-secondary" type="submit">Cancel</button>
+      <button value="ok" id="confirm-ok" class="btn btn-primary" type="submit">Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+'use strict';
+/* ════════════════════════════════════════════════════════════════
+   SIMULATOR — deterministic eco-marathon telemetry (5 Hz)
+   Field names/units follow esp32-variables-guide.md.
+════════════════════════════════════════════════════════════════ */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const TICK_MS = 200;              // 5 Hz feed
+const MAX_SAMPLES = 1800;         // 6 min bounded history
+const LAP_LEN_M = 950;
+const ENERGY_BUDGET_J = 216000;   // 60 Wh run allowance
+const TARGET_DIST_M = 15000;      // budget pace target: 15 km on the allowance
+
+const Sim = {
+  rand: mulberry32(1337),
+  t: 0,                 // sim seconds since boot
+  msgId: 0,
+  speed: 0, voltage: 53.8, energy: 0, distance: 0,
+  phase: 'coast', phaseLeft: 2,
+  running: false,       // session recording?
+  reset() {
+    this.rand = mulberry32(1337);
+    this.t = 0; this.msgId = 0; this.speed = 0; this.voltage = 53.8;
+    this.energy = 0; this.distance = 0; this.phase = 'coast'; this.phaseLeft = 2;
+  },
+  /* One 200 ms step of the burn-and-coast driving model. */
+  step(baseEpochMs) {
+    const dt = TICK_MS / 1000;
+    this.t += dt; this.msgId += 1;
+
+    if (this.running) {
+      this.phaseLeft -= dt;
+      if (this.phaseLeft <= 0) {
+        if (this.phase === 'burn') { this.phase = 'coast'; this.phaseLeft = 14 + this.rand() * 10; }
+        else { this.phase = 'burn'; this.phaseLeft = 5 + this.rand() * 4; }
+      }
+    }
+
+    let power = 0;
+    if (this.running && this.phase === 'burn') {
+      power = 420 + 320 * Math.sin(Math.min(1, (6 - this.phaseLeft) / 2) * Math.PI / 2) + this.rand() * 90;
+      // deterministic hard-burn spikes for the current-spike alert
+      if (Math.floor(this.t) % 97 === 0) power += 650;
+    } else if (this.running) {
+      power = 4 + this.rand() * 6; // electronics idle draw while coasting
+    }
+
+    // longitudinal dynamics: drive force minus rolling + aero drag
+    const mass = 140; // kg vehicle + driver
+    const drive = this.speed > 0.3 ? power * 0.82 / Math.max(this.speed, 1) : power * 0.5;
+    const drag = 0.32 * this.speed * this.speed * 0.5 + 6;
+    const accel = this.running ? (drive - drag) / mass : -Math.min(this.speed, 0.6);
+    const prevSpeed = this.speed;
+    this.speed = Math.max(0, this.speed + accel * dt);
+
+    const sag = power / 1000 * 1.6;
+    this.voltage = Math.max(48, 53.8 - this.energy / ENERGY_BUDGET_J * 2.4 - sag + (this.rand() - 0.5) * 0.05);
+    const current = power / this.voltage;
+
+    if (this.running) { this.energy += power * dt; this.distance += this.speed * dt; }
+
+    const lapPos = this.distance % LAP_LEN_M;
+    // curvature profile of the fictional lap → lateral G
+    const curve = Math.sin(lapPos / LAP_LEN_M * Math.PI * 4) * Math.exp(-Math.pow(((lapPos % 320) - 160) / 90, 2));
+    const gLat = curve * (this.speed / 9) * 0.42;
+    const gLong = (this.speed - prevSpeed) / dt / 9.80665;
+
+    const kmDone = this.distance / 1000;
+    const kwh = this.energy / 3.6e6;
+    return {
+      timestamp: new Date(baseEpochMs + this.t * 1000).toISOString(),
+      message_id: this.msgId,
+      uptime_seconds: +this.t.toFixed(1),
+      speed_ms: +this.speed.toFixed(2),
+      voltage_v: +this.voltage.toFixed(2),
+      current_a: +current.toFixed(2),
+      power_w: +power.toFixed(1),
+      energy_j: Math.round(this.energy),
+      distance_m: +this.distance.toFixed(1),
+      acc_eff_km_kwh: kwh > 1e-6 ? +(kmDone / kwh).toFixed(1) : null,
+      latitude: +(14.0723 + Math.sin(lapPos / LAP_LEN_M * 2 * Math.PI) * 0.0016).toFixed(6),
+      longitude: +(100.6051 + Math.cos(lapPos / LAP_LEN_M * 2 * Math.PI) * 0.0021).toFixed(6),
+      g_lat: +gLat.toFixed(3),
+      g_long: +gLong.toFixed(3),
+      gyro_z: +(curve * this.speed * 4.2).toFixed(1),
+      throttle_pct: this.running && this.phase === 'burn' ? Math.round(45 + power / 25) : 0,
+      lap_pos_m: lapPos,
+      lap: Math.floor(this.distance / LAP_LEN_M) + (this.distance > 0 ? 1 : 0),
+      phase: this.running ? this.phase : 'stopped',
+    };
+  },
+};
+
+/* ════════════════════════════════════════════════════════════════
+   STATE
+════════════════════════════════════════════════════════════════ */
+const State = {
+  link: 'connected',            // connected|reconnecting|offline|stale|partial|error
+  mode: 'live',                 // live|inspect
+  session: 'idle',              // idle|recording|paused|ended
+  sessionName: null,
+  sessionStartT: null,          // sim seconds
+  pausedAccum: 0, pauseStartT: null,
+  buffer: [],                   // bounded sample history
+  lastPacketWall: null,         // wall-clock ms of last accepted packet
+  packets: 0,
+  scrubIdx: 0,
+  filter: 'all',
+  alerts: [],                   // {id, sev, title, detail, ts, acked}
+  alertSeq: 0,
+  lastAlertAt: {},              // dedupe cooldowns
+  reconnectTimer: null,
+  baseEpoch: Date.now(),
+};
+
+const SERIES = {
+  speed:   { label: 'Speed',   unit: 'm/s', color: '#FAFAFA', on: true,  get: s => s.speed_ms },
+  power:   { label: 'Power',   unit: 'W',   color: '#FF6B35', on: true,  get: s => s.power_w },
+  current: { label: 'Current', unit: 'A',   color: '#14B8A6', on: false, get: s => s.current_a },
+};
+
+/* ════════════════════════════════════════════════════════════════
+   ALERTS / EVENTS
+════════════════════════════════════════════════════════════════ */
+function pushAlert(sev, key, title, detail, cooldownS = 30) {
+  const now = Date.now();
+  if (State.lastAlertAt[key] && now - State.lastAlertAt[key] < cooldownS * 1000) return;
+  State.lastAlertAt[key] = now;
+  State.alerts.unshift({ id: ++State.alertSeq, sev, title, detail, ts: new Date(now), acked: false });
+  if (State.alerts.length > 60) State.alerts.length = 60;
+  renderEvents();
+  renderAttention();
+}
+
+function checkThresholds(s) {
+  if (s.voltage_v < 52.5) pushAlert('warning', 'lowv', 'Battery voltage low',
+    `Pack at ${s.voltage_v.toFixed(2)} V, below the 52.5 V pit threshold. Consider shortening the next burn.`, 60);
+  if (s.current_a > 22) pushAlert('warning', 'spike', 'Current spike',
+    `Draw peaked at ${s.current_a.toFixed(1)} A. Check throttle application on the next straight.`, 45);
+  if (s.acc_eff_km_kwh && s.acc_eff_km_kwh > 240 && Sim.t > 60) pushAlert('info', 'eff',
+    'Efficiency improving', `Session efficiency reached ${s.acc_eff_km_kwh.toFixed(0)} km/kWh.`, 120);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   FEED LOOP — link simulation decides whether packets arrive
+════════════════════════════════════════════════════════════════ */
+function feedTick() {
+  const linkDelivers = State.link === 'connected' || State.link === 'partial';
+  const sample = Sim.step(State.baseEpoch); // vehicle keeps driving even if link drops
+
+  if (!linkDelivers) return;
+
+  if (State.link === 'partial') { // GPS + IMU module dropped out
+    sample.latitude = null; sample.longitude = null;
+    sample.g_lat = null; sample.g_long = null; sample.gyro_z = null;
+  }
+  State.buffer.push(sample);
+  if (State.buffer.length > MAX_SAMPLES) State.buffer.shift();
+  State.lastPacketWall = Date.now();
+  State.packets += 1;
+  if (State.session === 'recording') checkThresholds(sample);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   RENDER — DOM helpers
+════════════════════════════════════════════════════════════════ */
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+function bindAll(name, txt) { $$(`[data-bind="${name}"]`).forEach(el => { if (el.textContent !== txt) el.textContent = txt; }); }
+function setV(name, txt) { const el = document.querySelector(`[data-v="${name}"]`); if (el && el.textContent !== txt) el.textContent = txt; }
+
+function ageSeconds() {
+  return State.lastPacketWall ? (Date.now() - State.lastPacketWall) / 1000 : null;
+}
+function fmtAge(a) {
+  if (a === null) return 'never';
+  if (a < 1) return 'just now';
+  if (a < 60) return `${a.toFixed(0)} s ago`;
+  return `${Math.floor(a / 60)} min ${Math.floor(a % 60)} s ago`;
+}
+function fmtClock(d) { return d.toISOString().substr(11, 8); }
+function fmtElapsed(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+  const m = String(Math.floor(sec / 60) % 60).padStart(2, '0');
+  const s = String(sec % 60).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+const LINK_META = {
+  connected:    { word: 'Live',        tone: 'ok',
+    explain: 'Bridge connected. Telemetry is arriving at the nominal 5 Hz rate.' },
+  reconnecting: { word: 'Reconnecting',tone: 'pulse',
+    explain: 'Transport dropped; the client is retrying automatically. Values below are frozen at the last packet.' },
+  offline:      { word: 'Offline',     tone: 'bad',
+    explain: 'No transport. Check the pit access point and the vehicle transmitter, then retry.' },
+  stale:        { word: 'Stale',       tone: 'warn',
+    explain: 'The link is up but no new packets are arriving. The vehicle ESP32 may have stopped publishing.' },
+  partial:      { word: 'Partial',     tone: 'warn',
+    explain: 'Packets arriving, but the GPS/IMU module is not reporting. Position and G channels are unavailable.' },
+  error:        { word: 'Error',       tone: 'bad',
+    explain: 'The bridge rejected the token request. Refresh credentials or retry the connection.' },
+};
+
+function renderLink() {
+  const meta = LINK_META[State.link];
+  bindAll('link-word', meta.word);
+  $$('[data-bind="lamp"]').forEach(el => el.setAttribute('data-tone', meta.tone));
+  bindAll('link-explain', meta.explain);
+  const a = ageSeconds();
+  bindAll('age', fmtAge(a));
+  bindAll('mini-age', a === null ? 'no data' : fmtAge(a));
+  const fresh = State.link === 'connected' || State.link === 'partial';
+  bindAll('rate', fresh ? '5.0 Hz' : '0.0 Hz');
+  bindAll('packets', String(State.packets));
+
+  // contextual recovery action
+  const slot = $('[data-bind="link-action"]');
+  const needsRetry = State.link === 'offline' || State.link === 'error';
+  if (needsRetry && !slot.firstChild) {
+    const b = document.createElement('button');
+    b.className = 'btn btn-secondary w-full'; b.type = 'button';
+    b.textContent = 'Retry connection';
+    b.addEventListener('click', () => setLink('reconnecting', true));
+    slot.appendChild(b);
+  } else if (!needsRetry && slot.firstChild) slot.replaceChildren();
+}
+
+function renderBanner() {
+  const el = $('#state-banner');
+  let html = null, cls = '';
+  const a = ageSeconds();
+  if (State.mode === 'inspect') {
+    cls = 'border-teal2/50 bg-teal2/10';
+    html = `<strong class="uppercase tracking-widest text-teal2 text-xs font-extrabold mr-2">Inspect mode</strong>
+            You are viewing recorded history, not live data. Use the scrubber in the vitals panel, or return to live.`;
+  } else if (State.link === 'offline' || State.link === 'error') {
+    cls = 'border-ember/60 bg-ember/10';
+    html = `<strong class="uppercase tracking-widest text-xs font-extrabold mr-2">Feed down</strong>
+            ${LINK_META[State.link].explain} Last valid data: <span class="font-data">${fmtAge(a)}</span>.
+            All vitals are frozen at that moment.`;
+  } else if (State.link === 'stale' || (a !== null && a > 5 && State.link === 'connected')) {
+    cls = 'border-volt/60 bg-volt/10';
+    html = `<strong class="uppercase tracking-widest text-volt text-xs font-extrabold mr-2">Data stale</strong>
+            No packet for <span class="font-data">${a === null ? '—' : a.toFixed(0)} s</span>. Vitals show the last valid
+            values. If this persists, radio-check the driver and inspect the vehicle transmitter.`;
+  } else if (State.link === 'reconnecting') {
+    cls = 'border-volt/60 bg-volt/10';
+    html = `<strong class="uppercase tracking-widest text-volt text-xs font-extrabold mr-2">Reconnecting</strong>
+            Retrying transport. Vitals frozen at <span class="font-data">${fmtAge(a)}</span>. No action needed yet.`;
+  } else if (State.link === 'partial') {
+    cls = 'border-volt/60 bg-volt/10';
+    html = `<strong class="uppercase tracking-widest text-volt text-xs font-extrabold mr-2">Partial data</strong>
+            Core electrical and speed channels are live. GPS position and G-forces are not being reported.`;
+  }
+  if (html) {
+    el.className = `banner border px-5 py-4 text-sm leading-relaxed ${cls}`;
+    el.innerHTML = html;
+    el.classList.remove('hidden');
+  } else el.classList.add('hidden');
+}
+
+function displayedSample() {
+  if (State.mode === 'inspect' && State.buffer.length) {
+    return State.buffer[Math.min(State.scrubIdx, State.buffer.length - 1)];
+  }
+  return State.buffer[State.buffer.length - 1] || null;
+}
+
+function batteryPct(v) { // same heuristic as src/stores/telemetry.ts
+  const minV = 50.4, fullV = 58.5;
+  if (v <= minV) return 0; if (v >= fullV) return 100;
+  return Math.round((v - minV) / (fullV - minV) * 100);
+}
+
+function renderVitals() {
+  const s = displayedSample();
+  const live = State.buffer[State.buffer.length - 1] || null;
+  const vitals = $('#vitals');
+  const a = ageSeconds();
+  const frozen = State.mode === 'live' && (State.link === 'offline' || State.link === 'error' ||
+                 State.link === 'reconnecting' || State.link === 'stale' || (a !== null && a > 5));
+  vitals.setAttribute('data-frozen', String(frozen));
+  $('#vitals-body').classList.toggle('stale-hatch', frozen);
+
+  if (State.mode === 'inspect') {
+    bindAll('vitals-tag', 'Inspecting');
+    bindAll('vitals-ts', s ? `sample @ ${fmtClock(new Date(s.timestamp))} UTC` : 'no history');
+  } else if (frozen) {
+    bindAll('vitals-tag', 'Frozen — stale');
+    bindAll('vitals-ts', `last valid ${fmtAge(a)}`);
+  } else {
+    bindAll('vitals-tag', s ? 'Live' : 'Waiting');
+    bindAll('vitals-ts', s ? `updated ${fmtClock(new Date(s.timestamp))} UTC` : 'no data yet');
+  }
+
+  if (!s) return;
+  setV('speed', s.speed_ms.toFixed(1));
+  setV('speed_kmh', (s.speed_ms * 3.6).toFixed(1));
+  setV('motion', s.phase === 'burn' ? 'accelerating' : (s.speed_ms > 0.5 ? 'coasting' : 'stationary'));
+  setV('power', String(Math.round(s.power_w)));
+  setV('power_dir', s.power_w > 30 ? 'drawing from pack' : (s.speed_ms > 0.5 ? 'coasting — idle draw' : 'idle'));
+  setV('voltage', s.voltage_v.toFixed(1));
+  setV('current', s.current_a.toFixed(1));
+  const pct = batteryPct(s.voltage_v);
+  setV('battery_pct', String(pct));
+  const bar = document.querySelector('[data-v="battbar"]'); if (bar) bar.style.width = pct + '%';
+  setV('eff', s.acc_eff_km_kwh ? s.acc_eff_km_kwh.toFixed(0) : '—');
+  bindAll('mini-speed', s.speed_ms.toFixed(1));
+
+  // inspect deltas vs live
+  const dSpeed = document.querySelector('[data-v="speed_delta"]');
+  const dPower = document.querySelector('[data-v="power_delta"]');
+  if (State.mode === 'inspect' && live && s !== live) {
+    dSpeed.classList.remove('hidden'); dPower.classList.remove('hidden');
+    const sd = live.speed_ms - s.speed_ms, pd = live.power_w - s.power_w;
+    dSpeed.textContent = `live now ${live.speed_ms.toFixed(1)} m/s (${sd >= 0 ? '+' : ''}${sd.toFixed(1)})`;
+    dPower.textContent = `live now ${Math.round(live.power_w)} W (${pd >= 0 ? '+' : ''}${Math.round(pd)})`;
+  } else { dSpeed.classList.add('hidden'); dPower.classList.add('hidden'); }
+
+  // track ribbon
+  setV('lap', String(s.lap));
+  setV('coords', s.latitude === null ? 'GPS unavailable' : `${s.latitude.toFixed(5)}, ${s.longitude.toFixed(5)}`);
+  const frac = (s.lap_pos_m || 0) / LAP_LEN_M;
+  $('#ribbon-car').setAttribute('transform', `translate(${(frac * 1000).toFixed(1)},0)`);
+  $('#ribbon-fill').setAttribute('width', (frac * 1000).toFixed(1));
+
+  // energy tape
+  setV('energy_wh', (s.energy_j / 3600).toFixed(1));
+  setV('energy_j', s.energy_j.toLocaleString('en-US'));
+  setV('distance', (s.distance_m / 1000).toFixed(2));
+  const usedFrac = Math.min(1, s.energy_j / ENERGY_BUDGET_J);
+  $('#tape-fill').style.height = (usedFrac * 100).toFixed(1) + '%';
+  const paceFrac = Math.min(1, (s.distance_m / TARGET_DIST_M));
+  $('#tape-pace').style.bottom = (paceFrac * 100).toFixed(1) + '%';
+  const vdEl = document.querySelector('[data-v="energy_verdict"]');
+  if (s.energy_j < 500) vdEl.textContent = 'Waiting for meaningful consumption.';
+  else {
+    const diffWh = (paceFrac * ENERGY_BUDGET_J - s.energy_j) / 3600;
+    vdEl.textContent = diffWh >= 0
+      ? `Under budget by ${diffWh.toFixed(1)} Wh for the distance covered. Pace is sustainable.`
+      : `Over budget by ${(-diffWh).toFixed(1)} Wh for the distance covered. Extend coasting phases.`;
+  }
+
+  // secondary channels
+  setV('g_lat', s.g_lat === null ? 'no data' : `${s.g_lat.toFixed(2)} g`);
+  setV('g_long', s.g_long === null ? 'no data' : `${s.g_long.toFixed(2)} g`);
+  setV('g_total', s.g_lat === null ? 'no data' : `${Math.hypot(s.g_lat, s.g_long).toFixed(2)} g`);
+  setV('gyro_z', s.gyro_z === null ? 'no data' : `${s.gyro_z.toFixed(1)} °/s`);
+  setV('throttle', `${s.throttle_pct} %`);
+  setV('lat', s.latitude === null ? 'no data' : s.latitude.toFixed(6));
+  setV('lon', s.longitude === null ? 'no data' : s.longitude.toFixed(6));
+  setV('msgid', String(s.message_id));
+  setV('secondary-note', State.link === 'partial'
+    ? 'GPS/IMU module offline — spatial channels report “no data” until it recovers.' : '');
+}
+
+function renderSession() {
+  const stateWord = { idle: 'Idle', recording: 'Recording', paused: 'Paused', ended: 'Ended' }[State.session];
+  bindAll('session-state', stateWord);
+  bindAll('session-name', State.sessionName || 'No session');
+  let elapsed = 0;
+  if (State.sessionStartT !== null) {
+    const end = State.session === 'paused' ? State.pauseStartT : Sim.t;
+    elapsed = end - State.sessionStartT - State.pausedAccum;
+  }
+  bindAll('elapsed', fmtElapsed(elapsed));
+  bindAll('records', String(State.buffer.length));
+
+  const primary = $('#btn-session-primary');
+  const label = { idle: 'Start session', recording: 'Pause feed', paused: 'Resume feed', ended: 'Start new session' }[State.session];
+  if (primary.textContent !== label) primary.textContent = label;
+  $('#btn-session-end').disabled = State.session === 'idle' || State.session === 'ended';
+}
+
+function renderAttention() {
+  const slot = document.querySelector('[data-bind="attention"]');
+  const un = State.alerts.filter(a => !a.acked && a.sev !== 'info');
+  if (!un.length) {
+    slot.innerHTML = '<p class="text-sm text-white/60">All clear. Nothing needs intervention.</p>';
+    return;
+  }
+  const top = un[0];
+  slot.innerHTML =
+    `<div class="flex items-start gap-3">
+       <span class="sev sev-${top.sev}">${top.sev === 'critical' ? 'CRIT' : 'WARN'}</span>
+       <div>
+         <p class="text-sm font-bold">${top.title}</p>
+         <p class="text-xs text-white/60 mt-1 leading-relaxed">${top.detail}</p>
+         <p class="font-data text-[11px] text-white/40 mt-1">${fmtClock(top.ts)} UTC${un.length > 1 ? ` · +${un.length - 1} more unresolved` : ''}</p>
+       </div>
+     </div>`;
+}
+
+function renderEvents() {
+  const list = $('#event-list');
+  const empty = $('#events-empty');
+  const shown = State.alerts.filter(a => State.filter === 'all' || a.sev === State.filter);
+  empty.classList.toggle('hidden', shown.length > 0);
+  empty.textContent = State.alerts.length === 0
+    ? 'No events yet. Session activity, link changes and threshold crossings will be logged here.'
+    : 'No events match this filter.';
+
+  list.replaceChildren(...shown.map(a => {
+    const li = document.createElement('li');
+    li.className = `flex items-start gap-3 px-6 py-3 ${a.acked ? 'alert-acked' : ''}`;
+    li.innerHTML =
+      `<span class="sev sev-${a.sev}">${{ critical: 'CRIT', warning: 'WARN', info: 'INFO' }[a.sev]}</span>
+       <div class="min-w-0 flex-1">
+         <p class="text-sm font-bold">${a.title}</p>
+         <p class="text-xs text-white/60 leading-relaxed">${a.detail}</p>
+         <p class="font-data text-[11px] text-white/40 mt-0.5">${fmtClock(a.ts)} UTC</p>
+       </div>`;
+    if (!a.acked) {
+      const b = document.createElement('button');
+      b.className = 'btn btn-quiet !min-h-[36px] !px-3 text-xs flex-none'; b.type = 'button';
+      b.textContent = 'Ack';
+      b.setAttribute('aria-label', `Acknowledge: ${a.title}`);
+      b.addEventListener('click', () => { a.acked = true; renderEvents(); renderAttention(); });
+      li.appendChild(b);
+    } else {
+      const sp = document.createElement('span');
+      sp.className = 'font-data text-[11px] text-white/40 flex-none self-center'; sp.textContent = 'acked';
+      li.appendChild(sp);
+    }
+    return li;
+  }));
+}
+
+/* ════════════════════════════════════════════════════════════════
+   CHART — canvas run strip, bounded 120 s window
+════════════════════════════════════════════════════════════════ */
+const chart = { canvas: null, ctx: null, w: 0, h: 0, dpr: 1, hoverX: null };
+const WINDOW_S = 120;
+const PAD = { l: 44, r: 12, t: 12, b: 22 };
+const SCALES = { speed: [0, 12], power: [0, 1200], current: [0, 30] };
+
+function chartResize() {
+  const rect = chart.canvas.parentElement.getBoundingClientRect();
+  chart.dpr = window.devicePixelRatio || 1;
+  chart.w = rect.width; chart.h = rect.height;
+  chart.canvas.width = rect.width * chart.dpr;
+  chart.canvas.height = rect.height * chart.dpr;
+  chart.ctx.setTransform(chart.dpr, 0, 0, chart.dpr, 0, 0);
+}
+
+function windowSamples() {
+  const n = Math.min(State.buffer.length, WINDOW_S * 5);
+  return State.buffer.slice(State.buffer.length - n);
+}
+
+function drawChart() {
+  const { ctx, w, h } = chart;
+  if (!w) return;
+  ctx.clearRect(0, 0, w, h);
+  const data = windowSamples();
+  const plotW = w - PAD.l - PAD.r, plotH = h - PAD.t - PAD.b;
+
+  // faint grid (subordinate)
+  ctx.strokeStyle = 'rgba(250,250,250,0.06)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i <= 4; i++) { const y = PAD.t + plotH * i / 4; ctx.moveTo(PAD.l, y + 0.5); ctx.lineTo(w - PAD.r, y + 0.5); }
+  for (let i = 0; i <= 4; i++) { const x = PAD.l + plotW * i / 4; ctx.moveTo(x + 0.5, PAD.t); ctx.lineTo(x + 0.5, h - PAD.b); }
+  ctx.stroke();
+
+  // time axis labels
+  ctx.fillStyle = 'rgba(250,250,250,0.35)';
+  ctx.font = '10px "Space Grotesk"'; ctx.textAlign = 'center';
+  for (let i = 0; i <= 4; i++) {
+    ctx.fillText(i === 4 ? 'now' : `−${WINDOW_S - i * WINDOW_S / 4}s`, PAD.l + plotW * i / 4, h - 8);
+  }
+  // left axis: speed scale
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    ctx.fillText(String(SCALES.speed[1] - i * SCALES.speed[1] / 4), PAD.l - 6, PAD.t + plotH * i / 4 + 3);
+  }
+
+  if (data.length < 2) {
+    ctx.fillStyle = 'rgba(250,250,250,0.4)'; ctx.textAlign = 'center';
+    ctx.font = '13px "Plus Jakarta Sans"';
+    ctx.fillText('Waiting for telemetry…', w / 2, h / 2);
+    return;
+  }
+
+  const xAt = i => PAD.l + plotW * (i / (WINDOW_S * 5 - 1) + (WINDOW_S * 5 - data.length) / (WINDOW_S * 5 - 1));
+  for (const key of Object.keys(SERIES)) {
+    const srs = SERIES[key];
+    if (!srs.on) continue;
+    const [lo, hi] = SCALES[key];
+    ctx.strokeStyle = srs.color;
+    ctx.lineWidth = key === 'power' ? 1.8 : 1.4;
+    ctx.beginPath();
+    data.forEach((s, i) => {
+      const v = srs.get(s);
+      const y = PAD.t + plotH * (1 - Math.min(1, Math.max(0, (v - lo) / (hi - lo))));
+      const x = xAt(i);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  // inspect cursor
+  if (State.mode === 'inspect' && State.buffer.length) {
+    const idxInWindow = State.scrubIdx - (State.buffer.length - data.length);
+    if (idxInWindow >= 0) {
+      const x = xAt(idxInWindow);
+      ctx.strokeStyle = '#14B8A6'; ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, h - PAD.b); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // range chips + accessible summary
+  const last = data[data.length - 1];
+  const rng = key => {
+    let lo = Infinity, hi = -Infinity;
+    for (const s of data) { const v = SERIES[key].get(s); if (v < lo) lo = v; if (v > hi) hi = v; }
+    return [lo, hi];
+  };
+  const [sl, sh] = rng('speed'), [pl, ph] = rng('power'), [cl, ch] = rng('current');
+  bindAll('rng-speed', `${sl.toFixed(1)}–${sh.toFixed(1)}`);
+  bindAll('rng-power', `${Math.round(pl)}–${Math.round(ph)}`);
+  bindAll('rng-current', `${cl.toFixed(1)}–${ch.toFixed(1)}`);
+  $('#chart-summary').textContent =
+    `Run strip, last ${Math.round(data.length / 5)} seconds. Speed now ${last.speed_ms.toFixed(1)} m/s ` +
+    `(window ${sl.toFixed(1)} to ${sh.toFixed(1)}). Power now ${Math.round(last.power_w)} W ` +
+    `(window ${Math.round(pl)} to ${Math.round(ph)}). Current now ${last.current_a.toFixed(1)} A.`;
+}
+
+function chartHover(clientX, clientY) {
+  const rect = chart.canvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const data = windowSamples();
+  const tip = $('#chart-tip');
+  if (x < PAD.l || x > chart.w - PAD.r || data.length < 2) { tip.style.display = 'none'; return; }
+  const plotW = chart.w - PAD.l - PAD.r;
+  const frac = (x - PAD.l) / plotW;
+  const idx = Math.round(frac * (WINDOW_S * 5 - 1) - (WINDOW_S * 5 - data.length));
+  if (idx < 0 || idx >= data.length) { tip.style.display = 'none'; return; }
+  const s = data[idx];
+  tip.innerHTML =
+    `<p class="text-white/40 mb-1">${fmtClock(new Date(s.timestamp))} UTC</p>` +
+    Object.keys(SERIES).filter(k => SERIES[k].on).map(k =>
+      `<p><span style="color:${SERIES[k].color}">■</span> ${SERIES[k].label} ` +
+      `<strong>${SERIES[k].get(s).toFixed(1)}</strong> ${SERIES[k].unit}</p>`).join('');
+  tip.style.display = 'block';
+  const tw = tip.offsetWidth;
+  tip.style.left = Math.min(x + 14, chart.w - tw - 8) + 'px';
+  tip.style.top = Math.max(8, clientY - rect.top - 20) + 'px';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   INTERACTIONS
+════════════════════════════════════════════════════════════════ */
+function feedback(msg) {
+  bindAll('action-feedback', `${msg} · ${fmtClock(new Date())} UTC`);
+}
+
+function confirmAction(message, onOk) {
+  const dlg = $('#confirm-dialog');
+  $('#confirm-msg').textContent = message;
+  dlg.returnValue = 'cancel';
+  dlg.showModal();
+  dlg.addEventListener('close', function handler() {
+    dlg.removeEventListener('close', handler);
+    if (dlg.returnValue === 'ok') onOk();
+  });
+}
+
+function startSession() {
+  State.session = 'recording';
+  State.sessionName = `Run ${new Date().toISOString().slice(0, 10)} · A`;
+  State.sessionStartT = Sim.t; State.pausedAccum = 0; State.pauseStartT = null;
+  Sim.running = true;
+  pushAlert('info', 'sess-start', 'Session started', `${State.sessionName} is recording.`, 0);
+  feedback('Session started');
+}
+
+$('#btn-session-primary').addEventListener('click', () => {
+  if (State.session === 'idle' || State.session === 'ended') { startSession(); }
+  else if (State.session === 'recording') {
+    State.session = 'paused'; State.pauseStartT = Sim.t; Sim.running = false;
+    pushAlert('info', 'sess-pause', 'Feed paused', 'Simulated vehicle feed paused by operator.', 0);
+    feedback('Feed paused');
+  } else if (State.session === 'paused') {
+    State.pausedAccum += Sim.t - State.pauseStartT; State.pauseStartT = null;
+    State.session = 'recording'; Sim.running = true;
+    pushAlert('info', 'sess-resume', 'Feed resumed', 'Simulated vehicle feed resumed.', 0);
+    feedback('Feed resumed');
+  }
+  renderSession();
+});
+
+$('#btn-session-end').addEventListener('click', () => {
+  confirmAction('End this session? Recording stops and the run is marked complete. History stays available for inspection.', () => {
+    State.session = 'ended'; Sim.running = false;
+    pushAlert('info', 'sess-end', 'Session ended', `${State.sessionName} completed with ${State.buffer.length} records.`, 0);
+    feedback('Session ended');
+    renderSession();
+  });
+});
+
+$('#btn-session-reset').addEventListener('click', () => {
+  confirmAction('Reset the simulation? All buffered telemetry, events and session state will be discarded.', () => {
+    Sim.reset(); Sim.running = false;
+    Object.assign(State, {
+      session: 'idle', sessionName: null, sessionStartT: null, pausedAccum: 0, pauseStartT: null,
+      buffer: [], lastPacketWall: null, packets: 0, scrubIdx: 0,
+      alerts: [], alertSeq: 0, lastAlertAt: {}, baseEpoch: Date.now(),
+    });
+    setMode('live');
+    renderEvents(); renderAttention(); renderSession(); renderLink(); renderVitals(); drawChart();
+    feedback('Simulation reset');
+  });
+});
+
+function setLink(next, isRetry = false) {
+  clearTimeout(State.reconnectTimer);
+  const prev = State.link;
+  State.link = next;
+  const radio = document.querySelector(`input[name="linksim"][value="${next}"]`);
+  if (radio) radio.checked = true;
+  if (next === 'reconnecting') {
+    State.reconnectTimer = setTimeout(() => {
+      State.link = 'connected';
+      const r = document.querySelector('input[name="linksim"][value="connected"]');
+      if (r) r.checked = true;
+      pushAlert('info', 'conn-rec', 'Connection recovered', 'Transport re-established. Telemetry is flowing again.', 0);
+      renderLink(); renderBanner();
+    }, 6000);
+  }
+  if ((next === 'offline' || next === 'error') && prev !== next) {
+    pushAlert('warning', 'conn-lost', next === 'error' ? 'Bridge error' : 'Connection lost',
+      LINK_META[next].explain, 0);
+  }
+  if (next === 'stale' && prev !== next) {
+    pushAlert('warning', 'data-stale', 'Data stale', 'Link is up but the vehicle stopped publishing packets.', 0);
+  }
+  if (isRetry) feedback('Retrying connection');
+  renderLink(); renderBanner();
+}
+$$('input[name="linksim"]').forEach(r => r.addEventListener('change', e => setLink(e.target.value)));
+
+function setMode(next) {
+  State.mode = next;
+  $('#btn-mode-live').setAttribute('aria-pressed', String(next === 'live'));
+  $('#btn-mode-inspect').setAttribute('aria-pressed', String(next === 'inspect'));
+  const strip = $('#inspect-strip');
+  if (next === 'inspect') {
+    const scrub = $('#scrub');
+    scrub.max = Math.max(0, State.buffer.length - 1);
+    State.scrubIdx = State.buffer.length - 1;
+    scrub.value = State.scrubIdx;
+    strip.classList.remove('hidden');
+    renderScrubMeta();
+  } else strip.classList.add('hidden');
+  renderBanner(); renderVitals(); drawChart();
+}
+$('#btn-mode-live').addEventListener('click', () => setMode('live'));
+$('#btn-mode-inspect').addEventListener('click', () => setMode('inspect'));
+$('#btn-return-live').addEventListener('click', () => setMode('live'));
+
+function renderScrubMeta() {
+  const s = displayedSample();
+  if (!s) { bindAll('scrub-when', '—'); bindAll('scrub-rel', 'no history'); return; }
+  bindAll('scrub-when', fmtClock(new Date(s.timestamp)) + ' UTC');
+  const latest = State.buffer[State.buffer.length - 1];
+  const rel = (new Date(latest.timestamp) - new Date(s.timestamp)) / 1000;
+  bindAll('scrub-rel', rel < 0.4 ? 'latest sample' : `${rel.toFixed(0)} s before latest`);
+}
+$('#scrub').addEventListener('input', e => {
+  State.scrubIdx = +e.target.value;
+  renderScrubMeta(); renderVitals(); drawChart();
+});
+
+$$('.series-toggle').forEach(b => b.addEventListener('click', () => {
+  const key = b.dataset.series;
+  SERIES[key].on = !SERIES[key].on;
+  b.setAttribute('aria-pressed', String(SERIES[key].on));
+  drawChart();
+}));
+
+$$('.ev-filter').forEach(b => b.addEventListener('click', () => {
+  State.filter = b.dataset.filter;
+  $$('.ev-filter').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  renderEvents();
+}));
+
+$('#btn-clear-acked').addEventListener('click', () => {
+  State.alerts = State.alerts.filter(a => !a.acked);
+  renderEvents(); renderAttention();
+  feedback('Acknowledged events cleared');
+});
+
+/* ════════════════════════════════════════════════════════════════
+   BOOT + LOOPS
+════════════════════════════════════════════════════════════════ */
+chart.canvas = $('#chart');
+chart.ctx = chart.canvas.getContext('2d');
+chartResize();
+window.addEventListener('resize', () => { chartResize(); drawChart(); });
+chart.canvas.addEventListener('mousemove', e => chartHover(e.clientX, e.clientY));
+chart.canvas.addEventListener('mouseleave', () => { $('#chart-tip').style.display = 'none'; });
+chart.canvas.addEventListener('touchstart', e => { const t = e.touches[0]; chartHover(t.clientX, t.clientY); }, { passive: true });
+chart.canvas.addEventListener('touchmove', e => { const t = e.touches[0]; chartHover(t.clientX, t.clientY); }, { passive: true });
+
+// Feed at 5 Hz; DOM numbers at 2 Hz for readability; chart at 5 Hz.
+setInterval(() => { if (!document.hidden) feedTick(); }, TICK_MS);
+setInterval(() => {
+  if (document.hidden) return;
+  renderLink(); renderBanner(); renderSession();
+  if (State.mode === 'live') renderVitals();
+  bindAll('clock', fmtClock(new Date()));
+}, 500);
+setInterval(() => {
+  if (document.hidden) return;
+  if (State.mode === 'inspect') {
+    const scrub = $('#scrub');
+    const atEnd = +scrub.value >= +scrub.max;
+    scrub.max = Math.max(0, State.buffer.length - 1);
+    if (atEnd) { scrub.value = scrub.max; State.scrubIdx = +scrub.max; renderScrubMeta(); renderVitals(); }
+  }
+  drawChart();
+}, TICK_MS);
+
+// Boot: connected link, session auto-starts so the screen is alive immediately.
+renderLink(); renderBanner(); renderSession(); renderEvents(); renderAttention();
+startSession(); renderSession();
+</script>
+</body>
+</html>

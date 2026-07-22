@@ -6,6 +6,7 @@ import { For, JSX, Show, createMemo } from 'solid-js';
 import { UPlotChart, CHART_COLORS, DEFAULT_TIME_AXIS, createSeries, createYAxis } from '@/components/charts';
 import { TelemetryTable, ExportButton } from '@/components/table';
 import { telemetryStore } from '@/stores/telemetry';
+import { authStore } from '@/stores/auth';
 import { computeDataQualityReport } from '@/lib/utils';
 import type { TelemetryRow } from '@/types/telemetry';
 import type { AlignedData, Options } from 'uplot';
@@ -376,6 +377,10 @@ export function DataPanel(props: DataPanelProps): JSX.Element {
         const value = timing().maxGapSeconds;
         return value != null && Number.isFinite(value) ? `${value.toFixed(1)}s` : 'N/A';
     });
+    const exportRows = createMemo(() => {
+        const limit = authStore.getPermissionValue('downloadLimit');
+        return Number.isFinite(limit) ? props.data.slice(-limit) : props.data;
+    });
 
     return (
         <div style={{ display: 'flex', 'flex-direction': 'column', gap: '20px' }}>
@@ -385,13 +390,15 @@ export function DataPanel(props: DataPanelProps): JSX.Element {
                         📋 Raw Telemetry Data
                         <span id="data-count" class="text-subtle small">{props.data.length.toLocaleString()} rows</span>
                     </h3>
-                    <ExportButton
-                        data={props.data}
-                        filename={getFilename()}
-                        label="Export CSV"
-                        variant="legacy"
-                        class="hist-export-btn"
-                    />
+                    <Show when={authStore.canExportCSV()} fallback={<button class="hist-export-btn" disabled title="Sign in with an approved account to export telemetry">Sign in to export</button>}>
+                        <ExportButton
+                            data={exportRows()}
+                            filename={getFilename()}
+                            label={Number.isFinite(authStore.getPermissionValue('downloadLimit')) ? `Export latest ${exportRows().length.toLocaleString()} rows` : 'Export CSV'}
+                            variant="legacy"
+                            class="hist-export-btn"
+                        />
+                    </Show>
                 </div>
                 <div style={{ 'max-height': '620px', overflow: 'auto' }}>
                     <TelemetryTable data={props.data} />

@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0A0A0A">
+  <title>EcoVolt // Live Telemetry Prototype</title>
+  <meta name="description" content="Standalone interactive prototype for the EcoVolt pit telemetry dashboard.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { circuit: '#0A0A0A', instrument: '#141414', graphite: '#1E1E1E', voltage: '#FF6B35', energy: '#22C55E', telemetry: '#14B8A6', signal: '#06B6D4' } } } };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --circuit:#0A0A0A; --instrument:#141414; --graphite:#1E1E1E; --slate:#2A2A2A;
+      --white:#FAFAFA; --muted:rgba(250,250,250,.58); --quiet:rgba(250,250,250,.36);
+      --line:rgba(250,250,250,.09); --line-strong:rgba(250,250,250,.18);
+      --orange:#FF6B35; --green:#22C55E; --teal:#14B8A6; --cyan:#06B6D4; --red:#F25F5C; --amber:#F3B33D;
+      --ui:'Plus Jakarta Sans',sans-serif; --data:'Space Grotesk',monospace;
+    }
+    * { box-sizing:border-box; }
+    html { color-scheme:dark; background:var(--circuit); scroll-behavior:smooth; }
+    body { margin:0; min-width:320px; overflow-x:hidden; background:var(--circuit); color:var(--white); font-family:var(--ui); }
+    body:before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.95; background-image:linear-gradient(rgba(255,107,53,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,107,53,.025) 1px,transparent 1px); background-size:80px 80px; }
+    button, input { font:inherit; }
+    button { color:inherit; }
+    button:focus-visible, input:focus-visible, summary:focus-visible { outline:2px solid var(--orange); outline-offset:3px; }
+    button:disabled { opacity:.35; cursor:not-allowed; }
+    .data { font-family:var(--data); font-variant-numeric:tabular-nums; }
+    .eyebrow { font-size:10px; line-height:1; font-weight:700; letter-spacing:.24em; text-transform:uppercase; color:var(--muted); }
+    .frame { width:min(1600px,100%); margin:0 auto; padding:0 32px 40px; position:relative; }
+    .topbar { position:sticky; top:0; z-index:30; min-height:72px; border-bottom:1px solid var(--line); background:rgba(10,10,10,.92); backdrop-filter:blur(12px); }
+    .topbar-inner { width:min(1600px,100%); min-height:72px; padding:0 32px; margin:auto; display:grid; grid-template-columns:220px 1fr auto; align-items:stretch; }
+    .brand { display:flex; align-items:center; gap:13px; border-right:1px solid var(--line); }
+    .brand-mark { width:29px; height:29px; position:relative; border:1px solid rgba(255,107,53,.58); }
+    .brand-mark:before,.brand-mark:after { content:""; position:absolute; background:var(--orange); }
+    .brand-mark:before { width:17px; height:3px; left:5px; top:8px; transform:skewX(-32deg); }
+    .brand-mark:after { width:10px; height:3px; right:5px; bottom:8px; transform:skewX(-32deg); }
+    .brand-name { font-size:14px; font-weight:800; letter-spacing:.13em; }
+    .brand-name span { display:block; font:500 9px/1.4 var(--data); letter-spacing:.18em; color:var(--quiet); }
+    .signal-rail { display:grid; grid-template-columns:repeat(4,minmax(116px,1fr)); height:100%; }
+    .rail-node { position:relative; display:flex; flex-direction:column; justify-content:center; gap:5px; padding:0 22px; border-right:1px solid var(--line); }
+    .rail-node:after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--tone,var(--green)); transform:scaleX(.2); transform-origin:left; transition:transform .32s ease; }
+    .rail-node.active:after { transform:scaleX(1); }
+    .rail-label { display:flex; align-items:center; gap:8px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
+    .signal-dot { width:7px; height:7px; border-radius:50%; background:var(--tone,var(--green)); box-shadow:0 0 0 3px color-mix(in srgb,var(--tone,var(--green)) 15%,transparent); }
+    .rail-detail { font:500 10px/1.2 var(--data); color:var(--quiet); white-space:nowrap; }
+    .mode-switch { display:flex; align-items:center; gap:0; padding-left:20px; }
+    .mode-btn { min-height:44px; padding:0 16px; border:1px solid var(--line-strong); background:transparent; font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; cursor:pointer; }
+    .mode-btn + .mode-btn { border-left:0; }
+    .mode-btn.active { color:var(--circuit); background:var(--white); }
+    .inspection-banner { display:none; position:sticky; top:72px; z-index:25; background:var(--orange); color:var(--circuit); }
+    .inspection-banner.show { display:block; }
+    .inspection-inner { width:min(1600px,100%); margin:auto; padding:9px 32px; display:flex; align-items:center; justify-content:space-between; gap:16px; font-size:11px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; }
+    .text-action { border:0; background:transparent; font-weight:800; text-transform:uppercase; letter-spacing:.08em; text-decoration:underline; cursor:pointer; }
+    .run-header { min-height:78px; display:grid; grid-template-columns:1fr auto; align-items:center; gap:24px; border-bottom:1px solid var(--line); }
+    .run-title { display:flex; align-items:baseline; gap:14px; min-width:0; }
+    .run-title h1 { margin:0; font-size:clamp(19px,2vw,28px); letter-spacing:-.04em; font-weight:800; white-space:nowrap; }
+    .run-meta { font:500 11px/1.4 var(--data); color:var(--quiet); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .session-actions { display:flex; align-items:center; gap:8px; }
+    .btn { min-height:44px; padding:0 18px; border:1px solid var(--line-strong); background:transparent; color:var(--white); font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:background .25s,color .25s,border-color .25s,transform .25s; }
+    .btn:hover:not(:disabled) { border-color:rgba(255,107,53,.55); transform:translateY(-1px); }
+    .btn-primary { background:var(--orange); border-color:var(--orange); color:var(--circuit); }
+    .btn-primary:hover:not(:disabled) { background:#FF4500; }
+    .btn-icon { width:44px; padding:0; display:inline-grid; place-items:center; }
+    .dashboard-grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); border-left:1px solid var(--line); }
+    .zone { position:relative; border-right:1px solid var(--line); border-bottom:1px solid var(--line); background:rgba(20,20,20,.76); }
+    .zone-index { position:absolute; top:18px; right:18px; font:600 10px/1 var(--data); color:var(--quiet); }
+    .immediate { grid-column:span 8; min-height:448px; padding:30px 32px 24px; overflow:hidden; }
+    .attention { grid-column:span 4; min-height:448px; display:grid; grid-template-rows:auto 1fr auto; background:rgba(10,10,10,.84); }
+    .analysis { grid-column:span 8; min-height:390px; padding:28px 32px 24px; }
+    .systems { grid-column:span 4; min-height:390px; }
+    .zone-kicker { display:flex; align-items:center; gap:10px; margin-bottom:22px; font-size:10px; font-weight:800; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); }
+    .zone-kicker:before { content:""; width:22px; height:1px; background:var(--orange); }
+    .primary-readout { display:grid; grid-template-columns:minmax(240px,1.05fr) minmax(250px,.95fr); gap:34px; align-items:end; }
+    .speed-block { min-width:0; }
+    .state-line { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+    .state-word { font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+    .state-explain { color:var(--muted); font-size:12px; }
+    .hero-value { display:flex; align-items:flex-end; gap:11px; line-height:.75; }
+    .hero-value .number { font:600 clamp(82px,10vw,150px)/.76 var(--data); letter-spacing:-.085em; }
+    .hero-value .unit { font:600 16px/1 var(--data); color:var(--muted); padding-bottom:8px; }
+    .pace-context { margin-top:22px; display:flex; align-items:center; gap:12px; max-width:430px; }
+    .pace-rule { flex:1; height:6px; position:relative; background:var(--graphite); border-left:1px solid var(--line-strong); border-right:1px solid var(--line-strong); }
+    .pace-fill { height:100%; width:0; background:var(--white); transition:width .45s ease; }
+    .pace-target { position:absolute; top:-5px; bottom:-5px; left:48%; width:1px; background:var(--orange); }
+    .pace-copy { min-width:102px; font:500 10px/1.35 var(--data); color:var(--muted); }
+    .power-block { border-left:1px solid var(--line); padding-left:28px; }
+    .power-value { display:flex; align-items:baseline; gap:8px; font:600 clamp(42px,5vw,70px)/1 var(--data); letter-spacing:-.05em; }
+    .power-value small { font-size:15px; color:var(--muted); letter-spacing:0; }
+    .power-caption { margin-top:8px; font-size:12px; color:var(--muted); }
+    .battery-line { margin-top:28px; }
+    .label-row { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:11px; color:var(--muted); }
+    .label-row strong { color:var(--white); font:600 12px var(--data); }
+    .segmented { display:grid; grid-template-columns:repeat(12,1fr); gap:3px; margin-top:9px; }
+    .segmented i { display:block; height:10px; background:var(--graphite); border:1px solid rgba(255,255,255,.025); }
+    .segmented i.on { background:var(--green); }
+    .track-deck { margin-top:34px; border-top:1px solid var(--line); display:grid; grid-template-columns:1fr 260px; min-height:128px; }
+    .track-wrap { position:relative; padding-top:22px; }
+    .track-svg { width:100%; height:94px; overflow:visible; }
+    .track-base { fill:none; stroke:rgba(250,250,250,.12); stroke-width:7; }
+    .track-progress { fill:none; stroke:var(--cyan); stroke-width:2; stroke-dasharray:0 1000; transition:stroke-dasharray .45s linear; }
+    .track-car { fill:var(--orange); stroke:var(--circuit); stroke-width:2; }
+    .track-label { fill:rgba(250,250,250,.45); font:500 9px var(--data); letter-spacing:.08em; }
+    .lap-meta { display:grid; grid-template-columns:1fr 1fr; align-content:center; gap:18px 24px; border-left:1px solid var(--line); padding-left:26px; }
+    .micro-value span { display:block; font:600 19px/1.1 var(--data); }
+    .micro-value small { display:block; margin-top:5px; font-size:9px; text-transform:uppercase; letter-spacing:.13em; color:var(--quiet); }
+    .attention-head { padding:28px 28px 18px; border-bottom:1px solid var(--line); }
+    .attention-title { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; }
+    .attention-title h2 { margin:0; font-size:24px; letter-spacing:-.04em; }
+    .count-box { min-width:33px; height:29px; display:grid; place-items:center; background:var(--orange); color:var(--circuit); font:700 13px var(--data); }
+    .priority-event { padding:24px 28px; border-bottom:1px solid var(--line); }
+    .severity { display:flex; align-items:center; gap:8px; font-size:9px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; color:var(--amber); }
+    .severity:before { content:"!"; width:19px; height:19px; display:grid; place-items:center; border:1px solid currentColor; font:700 11px var(--data); }
+    .priority-event h3 { margin:13px 0 7px; font-size:18px; line-height:1.25; letter-spacing:-.02em; }
+    .priority-event p { margin:0; font-size:12px; line-height:1.55; color:var(--muted); }
+    .priority-empty { color:var(--muted); }
+    .event-list { min-height:0; max-height:202px; overflow:auto; scrollbar-width:thin; }
+    .event-row { display:grid; grid-template-columns:66px 1fr auto; gap:12px; align-items:center; min-height:58px; padding:10px 28px; border-bottom:1px solid var(--line); }
+    .event-time { color:var(--quiet); font:500 10px var(--data); }
+    .event-copy { min-width:0; }
+    .event-copy strong { display:block; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .event-copy span { display:block; margin-top:3px; font-size:10px; color:var(--quiet); }
+    .event-row.ack { opacity:.42; }
+    .ack-btn { min-width:42px; min-height:32px; padding:0 7px; border:1px solid var(--line-strong); background:transparent; font-size:9px; font-weight:800; text-transform:uppercase; cursor:pointer; }
+    .event-tools { display:flex; align-items:center; gap:6px; padding:13px 28px; border-top:1px solid var(--line); }
+    .filter-btn { min-height:32px; padding:0 9px; border:0; border-bottom:1px solid transparent; background:transparent; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); cursor:pointer; }
+    .filter-btn.active { color:var(--white); border-color:var(--orange); }
+    .clear-btn { margin-left:auto; }
+    .analysisDisclosure summary { display:none; }
+    .analysis-head { display:flex; align-items:start; justify-content:space-between; gap:20px; margin-bottom:18px; }
+    .analysis-head h2 { margin:0; font-size:22px; letter-spacing:-.04em; }
+    .series-toggles { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px; }
+    .series-btn { min-height:34px; padding:0 11px; border:1px solid var(--line); background:transparent; font:600 10px var(--data); color:var(--muted); cursor:pointer; }
+    .series-btn[aria-pressed="true"] { color:var(--white); border-color:var(--series); box-shadow:inset 0 -2px var(--series); }
+    .chart-shell { position:relative; height:236px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+    #trendChart { display:block; width:100%; height:100%; touch-action:none; }
+    .chart-tooltip { position:absolute; display:none; min-width:142px; padding:10px 12px; background:var(--instrument); border:1px solid var(--line-strong); pointer-events:none; z-index:2; font:500 10px/1.55 var(--data); }
+    .chart-footer { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-top:13px; color:var(--quiet); font:500 10px var(--data); }
+    .scrubber { display:none; margin-top:14px; grid-template-columns:auto 1fr auto; align-items:center; gap:13px; }
+    .scrubber.show { display:grid; }
+    .compare-strip { display:none; grid-template-columns:repeat(3,1fr); margin-top:12px; border:1px solid var(--line); }
+    .compare-strip.show { display:grid; }
+    .compare-cell { min-height:56px; padding:10px 12px; border-right:1px solid var(--line); }
+    .compare-cell:last-child { border-right:0; }
+    .compare-cell span { display:block; font:600 13px var(--data); }
+    .compare-cell small { display:block; margin-top:4px; color:var(--quiet); font-size:8px; letter-spacing:.1em; text-transform:uppercase; }
+    input[type="range"] { accent-color:var(--orange); width:100%; min-height:30px; cursor:pointer; }
+    .systems-head { padding:28px 28px 18px; border-bottom:1px solid var(--line); }
+    .systems-head h2 { margin:0; font-size:22px; letter-spacing:-.04em; }
+    .system-body { display:grid; grid-template-columns:1fr 1fr; min-height:304px; }
+    .g-instrument { padding:22px; border-right:1px solid var(--line); }
+    .g-stage { position:relative; width:min(154px,100%); aspect-ratio:1; margin:22px auto 16px; border:1px solid var(--line-strong); background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px); background-size:50% 50%; }
+    .g-stage:before,.g-stage:after { content:""; position:absolute; background:rgba(250,250,250,.2); }
+    .g-stage:before { left:50%; top:0; bottom:0; width:1px; }
+    .g-stage:after { top:50%; left:0; right:0; height:1px; }
+    .g-dot { position:absolute; width:13px; height:13px; border:2px solid var(--circuit); background:var(--teal); transform:translate(-50%,-50%); transition:left .3s ease,top .3s ease; z-index:2; }
+    .g-read { display:flex; justify-content:space-between; font:500 10px var(--data); color:var(--muted); }
+    .energy-instrument { padding:22px; display:flex; flex-direction:column; }
+    .energy-flow { flex:1; display:flex; align-items:center; justify-content:center; gap:8px; }
+    .flow-node { width:48px; text-align:center; }
+    .flow-box { height:48px; display:grid; place-items:center; border:1px solid var(--line-strong); font:600 10px var(--data); }
+    .flow-label { margin-top:7px; font-size:8px; text-transform:uppercase; letter-spacing:.1em; color:var(--quiet); }
+    .flow-line { flex:1; max-width:48px; height:2px; background:var(--line-strong); position:relative; overflow:hidden; }
+    .flow-line:after { content:""; position:absolute; inset:0; width:36%; background:var(--orange); transform:translateX(-120%); animation:flow 1.8s linear infinite; }
+    @keyframes flow { to { transform:translateX(350%); } }
+    .efficiency-note { padding-top:16px; border-top:1px solid var(--line); }
+    .efficiency-note strong { display:block; font:600 20px var(--data); }
+    .efficiency-note span { display:block; margin-top:5px; font-size:10px; line-height:1.45; color:var(--muted); }
+    .state-lab { margin-top:20px; border:1px solid var(--line); background:rgba(20,20,20,.68); }
+    .state-lab summary { min-height:50px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; list-style:none; }
+    .state-lab summary::-webkit-details-marker { display:none; }
+    .state-lab summary:after { content:"+"; font:500 18px var(--data); color:var(--orange); }
+    .state-lab[open] summary:after { content:"−"; }
+    .lab-body { padding:16px 18px 18px; border-top:1px solid var(--line); }
+    .lab-copy { margin:0 0 13px; font-size:11px; color:var(--muted); }
+    .lab-buttons { display:flex; flex-wrap:wrap; gap:7px; }
+    .lab-btn { min-height:38px; padding:0 12px; border:1px solid var(--line-strong); background:var(--circuit); font:600 10px var(--data); cursor:pointer; }
+    .lab-btn.active { border-color:var(--orange); color:var(--orange); }
+    .toast-region { position:fixed; right:24px; bottom:24px; z-index:50; display:grid; gap:8px; width:min(360px,calc(100vw - 48px)); pointer-events:none; }
+    .toast { padding:13px 15px; border-left:3px solid var(--tone,var(--green)); background:var(--graphite); box-shadow:0 16px 40px rgba(0,0,0,.35); font-size:11px; animation:toast-in .3s ease both; }
+    @keyframes toast-in { from { opacity:0; transform:translateY(8px); } }
+    dialog { width:min(460px,calc(100% - 32px)); padding:0; border:1px solid var(--line-strong); background:var(--instrument); color:var(--white); }
+    dialog::backdrop { background:rgba(0,0,0,.78); backdrop-filter:blur(3px); }
+    .dialog-body { padding:28px; }
+    .dialog-body h2 { margin:0 0 10px; font-size:25px; letter-spacing:-.04em; }
+    .dialog-body p { margin:0; color:var(--muted); font-size:13px; line-height:1.6; }
+    .dialog-actions { display:flex; justify-content:flex-end; gap:8px; padding:18px 28px; border-top:1px solid var(--line); }
+    .corner-bracket:before,.corner-bracket:after { content:""; position:absolute; width:16px; height:16px; pointer-events:none; }
+    .corner-bracket:before { top:10px; left:10px; border-top:2px solid var(--orange); border-left:2px solid var(--orange); }
+    .corner-bracket:after { right:10px; bottom:10px; border-right:2px solid var(--orange); border-bottom:2px solid var(--orange); }
+    .frozen .hero-value,.frozen .power-value,.frozen .track-deck { opacity:.5; }
+    .partial .micro-value:nth-child(even),.partial .g-instrument { opacity:.28; }
+    .entrance { animation:enter .75s cubic-bezier(.2,.8,.2,1) both; }
+    .entrance:nth-child(2) { animation-delay:.08s; } .entrance:nth-child(3) { animation-delay:.16s; } .entrance:nth-child(4) { animation-delay:.24s; }
+    @keyframes enter { from { opacity:0; transform:translateY(14px); } }
+    @media (max-width:1100px) {
+      .topbar-inner { grid-template-columns:180px 1fr; }
+      .signal-rail { grid-template-columns:repeat(3,1fr); }
+      .signal-rail .rail-node:nth-child(4) { display:none; }
+      .mode-switch { grid-column:2; position:absolute; right:24px; top:82px; z-index:10; padding:0; }
+      .run-header { padding-top:58px; }
+      .immediate,.analysis { grid-column:span 7; }
+      .attention,.systems { grid-column:span 5; }
+      .primary-readout { grid-template-columns:1fr; gap:24px; }
+      .power-block { border-left:0; border-top:1px solid var(--line); padding:20px 0 0; display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:end; }
+      .battery-line { margin-top:0; }
+      .track-deck { grid-template-columns:1fr; }
+      .lap-meta { border-left:0; border-top:1px solid var(--line); padding:18px 0 0; grid-template-columns:repeat(4,1fr); }
+      .immediate { min-height:610px; }
+      .attention { min-height:610px; }
+      .system-body { grid-template-columns:1fr; }
+      .g-instrument { border-right:0; border-bottom:1px solid var(--line); }
+      .systems,.analysis { min-height:530px; }
+    }
+    @media (max-width:760px) {
+      .frame { padding:0 16px 28px; }
+      .topbar { position:relative; }
+      .topbar-inner { padding:0 16px; grid-template-columns:1fr; }
+      .brand { min-height:61px; border-right:0; border-bottom:1px solid var(--line); }
+      .signal-rail { min-height:74px; grid-template-columns:repeat(3,1fr); }
+      .rail-node { padding:0 9px; }
+      .rail-detail { white-space:normal; }
+      .mode-switch { position:static; grid-column:auto; padding:12px 0; }
+      .mode-btn { flex:1; }
+      .inspection-banner { top:0; }
+      .inspection-inner { padding:10px 16px; align-items:flex-start; }
+      .run-header { min-height:0; padding:18px 0; grid-template-columns:1fr; gap:16px; }
+      .run-title { display:block; }
+      .run-meta { margin-top:6px; display:block; }
+      .session-actions { display:grid; grid-template-columns:1fr 1fr 44px; }
+      .session-actions .btn-primary { grid-column:span 2; }
+      .dashboard-grid { display:flex; flex-direction:column; }
+      .immediate { order:1; min-height:0; padding:24px 20px 20px; }
+      .attention { order:2; min-height:0; }
+      .analysis { order:4; min-height:0; padding:0; }
+      .systems { order:3; min-height:0; }
+      .primary-readout { display:block; }
+      .hero-value .number { font-size:clamp(82px,29vw,116px); }
+      .power-block { margin-top:24px; grid-template-columns:1fr; }
+      .track-deck { margin-top:26px; }
+      .lap-meta { grid-template-columns:1fr 1fr; }
+      .attention-head,.priority-event { padding-left:20px; padding-right:20px; }
+      .event-row { padding-left:20px; padding-right:20px; grid-template-columns:54px 1fr auto; }
+      .event-tools { padding-left:14px; padding-right:14px; overflow-x:auto; }
+      .analysisDisclosure summary { display:flex; min-height:62px; align-items:center; justify-content:space-between; padding:0 20px; list-style:none; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; cursor:pointer; }
+      .analysisDisclosure summary::-webkit-details-marker { display:none; }
+      .analysisDisclosure summary:after { content:"+"; color:var(--orange); font:500 20px var(--data); }
+      .analysisDisclosure[open] summary:after { content:"−"; }
+      .analysis-inner { padding:20px; border-top:1px solid var(--line); }
+      .analysis-head { display:block; }
+      .series-toggles { justify-content:flex-start; margin-top:15px; }
+      .chart-shell { height:210px; }
+      .compare-strip { grid-template-columns:1fr; }
+      .compare-cell { border-right:0; border-bottom:1px solid var(--line); }
+      .compare-cell:last-child { border-bottom:0; }
+      .systems-head { padding:22px 20px 16px; }
+      .system-body { display:grid; grid-template-columns:1fr 1fr; }
+      .g-instrument { border-right:1px solid var(--line); border-bottom:0; padding:17px; }
+      .energy-instrument { padding:17px; }
+      .g-stage { margin-top:15px; }
+      .energy-flow { flex-direction:column; gap:4px; }
+      .flow-line { width:2px; height:20px; }
+      .flow-line:after { width:100%; height:36%; transform:translateY(-120%); animation-name:flow-y; }
+      @keyframes flow-y { to { transform:translateY(350%); } }
+      .state-lab { margin-top:16px; }
+    }
+    @media (max-width:420px) {
+      .signal-rail { grid-template-columns:repeat(2,1fr); }
+      .signal-rail .rail-node:nth-child(3) { display:none; }
+      .state-explain { display:none; }
+      .system-body { grid-template-columns:1fr; }
+      .g-instrument { border-right:0; border-bottom:1px solid var(--line); }
+      .energy-flow { flex-direction:row; min-height:100px; }
+      .flow-line { width:auto; height:2px; }
+      .session-actions { grid-template-columns:1fr 1fr; }
+      .session-actions .btn-icon { width:auto; }
+    }
+    @media (prefers-reduced-motion:reduce) { *,*:before,*:after { animation-duration:.01ms!important; animation-iteration-count:1!important; scroll-behavior:auto!important; transition-duration:.01ms!important; } }
+  </style>
+</head>
+<body>
+  <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:z-50 focus:left-4 focus:top-4 focus:bg-voltage focus:text-black focus:p-3">Skip to telemetry</a>
+  <header class="topbar" aria-label="Telemetry status">
+    <div class="topbar-inner">
+      <div class="brand" aria-label="EcoVolt telemetry">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div class="brand-name">ECOVOLT <span>CCM // PIT WALL 02</span></div>
+      </div>
+      <div class="signal-rail" aria-live="polite">
+        <div class="rail-node active" id="connectionNode"><div class="rail-label"><i class="signal-dot"></i><span id="connectionLabel">Connected</span></div><div class="rail-detail" id="connectionDetail">Link stable · 5 Hz</div></div>
+        <div class="rail-node active" id="freshnessNode"><div class="rail-label"><i class="signal-dot"></i><span id="freshnessLabel">Data fresh</span></div><div class="rail-detail" id="freshnessDetail">Updated now</div></div>
+        <div class="rail-node" id="sessionNode"><div class="rail-label"><i class="signal-dot"></i><span id="sessionLabel">Session idle</span></div><div class="rail-detail" id="sessionDetail">Ready to record</div></div>
+        <div class="rail-node active" id="safetyNode"><div class="rail-label"><i class="signal-dot"></i><span id="safetyLabel">Vehicle normal</span></div><div class="rail-detail" id="safetyDetail">No intervention</div></div>
+      </div>
+      <nav class="mode-switch" aria-label="View mode">
+        <button class="mode-btn active" id="liveModeBtn" type="button">Live</button>
+        <button class="mode-btn" id="inspectModeBtn" type="button">Inspect</button>
+      </nav>
+    </div>
+  </header>
+
+  <div class="inspection-banner" id="inspectionBanner" role="status">
+    <div class="inspection-inner"><span>Inspection mode · values are frozen at <span class="data" id="inspectionTime">00:00:00</span></span><button class="text-action" id="returnLiveBtn" type="button">Return to live →</button></div>
+  </div>
+
+  <main id="main" class="frame">
+    <section class="run-header" aria-labelledby="runTitle">
+      <div class="run-title"><h1 id="runTitle">Circuit efficiency run</h1><span class="run-meta" id="runMeta">SIM-26.07.22 / LAP 01 / ELAPSED 00:00:00</span></div>
+      <div class="session-actions" aria-label="Session controls">
+        <button class="btn btn-primary" id="startBtn" type="button">Start session</button>
+        <button class="btn" id="pauseBtn" type="button" disabled>Pause feed</button>
+        <button class="btn" id="endBtn" type="button" disabled>End</button>
+        <button class="btn btn-icon" id="resetBtn" type="button" aria-label="Reset simulation" title="Reset simulation">↺</button>
+      </div>
+    </section>
+
+    <div class="dashboard-grid" id="dashboardGrid">
+      <section class="zone immediate corner-bracket entrance" aria-labelledby="immediateTitle">
+        <span class="zone-index">01 / IMMEDIATE STATE</span>
+        <div class="zone-kicker" id="immediateTitle">Vehicle pulse</div>
+        <div class="primary-readout">
+          <div class="speed-block">
+            <div class="state-line"><span class="signal-dot" id="motionDot"></span><span class="state-word" id="motionState">Ready</span><span class="state-explain" id="motionExplain">Awaiting session start</span></div>
+            <div class="hero-value"><span class="number" id="speedValue">0.0</span><span class="unit">m/s</span></div>
+            <div class="pace-context"><div class="pace-rule" aria-hidden="true"><div class="pace-fill" id="paceFill"></div><i class="pace-target"></i></div><div class="pace-copy" id="paceCopy">Target band<br>8.0–9.4 m/s</div></div>
+          </div>
+          <div class="power-block">
+            <div>
+              <div class="eyebrow">Electrical power</div>
+              <div class="power-value"><span id="powerValue">0</span><small>W</small></div>
+              <div class="power-caption" id="powerCaption">Systems armed · no draw</div>
+            </div>
+            <div class="battery-line">
+              <div class="label-row"><span>Battery condition</span><strong><span id="voltageValue">56.8</span> V · <span id="batteryPercent">79</span>%</strong></div>
+              <div class="segmented" id="batterySegments" aria-label="Battery 79 percent"></div>
+            </div>
+          </div>
+        </div>
+        <div class="track-deck">
+          <div class="track-wrap">
+            <svg class="track-svg" viewBox="0 0 620 100" role="img" aria-labelledby="trackTitle trackDesc">
+              <title id="trackTitle">Vehicle track progress</title><desc id="trackDesc">The vehicle is at the start of a simulated 1.58 kilometre lap.</desc>
+              <path id="trackPath" class="track-base" pathLength="1000" d="M25,66 C90,19 165,16 228,42 C285,66 332,83 395,58 C452,35 498,11 559,28 C593,38 606,57 583,75 C548,99 485,88 449,75 C398,57 354,50 307,66 C246,87 184,91 126,77 C82,66 56,63 25,66 Z"/>
+              <path id="trackProgress" class="track-progress" pathLength="1000" d="M25,66 C90,19 165,16 228,42 C285,66 332,83 395,58 C452,35 498,11 559,28 C593,38 606,57 583,75 C548,99 485,88 449,75 C398,57 354,50 307,66 C246,87 184,91 126,77 C82,66 56,63 25,66 Z"/>
+              <circle id="trackCar" class="track-car" cx="25" cy="66" r="6"/>
+              <text x="22" y="93" class="track-label">START / PIT</text><text x="506" y="14" class="track-label">SECTOR 02</text>
+            </svg>
+          </div>
+          <div class="lap-meta">
+            <div class="micro-value"><span id="lapProgress">0%</span><small>Lap progress</small></div>
+            <div class="micro-value"><span id="distanceValue">0 m</span><small>Distance</small></div>
+            <div class="micro-value"><span id="energyValue">0 J</span><small>Energy used</small></div>
+            <div class="micro-value"><span id="etaValue">--:--</span><small>Est. finish</small></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="zone attention entrance" aria-labelledby="attentionTitle">
+        <span class="zone-index">02 / INTERVENTION</span>
+        <div class="attention-head"><div class="attention-title"><div><div class="zone-kicker" style="margin-bottom:10px">Decision queue</div><h2 id="attentionTitle">Attention</h2></div><div class="count-box" id="unresolvedCount" aria-label="0 unresolved alerts">0</div></div></div>
+        <div>
+          <div class="priority-event" id="priorityEvent"><div class="severity" id="prioritySeverity">Clear</div><h3 id="priorityTitle">No intervention required</h3><p id="priorityMessage">Vehicle state is within the simulated operating envelope.</p></div>
+          <div class="event-list" id="eventList" aria-live="polite"></div>
+        </div>
+        <div class="event-tools" aria-label="Event filters">
+          <button class="filter-btn active" data-filter="all" type="button">All</button><button class="filter-btn" data-filter="action" type="button">Action</button><button class="filter-btn" data-filter="info" type="button">Info</button><button class="filter-btn" data-filter="ack" type="button">Ack</button><button class="filter-btn clear-btn" id="clearAckBtn" type="button">Clear ack</button>
+        </div>
+      </aside>
+
+      <section class="zone analysis entrance" aria-labelledby="analysisTitle">
+        <span class="zone-index">03 / EVOLUTION</span>
+        <details class="analysisDisclosure" id="analysisDisclosure" open>
+          <summary>Telemetry evolution</summary>
+          <div class="analysis-inner">
+            <div class="analysis-head"><div><div class="zone-kicker" style="margin-bottom:9px">Bounded live history</div><h2 id="analysisTitle">Telemetry evolution</h2></div><div class="series-toggles" aria-label="Chart series"><button class="series-btn" style="--series:#FAFAFA" data-series="speed" aria-pressed="true" type="button">Speed · m/s</button><button class="series-btn" style="--series:#FF6B35" data-series="power" aria-pressed="true" type="button">Power · W</button><button class="series-btn" style="--series:#14B8A6" data-series="voltage" aria-pressed="false" type="button">Voltage · V</button></div></div>
+            <div class="chart-shell"><canvas id="trendChart" role="img" aria-label="Live telemetry chart showing speed and electrical power over the last 60 seconds"></canvas><div class="chart-tooltip" id="chartTooltip"></div></div>
+            <div class="chart-footer"><span id="chartRange">−60 s</span><span>Scale adapts per visible series · point to inspect</span><span>Now</span></div>
+            <div class="scrubber" id="scrubber"><span class="eyebrow">Older</span><input type="range" id="historySlider" min="0" max="0" value="0" aria-label="Inspect recorded telemetry point"><span class="eyebrow">Newer</span></div>
+            <div class="compare-strip" id="compareStrip" aria-live="polite"><div class="compare-cell"><span id="compareSpeed">—</span><small>Speed vs previous</small></div><div class="compare-cell"><span id="comparePower">—</span><small>Power vs previous</small></div><div class="compare-cell"><span id="compareCurrent">—</span><small>Selected vs current</small></div></div>
+            <p class="sr-only" id="chartSummary">No live telemetry recorded yet.</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="zone systems entrance" aria-labelledby="systemsTitle">
+        <span class="zone-index">04 / LOAD PATH</span>
+        <div class="systems-head"><div class="zone-kicker" style="margin-bottom:9px">Vehicle dynamics</div><h2 id="systemsTitle">Load & energy</h2></div>
+        <div class="system-body">
+          <div class="g-instrument"><div class="eyebrow">Planar G</div><div class="g-stage" aria-label="G-force position"><i class="g-dot" id="gDot"></i></div><div class="g-read"><span>LAT <b id="gLat">+0.00</b> g</span><span>LONG <b id="gLong">+0.00</b> g</span></div></div>
+          <div class="energy-instrument"><div class="eyebrow">Power path</div><div class="energy-flow" aria-hidden="true"><div class="flow-node"><div class="flow-box" id="batteryNode">56.8V</div><div class="flow-label">Battery</div></div><i class="flow-line"></i><div class="flow-node"><div class="flow-box" id="motorNode">0W</div><div class="flow-label">Motor</div></div><i class="flow-line"></i><div class="flow-node"><div class="flow-box">→</div><div class="flow-label">Motion</div></div></div><div class="efficiency-note"><strong><span id="efficiencyValue">0</span> km/kWh</strong><span id="efficiencyCopy">Efficiency becomes available once the vehicle is moving.</span></div></div>
+        </div>
+      </section>
+    </div>
+
+    <details class="state-lab" id="stateLab">
+      <summary>Prototype state lab <span class="data" id="labCurrent">CONNECTED</span></summary>
+      <div class="lab-body"><p class="lab-copy">Simulate telemetry link conditions. This lab is intentionally separated from operational controls.</p><div class="lab-buttons" role="group" aria-label="Simulate connection state"><button class="lab-btn active" data-connection="connected" type="button">Connected</button><button class="lab-btn" data-connection="reconnecting" type="button">Reconnecting</button><button class="lab-btn" data-connection="offline" type="button">Offline</button><button class="lab-btn" data-connection="stale" type="button">Stale data</button><button class="lab-btn" data-connection="partial" type="button">Partial data</button><button class="lab-btn" data-connection="error" type="button">Error state</button></div></div>
+    </details>
+  </main>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+  <dialog id="confirmDialog" aria-labelledby="dialogTitle"><div class="dialog-body"><div class="eyebrow">Confirm action</div><h2 id="dialogTitle">End this session?</h2><p id="dialogCopy">The simulated feed will stop. Recorded points remain available for inspection.</p></div><div class="dialog-actions"><button class="btn" id="cancelDialogBtn" type="button">Cancel</button><button class="btn btn-primary" id="confirmDialogBtn" type="button">End session</button></div></dialog>
+
+  <script>
+  (function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    var refs = {};
+    ['dashboardGrid','connectionNode','connectionLabel','connectionDetail','freshnessNode','freshnessLabel','freshnessDetail','sessionNode','sessionLabel','sessionDetail','safetyNode','safetyLabel','safetyDetail','inspectionBanner','inspectionTime','liveModeBtn','inspectModeBtn','returnLiveBtn','runMeta','startBtn','pauseBtn','endBtn','resetBtn','motionDot','motionState','motionExplain','speedValue','paceFill','paceCopy','powerValue','powerCaption','voltageValue','batteryPercent','batterySegments','trackPath','trackProgress','trackCar','trackDesc','lapProgress','distanceValue','energyValue','etaValue','unresolvedCount','priorityEvent','prioritySeverity','priorityTitle','priorityMessage','eventList','clearAckBtn','trendChart','chartTooltip','chartRange','chartSummary','scrubber','historySlider','compareStrip','compareSpeed','comparePower','compareCurrent','gDot','gLat','gLong','batteryNode','motorNode','efficiencyValue','efficiencyCopy','analysisDisclosure','labCurrent','toastRegion','confirmDialog','dialogTitle','dialogCopy','cancelDialogBtn','confirmDialogBtn'].forEach(function (id) { refs[id] = $(id); });
+
+    var LIMIT = 180;
+    var COLORS = { speed:'#FAFAFA', power:'#FF6B35', voltage:'#14B8A6' };
+    var DOMAINS = { speed:[0,14], power:[0,1000], voltage:[50,59] };
+    var state = {
+      session:'idle', paused:false, connection:'connected', mode:'live', tick:0, elapsed:0,
+      history:[], inspectIndex:0, series:{ speed:true, power:true, voltage:false }, eventFilter:'all',
+      events:[], lastValidAt:Date.now(), staleForced:false, dialogAction:null, eventSeq:0
+    };
+    var current = makeSample(0);
+    var simTimer = null;
+    var renderTimer = null;
+    var pathLength = 0;
+    var pointerIndex = null;
+
+    function makeSample(t) {
+      var moving = state && state.session === 'running';
+      var ramp = Math.min(1, t / 16);
+      var speed = moving ? Math.max(0, ramp * (8.65 + Math.sin(t * .19) * .72 + Math.sin(t * .047) * .34)) : 0;
+      var throttle = moving ? 32 + Math.sin(t * .16) * 10 + Math.sin(t * .037) * 5 : 0;
+      var power = moving ? Math.max(80, 290 + speed * 31 + throttle * 3.5 + Math.sin(t * .31) * 38) : 0;
+      var voltage = 56.8 - (state ? state.elapsed : 0) * .00062 - (moving ? power / 18000 : 0);
+      var currentA = voltage ? power / voltage : 0;
+      var gLat = moving ? Math.sin(t * .23) * .23 + Math.sin(t * .071) * .08 : 0;
+      var gLong = moving ? Math.cos(t * .17) * .11 + (t < 16 ? .18 : 0) : 0;
+      var distance = state && state.history.length ? state.history[state.history.length - 1].distance + speed : 0;
+      var energy = state && state.history.length ? state.history[state.history.length - 1].energy + power : 0;
+      var efficiency = power > 30 ? Math.min(500,(speed * 3.6) / (power / 1000)) : 0;
+      return { time:Date.now(), speed:speed, power:power, voltage:voltage, current:currentA, distance:distance, energy:energy, efficiency:efficiency, gLat:gLat, gLong:gLong, throttle:throttle };
+    }
+
+    function formatClock(seconds) { seconds = Math.max(0,Math.floor(seconds)); var h=String(Math.floor(seconds/3600)).padStart(2,'0'); var m=String(Math.floor(seconds%3600/60)).padStart(2,'0'); var s=String(seconds%60).padStart(2,'0'); return h+':'+m+':'+s; }
+    function formatAge(ms) { var s=Math.max(0,Math.floor(ms/1000)); if(s<2)return 'Updated now'; if(s<60)return 'Updated '+s+'s ago'; return 'Updated '+Math.floor(s/60)+'m ago'; }
+    function fmtSigned(n) { return (n>=0?'+':'')+n.toFixed(2); }
+    function batteryPct(v) { return Math.round(Math.max(0,Math.min(100,(v-50.4)/(58.5-50.4)*100))); }
+    function sampleAtView() { if(state.mode==='inspect' && state.history.length) return state.history[Math.min(state.inspectIndex,state.history.length-1)]; return current; }
+    function canReceive() { return state.session==='running' && !state.paused && (state.connection==='connected' || state.connection==='partial'); }
+    function isFrozen() { return ['offline','stale','error','reconnecting'].indexOf(state.connection)>=0 || state.paused || state.mode==='inspect'; }
+
+    function addEvent(type,title,message,severity) {
+      var now=Date.now();
+      var existing=state.events[0];
+      if(existing && existing.title===title && now-existing.rawTime<4000)return;
+      state.events.unshift({ id:++state.eventSeq, type:type, title:title, message:message, severity:severity||type, rawTime:now, time:new Date(now).toLocaleTimeString([],{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}), ack:false });
+      state.events=state.events.slice(0,20);
+      renderEvents();
+    }
+
+    function toast(message,tone) {
+      var el=document.createElement('div'); el.className='toast'; el.style.setProperty('--tone',tone||'var(--green)'); el.textContent=message; refs.toastRegion.appendChild(el);
+      window.setTimeout(function(){el.remove();},3200);
+    }
+
+    function simulate() {
+      if(!canReceive())return;
+      state.tick+=1; state.elapsed+=1; current=makeSample(state.tick); state.lastValidAt=Date.now();
+      state.history.push(current); if(state.history.length>LIMIT)state.history.shift();
+      if(state.tick===1)addEvent('info','Session started','Recording deterministic telemetry at 1 Hz.','info');
+      if(state.tick===12)addEvent('info','Efficiency improving','Vehicle entered the target pace band.','info');
+      if(state.tick===28)addEvent('action','Current spike observed','Current briefly crossed 14 A; trend returned to normal.','warning');
+      if(state.tick===52)addEvent('action','Battery threshold crossed','Battery estimate moved below the 75% advisory threshold.','warning');
+      if(state.tick===76)addEvent('info','Connection recovered','Realtime continuity restored without data loss.','info');
+      renderAll();
+    }
+
+    function startSession() {
+      if(state.session==='running')return;
+      if(state.session==='ended')resetNow();
+      state.session='running'; state.paused=false; state.mode='live'; state.tick=0; state.elapsed=0; state.history=[]; current=makeSample(0); state.lastValidAt=Date.now();
+      addEvent('info','Session started','Circuit efficiency run is active and recording.','info'); toast('Session started · recording is active','var(--green)'); renderAll();
+    }
+    function togglePause() { if(state.session!=='running')return; state.paused=!state.paused; addEvent(state.paused?'action':'info',state.paused?'Feed paused':'Feed resumed',state.paused?'Values are frozen until the feed resumes.':'Live samples are updating again.',state.paused?'warning':'info'); toast(state.paused?'Feed paused · values frozen':'Feed resumed · live data flowing',state.paused?'var(--amber)':'var(--green)'); renderAll(); }
+    function endNow() { state.session='ended'; state.paused=true; addEvent('info','Session ended','Run closed with '+state.history.length+' recorded samples.','info'); toast('Session ended · inspection remains available','var(--orange)'); renderAll(); }
+    function resetNow() { state.session='idle'; state.paused=false; state.mode='live'; state.tick=0; state.elapsed=0; state.history=[]; state.events=[]; state.inspectIndex=0; state.connection='connected'; current=makeSample(0); state.lastValidAt=Date.now(); pointerIndex=null; toast('Simulation reset','var(--cyan)'); renderAll(); }
+
+    function openConfirm(action) {
+      state.dialogAction=action;
+      if(action==='end'){refs.dialogTitle.textContent='End this session?';refs.dialogCopy.textContent='The simulated feed will stop. Recorded points remain available for inspection.';refs.confirmDialogBtn.textContent='End session';}
+      else {refs.dialogTitle.textContent='Reset the simulation?';refs.dialogCopy.textContent='This clears the current run, chart history, and operational events.';refs.confirmDialogBtn.textContent='Reset all';}
+      refs.confirmDialog.showModal();
+    }
+
+    function setMode(mode) {
+      if(mode==='inspect' && !state.history.length){toast('Start a session to create inspectable history','var(--amber)');return;}
+      state.mode=mode;
+      if(mode==='inspect'){state.inspectIndex=Math.max(0,state.history.length-1);refs.historySlider.value=String(state.inspectIndex);toast('Inspection mode · live feed continues in the background','var(--orange)');}
+      else {pointerIndex=null;toast('Returned to current live state','var(--green)');}
+      renderAll();
+    }
+
+    function setConnection(next) {
+      var previous=state.connection; state.connection=next; state.staleForced=next==='stale';
+      if(next==='connected'){state.lastValidAt=Date.now(); if(previous!=='connected')addEvent('info','Connection recovered','Realtime telemetry link is stable again.','info');toast('Connection stable · live feed available','var(--green)');}
+      if(next==='reconnecting'){addEvent('action','Connection interrupted','Attempting to restore the realtime link.','warning');toast('Reconnecting · last valid values frozen','var(--amber)');}
+      if(next==='offline'){addEvent('action','Vehicle offline','No telemetry link. Check the vehicle radio and pit gateway.','critical');toast('Offline · check vehicle radio','var(--red)');}
+      if(next==='stale'){state.lastValidAt=Date.now()-18000;addEvent('action','Data stale','No valid sample received for 18 seconds.','critical');toast('Data stale · values are frozen','var(--amber)');}
+      if(next==='partial'){addEvent('action','Partial telemetry','IMU and GPS fields are unavailable; electrical data remains live.','warning');toast('Partial data · IMU and GPS unavailable','var(--amber)');}
+      if(next==='error'){addEvent('action','Telemetry error','Decoder rejected the latest payload. Inspect bridge logs or reset the link.','critical');toast('Error state · inspect bridge or reset link','var(--red)');}
+      document.querySelectorAll('.lab-btn').forEach(function(btn){btn.classList.toggle('active',btn.dataset.connection===next);}); renderAll();
+    }
+
+    function renderRail() {
+      var c=state.connection; var map={
+        connected:['Connected','Link stable · 5 Hz','var(--green)',true], reconnecting:['Reconnecting','Retrying link · values frozen','var(--amber)',false], offline:['Offline','No radio link · check gateway','var(--red)',false], stale:['Connected','Link up · samples stale','var(--amber)',true], partial:['Connected','Some sensors unavailable','var(--amber)',true], error:['Data error','Latest payload rejected','var(--red)',false]
+      }; var m=map[c];
+      refs.connectionLabel.textContent=m[0]; refs.connectionDetail.textContent=m[1]; refs.connectionNode.style.setProperty('--tone',m[2]); refs.connectionNode.classList.toggle('active',m[3]);
+      var age=Date.now()-state.lastValidAt; var fresh=c==='connected' && age<5000;
+      refs.freshnessLabel.textContent=fresh?'Data fresh':(c==='partial'?'Partial data':c==='error'?'Data invalid':'Data frozen'); refs.freshnessDetail.textContent=fresh?formatAge(age):('Last valid '+formatAge(age).replace('Updated ','') ); refs.freshnessNode.style.setProperty('--tone',fresh?'var(--green)':c==='error'?'var(--red)':'var(--amber)'); refs.freshnessNode.classList.toggle('active',fresh);
+      var active=state.session==='running'; refs.sessionLabel.textContent=active?(state.paused?'Session paused':'Session active'):(state.session==='ended'?'Session ended':'Session idle'); refs.sessionDetail.textContent=active?(state.paused?'Recording halted':formatClock(state.elapsed)+' · recording'):(state.session==='ended'?state.history.length+' samples captured':'Ready to record'); refs.sessionNode.style.setProperty('--tone',active&&!state.paused?'var(--orange)':'rgba(250,250,250,.35)'); refs.sessionNode.classList.toggle('active',active&&!state.paused);
+      var unresolved=state.events.filter(function(e){return !e.ack && e.type==='action';}).length; refs.safetyLabel.textContent=unresolved?'Review required':'Vehicle normal'; refs.safetyDetail.textContent=unresolved?unresolved+' unresolved event'+(unresolved===1?'':'s'):'No intervention'; refs.safetyNode.style.setProperty('--tone',unresolved?'var(--amber)':'var(--green)'); refs.safetyNode.classList.toggle('active',!unresolved);
+      refs.labCurrent.textContent=c.toUpperCase();
+    }
+
+    function renderSessionControls() {
+      refs.startBtn.textContent=state.session==='idle'?'Start session':state.session==='ended'?'Start new session':'Session active'; refs.startBtn.disabled=state.session==='running';
+      refs.pauseBtn.disabled=state.session!=='running'; refs.pauseBtn.textContent=state.paused?'Resume feed':'Pause feed'; refs.endBtn.disabled=state.session!=='running';
+      refs.runMeta.textContent='SIM-26.07.22 / LAP '+String(Math.floor(current.distance/1580)+1).padStart(2,'0')+' / ELAPSED '+formatClock(state.elapsed);
+      refs.liveModeBtn.classList.toggle('active',state.mode==='live'); refs.inspectModeBtn.classList.toggle('active',state.mode==='inspect'); refs.inspectionBanner.classList.toggle('show',state.mode==='inspect'); refs.scrubber.classList.toggle('show',state.mode==='inspect');
+      refs.compareStrip.classList.toggle('show',state.mode==='inspect');
+      refs.historySlider.max=String(Math.max(0,state.history.length-1)); refs.historySlider.value=String(Math.min(state.inspectIndex,Math.max(0,state.history.length-1)));
+      if(state.mode==='inspect'&&state.history.length){
+        var selected=sampleAtView(), previous=state.history[Math.max(0,state.inspectIndex-1)], live=state.history[state.history.length-1];
+        refs.inspectionTime.textContent=new Date(selected.time).toLocaleTimeString([],{hour12:false});
+        refs.compareSpeed.textContent=(selected.speed-previous.speed>=0?'+':'')+(selected.speed-previous.speed).toFixed(1)+' m/s';
+        refs.comparePower.textContent=(selected.power-previous.power>=0?'+':'')+Math.round(selected.power-previous.power)+' W';
+        refs.compareCurrent.textContent=(selected.speed-live.speed>=0?'+':'')+(selected.speed-live.speed).toFixed(1)+' m/s from live';
+      }
+    }
+
+    function renderImmediate() {
+      var s=sampleAtView(); var pct=batteryPct(s.voltage); var moving=s.speed>.4;
+      refs.dashboardGrid.classList.toggle('frozen',isFrozen()); refs.dashboardGrid.classList.toggle('partial',state.connection==='partial');
+      refs.speedValue.textContent=s.speed.toFixed(1); refs.powerValue.textContent=Math.round(s.power).toLocaleString(); refs.voltageValue.textContent=s.voltage.toFixed(1); refs.batteryPercent.textContent=pct; refs.batteryNode.textContent=s.voltage.toFixed(1)+'V'; refs.motorNode.textContent=Math.round(s.power)+'W';
+      refs.paceFill.style.width=Math.min(100,s.speed/14*100)+'%';
+      if(state.mode==='inspect'){refs.motionState.textContent='Inspecting';refs.motionExplain.textContent='Recorded point · not current';refs.motionDot.style.background='var(--orange)';}
+      else if(isFrozen()){refs.motionState.textContent='Values frozen';refs.motionExplain.textContent=state.connection==='offline'?'Vehicle is offline · check radio link':state.connection==='error'?'Invalid payload · inspect bridge':state.connection==='stale'?'Last sample is 18 seconds old':state.paused?'Feed paused by operator':'Waiting for the next valid sample';refs.motionDot.style.background=state.connection==='error'||state.connection==='offline'?'var(--red)':'var(--amber)';}
+      else if(moving){refs.motionState.textContent=s.speed<7?'Accelerating':s.speed>9.45?'Above target':'Cruising normally';refs.motionExplain.textContent=s.speed>9.45?'Ask driver to ease pace':'Within expected operating envelope';refs.motionDot.style.background=s.speed>9.45?'var(--amber)':'var(--green)';}
+      else {refs.motionState.textContent=state.session==='running'?'Pulling away':'Ready';refs.motionExplain.textContent=state.session==='running'?'Vehicle beginning the run':'Awaiting session start';refs.motionDot.style.background='var(--green)';}
+      refs.powerCaption.textContent=s.power<1?'Systems armed · no draw':s.power<700?'Normal traction load':'High draw · monitor trend';
+      refs.batterySegments.innerHTML=''; for(var i=0;i<12;i++){var seg=document.createElement('i'); if(i<Math.round(pct/100*12))seg.className='on'; refs.batterySegments.appendChild(seg);} refs.batterySegments.setAttribute('aria-label','Battery '+pct+' percent');
+      var lap=(s.distance%1580)/1580; refs.lapProgress.textContent=Math.round(lap*100)+'%'; refs.distanceValue.textContent=s.distance<1000?Math.round(s.distance)+' m':(s.distance/1000).toFixed(2)+' km'; refs.energyValue.textContent=s.energy<1000?Math.round(s.energy)+' J':(s.energy/1000).toFixed(1)+' kJ'; refs.etaValue.textContent=s.speed>.2?formatClock((1580-(s.distance%1580))/s.speed):'--:--';
+      refs.trackProgress.style.strokeDasharray=(lap*1000)+' '+(1000-lap*1000); var point=refs.trackPath.getPointAtLength(pathLength*lap); refs.trackCar.setAttribute('cx',point.x); refs.trackCar.setAttribute('cy',point.y); refs.trackDesc.textContent='The vehicle is '+Math.round(lap*100)+' percent through a simulated 1.58 kilometre lap.';
+      refs.gLat.textContent=fmtSigned(s.gLat); refs.gLong.textContent=fmtSigned(s.gLong); refs.gDot.style.left=(50+Math.max(-.5,Math.min(.5,s.gLat))*86)+'%'; refs.gDot.style.top=(50-Math.max(-.5,Math.min(.5,s.gLong))*86)+'%';
+      refs.efficiencyValue.textContent=Math.round(s.efficiency); refs.efficiencyCopy.textContent=s.efficiency?((s.efficiency>55?'Efficient operating point. ':'Below target efficiency. ')+'Calculated from speed and electrical power.'):'Efficiency becomes available once the vehicle is moving.';
+    }
+
+    function renderEvents() {
+      var filtered=state.events.filter(function(e){if(state.eventFilter==='all')return true;if(state.eventFilter==='ack')return e.ack;return e.type===state.eventFilter&&!e.ack;});
+      refs.eventList.innerHTML='';
+      if(!filtered.length){var empty=document.createElement('div');empty.className='priority-empty';empty.style.padding='26px 28px';empty.style.fontSize='12px';empty.textContent=state.events.length?'No events in this filter.':'Events will appear here as the run develops.';refs.eventList.appendChild(empty);}
+      filtered.slice(0,5).forEach(function(e){var row=document.createElement('div');row.className='event-row'+(e.ack?' ack':''); var time=document.createElement('span');time.className='event-time';time.textContent=e.time;var copy=document.createElement('div');copy.className='event-copy';var strong=document.createElement('strong');strong.textContent=e.title;var detail=document.createElement('span');detail.textContent=e.severity.toUpperCase()+' · '+e.message;copy.append(strong,detail);var btn=document.createElement('button');btn.className='ack-btn';btn.type='button';btn.textContent=e.ack?'Undo':'Ack';btn.setAttribute('aria-label',(e.ack?'Unacknowledge ':'Acknowledge ')+e.title);btn.addEventListener('click',function(){e.ack=!e.ack;toast(e.ack?'Alert acknowledged':'Alert reopened',e.ack?'var(--cyan)':'var(--amber)');renderAll();});row.append(time,copy,btn);refs.eventList.appendChild(row);});
+      var unresolved=state.events.filter(function(e){return e.type==='action'&&!e.ack;}); refs.unresolvedCount.textContent=String(unresolved.length);refs.unresolvedCount.setAttribute('aria-label',unresolved.length+' unresolved alerts');
+      if(unresolved.length){var top=unresolved[0];refs.prioritySeverity.textContent=top.severity==='critical'?'Critical action':'Review';refs.prioritySeverity.style.color=top.severity==='critical'?'var(--red)':'var(--amber)';refs.priorityTitle.textContent=top.title;refs.priorityMessage.textContent=top.message;}
+      else {refs.prioritySeverity.textContent='Clear';refs.prioritySeverity.style.color='var(--green)';refs.priorityTitle.textContent='No intervention required';refs.priorityMessage.textContent='Vehicle state is within the simulated operating envelope.';}
+    }
+
+    function drawChart() {
+      var canvas=refs.trendChart, rect=canvas.getBoundingClientRect(), dpr=Math.min(2,window.devicePixelRatio||1), w=Math.max(1,rect.width), h=Math.max(1,rect.height); if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);} var ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+      var pad={l:39,r:42,t:18,b:26}, cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;ctx.lineWidth=1;ctx.strokeStyle='rgba(250,250,250,.07)';ctx.fillStyle='rgba(250,250,250,.34)';ctx.font='9px Space Grotesk';
+      for(var y=0;y<=4;y++){var yy=pad.t+ch*y/4;ctx.beginPath();ctx.moveTo(pad.l,yy+.5);ctx.lineTo(w-pad.r,yy+.5);ctx.stroke();ctx.fillText(String(100-y*25)+'%',5,yy+3);} for(var x=0;x<=6;x++){var xx=pad.l+cw*x/6;ctx.beginPath();ctx.moveTo(xx+.5,pad.t);ctx.lineTo(xx+.5,h-pad.b);ctx.stroke();}
+      var data=state.history; if(!data.length){ctx.fillStyle='rgba(250,250,250,.42)';ctx.font='500 12px Plus Jakarta Sans';ctx.textAlign='center';ctx.fillText('Start a session to plot live telemetry',w/2,h/2);ctx.textAlign='left';return;}
+      Object.keys(state.series).forEach(function(key){if(!state.series[key])return;var domain=DOMAINS[key];ctx.beginPath();ctx.lineWidth=key==='power'?2:1.6;ctx.strokeStyle=COLORS[key];data.forEach(function(s,i){var xx=pad.l+(data.length===1?0:i/(Math.max(1,data.length-1))*cw);var val=s[key];var yy=pad.t+ch-(val-domain[0])/(domain[1]-domain[0])*ch;yy=Math.max(pad.t,Math.min(h-pad.b,yy));if(i===0)ctx.moveTo(xx,yy);else ctx.lineTo(xx,yy);});ctx.stroke();});
+      var marker=state.mode==='inspect'?state.inspectIndex:pointerIndex; if(marker!==null&&data[marker]){var mx=pad.l+(data.length===1?0:marker/Math.max(1,data.length-1)*cw);ctx.strokeStyle='rgba(255,107,53,.8)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(mx,pad.t);ctx.lineTo(mx,h-pad.b);ctx.stroke();ctx.fillStyle='#FF6B35';ctx.fillRect(mx-3,h-pad.b-3,6,6);}
+      refs.chartRange.textContent='−'+Math.min(180,data.length)+' s'; var latest=data[data.length-1];refs.chartSummary.textContent='Latest recorded values: speed '+latest.speed.toFixed(1)+' metres per second, power '+Math.round(latest.power)+' watts, voltage '+latest.voltage.toFixed(1)+' volts.';
+    }
+
+    function handleChartPointer(event) {
+      if(!state.history.length)return;var rect=refs.trendChart.getBoundingClientRect(),x=event.clientX-rect.left,padL=39,padR=42,ratio=Math.max(0,Math.min(1,(x-padL)/(rect.width-padL-padR)));pointerIndex=Math.round(ratio*(state.history.length-1));var s=state.history[pointerIndex];refs.chartTooltip.style.display='block';refs.chartTooltip.style.left=Math.min(rect.width-150,Math.max(4,x+12))+'px';refs.chartTooltip.style.top='12px';refs.chartTooltip.innerHTML='<strong>'+new Date(s.time).toLocaleTimeString([],{hour12:false})+'</strong><br>Speed&nbsp; '+s.speed.toFixed(1)+' m/s<br>Power&nbsp; '+Math.round(s.power)+' W<br>Voltage '+s.voltage.toFixed(1)+' V';drawChart();
+    }
+
+    function renderAll(){renderRail();renderSessionControls();renderImmediate();renderEvents();drawChart();}
+
+    refs.startBtn.addEventListener('click',startSession); refs.pauseBtn.addEventListener('click',togglePause); refs.endBtn.addEventListener('click',function(){openConfirm('end');}); refs.resetBtn.addEventListener('click',function(){openConfirm('reset');});
+    refs.liveModeBtn.addEventListener('click',function(){setMode('live');}); refs.inspectModeBtn.addEventListener('click',function(){setMode('inspect');}); refs.returnLiveBtn.addEventListener('click',function(){setMode('live');});
+    refs.cancelDialogBtn.addEventListener('click',function(){refs.confirmDialog.close();}); refs.confirmDialogBtn.addEventListener('click',function(){refs.confirmDialog.close();if(state.dialogAction==='end')endNow();else resetNow();}); refs.confirmDialog.addEventListener('cancel',function(){state.dialogAction=null;});
+    document.querySelectorAll('.series-btn').forEach(function(btn){btn.addEventListener('click',function(){var key=btn.dataset.series;state.series[key]=!state.series[key];btn.setAttribute('aria-pressed',String(state.series[key]));drawChart();});});
+    document.querySelectorAll('.filter-btn[data-filter]').forEach(function(btn){btn.addEventListener('click',function(){state.eventFilter=btn.dataset.filter;document.querySelectorAll('.filter-btn[data-filter]').forEach(function(x){x.classList.toggle('active',x===btn);});renderEvents();});});
+    refs.clearAckBtn.addEventListener('click',function(){var count=state.events.filter(function(e){return e.ack;}).length;state.events=state.events.filter(function(e){return !e.ack;});toast(count?count+' acknowledged event'+(count===1?'':'s')+' cleared':'No acknowledged events to clear','var(--cyan)');renderAll();});
+    document.querySelectorAll('.lab-btn').forEach(function(btn){btn.addEventListener('click',function(){setConnection(btn.dataset.connection);});});
+    refs.historySlider.addEventListener('input',function(){state.inspectIndex=Number(refs.historySlider.value);renderSessionControls();renderImmediate();drawChart();});
+    refs.trendChart.addEventListener('pointermove',handleChartPointer); refs.trendChart.addEventListener('pointerleave',function(){pointerIndex=null;refs.chartTooltip.style.display='none';drawChart();});
+    window.addEventListener('resize',function(){drawChart();if(window.innerWidth<=760&&!refs.analysisDisclosure.dataset.touched)refs.analysisDisclosure.open=false;}); refs.analysisDisclosure.addEventListener('toggle',function(){refs.analysisDisclosure.dataset.touched='true';if(refs.analysisDisclosure.open)requestAnimationFrame(drawChart);});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&state.mode==='inspect'&&!refs.confirmDialog.open)setMode('live');});
+
+    for(var i=0;i<12;i++){var seg=document.createElement('i');if(i<9)seg.className='on';refs.batterySegments.appendChild(seg);} pathLength=refs.trackPath.getTotalLength();
+    if(window.innerWidth<=760)refs.analysisDisclosure.open=false;
+    simTimer=window.setInterval(simulate,1000); renderTimer=window.setInterval(function(){renderRail();if(isFrozen())renderImmediate();},1000); renderAll();
+  }());
+  </script>
+</body>
+</html>

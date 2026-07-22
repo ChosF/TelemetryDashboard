@@ -38,7 +38,7 @@ export const ROLE_PERMISSIONS = {
         canViewHistorical: true,
         canAccessAdmin: false,
         downloadLimit: 1000,
-        historicalLimit: 1, // last session
+        historicalLimit: 7, // UI mirror of the server-enforced seven-day external window
     },
     internal: {
         canViewRealTime: true,
