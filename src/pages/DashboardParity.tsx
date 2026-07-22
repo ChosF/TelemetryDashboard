@@ -24,6 +24,7 @@ import type {
     SystemViewId,
     WidgetLayout,
 } from '@/dashboard/types';
+import type { LegacyNotificationType } from '@/lib/legacyNotifications';
 import '@/styles/live-dashboard.css';
 
 const VIEW_STORAGE_KEY = 'ecovolt-dashboard-views-v1';
@@ -31,6 +32,16 @@ const LAST_VIEW_STORAGE_KEY = 'ecovolt-dashboard-last-view-v1';
 const SYSTEM_VIEW_VERSION = 1;
 const LEGACY_CUSTOM_CHART_KEY = 'custom-panel-widgets-v2';
 const LEGACY_IMPORT_VERSION = 1;
+type DashboardTheme = 'dark' | 'light';
+type NoticeTone = 'info' | 'success' | 'warning' | 'error';
+
+function readTheme(): DashboardTheme {
+    try {
+        return localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
+    } catch {
+        return 'dark';
+    }
+}
 
 interface LocalView {
     viewKey: string;
@@ -120,7 +131,8 @@ const DashboardParity: Component = () => {
     const [showSignup, setShowSignup] = createSignal(false);
     const [showAdmin, setShowAdmin] = createSignal(false);
     const [accountOpen, setAccountOpen] = createSignal(false);
-    const [notice, setNotice] = createSignal<string | null>(null);
+    const [theme, setTheme] = createSignal<DashboardTheme>(readTheme());
+    const [notice, setNotice] = createSignal<{ message: string; tone: NoticeTone } | null>(null);
     const [legacyImportAvailable, setLegacyImportAvailable] = createSignal(false);
     const [mode, setMode] = createSignal<'live' | 'inspect'>('live');
     const [selectedRecordKey, setSelectedRecordKey] = createSignal<string | null>(null);
@@ -128,6 +140,19 @@ const DashboardParity: Component = () => {
     const eventStore = createOperationalEventStore();
     let loadedForUserId: string | null = null;
     let saveResetTimer: number | null = null;
+    let noticeTimer: number | null = null;
+
+    const showNotice = (message: string, type: LegacyNotificationType | NoticeTone = 'warning', duration = 8000) => {
+        const tone: NoticeTone = type === 'critical' ? 'error' : type;
+        setNotice({ message, tone });
+        if (noticeTimer !== null) window.clearTimeout(noticeTimer);
+        if (duration > 0) {
+            noticeTimer = window.setTimeout(() => {
+                setNotice(null);
+                noticeTimer = null;
+            }, duration);
+        }
+    };
 
     const rows = createMemo(() => telemetryStore.telemetryData());
     const selectedIndex = createMemo(() => {
@@ -214,6 +239,7 @@ const DashboardParity: Component = () => {
                 })),
             ])));
             const preferred = String(preferences?.lastViewKey ?? preferences?.defaultViewKey ?? '');
+            setTheme(preferences?.theme === 'technical-light' ? 'light' : 'dark');
             eventStore.hydrateAcknowledgements(acknowledgements.map((entry) => entry.eventKey));
             setLegacyImportAvailable(Number(preferences?.legacyImportVersion ?? 0) < LEGACY_IMPORT_VERSION && readLegacyCustomCharts().length > 0);
             if (!new URL(window.location.href).searchParams.has('view') && preferred) activateView(preferred, false);
@@ -250,6 +276,13 @@ const DashboardParity: Component = () => {
         localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify(localViews()));
     });
 
+    createEffect(() => {
+        const currentTheme = theme();
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        localStorage.setItem('theme', currentTheme);
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', currentTheme === 'light' ? '#F2EFE9' : '#0A0A0A');
+    });
+
     onMount(() => {
         try {
             setLocalViews(sanitizeLocalViews(JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) ?? '[]')));
@@ -273,11 +306,12 @@ const DashboardParity: Component = () => {
 
     onCleanup(() => {
         if (saveResetTimer !== null) window.clearTimeout(saveResetTimer);
+        if (noticeTimer !== null) window.clearTimeout(noticeTimer);
     });
 
     const enterInspection = () => {
         if (rows().length === 0) {
-            setNotice('Inspection mode becomes available after telemetry records arrive.');
+            showNotice('Inspection mode becomes available after telemetry records arrive.', 'info');
             return;
         }
         setSelectedRecordKey(getTelemetryRecordKey(rows().at(-1)!));
@@ -296,7 +330,7 @@ const DashboardParity: Component = () => {
         eventStore.acknowledge(key, acknowledged);
         if (authStore.isAuthenticated()) {
             void convexClient.setDashboardEventAcknowledged(key, acknowledged, telemetryStore.currentSessionId() ?? undefined).catch(() => {
-                setNotice('The acknowledgment is local until the connection recovers.');
+                showNotice('The acknowledgment is local until the connection recovers.', 'warning');
             });
         }
     };
@@ -428,7 +462,7 @@ const DashboardParity: Component = () => {
             setLocalViews((views) => views.filter((view) => view.viewKey !== activeViewKey()));
             activateView('pit-wall');
         } catch (error) {
-            setNotice(error instanceof Error ? error.message : 'Could not delete the view.');
+            showNotice(error instanceof Error ? error.message : 'Could not delete the view.', 'error');
         }
     };
 
@@ -533,7 +567,7 @@ const DashboardParity: Component = () => {
 
     const openHistorical = () => {
         if (!authStore.canViewHistory()) {
-            setNotice('Historical Analysis requires an approved external, internal, or admin account.');
+            showNotice('Historical Analysis requires an approved external, internal, or admin account.', 'info');
             if (!authStore.isAuthenticated()) setShowLogin(true);
             return;
         }
@@ -541,15 +575,25 @@ const DashboardParity: Component = () => {
         window.location.assign('/dashboard/sessions');
     };
 
+    const toggleTheme = () => {
+        const next: DashboardTheme = theme() === 'dark' ? 'light' : 'dark';
+        setTheme(next);
+        if (authStore.isAuthenticated()) {
+            void convexClient.updateDashboardPreferences({ theme: next === 'light' ? 'technical-light' : 'circuit' }).catch(() => {
+                showNotice('The theme changed on this device, but could not sync to your account.', 'warning');
+            });
+        }
+    };
+
     return (
         <div class="ev-live">
-            <DashboardOld headless onRuntime={(api) => setRuntime(() => api)} />
+            <DashboardOld headless onRuntime={(api) => setRuntime(() => api)} onNotice={(message, type, duration) => showNotice(message, type, duration)} />
             <Show when={runtime()} fallback={<div class="ev-boot-screen"><span>ECOVOLT // INITIALIZING</span></div>}>
                 {(api) => <Show when={!api().booting()} fallback={<div class="ev-boot-screen"><span>ECOVOLT // LINKING SYSTEMS</span></div>}>
                     <Show when={!api().bootError()} fallback={<StartupFailure message={api().bootError()!} />}>
                         <header class="ev-topbar" aria-label="Telemetry status">
                             <div class="ev-topbar-inner">
-                                <a class="ev-brand" href="/" aria-label="EcoVolt home"><i aria-hidden="true" /><strong>ECOVOLT<span>CCM // PIT WALL 02</span></strong></a>
+                                <a class="ev-brand" href="/" aria-label="EcoVolt home"><i aria-hidden="true" /><strong>ECOVOLT</strong></a>
                                 <div class="ev-signal-rail" aria-live="polite">
                                     <SignalNode label={api().statusText()} detail={api().statusDetail() ?? 'Realtime link stable'} tone={telemetryStore.connectionStatus() === 'connected' ? 'green' : telemetryStore.connectionStatus() === 'failed' ? 'red' : 'amber'} active={telemetryStore.connectionStatus() === 'connected'} action={api().canRetryConnection() ? () => void api().retryConnection() : undefined} />
                                     <SignalNode label={telemetryStore.isDataFresh() ? 'Data fresh' : rows().length ? 'Data stale' : 'No samples'} detail={rows().length ? `Updated ${api().lastMessageLabel()}` : 'Waiting for first valid sample'} tone={telemetryStore.isDataFresh() ? 'green' : 'amber'} active={telemetryStore.isDataFresh()} />
@@ -567,7 +611,7 @@ const DashboardParity: Component = () => {
                         <main class="ev-frame" id="main">
                             <section class="ev-session-header" aria-labelledby="session-heading">
                                 <div><span class="ev-eyebrow">Live telemetry workspace</span><h1 id="session-heading">{telemetryStore.currentSessionName() ?? (telemetryStore.currentSessionId() ? 'Active vehicle session' : 'Waiting for vehicle session')}</h1><p>{telemetryStore.currentSessionId() ? `${telemetryStore.currentSessionId()!.slice(0, 18)} · ${rows().length.toLocaleString()} records` : 'The dashboard is read-only. Start telemetry at the vehicle or bridge.'}</p></div>
-                                <div class="ev-session-actions"><button class="ev-primary-action" onMouseEnter={() => runtime()?.prewarmHistoricalMode()} onFocus={() => runtime()?.prewarmHistoricalMode()} onClick={openHistorical}>Historical Analysis</button><Show when={authStore.userRole() === 'internal' || authStore.userRole() === 'admin'}><a class="ev-secondary-action" href={DRIVER_DASHBOARD_HREF}>Driver cockpit</a></Show><AccountMenu open={accountOpen()} setOpen={setAccountOpen} onLogin={() => setShowLogin(true)} onSignup={() => setShowSignup(true)} onAdmin={() => setShowAdmin(true)} /></div>
+                                <div class="ev-session-actions"><button class="ev-primary-action" onMouseEnter={() => runtime()?.prewarmHistoricalMode()} onFocus={() => runtime()?.prewarmHistoricalMode()} onClick={openHistorical}>Historical Analysis</button><Show when={authStore.userRole() === 'internal' || authStore.userRole() === 'admin'}><a class="ev-secondary-action" href={DRIVER_DASHBOARD_HREF}>Driver cockpit</a></Show><AccountMenu open={accountOpen()} setOpen={setAccountOpen} onLogin={() => setShowLogin(true)} onSignup={() => setShowSignup(true)} onAdmin={() => setShowAdmin(true)} theme={theme()} onToggleTheme={toggleTheme} /></div>
                             </section>
 
                             <section class="ev-view-toolbar">
@@ -576,7 +620,7 @@ const DashboardParity: Component = () => {
                                 <div class="ev-customize-actions"><Show when={legacyImportAvailable()}><button onClick={() => void importLegacyCharts()}>Import legacy charts</button></Show><Show when={!editing()} fallback={<><button onClick={() => setShowCatalog(true)}>Add widget</button><button class="ev-primary-action" disabled={saveState() === 'saving'} onClick={() => void saveLayout()}>{saveState() === 'saving' ? 'Saving…' : 'Save view'}</button><button onClick={cancelEditing}>Cancel</button></>}><button onClick={startEditing}>Customize current view</button><details class="ev-view-options"><summary>View options</summary><div><button onClick={() => void setCurrentAsDefault()}>Set as default</button><button onClick={() => void duplicateCurrentView()}>Duplicate view</button><Show when={!systemView()}><button onClick={() => { setRenameViewName(currentViewName()); setShowRenameView(true); }}>Rename</button><button onClick={() => void moveCurrentView(-1)}>Move left</button><button onClick={() => void moveCurrentView(1)}>Move right</button><button class="ev-danger-action" onClick={() => void removeCurrentCustomView()}>Delete view</button></Show><Show when={systemView() && (persistedSystemOverride() || localViews().some((view) => view.systemViewId === systemView()!.id))}><button class="ev-danger-action" onClick={() => void resetCurrentSystemView()}>Reset built-in layout</button></Show></div></details></Show><Show when={saveMessage()}><span class={`ev-save-state state-${saveState()}`}>{saveMessage()}</span></Show></div>
                             </section>
 
-                            <Show when={notice()}><div class="ev-notice" role="status"><span>{notice()}</span><button aria-label="Dismiss message" onClick={() => setNotice(null)}>×</button></div></Show>
+                            <Show when={notice()}>{(currentNotice) => <div class="ev-notice" data-tone={currentNotice().tone} role="status"><span>{currentNotice().message}</span><button aria-label="Dismiss message" onClick={() => setNotice(null)}>×</button></div>}</Show>
 
                             <section class="ev-widget-grid" aria-label={`${currentViewName()} widgets`}>
                                 <For each={currentLayout()} fallback={<div class="ev-empty-view"><h2>Empty custom view</h2><p>Add a widget to build this workspace. Connection, freshness, session, and attention remain available above.</p><button onClick={() => { startEditing(); setShowCatalog(true); }}>Add first widget</button></div>}>
@@ -612,9 +656,16 @@ const SignalNode: Component<{ label: string; detail: string; tone: 'green' | 'am
 
 const StartupFailure: Component<{ message: string }> = (props) => <main class="ev-startup-failure"><span class="ev-eyebrow">Dashboard startup failed</span><h1>Live telemetry is unavailable</h1><p>{props.message}</p><div><a class="ev-primary-action" href="/dashboard/old">Open previous dashboard</a><a class="ev-secondary-action" href="/dashboard-legacy">Emergency fallback</a></div></main>;
 
-const AccountMenu: Component<{ open: boolean; setOpen: (open: boolean) => void; onLogin: () => void; onSignup: () => void; onAdmin: () => void }> = (props) => (
-    <div class="ev-account-menu"><button class="ev-account-trigger" aria-label="Account and dashboard preferences" aria-expanded={props.open} onClick={() => props.setOpen(!props.open)}>{authStore.user()?.name?.charAt(0).toUpperCase() ?? authStore.user()?.email?.charAt(0).toUpperCase() ?? 'A'}</button><Show when={props.open}><div class="ev-account-popover"><Show when={authStore.isAuthenticated()} fallback={<><strong>Guest monitoring</strong><span>Sign in to sync views and preferences.</span><button onClick={() => { props.setOpen(false); props.onLogin(); }}>Sign in</button><button onClick={() => { props.setOpen(false); props.onSignup(); }}>Create account</button></>}><strong>{authStore.user()?.name ?? authStore.user()?.email}</strong><span>{authStore.userRole()} · {authStore.user()?.approval_status}</span><Show when={authStore.canAccessAdmin()}><button onClick={() => { props.setOpen(false); props.onAdmin(); }}>User management</button></Show><button onClick={() => void authStore.signOut()}>Sign out</button></Show><a href="/dashboard/old">Previous dashboard</a></div></Show></div>
-);
+const AccountMenu: Component<{ open: boolean; setOpen: (open: boolean) => void; onLogin: () => void; onSignup: () => void; onAdmin: () => void; theme: DashboardTheme; onToggleTheme: () => void }> = (props) => {
+    onMount(() => {
+        const closeOnScroll = () => {
+            if (props.open) props.setOpen(false);
+        };
+        window.addEventListener('scroll', closeOnScroll, { passive: true });
+        onCleanup(() => window.removeEventListener('scroll', closeOnScroll));
+    });
+    return <div class="ev-account-menu"><button class="ev-account-trigger" aria-label="Account and dashboard preferences" aria-expanded={props.open} onClick={() => props.setOpen(!props.open)}>{authStore.user()?.name?.charAt(0).toUpperCase() ?? authStore.user()?.email?.charAt(0).toUpperCase() ?? 'A'}</button><Show when={props.open}><div class="ev-account-popover"><Show when={authStore.isAuthenticated()} fallback={<><strong>Guest monitoring</strong><span>Sign in to sync views and preferences.</span><button onClick={() => { props.setOpen(false); props.onLogin(); }}>Sign in</button><button onClick={() => { props.setOpen(false); props.onSignup(); }}>Create account</button></>}><strong>{authStore.user()?.name ?? authStore.user()?.email}</strong><span>{authStore.userRole()} · {authStore.user()?.approval_status}</span><Show when={authStore.canAccessAdmin()}><button onClick={() => { props.setOpen(false); props.onAdmin(); }}>User management</button></Show><button onClick={() => void authStore.signOut()}>Sign out</button></Show><button onClick={() => { props.onToggleTheme(); props.setOpen(false); }}>{props.theme === 'dark' ? 'Light theme' : 'Dark theme'}</button></div></Show></div>;
+};
 
 const Modal: Component<{ title: string; onClose: () => void; children: JSX.Element }> = (props) => <div class="ev-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}><section class="ev-dialog" role="dialog" aria-modal="true" aria-label={props.title}><header><h2>{props.title}</h2><button aria-label="Close dialog" onClick={props.onClose}>×</button></header><div>{props.children}</div></section></div>;
 

@@ -25,7 +25,7 @@ import { authStore } from '@/stores/auth';
 import { convexClient } from '@/lib/convex';
 import { ablyClient } from '@/lib/ably';
 import { debugRewind } from '@/lib/rewindDebug';
-import { ensureLegacyNotificationApi, showLegacyNotification } from '@/lib/legacyNotifications';
+import { ensureLegacyNotificationApi, showLegacyNotification, type LegacyNotificationType } from '@/lib/legacyNotifications';
 import { mergeHistoricalTelemetry } from '@/lib/utils';
 import { DRIVER_DASHBOARD_HREF } from '@/lib/appEntrypoints';
 import type { TelemetryRow } from '@/types/telemetry';
@@ -188,6 +188,7 @@ export interface DashboardRuntimeApi {
 export interface DashboardOldProps {
     headless?: boolean;
     onRuntime?: (runtime: DashboardRuntimeApi) => void;
+    onNotice?: (message: string, type: LegacyNotificationType, duration: number) => void;
 }
 
 const DashboardOld: Component<DashboardOldProps> = (props) => {
@@ -223,15 +224,20 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
     let liveAppendLogCount = 0;
     let notificationTimer: number | null = null;
     let lastMessageLabelTimer: number | null = null;
-    let connectionEstablishedAt: number | null = null;
     let lastLoadedSessionNotificationId: string | null = null;
-    let connectionCycle = 0;
     let historicalPrewarmPromise: Promise<void> | null = null;
     const notificationHistory = new Map<string, {
         lastShownAt: number;
         repeatCount: number;
         signature: string;
     }>();
+    const emitNotification = (message: string, type: LegacyNotificationType, duration: number): void => {
+        if (props.headless && props.onNotice) {
+            props.onNotice(message, type, duration);
+            return;
+        }
+        showLegacyNotification(message, type, duration);
+    };
     const [lastMessageClock, setLastMessageClock] = createSignal(Date.now());
 
     const data = createMemo(() => telemetryStore.telemetryData());
@@ -441,7 +447,7 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
             repeatCount: sameSignature ? repeatCount + 1 : 1,
             signature,
         });
-        showLegacyNotification(message, type, duration);
+        emitNotification(message, type, duration);
         return true;
     };
     const hasOutlierColumn = (rows: TelemetryRow[]): boolean =>
@@ -451,23 +457,6 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
         const now = Date.now();
         const currentSessionId = telemetryStore.currentSessionId();
         const isRealtime = telemetryStore.connectionStatus() === 'connected';
-
-        if (
-            isRealtime &&
-            !currentSessionId &&
-            connectionEstablishedAt !== null &&
-            (now - connectionEstablishedAt) > 5000
-        ) {
-            notifyWithSmartCooldown(
-                `no-session:${connectionCycle}`,
-                'No active realtime session found — waiting for data stream to begin.',
-                'info',
-                6000,
-                60000,
-                `conn-${connectionCycle}`,
-                5 * 60 * 1000,
-            );
-        }
 
         if (!isRealtime || rows.length < 10) return;
 
@@ -891,8 +880,6 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
             bufferedMessageLogCount = 0;
             liveAppendLogCount = 0;
             lastLoadedSessionNotificationId = null;
-            connectionEstablishedAt = null;
-            connectionCycle += 1;
 
             const channelName = runtimeConfig.ABLY_CHANNEL_NAME ?? 'telemetry-dashboard-channel';
             const convexUrl = runtimeConfig.CONVEX_URL ?? '';
@@ -994,7 +981,6 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
                 channelName,
                 rewind: '5s',
             });
-            connectionEstablishedAt = Date.now();
             setRealtimeActivity('probing');
             setConnectionNote('Connected to realtime. Checking for an active session.');
 
@@ -1018,6 +1004,7 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
     };
 
     createEffect(() => {
+        if (props.headless) return;
         document.documentElement.setAttribute('data-theme', theme());
         localStorage.setItem('theme', theme());
     });
@@ -1058,7 +1045,7 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
         try {
             const savedTheme = (localStorage.getItem('theme') as 'dark' | 'light' | null) ?? 'dark';
             setTheme(savedTheme === 'light' ? 'light' : 'dark');
-            ensureLegacyNotificationApi();
+            if (!props.headless) ensureLegacyNotificationApi();
 
             try {
                 const params = new URLSearchParams(window.location.search);
@@ -1071,7 +1058,7 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
                     };
                     const text = messages[gate];
                     if (text) {
-                        showLegacyNotification(text, gate === 'error' ? 'error' : 'warning', 7000);
+                        emitNotification(text, gate === 'error' ? 'error' : 'warning', 7000);
                     }
                     params.delete('driverGate');
                     const next = params.toString();
