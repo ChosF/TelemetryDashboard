@@ -46,6 +46,17 @@ interface AblyMessage {
     timestamp?: number;
 }
 
+interface AblyErrorInfo {
+    code?: number;
+    statusCode?: number;
+    message?: string;
+}
+
+interface AblyConnectionStateChange {
+    current: AblyConnectionState;
+    reason?: AblyErrorInfo;
+}
+
 interface AblyHistoryPage {
     items: AblyMessage[];
     hasNext?: boolean | (() => boolean);
@@ -69,8 +80,8 @@ interface AblyRealtimeHandle {
     };
     connection: {
         state: AblyConnectionState;
-        on: (callback: (stateChange: { current: AblyConnectionState }) => void) => void;
-        once: (eventName: string, callback: () => void) => void;
+        on: (callback: (stateChange: AblyConnectionStateChange) => void) => void;
+        once: (eventName: string, callback: (stateChange: AblyConnectionStateChange) => void) => void;
         connect: () => void;
     };
     close: () => void;
@@ -81,6 +92,7 @@ let ablyChannel: AblyChannelHandle | null = null;
 let currentChannelName: string | null = null;
 let activeSubscription: { eventName: string; callback: (message: AblyMessage) => void } | null = null;
 let connectionStateCallback: ((state: AblyConnectionState) => void) | null = null;
+let lastInitializationError: string | null = null;
 
 function mapConnectionState(state: AblyConnectionState): 'connected' | 'connecting' | 'disconnected' | 'suspended' | 'failed' {
     switch (state) {
@@ -143,12 +155,19 @@ async function waitForConnected(connection: AblyRealtimeHandle['connection']): P
             window.clearTimeout(timeout);
             resolve();
         });
+        connection.once('failed', (stateChange) => {
+            window.clearTimeout(timeout);
+            const reason = stateChange.reason;
+            const code = reason?.code ? ` (${reason.code})` : '';
+            reject(new Error(reason?.message ? `${reason.message}${code}` : `Ably connection failed${code}`));
+        });
         connection.connect();
     });
 }
 
 export async function initAbly(config: AblyConfig): Promise<boolean> {
     try {
+        lastInitializationError = null;
         const options: Record<string, unknown> = {
             clientId: config.clientId ?? 'dashboard-web',
         };
@@ -175,6 +194,9 @@ export async function initAbly(config: AblyConfig): Promise<boolean> {
         return true;
     } catch (error) {
         console.error('[Ably] ❌ Initialization failed:', error);
+        lastInitializationError = error instanceof Error
+            ? error.message
+            : 'Unknown Ably initialization error';
         setConnectionStatus('failed');
         return false;
     }
@@ -403,6 +425,10 @@ export function getConnectionState(): AblyConnectionState | null {
     return ablyRealtime?.connection.state ?? null;
 }
 
+export function getLastInitializationError(): string | null {
+    return lastInitializationError;
+}
+
 export function connect(): void {
     ablyRealtime?.connection.connect();
 }
@@ -437,6 +463,7 @@ export const ablyClient = {
     fetchHistory,
     onStateChange: onConnectionStateChange,
     getState: getConnectionState,
+    getLastError: getLastInitializationError,
     connect,
     disconnect,
     isConnected: isAblyConnected,

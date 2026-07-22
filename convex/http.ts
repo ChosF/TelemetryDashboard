@@ -4,6 +4,17 @@ import { internal } from "./_generated/api";
 
 const http = httpRouter();
 
+function matchesOriginPattern(origin: string, pattern: string): boolean {
+    if (!pattern.includes("*")) return origin === pattern;
+
+    const parsedOrigin = new URL(origin);
+    if (parsedOrigin.origin !== origin) return false;
+
+    const escapedPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const wildcardPattern = escapedPattern.replaceAll("\\*", "[A-Za-z0-9-]+");
+    return new RegExp(`^${wildcardPattern}$`).test(origin);
+}
+
 function getAllowedOrigin(request: Request): string | null {
     const origin = request.headers.get("Origin");
     const configuredOrigins = (process.env.ALLOWED_WEB_ORIGINS ?? "")
@@ -12,7 +23,13 @@ function getAllowedOrigin(request: Request): string | null {
         .filter(Boolean);
     if (configuredOrigins.length === 0) return "*";
     if (!origin) return configuredOrigins[0] ?? null;
-    return configuredOrigins.includes(origin) ? origin : null;
+    try {
+        return configuredOrigins.some((pattern) => matchesOriginPattern(origin, pattern))
+            ? origin
+            : null;
+    } catch {
+        return null;
+    }
 }
 
 function corsHeaders(allowedOrigin: string): Record<string, string> {

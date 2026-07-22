@@ -890,7 +890,10 @@ const DashboardParity: Component = () => {
 
             if (!ablyReady) {
                 setRealtimeActivity('idle');
-                setConnectionNote(`Ably auth endpoint unavailable: ${ablyAuthUrl ?? 'missing auth URL'}`);
+                const errorDetail = ablyClient.getLastError();
+                setConnectionNote(errorDetail
+                    ? `Ably connection failed: ${errorDetail}`
+                    : `Ably auth endpoint unavailable: ${ablyAuthUrl ?? 'missing auth URL'}`);
                 return;
             }
 
