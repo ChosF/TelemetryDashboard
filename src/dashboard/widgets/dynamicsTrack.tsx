@@ -99,7 +99,7 @@ export const VibrationWidget: Component<WidgetRenderProps> = (props) => {
 
 export const MotionClassificationWidget: Component<WidgetRenderProps> = (props) => {
     const state = createMemo(() => motionState(props.rows));
-    return <Instrument kicker="Classification" title="Motion state" meta="Bridge or client fallback">
+    return <Instrument kicker="Classification" title="Motion state" meta="Live driving behavior analysis">
         <div class="ev-state-rail"><For each={['stationary', 'accelerating', 'cruising', 'braking', 'turning']}>
             {(value) => <span classList={{ active: state() === value }}>{value}</span>}
         </For></div>
