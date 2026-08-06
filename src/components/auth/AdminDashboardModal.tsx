@@ -56,7 +56,6 @@ export interface AdminDashboardModalProps {
 
 export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Element {
     const [rendered, setRendered] = createSignal(props.isOpen);
-    const [closing, setClosing] = createSignal(false);
     const [activeTab, setActiveTab] = createSignal<AdminTab>('pending');
     const [pendingUsers, setPendingUsers] = createSignal<AdminUser[]>([]);
     const [allUsers, setAllUsers] = createSignal<AdminUser[]>([]);
@@ -91,19 +90,14 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
 
     const openModal = () => {
         setRendered(true);
-        setClosing(false);
         setActiveTab('pending');
         void refreshData();
     };
 
     const closeModal = () => {
-        setClosing(true);
-        window.setTimeout(() => {
-            setRendered(false);
-            setClosing(false);
-            setConfirmState(null);
-            props.onClose();
-        }, 280);
+        setRendered(false);
+        setConfirmState(null);
+        props.onClose();
     };
 
     createEffect(() => {
@@ -111,7 +105,6 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
             openModal();
         } else if (rendered()) {
             setRendered(false);
-            setClosing(false);
             setConfirmState(null);
         }
     });
@@ -223,7 +216,7 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
     return (
         <Show when={rendered()}>
             <Portal>
-                <div class={`admin-modal ${closing() ? 'closing' : ''}`}>
+                <div class="admin-modal">
                     <div class="admin-modal-overlay" onClick={closeModal} />
                     <section class="admin-modal-content" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
                         <div class="admin-modal-header">
