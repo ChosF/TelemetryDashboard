@@ -607,7 +607,9 @@ const DashboardParity: Component = () => {
                     <Show when={!api().bootError()} fallback={<StartupFailure message={api().bootError()!} />}>
                         <header class="ev-topbar" aria-label="Telemetry status">
                             <div class="ev-topbar-inner">
-                                <a class="ev-brand" href="/" aria-label="EcoVolt home"><i aria-hidden="true" /><strong>ECOVOLT</strong></a>
+                                <a class="ev-brand" href="/" aria-label="EcoVolt home">
+                                    <img src="/images/logo.png" alt="" width="756" height="706" decoding="async" />
+                                </a>
                                 <div class="ev-signal-rail" aria-live="polite">
                                     <SignalNode label={api().statusText()} detail={api().statusDetail() ?? 'Realtime link stable'} tone={telemetryStore.connectionStatus() === 'connected' ? 'green' : telemetryStore.connectionStatus() === 'failed' ? 'red' : 'amber'} active={telemetryStore.connectionStatus() === 'connected'} action={api().canRetryConnection() ? () => void api().retryConnection() : undefined} />
                                     <SignalNode label={telemetryStore.isDataFresh() ? 'Data fresh' : rows().length ? 'Data stale' : 'No samples'} detail={rows().length ? `Updated ${api().lastMessageLabel()}` : 'Waiting for first valid sample'} tone={telemetryStore.isDataFresh() ? 'green' : 'amber'} active={telemetryStore.isDataFresh()} />
