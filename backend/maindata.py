@@ -73,20 +73,34 @@ _load_env_from_files()
 # Configuration
 # ------------------------------
 
-# ESP32 MQTT source. Secrets are loaded only from environment/.env files.
-ESP32_ABLY_API_KEY = os.environ.get("ESP32_ABLY_API_KEY", "").strip()
-# Driver dashboard subscribes here for raw ESP32 telemetry — keep names in sync.
-ESP32_CHANNEL_NAME = os.environ.get("ESP32_CHANNEL_NAME", "EcoTele").strip()
+ESP32_ABLY_API_KEY = (
+    "ja_fwQ.K6CTEw:F-aWFMdJXPCv9MvxhYztCGna3XdRJZVgA0qm9pMfDOQ"
+)
+# Driver dashboard (driver.html / ablyDriver.ts) subscribes here for raw ESP32 telemetry — keep names in sync.
+ESP32_CHANNEL_NAME = "EcoTele"
 
-# Dashboard output
-DASHBOARD_ABLY_API_KEY = os.environ.get("DASHBOARD_ABLY_API_KEY", "").strip()
-DASHBOARD_CHANNEL_NAME = os.environ.get("DASHBOARD_CHANNEL_NAME", "telemetry-dashboard-channel").strip()
+DASHBOARD_ABLY_API_KEY = (
+    "DxuYSw.fQHpug:sa4tOcqWDkYBW9ht56s7fT0G091R1fyXQc6mc8WthxQ"
+)
+DASHBOARD_CHANNEL_NAME = "telemetry-dashboard-channel"
+
+# -----------------------------------------------------------------------------
+# Convex — team production deployment (edit here; env vars override if set)
+#   Cloud URL          → ConvexClient / HTTP API (mutations)
+#   HTTP Actions URL   → routes on .convex.site (e.g. /ably/token)
+#   Deploy key         → server-side HTTP API auth (Dashboard → Deploy keys)
+# -----------------------------------------------------------------------------
 
 # Convex deployment. The URL is public; the deploy key must be provided via environment.
 CONVEX_CLOUD_URL = "https://wonderful-kookabura-432.convex.cloud"
 CONVEX_HTTP_ACTIONS_URL = "https://wonderful-kookabura-432.convex.site"
+CONVEX_DEPLOY_KEY_DEFAULT = (
+    "prod:wonderful-kookabura-432|"
+    "eyJ2MiI6IjkwYTVjYjA0MjM0NjRiNzdhMzIyM2VmOWNhYjlhMDViIn0="
+)
+
 CONVEX_URL = os.environ.get("CONVEX_URL", CONVEX_CLOUD_URL).strip()
-CONVEX_DEPLOY_KEY = os.environ.get("CONVEX_DEPLOY_KEY", "").strip()
+CONVEX_DEPLOY_KEY = os.environ.get("CONVEX_DEPLOY_KEY", CONVEX_DEPLOY_KEY_DEFAULT).strip()
 
 # Timings
 MOCK_DATA_INTERVAL = 0.2  # seconds
@@ -100,17 +114,22 @@ CONNECTION_TIMEOUT = 15.0  # seconds
 WATCHDOG_TIMEOUT = 30.0  # seconds - trigger reconnect if no data
 HEALTH_CHECK_INTERVAL = 10.0  # seconds
 MAX_QUEUE_SIZE = 5000  # prevent memory issues
-# Small batches: more await points between to_thread calls so republish keeps up (lower tail latency).
+# Small calculation batches keep the event loop responsive during bursts.
 CALC_QUEUE_BATCH_MAX = 16
 RECONNECT_MAX_ATTEMPTS = 10
 RECONNECT_BASE_DELAY = 1.0  # seconds
 
 # Latency-focused scheduling
-REPUBLISH_BATCH_MAX = 64
+REPUBLISH_BATCH_MAX = 12  # ~36-45 KiB with current payloads; below Ably's 64 KiB frame limit
+PUBLISH_FRAME_TARGET_BYTES = 56 * 1024
+PUBLISH_MAX_INFLIGHT = 16  # cover 20 Hz at ~500 ms ACK RTT with bounded headroom
+PUBLISH_TRANSFER_MAX = 256
+SHUTDOWN_DRAIN_TIMEOUT = 10.0
+PERSISTENCE_SHUTDOWN_TIMEOUT = 35.0
 PUBLISH_ACTIVE_SLEEP = 0.001
-PUBLISH_IDLE_SLEEP = 0.005
+PUBLISH_IDLE_SLEEP = 0.050
 CALC_IDLE_SLEEP = 0.002
-PROCESS_LATENCY_WARN_MS = 400.0
+PROCESS_LATENCY_WARN_MS = 1000.0
 
 # Fast path behavior
 PUBLISH_RAW_FAST_PATH = False
@@ -1377,6 +1396,11 @@ class DriverNotificationEngine:
         self.notification_buffer.clear()
         return buf
 
+    def requeue(self, notifications: List[Dict[str, Any]]) -> None:
+        """Restore a failed flush ahead of notifications generated afterward."""
+        if notifications:
+            self.notification_buffer[0:0] = notifications
+
 
 # ============================================================
 # END MODULE: DRIVER NOTIFICATION ENGINE
@@ -1811,8 +1835,12 @@ class ConnectionHealth:
 
 class RateLimitedPublisher:
     """
-    Token bucket rate limiter with FIFO queue for message publishing.
-    Prevents Ably rate limit violations during bursts or reconnection.
+    Thread-safe token bucket and bounded FIFO pending queue.
+
+    Network I/O deliberately lives in TelemetryBridgeWithDB so several Ably
+    acknowledgements can be in flight concurrently. Keeping this class
+    synchronous makes queue ownership, retry ordering, and token refunds
+    deterministic.
     """
     
     def __init__(
@@ -1827,13 +1855,11 @@ class RateLimitedPublisher:
         self.max_queue_size = max_queue_size
         self.drain_interval = drain_interval
         
-        # Token bucket state
+        # Token bucket and pending-queue state share one short-held lock.
         self._tokens = burst_capacity
         self._last_refill = time.monotonic()
         self._lock = threading.Lock()
-        
-        # Message queue for overflow
-        self._queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=max_queue_size)
+        self._queue = deque()
         
         # Statistics
         self.stats = {
@@ -1842,10 +1868,12 @@ class RateLimitedPublisher:
             "messages_delayed": 0,
             "messages_dropped": 0,
             "messages_published": 0,
+            "publish_batches": 0,
+            "publish_failures": 0,
             "drain_cycles": 0,
         }
     
-    def _refill_tokens(self) -> None:
+    def _refill_tokens_unlocked(self) -> None:
         """Refill tokens based on elapsed time"""
         now = time.monotonic()
         elapsed = now - self._last_refill
@@ -1853,120 +1881,111 @@ class RateLimitedPublisher:
         self._tokens = min(self.burst_capacity, self._tokens + new_tokens)
         self._last_refill = now
     
-    def _try_consume_token(self) -> bool:
-        """Try to consume a token. Returns True if token was available."""
+    def queue_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        front: bool = False,
+    ) -> int:
+        """Queue messages, optionally ahead of newer data after a failed send."""
+        if not messages:
+            return 0
+
         with self._lock:
-            self._refill_tokens()
-            if self._tokens >= 1.0:
-                self._tokens -= 1.0
-                return True
-            return False
+            items = list(messages)
+            if len(items) > self.max_queue_size:
+                # A single caller cannot monopolize more than the entire queue.
+                dropped = len(items) - self.max_queue_size
+                items = items[:self.max_queue_size]
+                self.stats["messages_dropped"] += dropped
+
+            overflow = max(0, len(self._queue) + len(items) - self.max_queue_size)
+            if front:
+                # Retried (older) telemetry wins; evict the newest pending tail.
+                for _ in range(min(overflow, len(self._queue))):
+                    self._queue.pop()
+                    self.stats["messages_dropped"] += 1
+                for item in reversed(items):
+                    self._queue.appendleft(item)
+            else:
+                accepted = max(0, len(items) - overflow)
+                if accepted:
+                    self._queue.extend(items[:accepted])
+                self.stats["messages_dropped"] += len(items) - accepted
+                items = items[:accepted]
+
+            self.stats["messages_delayed"] += len(items)
+            self.stats["queue_depth"] = len(self._queue)
+            return len(items)
     
     def queue_message(self, message: Dict[str, Any]) -> bool:
-        """
-        Queue a message for publishing.
-        Returns True if message was queued, False if dropped due to full queue.
-        """
-        try:
-            self._queue.put_nowait(message)
-            self.stats["messages_delayed"] += 1
-            self.stats["queue_depth"] = self._queue.qsize()
-            return True
-        except queue.Full:
-            self.stats["messages_dropped"] += 1
-            logger.warning(f"⚠️ Rate limiter queue full, dropping message")
-            return False
-    
-    async def publish(
-        self, 
-        channel, 
-        event_name: str, 
-        message: Dict[str, Any],
-        force_queue: bool = False
-    ) -> bool:
-        """
-        Publish a message with rate limiting.
-        If under rate limit, publishes immediately.
-        If over rate limit, queues the message for later drain.
-        
-        Args:
-            channel: Ably channel to publish to
-            event_name: Event name for the publish
-            message: Message data to publish
-            force_queue: If True, queue instead of trying immediate publish
-        
-        Returns:
-            True if published or queued, False if dropped
-        """
-        if force_queue:
-            return self.queue_message(message)
-        
-        if self._try_consume_token():
-            # Token available - publish immediately
-            try:
-                await channel.publish(event_name, message)
-                self.stats["messages_published"] += 1
-                return True
-            except Exception as e:
-                # On error, queue for retry
-                logger.warning(f"⚠️ Publish failed, queuing: {e}")
-                return self.queue_message(message)
-        else:
-            # No token - queue for later
-            self.stats["burst_events"] += 1
-            return self.queue_message(message)
-    
-    async def drain_queue(self, channel, event_name: str) -> int:
-        """
-        Drain queued messages at controlled rate.
-        Call this periodically to drain the queue.
-        
-        Returns:
-            Number of messages drained
-        """
-        drained = 0
-        
-        while not self._queue.empty():
-            if not self._try_consume_token():
-                # No tokens available, wait and retry
-                await asyncio.sleep(self.drain_interval)
-                continue
-            
-            try:
-                message = self._queue.get_nowait()
-                await channel.publish(event_name, message)
-                self.stats["messages_published"] += 1
-                drained += 1
-                self.stats["queue_depth"] = self._queue.qsize()
-            except queue.Empty:
-                break
-            except Exception as e:
-                logger.warning(f"⚠️ Drain publish failed: {e}")
-                # Put back for retry
-                try:
-                    self._queue.put_nowait(message)
-                except queue.Full:
-                    self.stats["messages_dropped"] += 1
-                break
-        
-        if drained > 0:
+        return self.queue_messages([message]) == 1
+
+    def take_ready_batch(self, max_items: int) -> List[Dict[str, Any]]:
+        """Reserve rate-limit tokens and return the next FIFO publish batch."""
+        if max_items <= 0:
+            return []
+        with self._lock:
+            self._refill_tokens_unlocked()
+            allowed = min(max_items, len(self._queue), int(self._tokens))
+            if allowed <= 0:
+                if self._queue:
+                    self.stats["burst_events"] += 1
+                return []
+            self._tokens -= allowed
+            batch = [self._queue.popleft() for _ in range(allowed)]
+            self.stats["queue_depth"] = len(self._queue)
+            return batch
+
+    def requeue_failed(self, messages: List[Dict[str, Any]]) -> None:
+        """Refund tokens and put an unacknowledged batch ahead of newer data."""
+        if not messages:
+            return
+        with self._lock:
+            self._tokens = min(self.burst_capacity, self._tokens + len(messages))
+            overflow = max(0, len(self._queue) + len(messages) - self.max_queue_size)
+            for _ in range(min(overflow, len(self._queue))):
+                self._queue.pop()
+                self.stats["messages_dropped"] += 1
+            for item in reversed(messages[-self.max_queue_size:]):
+                self._queue.appendleft(item)
+            self.stats["publish_failures"] += 1
+            self.stats["queue_depth"] = len(self._queue)
+
+    def record_published(self, count: int) -> None:
+        if count <= 0:
+            return
+        with self._lock:
+            self.stats["messages_published"] += count
+            self.stats["publish_batches"] += 1
             self.stats["drain_cycles"] += 1
-        
-        return drained
+
+    def pending_depth(self) -> int:
+        with self._lock:
+            return len(self._queue)
+
+    def seconds_until_token(self) -> float:
+        with self._lock:
+            self._refill_tokens_unlocked()
+            if not self._queue or self._tokens >= 1.0:
+                return 0.0
+            return max(self.drain_interval, (1.0 - self._tokens) / self.rate_limit)
     
     def get_stats(self) -> Dict[str, Any]:
         """Get current rate limiter statistics"""
         with self._lock:
-            self._refill_tokens()
+            self._refill_tokens_unlocked()
             return {
                 **self.stats,
                 "available_tokens": round(self._tokens, 2),
-                "queue_depth": self._queue.qsize(),
+                "queue_depth": len(self._queue),
             }
     
     def reset_stats(self) -> None:
         """Reset statistics counters"""
-        self.stats = {k: 0 for k in self.stats}
+        with self._lock:
+            self.stats = {k: 0 for k in self.stats}
+            self.stats["queue_depth"] = len(self._queue)
 
 
 # ------------------------------
@@ -1982,12 +2001,20 @@ class LocalJournal:
         os.makedirs(spool_dir, exist_ok=True)
         self.path = os.path.join(spool_dir, f"{session_id}.ndjson")
         self._fh = open(self.path, "a", buffering=1, encoding="utf-8")
+        self.write_failures = 0
+        self._last_error_log = 0.0
 
-    def append(self, record: Dict[str, Any]) -> None:
+    def append(self, record: Dict[str, Any]) -> bool:
         try:
             self._fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+            return True
         except Exception as e:
-            logger.error(f"❌ Failed to append to journal: {e}")
+            self.write_failures += 1
+            now = time.monotonic()
+            if now - self._last_error_log >= 1.0:
+                self._last_error_log = now
+                logger.error(f"❌ Failed to append to journal: {e}")
+            return False
 
     def close(self) -> None:
         try:
@@ -2043,13 +2070,22 @@ class ConvexHTTPClient:
             "Content-Type": "application/json",
             "Authorization": f"Convex {deploy_key}"
         }
-        self._session = None
+        # requests.Session is not guaranteed to be thread-safe. DB writes and
+        # notification writes use asyncio.to_thread concurrently, so retain one
+        # keep-alive session per worker thread.
+        self._thread_local = threading.local()
+        self._sessions: List[Any] = []
+        self._sessions_lock = threading.Lock()
 
     def _get_session(self):
-        if self._session is None:
-            self._session = requests.Session()
-            self._session.headers.update(self.headers)
-        return self._session
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.headers.update(self.headers)
+            self._thread_local.session = session
+            with self._sessions_lock:
+                self._sessions.append(session)
+        return session
 
     def mutation(self, function_path: str, args: dict, timeout: float = 30.0) -> dict:
         """
@@ -2086,10 +2122,15 @@ class ConvexHTTPClient:
         return result
 
     def close(self):
-        """Close the HTTP session"""
-        if self._session:
-            self._session.close()
-            self._session = None
+        """Close all per-thread HTTP sessions."""
+        with self._sessions_lock:
+            sessions = self._sessions
+            self._sessions = []
+        for session in sessions:
+            try:
+                session.close()
+            except Exception:
+                pass
 
 
 # ------------------------------
@@ -2097,7 +2138,9 @@ class ConvexHTTPClient:
 # ------------------------------
 
 # Omit from Ably dashboard payloads (smaller messages; full dict kept for journal/DB).
-_DASHBOARD_INTERNAL_KEYS = frozenset({"_local_rx_time", "_profiling", "_bridge_seq"})
+_DASHBOARD_INTERNAL_KEYS = frozenset(
+    {"_local_rx_time", "_local_rx_monotonic", "_profiling", "_bridge_seq"}
+)
 
 
 def _strip_dashboard_internals(message: Dict[str, Any]) -> Dict[str, Any]:
@@ -2125,10 +2168,17 @@ class TelemetryBridgeWithDB:
     ):
         self.mock_mode = mock_mode
         self.mock_config = mock_config or MockModeConfig()
+        self._windows_timer_resolution_active = False
         
         # Attempt to elevate Windows process priority
         if sys.platform == 'win32':
             try:
+                # asyncio timers otherwise commonly land on the ~15.6 ms
+                # Windows timer quantum. Scope the 1 ms request to this bridge.
+                if ctypes.windll.winmm.timeBeginPeriod(1) == 0:
+                    self._windows_timer_resolution_active = True
+                    logger.info("⚡ Windows timer resolution set to 1 ms")
+
                 # 1. Try standard kernel32 (Works for standalone python)
                 res = ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00000080)
                 if res != 0:
@@ -2155,6 +2205,8 @@ class TelemetryBridgeWithDB:
 
         self.running = False
         self.shutdown_event = asyncio.Event()
+        self._publish_wakeup = asyncio.Event()
+        self._calculation_done = asyncio.Event()
 
         # Use bounded queue to prevent memory issues
         self.message_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=MAX_QUEUE_SIZE)
@@ -2179,7 +2231,8 @@ class TelemetryBridgeWithDB:
         # Connection health tracking
         self.esp32_health = ConnectionHealth()
         self.dashboard_health = ConnectionHealth()
-        self._reconnect_lock = asyncio.Lock()
+        self._esp32_reconnect_lock = asyncio.Lock()
+        self._dashboard_reconnect_lock = asyncio.Lock()
         
         # Rate-limited publisher
         self.rate_limiter = RateLimitedPublisher()
@@ -2193,7 +2246,7 @@ class TelemetryBridgeWithDB:
         # Telemetry calculator for server-side metrics
         self.telemetry_calculator = TelemetryCalculator(
             window_size=36,
-            sample_interval=MOCK_DATA_INTERVAL,
+            sample_interval=(self.mock_config.data_interval if mock_mode else MOCK_DATA_INTERVAL),
         )
         
         # Driver notification engine
@@ -2208,6 +2261,7 @@ class TelemetryBridgeWithDB:
         self._max_pending_heavy = max(256, MAX_QUEUE_SIZE // 2)
         self._bridge_seq = 0
         self._last_process_latency_log = 0.0
+        self._last_ably_latency_log = 0.0
         self._log_cooldown_seconds = 1.0
 
         self.stats = {
@@ -2220,6 +2274,13 @@ class TelemetryBridgeWithDB:
             "latest_ably_latency_ms": 0.0,
             "latest_process_latency_ms": 0.0,
             "latest_internal_publish_lag_ms": 0.0,
+            "max_internal_publish_lag_ms": 0.0,
+            "latest_publish_ack_ms": 0.0,
+            "max_publish_ack_ms": 0.0,
+            "publish_batches": 0,
+            "publish_failures": 0,
+            "persistence_sync_fallbacks": 0,
+            "journal_write_failures": 0,
             "errors": 0,
             "last_error": None,
             "current_session_id": self.session_id,
@@ -2411,8 +2472,8 @@ class TelemetryBridgeWithDB:
 
     async def _wait_for_connection(self, client, name: str, timeout: float = 10):
         logger.info(f"Waiting for {name} connection...")
-        start = time.time()
-        while time.time() - start < timeout:
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
             if client.connection.state == "connected":
                 logger.info(f"✅ {name} connected")
                 return
@@ -2423,14 +2484,11 @@ class TelemetryBridgeWithDB:
 
     async def _reconnect_esp32(self) -> bool:
         """Attempt to reconnect to ESP32 with exponential backoff"""
-        async with self._reconnect_lock:
-            if self.esp32_health.reconnect_attempts >= RECONNECT_MAX_ATTEMPTS:
-                logger.error(f"❌ ESP32 max reconnect attempts ({RECONNECT_MAX_ATTEMPTS}) reached")
-                return False
-            
+        async with self._esp32_reconnect_lock:
             self.esp32_health.reset_for_reconnect()
+            attempt = self.esp32_health.reconnect_attempts
             delay = min(
-                RECONNECT_BASE_DELAY * (2 ** self.esp32_health.reconnect_attempts),
+                RECONNECT_BASE_DELAY * (2 ** min(attempt - 1, RECONNECT_MAX_ATTEMPTS - 1)),
                 RETRY_BACKOFF_MAX
             )
             
@@ -2462,14 +2520,11 @@ class TelemetryBridgeWithDB:
 
     async def _reconnect_dashboard(self) -> bool:
         """Attempt to reconnect to dashboard with exponential backoff"""
-        async with self._reconnect_lock:
-            if self.dashboard_health.reconnect_attempts >= RECONNECT_MAX_ATTEMPTS:
-                logger.error(f"❌ Dashboard max reconnect attempts ({RECONNECT_MAX_ATTEMPTS}) reached")
-                return False
-            
+        async with self._dashboard_reconnect_lock:
             self.dashboard_health.reset_for_reconnect()
+            attempt = self.dashboard_health.reconnect_attempts
             delay = min(
-                RECONNECT_BASE_DELAY * (2 ** self.dashboard_health.reconnect_attempts),
+                RECONNECT_BASE_DELAY * (2 ** min(attempt - 1, RECONNECT_MAX_ATTEMPTS - 1)),
                 RETRY_BACKOFF_MAX
             )
             
@@ -2782,6 +2837,53 @@ class TelemetryBridgeWithDB:
 
         return out
 
+    def _enqueue_for_publish(self, message: Dict[str, Any]) -> None:
+        """Keep the freshest live stream when the bounded ingress queue is full."""
+        try:
+            self.message_queue.put_nowait(message)
+        except queue.Full:
+            try:
+                self.message_queue.get_nowait()
+                self.message_queue.put_nowait(message)
+                self.stats["messages_dropped"] += 1
+            except (queue.Empty, queue.Full):
+                self.stats["messages_dropped"] += 1
+        finally:
+            self._publish_wakeup.set()
+
+    def _enqueue_for_persistence(self, message: Dict[str, Any]) -> None:
+        """Never silently lose persistence data when the calculation queue bursts."""
+        try:
+            self.calc_queue.put_nowait(message)
+        except queue.Full:
+            # This path should be extremely rare. Synchronous fallback is safer
+            # than dropping an old record and is still isolated from network I/O.
+            if not self.journal.append(message):
+                self.stats["journal_write_failures"] += 1
+            with self.db_buffer_lock:
+                self.db_buffer.append(message)
+            self.stats["persistence_sync_fallbacks"] += 1
+
+    def _accept_normalized(self, normalized: Dict[str, Any]) -> None:
+        """Complete the common real/mock ingestion path."""
+        normalized["_local_rx_time"] = time.time()
+        normalized["_local_rx_monotonic"] = time.monotonic()
+        self._bridge_seq += 1
+        normalized["_bridge_seq"] = self._bridge_seq
+        persist_payload = normalized
+
+        if PUBLISH_RAW_FAST_PATH:
+            to_publish = normalized
+        else:
+            computed = self._compute_heavy(normalized)
+            to_publish = computed
+            persist_payload = computed
+
+        self._enqueue_for_publish(to_publish)
+        self._enqueue_for_persistence(persist_payload)
+        self.stats["messages_received"] += 1
+        self.stats["last_message_time"] = datetime.now(timezone.utc)
+
     # ------------- ESP32 handler -------------
 
     def _on_esp32_message_received(self, message):
@@ -2807,7 +2909,11 @@ class TelemetryBridgeWithDB:
 
             if data is None:
                 error_context = " | ".join(parse_errors)
-                self._count_error(f"Failed to parse ESP32 msg. Errors: {error_context}. Full Raw Data: {message.data}")
+                raw_size = len(message.data) if hasattr(message.data, "__len__") else -1
+                self._count_error(
+                    f"Failed to parse ESP32 msg ({type(message.data).__name__}, "
+                    f"{raw_size} bytes). Errors: {error_context}"
+                )
                 return
             
             is_valid, val_reason = self._validate_message(data)
@@ -2822,45 +2928,16 @@ class TelemetryBridgeWithDB:
                 ably_lat_ms = (time.time() * 1000) - msg_ts
                 self.stats["latest_ably_latency_ms"] = ably_lat_ms
                 if ably_lat_ms > 3000:
-                    logger.warning(f"⚠️ HIGH ABLY NETWORK LATENCY: {ably_lat_ms:.0f} ms | msg_id: {data.get('message_id', 'N/A')}")
+                    now_mono = time.monotonic()
+                    if now_mono - self._last_ably_latency_log >= self._log_cooldown_seconds:
+                        self._last_ably_latency_log = now_mono
+                        logger.warning(
+                            f"⚠️ HIGH ABLY NETWORK LATENCY: {ably_lat_ms:.0f} ms | "
+                            f"msg_id: {data.get('message_id', 'N/A')}"
+                        )
 
             normalized = self._normalize_basic(data)
-            normalized["_local_rx_time"] = time.time()
-            self._bridge_seq += 1
-            normalized["_bridge_seq"] = self._bridge_seq
-            persist_payload = normalized
-
-            # 1) Immediately queue fast data for republish 
-            try:
-                if PUBLISH_RAW_FAST_PATH:
-                    to_publish = normalized
-                else:
-                    computed = self._compute_heavy(normalized)
-                    self._cache_heavy_result(computed)
-                    to_publish = computed
-                    persist_payload = computed
-
-                self.message_queue.put_nowait(to_publish)
-            except queue.Full:
-                try:
-                    self.message_queue.get_nowait()
-                    self.message_queue.put_nowait(to_publish)
-                    self.stats["messages_dropped"] += 1
-                except queue.Empty:
-                    pass
-            
-            # 2) Queue for persistence / optional heavy calculations
-            try:
-                self.calc_queue.put_nowait(persist_payload)
-            except queue.Full:
-                try:
-                    self.calc_queue.get_nowait()
-                    self.calc_queue.put_nowait(persist_payload)
-                except queue.Empty:
-                    pass
-
-            self.stats["messages_received"] += 1
-            self.stats["last_message_time"] = datetime.now(timezone.utc)
+            self._accept_normalized(normalized)
             self.esp32_health.record_message()
 
         except Exception as e:
@@ -2872,155 +2949,238 @@ class TelemetryBridgeWithDB:
     async def generate_mock_data_loop(self):
         if not self.mock_mode:
             return
+        interval = max(0.001, float(self.mock_config.data_interval))
         while self.running and not self.shutdown_event.is_set():
             try:
                 mock = self.generate_mock_telemetry_data()
                 
                 if mock is None:
                     # Stall or drop simulation - just wait
-                    await asyncio.sleep(MOCK_DATA_INTERVAL)
+                    await asyncio.sleep(interval)
                     continue
                 
                 # IMPORTANT: Pass mock data through same outlier detection pipeline as real data
                 normalized = self._normalize_basic(mock)
-                normalized["_local_rx_time"] = time.time()
-                self._bridge_seq += 1
-                normalized["_bridge_seq"] = self._bridge_seq
-                persist_payload = normalized
-                
-                try:
-                    if PUBLISH_RAW_FAST_PATH:
-                        to_publish = normalized
-                    else:
-                        computed = self._compute_heavy(normalized)
-                        self._cache_heavy_result(computed)
-                        to_publish = computed
-                        persist_payload = computed
-
-                    self.message_queue.put_nowait(to_publish)
-                except queue.Full:
-                    try:
-                        self.message_queue.get_nowait()
-                        self.message_queue.put_nowait(to_publish)
-                        self.stats["messages_dropped"] += 1
-                    except queue.Empty:
-                        pass
-                
-                try:
-                    self.calc_queue.put_nowait(persist_payload)
-                except queue.Full:
-                    try:
-                        self.calc_queue.get_nowait()
-                        self.calc_queue.put_nowait(persist_payload)
-                    except queue.Empty:
-                        pass
-                
-                self.stats["messages_received"] += 1
-                self.stats["last_message_time"] = datetime.now(timezone.utc)
-                await asyncio.sleep(MOCK_DATA_INTERVAL)
+                self._accept_normalized(normalized)
+                await asyncio.sleep(interval)
             except Exception as e:
                 self._count_error(f"Mock loop error: {e}")
 
     # ------------- Republish with rate limiting -------------
 
-    async def republish_messages(self):
-        """
-        Republish messages to dashboard with rate limiting.
-        Uses token bucket algorithm to prevent Ably rate limit violations.
-        """
-        while self.running and not self.shutdown_event.is_set():
+    def _split_publish_frames(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[List[Dict[str, Any]]]:
+        """Build conservative Ably frames without risking the 64 KiB limit."""
+        frames: List[List[Dict[str, Any]]] = []
+        current: List[Dict[str, Any]] = []
+        current_size = 2  # JSON array brackets
+
+        for message in messages:
+            envelope = {
+                "name": "telemetry_update",
+                "data": _strip_dashboard_internals(message),
+            }
             try:
-                # Check connection health
-                if not self.dashboard_health.is_connected:
-                    await self._reconnect_dashboard()
-                    if not self.dashboard_health.is_connected:
-                        await asyncio.sleep(1)
-                        continue
-                
-                # First, drain any queued messages from rate limiter
-                drained = await self.rate_limiter.drain_queue(
-                    self.dashboard_channel, "telemetry_update"
+                encoded_size = len(
+                    json.dumps(envelope, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                ) + 1
+            except Exception:
+                # Let the Ably SDK return the authoritative serialization error.
+                encoded_size = PUBLISH_FRAME_TARGET_BYTES
+
+            if current and current_size + encoded_size > PUBLISH_FRAME_TARGET_BYTES:
+                frames.append(current)
+                current = []
+                current_size = 2
+            current.append(message)
+            current_size += encoded_size
+
+        if current:
+            frames.append(current)
+        return frames
+
+    def _record_publish_dispatch(self, messages: List[Dict[str, Any]]) -> None:
+        """Measure bridge queueing before network ACK time is introduced."""
+        latest = messages[-1]
+        now_mono = time.monotonic()
+        lags = [
+            (now_mono - rx) * 1000
+            for rx in (m.get("_local_rx_monotonic") for m in messages)
+            if isinstance(rx, (int, float)) and rx > 0
+        ]
+        if lags:
+            self.stats["latest_internal_publish_lag_ms"] = lags[-1]
+            self.stats["max_internal_publish_lag_ms"] = max(
+                self.stats["max_internal_publish_lag_ms"], max(lags)
+            )
+
+        try:
+            dt = datetime.fromisoformat(latest["timestamp"].replace("Z", "+00:00"))
+            process_lat_ms = (datetime.now(timezone.utc) - dt).total_seconds() * 1000
+            self.stats["latest_process_latency_ms"] = process_lat_ms
+            if process_lat_ms <= PROCESS_LATENCY_WARN_MS:
+                return
+
+            if now_mono - self._last_process_latency_log < self._log_cooldown_seconds:
+                return
+            self._last_process_latency_log = now_mono
+            queue_age_ms = lags[-1] if lags else 0.0
+            ext_lat_ms = max(0.0, process_lat_ms - queue_age_ms)
+            reason = []
+            if queue_age_ms > 1000:
+                reason.append(f"bridge queues held it for {queue_age_ms:.0f}ms")
+            if ext_lat_ms > 1000:
+                reason.append(f"network delay or source clock skew contributed {ext_lat_ms:.0f}ms")
+            extra_reason = f" -> {' | '.join(reason)}" if reason else ""
+            warn_msg = (
+                f"⚠️ HIGH PROCESS/REPUBLISH LATENCY: {process_lat_ms:.0f} ms | "
+                f"msg_id: {latest.get('message_id', 'N/A')} | "
+                f"QueueSizes - Main: {self.message_queue.qsize()} "
+                f"Publisher: {self.rate_limiter.pending_depth()} | "
+                f"Breakdown: [Internal Queue Age: {queue_age_ms:.0f}ms, "
+                f"External Delay: {ext_lat_ms:.0f}ms]{extra_reason}"
+            )
+            if ENABLE_PER_MESSAGE_PROFILING:
+                perf = latest.get("_profiling", {})
+                warn_msg += (
+                    f" | Profiling: [Norm: {perf.get('norm_ms', 0):.2f}ms | "
+                    f"Outliers: {perf.get('outliers_ms', 0):.2f}ms | "
+                    f"Math: {perf.get('math_ms', 0):.2f}ms | "
+                    f"Notif: {perf.get('notif_ms', 0):.2f}ms | "
+                    f"ProcessTotal: {perf.get('total_process_ms', 0):.2f}ms]"
                 )
-                if drained > 0:
-                    self.stats["messages_republished"] += drained
-                    self.dashboard_health.record_message()
-                
-                # Process new messages from main queue
-                batch = []
-                while not self.message_queue.empty() and len(batch) < REPUBLISH_BATCH_MAX:
+            logger.warning(warn_msg)
+        except Exception:
+            pass
+
+    def _record_publish_success(
+        self,
+        messages: List[Dict[str, Any]],
+        send_started: float,
+    ) -> None:
+        count = len(messages)
+        self.rate_limiter.record_published(count)
+        self.stats["messages_republished"] += count
+        self.stats["publish_batches"] += 1
+        self.dashboard_health.record_message()
+        ack_ms = (time.monotonic() - send_started) * 1000
+        self.stats["latest_publish_ack_ms"] = ack_ms
+        self.stats["max_publish_ack_ms"] = max(
+            self.stats["max_publish_ack_ms"], ack_ms
+        )
+
+    async def _publish_dashboard_batch(self, messages: List[Dict[str, Any]]) -> None:
+        """Publish one reserved batch, retrying only frames not acknowledged."""
+        frames = self._split_publish_frames(messages)
+        for index, frame in enumerate(frames):
+            envelopes = [
+                {"name": "telemetry_update", "data": _strip_dashboard_internals(message)}
+                for message in frame
+            ]
+            try:
+                # A list is one Ably protocol frame/ACK while remaining distinct
+                # telemetry events to every existing frontend subscriber.
+                self._record_publish_dispatch(frame)
+                send_started = time.monotonic()
+                await self.dashboard_channel.publish(envelopes)
+                self._record_publish_success(frame, send_started)
+            except asyncio.CancelledError:
+                remaining = [m for pending in frames[index:] for m in pending]
+                self.rate_limiter.requeue_failed(remaining)
+                raise
+            except Exception as exc:
+                remaining = [m for pending in frames[index:] for m in pending]
+                self.rate_limiter.requeue_failed(remaining)
+                self.stats["publish_failures"] += 1
+                self.dashboard_health.record_error()
+                self.dashboard_health.is_connected = False
+                self._count_error(f"Dashboard publish failed for {len(frame)} messages: {exc}")
+                return
+
+    async def republish_messages(self):
+        """Dispatch bounded concurrent Ably publishes and preserve failed batches."""
+        inflight: set[asyncio.Task] = set()
+        try:
+            while True:
+                self._publish_wakeup.clear()
+
+                incoming: List[Dict[str, Any]] = []
+                for _ in range(PUBLISH_TRANSFER_MAX):
                     try:
-                        batch.append(self.message_queue.get_nowait())
+                        incoming.append(self._merge_heavy_result(self.message_queue.get_nowait()))
                     except queue.Empty:
                         break
+                if incoming:
+                    accepted = self.rate_limiter.queue_messages(incoming)
+                    dropped = len(incoming) - accepted
+                    if dropped:
+                        self.stats["messages_dropped"] += dropped
 
-                had_batch = len(batch) > 0
-                for m in batch:
-                    merged_message = self._merge_heavy_result(m)
-                    pub = _strip_dashboard_internals(merged_message)
+                source_done = not self.running and self._calculation_done.is_set()
+                has_pending = bool(inflight) or self.rate_limiter.pending_depth() > 0 or not self.message_queue.empty()
+                if source_done and not has_pending:
+                    break
+
+                done = {task for task in inflight if task.done()}
+                for task in done:
+                    inflight.discard(task)
                     try:
-                        success = await self.rate_limiter.publish(
-                            self.dashboard_channel, "telemetry_update", pub
+                        task.result()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        self._count_error(f"Publish task failed unexpectedly: {exc}")
+
+                if not self.dashboard_health.is_connected:
+                    if inflight:
+                        await asyncio.wait(
+                            inflight, timeout=PUBLISH_IDLE_SLEEP,
+                            return_when=asyncio.FIRST_COMPLETED,
                         )
-                        if success:
-                            self.stats["messages_republished"] += 1
-                            self.dashboard_health.record_message()
-                            rx = merged_message.get("_local_rx_time")
-                            if isinstance(rx, (int, float)) and rx > 0:
-                                self.stats["latest_internal_publish_lag_ms"] = (time.time() - rx) * 1000
-                            try:
-                                dt = datetime.fromisoformat(merged_message["timestamp"].replace("Z", "+00:00"))
-                                process_lat_ms = (datetime.now(timezone.utc) - dt).total_seconds() * 1000
-                                self.stats["latest_process_latency_ms"] = process_lat_ms
+                        continue
+                    if not await self._reconnect_dashboard():
+                        await asyncio.sleep(1.0)
+                    continue
 
-                                if process_lat_ms > PROCESS_LATENCY_WARN_MS:
-                                    now = time.monotonic()
-                                    if now - self._last_process_latency_log < self._log_cooldown_seconds:
-                                        continue
-                                    self._last_process_latency_log = now
-
-                                    rx_time = merged_message.get("_local_rx_time", 0)
-                                    queue_age_ms = (time.time() - rx_time) * 1000 if rx_time else 0
-                                    ext_lat_ms = process_lat_ms - queue_age_ms
-                                    
-                                    reason = []
-                                    if queue_age_ms > 1000:
-                                        reason.append(f"Python internal processing/queues held it for {queue_age_ms:.0f}ms")
-                                    if ext_lat_ms > 1000:
-                                        reason.append(f"Ably network delay OR ESP32 out-of-sync clock caused {ext_lat_ms:.0f}ms delay before arriving")
-
-                                    extra_reason = f" -> {' | '.join(reason)}" if reason else ""
-                                    warn_msg = (
-                                        f"⚠️ HIGH PROCESS/REPUBLISH LATENCY: {process_lat_ms:.0f} ms | msg_id: {merged_message.get('message_id', 'N/A')} "
-                                        f"| QueueSizes - Main: {self.message_queue.qsize()} RL: {self.rate_limiter._queue.qsize()} "
-                                        f"| Breakdown: [Internal Queue Age: {queue_age_ms:.0f}ms, External Delay: {ext_lat_ms:.0f}ms]{extra_reason}"
-                                    )
-
-                                    if ENABLE_PER_MESSAGE_PROFILING:
-                                        perf = merged_message.get("_profiling", {})
-                                        prof_str = (
-                                            f"Norm: {perf.get('norm_ms', 0):.2f}ms | "
-                                            f"Outliers: {perf.get('outliers_ms', 0):.2f}ms | "
-                                            f"Math: {perf.get('math_ms', 0):.2f}ms | "
-                                            f"Notif: {perf.get('notif_ms', 0):.2f}ms | "
-                                            f"ProcessTotal: {perf.get('total_process_ms', 0):.2f}ms"
-                                        )
-                                        warn_msg = f"{warn_msg} | Profiling: [{prof_str}]"
-
-                                    logger.warning(warn_msg)
-                            except Exception:
-                                pass
-                    except Exception as e:
-                        self._count_error(f"Republish failed: {e}")
-                        self.dashboard_health.record_error()
-                        self.dashboard_health.is_connected = False
-                        # Queue message for retry via rate limiter
-                        self.rate_limiter.queue_message(pub)
+                while len(inflight) < PUBLISH_MAX_INFLIGHT:
+                    batch = self.rate_limiter.take_ready_batch(REPUBLISH_BATCH_MAX)
+                    if not batch:
                         break
+                    inflight.add(asyncio.create_task(self._publish_dashboard_batch(batch)))
 
-                # Tight loop while draining telemetry; longer sleep when idle (reduces publish tail latency).
-                await asyncio.sleep(PUBLISH_ACTIVE_SLEEP if had_batch else PUBLISH_IDLE_SLEEP)
-            except Exception as e:
-                self._count_error(f"Republish loop error: {e}")
+                if inflight:
+                    # Wake immediately for a newly ingested message as well as
+                    # for an ACK; polling here was the last ~50 ms tail-latency
+                    # source at 20 Hz.
+                    wakeup_task = asyncio.create_task(self._publish_wakeup.wait())
+                    await asyncio.wait(
+                        inflight | {wakeup_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if not wakeup_task.done():
+                        wakeup_task.cancel()
+                        await asyncio.gather(wakeup_task, return_exceptions=True)
+                    continue
+
+                wait_timeout = max(
+                    PUBLISH_IDLE_SLEEP,
+                    self.rate_limiter.seconds_until_token(),
+                )
+                try:
+                    await asyncio.wait_for(self._publish_wakeup.wait(), timeout=wait_timeout)
+                except asyncio.TimeoutError:
+                    pass
+        except asyncio.CancelledError:
+            for task in inflight:
+                task.cancel()
+            await asyncio.gather(*inflight, return_exceptions=True)
+            raise
+        except Exception as exc:
+            self._count_error(f"Republish loop error: {exc}")
+        finally:
+            if inflight:
+                await asyncio.gather(*inflight, return_exceptions=True)
 
     # ------------- Driver notification flusher -------------
 
@@ -3028,7 +3188,11 @@ class TelemetryBridgeWithDB:
         """Periodically flush driver notifications to Convex"""
         while self.running and not self.shutdown_event.is_set():
             try:
-                await asyncio.sleep(5)  # Flush every 5 seconds
+                try:
+                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=5.0)
+                    break
+                except asyncio.TimeoutError:
+                    pass
                 
                 notifications = self.notification_engine.flush()
                 if not notifications or not self.convex_client:
@@ -3043,6 +3207,7 @@ class TelemetryBridgeWithDB:
                     )
                     logger.debug(f"📩 Flushed {len(notifications)} driver notifications")
                 except Exception as e:
+                    self.notification_engine.requeue(notifications)
                     logger.warning(f"⚠️ Driver notification flush failed: {e}")
             except Exception as e:
                 self._count_error(f"Notification flusher error: {e}")
@@ -3051,38 +3216,42 @@ class TelemetryBridgeWithDB:
 
     async def calculation_worker(self):
         """Worker task to process computationally heavy telemetry metrics asynchronously."""
-        while self.running and not self.shutdown_event.is_set():
-            try:
-                batch = []
-                while not self.calc_queue.empty() and len(batch) < CALC_QUEUE_BATCH_MAX:
-                    try:
-                        batch.append(self.calc_queue.get_nowait())
-                    except queue.Empty:
-                        break
-
-                for basic_data in batch:
-                    if PUBLISH_RAW_FAST_PATH:
-                        if USE_THREAD_OFFLOAD_FOR_CALC:
-                            computed = await asyncio.to_thread(self._compute_heavy, basic_data)
-                        else:
-                            computed = self._compute_heavy(basic_data)
-                    else:
-                        computed = basic_data
-
-                    if PUBLISH_RAW_FAST_PATH:
+        try:
+            while self.running or not self.calc_queue.empty():
+                try:
+                    batch = []
+                    for _ in range(CALC_QUEUE_BATCH_MAX):
                         try:
-                            self.message_queue.put_nowait(computed)
-                        except queue.Full:
-                            pass
+                            batch.append(self.calc_queue.get_nowait())
+                        except queue.Empty:
+                            break
 
-                    self.journal.append(computed)
+                    for basic_data in batch:
+                        if PUBLISH_RAW_FAST_PATH:
+                            if USE_THREAD_OFFLOAD_FOR_CALC:
+                                computed = await asyncio.to_thread(self._compute_heavy, basic_data)
+                            else:
+                                computed = self._compute_heavy(basic_data)
+                        else:
+                            computed = basic_data
 
-                    with self.db_buffer_lock:
-                        self.db_buffer.append(computed)
+                        if PUBLISH_RAW_FAST_PATH:
+                            self._enqueue_for_publish(computed)
 
-                await asyncio.sleep(PUBLISH_ACTIVE_SLEEP if batch else CALC_IDLE_SLEEP)
-            except Exception as e:
-                self._count_error(f"Calc worker error: {e}")
+                        if not self.journal.append(computed):
+                            self.stats["journal_write_failures"] += 1
+                        with self.db_buffer_lock:
+                            self.db_buffer.append(computed)
+
+                    if batch:
+                        await asyncio.sleep(PUBLISH_ACTIVE_SLEEP)
+                    elif self.running:
+                        await asyncio.sleep(CALC_IDLE_SLEEP)
+                except Exception as e:
+                    self._count_error(f"Calc worker error: {e}")
+        finally:
+            self._calculation_done.set()
+            self._publish_wakeup.set()
 
     # ------------- Health check / watchdog -------------
 
@@ -3118,7 +3287,13 @@ class TelemetryBridgeWithDB:
         next_retry_at = time.monotonic()
         while self.running and not self.shutdown_event.is_set():
             try:
-                await asyncio.sleep(DB_BATCH_INTERVAL)
+                try:
+                    await asyncio.wait_for(
+                        self.shutdown_event.wait(), timeout=DB_BATCH_INTERVAL
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    pass
 
                 # Retry failed batches if it's time
                 now_mono = time.monotonic()
@@ -3270,10 +3445,10 @@ class TelemetryBridgeWithDB:
                     f"DB: {self.stats['messages_stored_db']}, "
                     f"Drop: {dropped}, "
                     f"Q-Main: {self.message_queue.qsize()}, Q-DB: {buf_len}, Q-RL: {rl_stats['queue_depth']}, "
-                    f"Err: {self.stats['errors']} | "
+                    f"Err: {self.stats['errors']}, JFail: {self.stats['journal_write_failures']} | "
                     f"Lat(AblyNet): {self.stats.get('latest_ably_latency_ms', 0):.0f}ms, "
-                    f"Lat(Process): {self.stats.get('latest_process_latency_ms', 0):.0f}ms, "
-                    f"Lat(Bridge→Pub): {self.stats.get('latest_internal_publish_lag_ms', 0):.0f}ms"
+                    f"Lat(Dispatch): {self.stats.get('latest_internal_publish_lag_ms', 0):.0f}ms, "
+                    f"Lat(AckRTT): {self.stats.get('latest_publish_ack_ms', 0):.0f}ms"
                 )
                 
                 # Log rate limiter stats if there's activity
@@ -3309,15 +3484,21 @@ class TelemetryBridgeWithDB:
             if self.mock_mode:
                 logger.info(f"🎭 Simulation scenario: {self.mock_config.scenario.value}")
 
+            republish_task = asyncio.create_task(self.republish_messages(), name="republish")
+            calculation_task = asyncio.create_task(self.calculation_worker(), name="calc_worker")
+            database_task = asyncio.create_task(
+                self.database_batch_writer(), name="db_writer"
+            )
+            notification_task = asyncio.create_task(
+                self.notification_flusher(), name="notif_flush"
+            )
             tasks: List[asyncio.Task] = [
-                asyncio.create_task(self.republish_messages(), name="republish"),
-                asyncio.create_task(
-                    self.database_batch_writer(), name="db_writer"
-                ),
+                republish_task,
+                database_task,
                 asyncio.create_task(self.print_stats(), name="stats"),
                 asyncio.create_task(self.health_monitor(), name="health"),
-                asyncio.create_task(self.notification_flusher(), name="notif_flush"),
-                asyncio.create_task(self.calculation_worker(), name="calc_worker"),
+                notification_task,
+                calculation_task,
             ]
             if self.mock_mode:
                 tasks.append(
@@ -3335,13 +3516,69 @@ class TelemetryBridgeWithDB:
                 return_when=asyncio.FIRST_COMPLETED,
             )
 
-            # If shutdown_wait fired, stop loops
+            # Stop producers first. The calculation and publish workers drain
+            # their queues before cleanup flushes the final DB buffer.
             self.running = False
+            self._publish_wakeup.set()
 
-            # Cancel any pending tasks gracefully
-            for t in pending:
+            graceful_tasks = {
+                republish_task,
+                calculation_task,
+                database_task,
+                notification_task,
+            }
+            shutdown_requested = shutdown_wait in done or self.shutdown_event.is_set()
+            for task in done:
+                if task is shutdown_wait or task.cancelled():
+                    continue
+                exc = task.exception()
+                if exc is not None:
+                    self._count_error(f"Worker {task.get_name()} terminated: {exc}")
+                elif not shutdown_requested:
+                    logger.warning(f"⚠️ Worker {task.get_name()} stopped unexpectedly")
+
+            immediate_tasks = [
+                task for task in pending
+                if task not in graceful_tasks
+            ]
+            for t in immediate_tasks:
                 t.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            await asyncio.gather(*immediate_tasks, return_exceptions=True)
+
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        calculation_task,
+                        database_task,
+                        notification_task,
+                        return_exceptions=True,
+                    ),
+                    timeout=PERSISTENCE_SHUTDOWN_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"⚠️ Persistence drain timed out with "
+                    f"{self.calc_queue.qsize()} calculation messages pending"
+                )
+                for task in (calculation_task, database_task, notification_task):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(
+                    calculation_task,
+                    database_task,
+                    notification_task,
+                    return_exceptions=True,
+                )
+
+            try:
+                await asyncio.wait_for(republish_task, timeout=SHUTDOWN_DRAIN_TIMEOUT)
+            except asyncio.TimeoutError:
+                live_pending = self.message_queue.qsize() + self.rate_limiter.pending_depth()
+                logger.warning(
+                    f"⚠️ Live publish drain timed out with {live_pending} messages pending"
+                )
+                republish_task.cancel()
+                await asyncio.gather(republish_task, return_exceptions=True)
 
         except Exception as e:
             self._count_error(f"Run error: {e}")
@@ -3352,17 +3589,42 @@ class TelemetryBridgeWithDB:
         try:
             logger.info("🧹 Cleaning up ...")
 
-            # Flush leftover db_buffer
+            # Retry failed DB batches once, then flush the final buffer produced
+            # by the drained calculation worker.
+            retry_batches = list(self.db_retry_queue)
+            self.db_retry_queue.clear()
             with self.db_buffer_lock:
                 pending = list(self.db_buffer)
                 self.db_buffer.clear()
+            chunks = list(retry_batches)
             if pending:
-                chunks = [
+                chunks.extend([
                     pending[i : i + MAX_BATCH_SIZE]
                     for i in range(0, len(pending), MAX_BATCH_SIZE)
-                ]
-                logger.info(f"💾 Flushing final DB buffer ({len(pending)})")
+                ])
+            if chunks:
+                logger.info(
+                    f"💾 Flushing final DB work ({len(pending)} new records, "
+                    f"{len(retry_batches)} retry batches)"
+                )
                 await self._write_batches_to_database(chunks)
+
+            notifications = self.notification_engine.flush()
+            if notifications and self.convex_client:
+                try:
+                    await asyncio.to_thread(
+                        self.convex_client.mutation,
+                        "driverNotifications:insertNotificationBatch",
+                        {"notifications": notifications},
+                        10.0,
+                    )
+                except Exception as exc:
+                    self.notification_engine.requeue(notifications)
+                    logger.warning(f"⚠️ Final notification flush failed: {exc}")
+
+            live_pending = self.message_queue.qsize() + self.rate_limiter.pending_depth()
+            if live_pending:
+                logger.warning(f"⚠️ Closing with {live_pending} unacknowledged live messages")
 
             # If failures or pending retries, export full CSV for the session
             if self.db_write_failures > 0 or self.db_retry_queue:
@@ -3444,6 +3706,13 @@ class TelemetryBridgeWithDB:
             logger.info("✅ Cleanup done")
         except Exception as e:
             self._count_error(f"Cleanup error: {e}")
+        finally:
+            if self._windows_timer_resolution_active and sys.platform == "win32":
+                try:
+                    ctypes.windll.winmm.timeEndPeriod(1)
+                except Exception:
+                    pass
+                self._windows_timer_resolution_active = False
 
     # ------------- Helpers -------------
 
@@ -3494,7 +3763,9 @@ def get_user_preferences() -> tuple:
                 'chaos': MockScenario.CHAOS,
             }
             mock_config = MockModeConfig.from_scenario(scenario_map[args.scenario])
-            mock_config.base_publish_rate = args.rate
+            if args.rate <= 0:
+                raise ValueError("--rate must be greater than zero")
+            mock_config.data_interval = 1.0 / args.rate
             print(f"Scenario: {args.scenario.upper()}")
             print(f"Rate: {args.rate} msg/s")
         
