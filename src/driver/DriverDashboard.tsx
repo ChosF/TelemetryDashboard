@@ -17,23 +17,51 @@ import { enterDriverFullscreen, initDriverFullscreen } from './driverFullscreen'
 
 const ConnectionDot: Component = () => {
     const state = createMemo(() => {
-        const s = driverStore.connectionState();
-        if (s === 'connected') return 'connected';
-        if (s === 'connecting') return 'connecting';
+        const connectionState = driverStore.connectionState();
+        const channelState = driverStore.channelState();
+        const hasFreshTelemetry = driverStore.totalMessages() > 0
+            && driverStore.messageAge() < 2000;
+
+        if (connectionState === 'connected' && channelState === 'attached' && hasFreshTelemetry) {
+            return 'connected';
+        }
+        if (connectionState === 'connected' || connectionState === 'connecting') return 'connecting';
         return 'disconnected';
     });
 
-    return <div class="drv-conn-dot" data-state={state()} title={driverStore.connectionState()} />;
+    const title = createMemo(() => {
+        const connectionState = driverStore.connectionState();
+        const channelState = driverStore.channelState();
+        if (state() === 'connected') return 'EcoTele live';
+        if (connectionState === 'connected' && channelState === 'attached') {
+            return driverStore.totalMessages() === 0
+                ? 'Waiting for EcoTele telemetry'
+                : 'EcoTele telemetry is stale';
+        }
+        if (connectionState === 'connected') return `EcoTele channel ${channelState}`;
+        return `Ably ${connectionState}`;
+    });
+
+    return (
+        <div
+            class="drv-conn-dot"
+            data-state={state()}
+            title={title()}
+            aria-label={title()}
+        />
+    );
 };
 
 const MessageAge: Component = () => {
     const ageText = createMemo(() => {
+        if (driverStore.totalMessages() === 0) return 'NO DATA';
         const age = driverStore.messageAge();
         if (age < 1000) return `${age}ms`;
         return `${(age / 1000).toFixed(1)}s`;
     });
 
     const ageColor = createMemo(() => {
+        if (driverStore.totalMessages() === 0) return 'var(--drv-danger)';
         const age = driverStore.messageAge();
         if (age < 500) return 'var(--drv-accent)';
         if (age < 2000) return 'var(--drv-warn)';

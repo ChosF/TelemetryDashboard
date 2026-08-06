@@ -60,6 +60,22 @@ http.route({
 });
 
 /**
+ * CORS preflight handler for the raw ESP32 telemetry token endpoint.
+ */
+http.route({
+    path: "/ably/esp32-token",
+    method: "OPTIONS",
+    handler: httpAction(async (_ctx, request) => {
+        const allowedOrigin = getAllowedOrigin(request);
+        if (!allowedOrigin) return new Response(null, { status: 403 });
+        return new Response(null, {
+            status: 204,
+            headers: corsHeaders(allowedOrigin),
+        });
+    }),
+});
+
+/**
  * Ably token endpoint for dashboard authentication
  * This allows the dashboard to get Ably tokens securely
  * 
@@ -129,6 +145,72 @@ http.route({
                         ...responseHeaders
                     }
                 }
+            );
+        }
+    }),
+});
+
+/**
+ * Ably token endpoint for the driver's raw ESP32 uplink subscription.
+ * The ESP32 and dashboard channels live in separate Ably applications, so this
+ * route must sign with ESP32_ABLY_API_KEY rather than the dashboard key.
+ */
+http.route({
+    path: "/ably/esp32-token",
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+        const allowedOrigin = getAllowedOrigin(request);
+        if (!allowedOrigin) {
+            return new Response(JSON.stringify({ error: "Origin not allowed" }), {
+                status: 403,
+                headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+            });
+        }
+        const responseHeaders = corsHeaders(allowedOrigin);
+
+        if (!process.env.ESP32_ABLY_API_KEY) {
+            console.error("ESP32_ABLY_API_KEY not configured in Convex environment variables");
+            return new Response(
+                JSON.stringify({ error: "ESP32 Ably API key not configured" }),
+                {
+                    status: 500,
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...responseHeaders,
+                    },
+                },
+            );
+        }
+
+        try {
+            const url = new URL(request.url);
+            const requestedClientId = url.searchParams.get("clientId") || "driver-web";
+            const clientId = /^[A-Za-z0-9._-]{1,64}$/.test(requestedClientId)
+                ? requestedClientId
+                : "driver-web";
+            const tokenRequest = await ctx.runAction(
+                internal.ablyAuth.createEsp32TokenRequest,
+                { clientId },
+            );
+
+            return new Response(JSON.stringify(tokenRequest), {
+                status: 200,
+                headers: {
+                    "Content-Type": "application/json",
+                    ...responseHeaders,
+                },
+            });
+        } catch (error) {
+            console.error("ESP32 Ably token error:", error);
+            return new Response(
+                JSON.stringify({ error: "Failed to create ESP32 Ably token request" }),
+                {
+                    status: 500,
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...responseHeaders,
+                    },
+                },
             );
         }
     }),

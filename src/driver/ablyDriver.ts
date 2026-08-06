@@ -41,7 +41,7 @@ interface DriverAblyConfig {
 function getConfig(): DriverAblyConfig {
     const cfg = (window as unknown as { CONFIG?: Record<string, string> }).CONFIG ?? {};
     const convexUrl = cfg.CONVEX_URL || '';
-    const rawAuthUrl = cfg.ABLY_ESP32_AUTH_URL || cfg.ABLY_AUTH_URL || '/ably/token';
+    const rawAuthUrl = cfg.ABLY_ESP32_AUTH_URL || '/ably/esp32-token';
     const convexSiteUrl = convexUrl.includes('.convex.cloud')
         ? convexUrl.replace('.convex.cloud', '.convex.site')
         : convexUrl;

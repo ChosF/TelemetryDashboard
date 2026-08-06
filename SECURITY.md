@@ -75,8 +75,8 @@ Administrative rules are enforced in Convex:
 
 ## Ably browser access
 
-- Browser code never accepts or embeds an Ably API key. It obtains a one-hour signed token request from the Convex `/ably/token` HTTP action.
-- Browser capabilities are limited to `subscribe` and `history` on the dashboard and ESP32 telemetry channels; tokens cannot publish or administer channels.
+- Browser code never accepts or embeds an Ably API key. The pit dashboard obtains a one-hour signed token request from the Convex `/ably/token` HTTP action, while the driver obtains its raw-stream token from `/ably/esp32-token`.
+- Dashboard tokens are limited to `subscribe` and `history` on `telemetry-dashboard-channel`. Driver tokens are limited to `subscribe` on `EcoTele`; tokens cannot publish or administer channels.
 - Set `ALLOWED_WEB_ORIGINS` in Convex to a comma-separated list of production web origins. When it is unset, CORS remains open for local-development compatibility, although the token is still read-only and channel-scoped.
 - Any key that was previously committed or deployed in browser code must be treated as compromised and rotated in Ably after the server-side environment variable is updated.
 
@@ -95,7 +95,7 @@ If compromise is suspected:
 ## Deployment checklist
 
 - [ ] `AUTH_PASSWORD_PEPPER` is set in the intended Convex deployment.
-- [ ] `ABLY_API_KEY` exists only in Convex environment variables.
+- [ ] `ABLY_API_KEY` and `ESP32_ABLY_API_KEY` exist only in Convex environment variables.
 - [ ] Previously browser-exposed Ably keys have been rotated.
 - [ ] `ALLOWED_WEB_ORIGINS` contains only the intended production origins.
 - [ ] No secrets or session tokens appear in frontend configuration, source, logs, or diffs.
