@@ -62,11 +62,137 @@ export const SessionKpisWidget: Component<WidgetRenderProps> = (props) => {
 
 interface GaugeDatum {
     label: string;
-    value: number | null;
-    display: string;
+    displayValue: string;
+    unit: string;
     ratio: number;
     tone: keyof typeof C;
+    maxLabel: string;
+    kind?: 'dial' | 'g-force';
+    lateralG?: number | null;
+    longitudinalG?: number | null;
 }
+
+const GAUGE_CENTER = { x: 90, y: 66 } as const;
+const GAUGE_RADIUS = 50;
+const GAUGE_START_ANGLE = 140;
+const GAUGE_SWEEP = 260;
+const GAUGE_MAX_G = 1.4;
+
+function gaugePoint(angle: number, radius: number) {
+    const radians = angle * Math.PI / 180;
+    return {
+        x: GAUGE_CENTER.x + Math.cos(radians) * radius,
+        y: GAUGE_CENTER.y + Math.sin(radians) * radius,
+    };
+}
+
+function gaugeArcPath(): string {
+    const start = gaugePoint(GAUGE_START_ANGLE, GAUGE_RADIUS);
+    const end = gaugePoint(GAUGE_START_ANGLE + GAUGE_SWEEP, GAUGE_RADIUS);
+    return `M ${start.x} ${start.y} A ${GAUGE_RADIUS} ${GAUGE_RADIUS} 0 1 1 ${end.x} ${end.y}`;
+}
+
+const GAUGE_ARC_PATH = gaugeArcPath();
+const GAUGE_TICKS = Array.from({ length: 9 }, (_, index) => {
+    const angle = GAUGE_START_ANGLE + (GAUGE_SWEEP * index) / 8;
+    const major = index % 2 === 0;
+    return {
+        inner: gaugePoint(angle, major ? 39 : 43),
+        outer: gaugePoint(angle, 55),
+        major,
+    };
+});
+
+function clampGaugeRatio(value: number): number {
+    return Math.max(0, Math.min(1, value));
+}
+
+const DialGauge: Component<{ gauge: GaugeDatum }> = (props) => {
+    const ratio = createMemo(() => clampGaugeRatio(props.gauge.ratio));
+    const needle = createMemo(() => gaugePoint(
+        GAUGE_START_ANGLE + GAUGE_SWEEP * ratio(),
+        36,
+    ));
+
+    return (
+        <div
+            class="ev-gauge-cell"
+            data-tone={props.gauge.tone}
+            role="img"
+            aria-label={`${props.gauge.label}: ${props.gauge.displayValue} ${props.gauge.unit}`}
+        >
+            <div class="ev-gauge-face">
+                <svg viewBox="0 0 180 126" aria-hidden="true">
+                    <path class="ev-gauge-track" d={GAUGE_ARC_PATH} pathLength="100" />
+                    <path
+                        class="ev-gauge-progress"
+                        d={GAUGE_ARC_PATH}
+                        pathLength="100"
+                        style={{ 'stroke-dasharray': `${ratio() * 100} 100` }}
+                    />
+                    <For each={GAUGE_TICKS}>{(tick) => (
+                        <line
+                            class="ev-gauge-tick"
+                            classList={{ major: tick.major }}
+                            x1={tick.inner.x}
+                            y1={tick.inner.y}
+                            x2={tick.outer.x}
+                            y2={tick.outer.y}
+                        />
+                    )}</For>
+                    <line
+                        class="ev-gauge-needle"
+                        x1={GAUGE_CENTER.x}
+                        y1={GAUGE_CENTER.y}
+                        x2={needle().x}
+                        y2={needle().y}
+                    />
+                    <circle class="ev-gauge-hub" cx={GAUGE_CENTER.x} cy={GAUGE_CENTER.y} r="5" />
+                    <text class="ev-gauge-scale" x="34" y="116">0</text>
+                    <text class="ev-gauge-scale" x="146" y="116" text-anchor="end">{props.gauge.maxLabel}</text>
+                </svg>
+                <div class="ev-gauge-readout">
+                    <strong>{props.gauge.displayValue}</strong>
+                    <small>{props.gauge.unit}</small>
+                </div>
+            </div>
+            <span class="ev-gauge-label">{props.gauge.label}</span>
+        </div>
+    );
+};
+
+const GForceGauge: Component<{ gauge: GaugeDatum }> = (props) => {
+    const lateral = createMemo(() => Math.max(-GAUGE_MAX_G, Math.min(GAUGE_MAX_G, props.gauge.lateralG ?? 0)));
+    const longitudinal = createMemo(() => Math.max(-GAUGE_MAX_G, Math.min(GAUGE_MAX_G, props.gauge.longitudinalG ?? 0)));
+    const pointX = createMemo(() => GAUGE_CENTER.x + (lateral() / GAUGE_MAX_G) * GAUGE_RADIUS);
+    const pointY = createMemo(() => GAUGE_CENTER.y - (longitudinal() / GAUGE_MAX_G) * GAUGE_RADIUS);
+
+    return (
+        <div
+            class="ev-gauge-cell ev-gauge-cell--gforce"
+            data-tone={props.gauge.tone}
+            role="img"
+            aria-label={`${props.gauge.label}: ${props.gauge.displayValue} ${props.gauge.unit}`}
+        >
+            <div class="ev-gauge-face">
+                <svg viewBox="0 0 180 126" aria-hidden="true">
+                    <circle class="ev-gforce-ring" cx={GAUGE_CENTER.x} cy={GAUGE_CENTER.y} r="50" />
+                    <circle class="ev-gforce-ring" cx={GAUGE_CENTER.x} cy={GAUGE_CENTER.y} r="33.33" />
+                    <circle class="ev-gforce-ring" cx={GAUGE_CENTER.x} cy={GAUGE_CENTER.y} r="16.67" />
+                    <line class="ev-gforce-axis" x1="35" y1={GAUGE_CENTER.y} x2="145" y2={GAUGE_CENTER.y} />
+                    <line class="ev-gforce-axis" x1={GAUGE_CENTER.x} y1="11" x2={GAUGE_CENTER.x} y2="121" />
+                    <circle class="ev-gforce-point-halo" cx={pointX()} cy={pointY()} r="8" />
+                    <circle class="ev-gforce-point" cx={pointX()} cy={pointY()} r="4" />
+                </svg>
+                <div class="ev-gauge-readout ev-gauge-readout--gforce">
+                    <strong>{props.gauge.displayValue}</strong>
+                    <small>{props.gauge.unit}</small>
+                </div>
+            </div>
+            <span class="ev-gauge-label">{props.gauge.label}</span>
+        </div>
+    );
+};
 
 export const LiveGaugesWidget: Component<WidgetRenderProps> = (props) => {
     const latest = createMemo(() => latestRow(props.rows));
@@ -76,19 +202,33 @@ export const LiveGaugesWidget: Component<WidgetRenderProps> = (props) => {
         const power = latest()?.power_w;
         const efficiency = latest()?.inst_eff_km_kwh ?? latest()?.current_efficiency_km_kwh;
         const g = latest()?.current_g_force ?? latest()?.g_total;
+        const speedMax = Math.max(100, (latest()?.max_speed_kmh ?? 0) + 5);
+        const powerMax = Math.max(100, Math.abs(latest()?.max_power_w ?? 0), Math.abs(power ?? 0) * 1.5);
+        const efficiencyMax = efficiency && efficiency > 0 ? Math.max(100, efficiency * 1.5) : 100;
         return [
-            { label: 'Speed', value: speed, display: `${formatNumber(speed)} km/h`, ratio: (speed ?? 0) / Math.max(50, latest()?.max_speed_kmh ?? 0), tone: 'white' },
-            { label: 'Battery', value: battery, display: `${formatNumber(battery, 0)}%`, ratio: (battery ?? 0) / 100, tone: 'green' },
-            { label: 'Power', value: power ?? null, display: `${formatNumber(power, 0)} W`, ratio: Math.abs(power ?? 0) / Math.max(800, Math.abs(latest()?.max_power_w ?? 0)), tone: 'orange' },
-            { label: 'Efficiency', value: efficiency ?? null, display: `${formatNumber(efficiency)} km/kWh`, ratio: (efficiency ?? 0) / 100, tone: 'teal' },
-            { label: 'G force', value: g ?? null, display: `${formatNumber(g, 2)} g`, ratio: Math.abs(g ?? 0) / Math.max(2, latest()?.max_g_force ?? 0), tone: 'amber' },
+            { label: 'Speed', displayValue: formatNumber(speed), unit: 'km/h', ratio: (speed ?? 0) / speedMax, tone: 'blue', maxLabel: formatNumber(speedMax, 0) },
+            { label: 'Battery', displayValue: formatNumber(battery, 0), unit: '%', ratio: (battery ?? 0) / 100, tone: 'green', maxLabel: '100' },
+            { label: 'Power', displayValue: formatNumber(power, 0), unit: 'W', ratio: Math.abs(power ?? 0) / powerMax, tone: 'orange', maxLabel: formatNumber(powerMax, 0) },
+            { label: 'Efficiency', displayValue: formatNumber(efficiency), unit: 'km/kWh', ratio: (efficiency ?? 0) / efficiencyMax, tone: 'teal', maxLabel: formatNumber(efficiencyMax, 0) },
+            {
+                label: 'G force',
+                displayValue: formatNumber(g, 2),
+                unit: 'g',
+                ratio: Math.abs(g ?? 0) / GAUGE_MAX_G,
+                tone: 'amber',
+                maxLabel: formatNumber(GAUGE_MAX_G, 1),
+                kind: 'g-force',
+                lateralG: latest()?.g_lateral,
+                longitudinalG: latest()?.g_longitudinal,
+            },
         ];
     });
-    return <Instrument kicker="Glance instruments" title="Live performance gauges" meta="CSS-rendered · no animation per sample">
-        <div class="ev-gauge-bank"><For each={gauges()}>{(gauge) => <div data-tone={gauge.tone}>
-            <div class="ev-gauge-dial" style={{ '--ev-gauge-value': `${Math.max(0, Math.min(1, gauge.ratio)) * 100}%` }}><i /></div>
-            <strong>{gauge.display}</strong><span>{gauge.label}</span>
-        </div>}</For></div>
+    return <Instrument kicker="Glance instruments" title="Live performance gauges">
+        <div class="ev-gauge-bank"><For each={gauges()}>{(gauge) => (
+            <Show when={gauge.kind === 'g-force'} fallback={<DialGauge gauge={gauge} />}>
+                <GForceGauge gauge={gauge} />
+            </Show>
+        )}</For></div>
     </Instrument>;
 };
 

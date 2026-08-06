@@ -417,16 +417,32 @@ button.ev-signal-node { cursor: pointer; }
 .ev-integrity-alerts p { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--ev-line); color: var(--ev-muted); font-size: 10px; }
 .ev-integrity-alerts p::before { content: ""; width: 6px; height: 6px; margin-right: 9px; display: inline-block; background: var(--ev-amber); }
 
-.ev-gauge-bank { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--ev-line); border: 1px solid var(--ev-line); }
-.ev-gauge-bank > div { --gauge-tone: var(--ev-white); min-width: 0; padding: 18px 10px; display: grid; justify-items: center; background: var(--ev-instrument); }
-.ev-gauge-bank > div[data-tone="green"] { --gauge-tone: var(--ev-green); }
-.ev-gauge-bank > div[data-tone="teal"] { --gauge-tone: var(--ev-teal); }
-.ev-gauge-bank > div[data-tone="orange"] { --gauge-tone: var(--ev-orange); }
-.ev-gauge-bank > div[data-tone="amber"] { --gauge-tone: var(--ev-amber); }
-.ev-gauge-dial { width: min(92px, 80%); aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(var(--gauge-tone) var(--ev-gauge-value), var(--ev-graphite) 0); transform: rotate(-135deg); clip-path: polygon(0 0, 100% 0, 100% 78%, 50% 50%, 0 78%); }
-.ev-gauge-dial i { width: 76%; aspect-ratio: 1; border-radius: 50%; background: var(--ev-instrument); }
-.ev-gauge-bank strong { margin-top: -7px; overflow: hidden; max-width: 100%; font: 600 13px "Space Grotesk", monospace; text-overflow: ellipsis; white-space: nowrap; }
-.ev-gauge-bank span { margin-top: 5px; color: var(--ev-quiet); font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.ev-gauge-bank { min-width: 0; overflow: hidden; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--ev-line); border: 1px solid var(--ev-line); }
+.ev-gauge-cell { --gauge-tone: var(--ev-white); min-width: 0; min-height: 174px; overflow: hidden; padding: 13px clamp(5px, 1vw, 14px) 12px; display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; align-items: center; background: var(--ev-instrument); }
+.ev-gauge-cell[data-tone="blue"] { --gauge-tone: #1f77b4; }
+.ev-gauge-cell[data-tone="green"] { --gauge-tone: var(--ev-green); }
+.ev-gauge-cell[data-tone="teal"] { --gauge-tone: #6a51a3; }
+.ev-gauge-cell[data-tone="orange"] { --gauge-tone: #f59e0b; }
+.ev-gauge-cell[data-tone="amber"] { --gauge-tone: var(--ev-amber); }
+.ev-gauge-face { width: min(100%, 190px); min-width: 0; aspect-ratio: 180 / 126; position: relative; }
+.ev-gauge-face svg { width: 100%; height: 100%; overflow: visible; display: block; }
+.ev-gauge-track, .ev-gauge-progress { fill: none; stroke-width: 10; stroke-linecap: round; }
+.ev-gauge-track { stroke: var(--ev-graphite); }
+.ev-gauge-progress { stroke: var(--gauge-tone); }
+.ev-gauge-tick { stroke: var(--ev-line-strong); stroke-width: 1; }
+.ev-gauge-tick.major { stroke: var(--ev-muted); stroke-width: 1.8; }
+.ev-gauge-needle { stroke: var(--gauge-tone); stroke-width: 3; stroke-linecap: round; }
+.ev-gauge-hub { fill: var(--ev-instrument); stroke: var(--gauge-tone); stroke-width: 3; }
+.ev-gauge-scale { fill: var(--ev-quiet); font: 600 7px "Space Grotesk", monospace; font-variant-numeric: tabular-nums; }
+.ev-gauge-readout { max-width: 74%; position: absolute; left: 50%; bottom: 12%; display: flex; align-items: baseline; justify-content: center; gap: 4px; transform: translateX(-50%); white-space: nowrap; }
+.ev-gauge-readout strong { min-width: 0; overflow: hidden; color: var(--ev-white); font: 650 clamp(12px, 1.15vw, 18px)/1 "Space Grotesk", monospace; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.ev-gauge-readout small { color: var(--ev-muted); font: 650 clamp(6px, .52vw, 8px)/1 "Space Grotesk", monospace; letter-spacing: .04em; }
+.ev-gauge-label { margin-top: 4px; color: var(--ev-quiet); font-size: 8px; font-weight: 800; letter-spacing: .12em; text-align: center; text-transform: uppercase; }
+.ev-gforce-ring, .ev-gforce-axis { fill: none; stroke: var(--ev-line-strong); stroke-width: 1; }
+.ev-gforce-axis { stroke-dasharray: 2 3; }
+.ev-gforce-point-halo { fill: color-mix(in srgb, var(--gauge-tone) 18%, transparent); }
+.ev-gforce-point { fill: var(--gauge-tone); stroke: var(--ev-instrument); stroke-width: 2; }
+.ev-gauge-readout--gforce { bottom: 2%; padding: 3px 7px; background: color-mix(in srgb, var(--ev-instrument) 88%, transparent); }
 
 .ev-stat-table { min-width: 640px; border: 1px solid var(--ev-line); }
 .ev-stat-table > div { display: grid; grid-template-columns: 1.2fr repeat(3, 1fr); border-bottom: 1px solid var(--ev-line); }
