@@ -225,36 +225,40 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
             <Portal>
                 <div class={`admin-modal ${closing() ? 'closing' : ''}`}>
                     <div class="admin-modal-overlay" onClick={closeModal} />
-                    <div class="admin-modal-content glass-panel">
-                        <button class="admin-modal-close liquid-hover" aria-label="Close" onClick={closeModal}>×</button>
-
+                    <section class="admin-modal-content" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
                         <div class="admin-modal-header">
-                            <h2 class="admin-modal-title">👥 User Management</h2>
-                            <p class="admin-modal-subtitle">Manage user roles and approvals</p>
+                            <div>
+                                <span class="admin-modal-kicker">Access control</span>
+                                <h2 class="admin-modal-title" id="admin-modal-title">User management</h2>
+                                <p class="admin-modal-subtitle">Review access requests, roles, and account status.</p>
+                            </div>
+                            <div class="admin-modal-header-actions"><span>ADMIN SCOPE</span><button class="admin-modal-close" aria-label="Close" onClick={closeModal}>×</button></div>
                         </div>
 
                         <div class="admin-tabs">
                             <button class={`admin-tab ${activeTab() === 'pending' ? 'active' : ''}`} onClick={() => setActiveTab('pending')}>
-                                <span class="admin-tab-icon">⏳</span>
+                                <span class="admin-tab-icon">01</span>
                                 <span class="admin-tab-label">Pending Approvals</span>
                                 <span class="admin-tab-badge">{pendingUsers().length}</span>
                             </button>
                             <button class={`admin-tab ${activeTab() === 'all' ? 'active' : ''}`} onClick={() => setActiveTab('all')}>
-                                <span class="admin-tab-icon">👥</span>
+                                <span class="admin-tab-icon">02</span>
                                 <span class="admin-tab-label">All Users</span>
+                                <span class="admin-tab-badge admin-tab-total">{allUsers().length}</span>
                             </button>
                         </div>
 
                         <div class="admin-content">
                             <div class={`admin-panel ${activeTab() === 'pending' ? 'active' : ''}`} style={{ display: activeTab() === 'pending' ? 'block' : 'none' }}>
-                                <Show when={!loadingPending()} fallback={<div class="admin-loading">Loading...</div>}>
+                                <Show when={!loadingPending()} fallback={<div class="admin-loading"><i aria-hidden="true" />Synchronizing approval queue…</div>}>
                                     <Show when={!pendingError()} fallback={<div class="admin-error"><p>{pendingError()}</p></div>}>
                                         <Show
                                             when={pendingUsers().length > 0}
                                             fallback={
                                                 <div class="admin-empty">
-                                                    <span class="admin-empty-icon">✅</span>
-                                                    <p class="admin-empty-text">No pending approvals</p>
+                                                    <span class="admin-empty-icon" aria-hidden="true">✓</span>
+                                                    <strong>Approval queue clear</strong>
+                                                    <p class="admin-empty-text">There are no access requests waiting for review.</p>
                                                 </div>
                                             }
                                         >
@@ -266,7 +270,7 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                                                         const isConfirming = () => confirmState()?.userId === user.userId;
                                                         return (
                                                             <div
-                                                                class={`admin-user-card glass-panel ${isProcessing() ? 'is-processing' : ''}`}
+                                                                class={`admin-user-card ${isProcessing() ? 'is-processing' : ''}`}
                                                                 style={{ 'border-color': isConfirming() ? 'rgba(239, 68, 68, 0.35)' : undefined }}
                                                             >
                                                                 <div
@@ -298,18 +302,18 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                                                                     }}
                                                                 >
                                                                     <button
-                                                                        class="admin-user-approve liquid-hover"
+                                                                        class="admin-user-approve"
                                                                         disabled={isProcessing()}
                                                                         onClick={() => void approveUser(user)}
                                                                     >
-                                                                        {busyKey() === `${user.userId}:approve` ? 'Approving...' : '✓ Approve'}
+                                                                        {busyKey() === `${user.userId}:approve` ? 'Approving…' : 'Approve'}
                                                                     </button>
                                                                     <button
-                                                                        class="admin-user-reject liquid-hover"
+                                                                        class="admin-user-reject"
                                                                         disabled={isProcessing()}
                                                                         onClick={() => setConfirmState({ userId: user.userId, action: 'reject', prompt: 'Reject this request?' })}
                                                                     >
-                                                                        {busyKey() === `${user.userId}:reject` ? 'Rejecting...' : '× Reject'}
+                                                                        {busyKey() === `${user.userId}:reject` ? 'Rejecting…' : 'Reject'}
                                                                     </button>
                                                                 </div>
 
@@ -318,7 +322,7 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                                                                         <span class="icc-text">{confirmState()?.prompt}</span>
                                                                         <div class="icc-btns">
                                                                             <button class="icc-btn icc-cancel" onClick={() => setConfirmState(null)}>Cancel</button>
-                                                                            <button class="icc-btn icc-yes" onClick={() => void confirmAction()}>Yes</button>
+                                                                            <button class="icc-btn icc-yes" onClick={() => void confirmAction()}>Confirm</button>
                                                                         </div>
                                                                     </div>
                                                                 </Show>
@@ -333,11 +337,11 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                             </div>
 
                             <div class={`admin-panel ${activeTab() === 'all' ? 'active' : ''}`} style={{ display: activeTab() === 'all' ? 'block' : 'none' }}>
-                                <Show when={!loadingAll()} fallback={<div class="admin-loading">Loading...</div>}>
+                                <Show when={!loadingAll()} fallback={<div class="admin-loading"><i aria-hidden="true" />Synchronizing user directory…</div>}>
                                     <Show when={!allError()} fallback={<div class="admin-error"><p>{allError()}</p></div>}>
                                         <div class="admin-all-toolbar">
                                             <div class="admin-search-wrap">
-                                                <span class="admin-search-icon" aria-hidden="true">🔎</span>
+                                                <span class="admin-search-icon" aria-hidden="true">FIND</span>
                                                 <input
                                                     type="search"
                                                     class="admin-search-input"
@@ -352,8 +356,9 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                                             when={filteredAllUsers().length > 0}
                                             fallback={
                                                 <div class="admin-empty">
-                                                    <span class="admin-empty-icon">{allUsers().length === 0 ? '👤' : '🔍'}</span>
-                                                    <p class="admin-empty-text">{allUsers().length === 0 ? 'No users found' : 'No users match your search'}</p>
+                                                    <span class="admin-empty-icon" aria-hidden="true">{allUsers().length === 0 ? '0' : '?'}</span>
+                                                    <strong>{allUsers().length === 0 ? 'Directory empty' : 'No matching accounts'}</strong>
+                                                    <p class="admin-empty-text">{allUsers().length === 0 ? 'No user records are available.' : 'Try a different name, email, role, or status.'}</p>
                                                 </div>
                                             }
                                         >
@@ -366,7 +371,7 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                                                         const isConfirming = () => confirmState()?.userId === user.userId;
                                                         return (
                                                             <div
-                                                                class={`admin-user-card glass-panel ${isProcessing() ? 'is-processing' : ''}`}
+                                                                class={`admin-user-card ${isProcessing() ? 'is-processing' : ''}`}
                                                                 style={{ 'border-color': isConfirming() ? 'rgba(239, 68, 68, 0.35)' : undefined }}
                                                             >
                                                                 <div
@@ -411,7 +416,7 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                                                                     </div>
                                                                     <div class="admin-user-actions admin-user-actions-secondary">
                                                                         <button
-                                                                            class="admin-user-ban liquid-hover"
+                                                                            class="admin-user-ban"
                                                                             disabled={isCurrentUser || isProcessing()}
                                                                             title={isCurrentUser ? 'You cannot ban yourself' : undefined}
                                                                             onClick={() => setConfirmState({ userId: user.userId, action: 'ban', prompt: 'Ban this user?' })}
@@ -419,7 +424,7 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                                                                             {busyKey() === `${user.userId}:ban` ? 'Banning...' : 'Ban'}
                                                                         </button>
                                                                         <button
-                                                                            class="admin-user-delete liquid-hover"
+                                                                            class="admin-user-delete"
                                                                             disabled={isCurrentUser || isProcessing()}
                                                                             title={isCurrentUser ? 'You cannot delete yourself' : undefined}
                                                                             onClick={() => setConfirmState({ userId: user.userId, action: 'delete', prompt: 'Delete permanently?' })}
@@ -434,7 +439,7 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                                                                         <span class="icc-text">{confirmState()?.prompt}</span>
                                                                         <div class="icc-btns">
                                                                             <button class="icc-btn icc-cancel" onClick={() => setConfirmState(null)}>Cancel</button>
-                                                                            <button class="icc-btn icc-yes" onClick={() => void confirmAction()}>Yes</button>
+                                                                            <button class="icc-btn icc-yes" onClick={() => void confirmAction()}>Confirm</button>
                                                                         </div>
                                                                     </div>
                                                                 </Show>
@@ -448,7 +453,7 @@ export function AdminDashboardModal(props: AdminDashboardModalProps): JSX.Elemen
                                 </Show>
                             </div>
                         </div>
-                    </div>
+                    </section>
                 </div>
             </Portal>
         </Show>

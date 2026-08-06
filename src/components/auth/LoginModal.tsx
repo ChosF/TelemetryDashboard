@@ -53,8 +53,8 @@ export function LoginModal(props: LoginModalProps): JSX.Element {
         <LegacyAuthModal
             isOpen={props.isOpen}
             onClose={handleClose}
-            title="Welcome Back"
-            subtitle="Sign in to access your dashboard"
+            title="Welcome back"
+            subtitle="Sign in to access your telemetry workspace."
             footer={(
                 <p class="auth-switch-text">
                     Don't have an account?
@@ -107,10 +107,10 @@ export function LoginModal(props: LoginModalProps): JSX.Element {
                 </div>
 
                 <Show when={error()}>
-                    <div class="auth-error">{error()}</div>
+                    <div class="auth-error" role="alert">{error()}</div>
                 </Show>
 
-                <button type="submit" class="auth-submit-btn liquid-hover" disabled={authStore.isLoading()}>
+                <button type="submit" class="auth-submit-btn" disabled={authStore.isLoading()}>
                     {authStore.isLoading() ? 'Signing in...' : 'Sign In'}
                 </button>
             </form>

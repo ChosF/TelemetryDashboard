@@ -1,4 +1,4 @@
-import { JSX, Show, createEffect } from 'solid-js';
+import { JSX, Show, createEffect, onCleanup } from 'solid-js';
 import { Portal } from 'solid-js/web';
 
 export interface LegacyAuthModalProps {
@@ -21,32 +21,34 @@ export function LegacyAuthModal(props: LegacyAuthModalProps): JSX.Element {
         };
 
         document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
+        onCleanup(() => document.removeEventListener('keydown', handleKeyDown));
     });
 
     return (
         <Show when={props.isOpen}>
             <Portal>
-                <div class="auth-modal">
+                <div class="auth-modal" role="presentation">
                     <div class="auth-modal-overlay" onClick={props.onClose} />
-                    <div class="auth-modal-content glass-panel">
-                        <button class="auth-modal-close liquid-hover" aria-label="Close" onClick={props.onClose}>×</button>
-
+                    <section class="auth-modal-content" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
                         <div class="auth-modal-header">
-                            <h2 class="auth-modal-title">{props.title}</h2>
-                            <Show when={props.subtitle}>
-                                <p class="auth-modal-subtitle">{props.subtitle}</p>
-                            </Show>
+                            <div>
+                                <span class="auth-modal-kicker">Secure workspace</span>
+                                <h2 class="auth-modal-title" id="auth-modal-title">{props.title}</h2>
+                                <Show when={props.subtitle}>
+                                    <p class="auth-modal-subtitle">{props.subtitle}</p>
+                                </Show>
+                            </div>
+                            <button class="auth-modal-close" aria-label="Close" onClick={props.onClose}>×</button>
                         </div>
 
-                        {props.children}
+                        <div class="auth-modal-body">{props.children}</div>
 
                         <Show when={props.footer}>
                             <div class="auth-modal-footer">
                                 {props.footer}
                             </div>
                         </Show>
-                    </div>
+                    </section>
                 </div>
             </Portal>
         </Show>

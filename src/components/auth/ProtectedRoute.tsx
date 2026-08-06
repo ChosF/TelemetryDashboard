@@ -48,20 +48,11 @@ export function ProtectedRoute(props: ProtectedRouteProps): JSX.Element {
     });
 
     const defaultFallback = (
-        <div style={{
-            display: 'flex',
-            'flex-direction': 'column',
-            'align-items': 'center',
-            'justify-content': 'center',
-            height: '100%',
-            'min-height': '200px',
-            color: 'rgba(255,255,255,0.6)',
-            'text-align': 'center',
-            padding: '40px',
-        }}>
-            <div style={{ 'font-size': '48px', 'margin-bottom': '16px' }}>🔒</div>
-            <h3 style={{ 'margin-bottom': '8px', color: 'white' }}>Access Denied</h3>
-            <p style={{ 'font-size': '14px' }}>
+        <div class="auth-access-state">
+            <span class="auth-access-mark" aria-hidden="true">!</span>
+            <span class="auth-modal-kicker">Authorization boundary</span>
+            <h3>Restricted workspace</h3>
+            <p>
                 {props.requireAuth && !authStore.isAuthenticated()
                     ? 'Please sign in to access this content.'
                     : 'You don\'t have permission to access this content.'}

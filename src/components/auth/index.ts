@@ -2,6 +2,8 @@
  * Auth Components Index
  */
 
+import '@/styles/auth-dashboard.css';
+
 export { AuthProvider, useAuth } from './AuthProvider';
 export type { AuthProviderProps } from './AuthProvider';
 

@@ -92,8 +92,8 @@ export function SignupModal(props: SignupModalProps): JSX.Element {
         <LegacyAuthModal
             isOpen={props.isOpen}
             onClose={handleClose}
-            title="Create Account"
-            subtitle="Join the Shell Eco-marathon team"
+            title="Create account"
+            subtitle="Request access to the EcoVolt telemetry workspace."
             footer={(
                 <p class="auth-switch-text">
                     Already have an account?
@@ -107,19 +107,20 @@ export function SignupModal(props: SignupModalProps): JSX.Element {
             <Show
                 when={!success()}
                 fallback={
-                    <div style={{ 'text-align': 'center', padding: '12px 6px' }}>
-                        <div style={{ 'font-size': '48px', 'margin-bottom': '16px' }}>✅</div>
-                        <h3 style={{ 'margin-bottom': '12px' }}>Account Created!</h3>
-                        <p style={{ color: 'var(--text-muted)', 'margin-bottom': '20px' }}>
+                    <div class="auth-success-state">
+                        <span class="auth-success-mark" aria-hidden="true">✓</span>
+                        <span class="auth-modal-kicker">Request transmitted</span>
+                        <h3>Account created</h3>
+                        <p>
                             Your account is pending approval. You'll be notified once approved.
                         </p>
-                        <button onClick={handleClose} class="auth-submit-btn liquid-hover">Close</button>
+                        <button onClick={handleClose} class="auth-submit-btn">Close</button>
                     </div>
                 }
             >
                 <form class="auth-form" onSubmit={handleSubmit}>
                     <Show when={error()}>
-                        <div class="auth-error">{error()}</div>
+                        <div class="auth-error" role="alert">{error()}</div>
                     </Show>
 
                     <div class="form-group">
@@ -199,7 +200,7 @@ export function SignupModal(props: SignupModalProps): JSX.Element {
                         </p>
                     </div>
 
-                    <button type="submit" disabled={authStore.isLoading()} class="auth-submit-btn liquid-hover">
+                    <button type="submit" disabled={authStore.isLoading()} class="auth-submit-btn">
                         {authStore.isLoading() ? 'Creating account...' : 'Create Account'}
                     </button>
                 </form>
