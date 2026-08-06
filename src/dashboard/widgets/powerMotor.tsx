@@ -160,7 +160,7 @@ export const MotorRpmSpeedWidget: Component<WidgetRenderProps> = (props) => (
     <Instrument kicker="Mechanical correlation" title="RPM vs vehicle speed" meta="Synchronized trace">
         <TrendChart rows={props.rows} series={[
             { label: 'Motor RPM', unit: 'rpm', color: C.orange, read: (row) => row.motor_rpm },
-            { label: 'Speed', unit: 'km/h', color: C.white, read: speedKmh },
+            { label: 'Speed', unit: 'km/h', color: C.speed, read: speedKmh },
         ]} />
     </Instrument>
 );

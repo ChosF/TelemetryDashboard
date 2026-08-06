@@ -39,7 +39,7 @@ export const SpeedSummaryWidget: Component<WidgetRenderProps> = (props) => {
 export const SpeedTrendWidget: Component<WidgetRenderProps> = (props) => (
     <Instrument kicker="Velocity trace" title="Speed over time" meta="Synchronized cursor">
         <TrendChart rows={props.rows} series={[
-            { label: 'Speed', unit: 'km/h', color: C.white, read: speedKmh, fill: true },
+            { label: 'Speed', unit: 'km/h', color: C.speed, read: speedKmh, fill: true },
         ]} />
     </Instrument>
 );
@@ -113,7 +113,7 @@ export const EfficiencySummaryWidget: Component<WidgetRenderProps> = (props) => 
 export const SpeedPowerRelationshipWidget: Component<WidgetRenderProps> = (props) => (
     <Instrument kicker="Operating points" title="Speed vs power" meta="Paired telemetry">
         <XYChart rows={props.rows}
-            x={{ label: 'Speed', unit: 'km/h', color: C.white, read: speedKmh }}
+            x={{ label: 'Speed', unit: 'km/h', color: C.speed, read: speedKmh }}
             y={{ label: 'Power', unit: 'W', color: C.orange, read: (row) => row.power_w }}
         />
     </Instrument>
@@ -159,7 +159,7 @@ export const OptimalSpeedWidget: Component<WidgetRenderProps> = (props) => {
         return delta > 0 ? `Ease pace by ${delta.toFixed(1)} km/h.` : `Increase pace by ${Math.abs(delta).toFixed(1)} km/h.`;
     });
     return <Instrument kicker="Evidence-backed strategy" title="Optimal speed recommendation" meta={`${Math.round(confidence() * 100)}% confidence`}>
-        <div class="ev-recommendation">
+        <div class="ev-recommendation" classList={{ 'is-empty': !finiteNumber(target()) }}>
             <div><strong>{formatNumber(target())}</strong><span>km/h target</span></div>
             <p>{guidance()}</p>
             <div class="ev-confidence"><i style={{ width: `${confidence() * 100}%` }} /></div>

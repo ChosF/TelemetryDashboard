@@ -1,6 +1,6 @@
 import { Component, For, Show, createMemo, createSignal } from 'solid-js';
 import type { AlignedData, Options } from 'uplot';
-import { UPlotChart, createSeries, createYAxis } from '@/components/charts';
+import { CHART_COLORS, UPlotChart, createSeries, createYAxis } from '@/components/charts';
 import { telemetryStore } from '@/stores/telemetry';
 import { formatDuration } from '@/lib/utils';
 import type { TelemetryRow } from '@/types/telemetry';
@@ -115,7 +115,7 @@ const VehiclePulseWidget: Component<WidgetRenderProps> = (props) => {
                         <strong>{props.inspectionMode ? 'Inspecting recorded point' : (latest()?.motion_state ?? 'Awaiting motion state')}</strong>
                         <span>{isStale() ? 'Last valid value · stale' : pace().label}</span>
                     </div>
-                    <div class="ev-hero-number">
+                    <div class="ev-hero-number" classList={{ 'is-empty': !finite(latest()?.speed_ms) }}>
                         <span>{formatValue(latest()?.speed_ms, 1, '—')}</span><small>m/s</small>
                     </div>
                     <div class="ev-speed-secondary">
@@ -129,7 +129,7 @@ const VehiclePulseWidget: Component<WidgetRenderProps> = (props) => {
                 </div>
                 <div class="ev-power-block">
                     <div class="ev-label">Electrical power</div>
-                    <div class="ev-power-number">{formatValue(latest()?.power_w, 0, '—')}<small>W</small></div>
+                    <div class="ev-power-number" classList={{ 'is-empty': !finite(latest()?.power_w) }}>{formatValue(latest()?.power_w, 0, '—')}<small>W</small></div>
                     <p>{finite(latest()?.power_w) && latest()!.power_w! < 0 ? 'Regeneration active' : 'Traction and auxiliary load'}</p>
                     <div class="ev-battery-readout">
                         <div><span>Battery condition</span><strong>{formatValue(latest()?.voltage_v, 1, '—')} V · {battery() ?? '—'}%</strong></div>
@@ -181,13 +181,13 @@ const CoreTrendWidget: Component<WidgetRenderProps> = (props) => {
         cursor: { sync: { key: 'ev-live' }, drag: { x: true, y: false } },
         scales: { x: { time: true }, speed: { auto: true }, power: { auto: true }, voltage: { auto: true } },
         axes: [
-            { stroke: 'rgba(250,250,250,.4)', grid: { stroke: 'rgba(250,250,250,.07)' }, font: '10px Space Grotesk' },
-            { ...createYAxis('Speed (m/s)', '#FAFAFA'), scale: 'speed' },
+            { stroke: CHART_COLORS.axis, grid: { stroke: CHART_COLORS.grid }, font: '10px Space Grotesk' },
+            { ...createYAxis('Speed (m/s)', CHART_COLORS.speed), scale: 'speed' },
             { ...createYAxis('Power (W)', '#FF6B35'), scale: 'power', side: 1, grid: { show: false } },
         ],
         series: [
             {},
-            { ...createSeries('Speed', '#FAFAFA'), scale: 'speed' },
+            { ...createSeries('Speed', CHART_COLORS.speed), scale: 'speed' },
             { ...createSeries('Power', '#FF6B35'), scale: 'power' },
             { ...createSeries('Voltage', '#14B8A6'), scale: 'voltage' },
         ],
@@ -289,7 +289,7 @@ const DynamicsAnalysis: Component<WidgetRenderProps> = DynamicsSummaryWidget;
 const TrackAnalysis: Component<WidgetRenderProps> = GpsSummaryWidget;
 const DataIntegrity: Component<WidgetRenderProps> = QualityOverviewWidget;
 const CUSTOM_METRICS = {
-    speed: { label: 'Speed', unit: 'm/s', color: '#FAFAFA', read: (row: TelemetryRow) => row.speed_ms },
+    speed: { label: 'Speed', unit: 'm/s', color: CHART_COLORS.speed, read: (row: TelemetryRow) => row.speed_ms },
     power: { label: 'Power', unit: 'W', color: '#FF6B35', read: (row: TelemetryRow) => row.power_w },
     voltage: { label: 'Voltage', unit: 'V', color: '#14B8A6', read: (row: TelemetryRow) => row.voltage_v },
     current: { label: 'Current', unit: 'A', color: '#F59E0B', read: (row: TelemetryRow) => row.current_a },
@@ -333,7 +333,7 @@ const CustomChart: Component<WidgetRenderProps> = (props) => {
             cursor: { sync: { key: 'ev-live' }, drag: { x: true, y: false } },
             scales: { x: { time: true }, primary: { auto: true }, comparison: { auto: true } },
             axes: [
-                { stroke: 'rgba(250,250,250,.4)', grid: { stroke: 'rgba(250,250,250,.07)' }, font: '10px Space Grotesk' },
+                { stroke: CHART_COLORS.axis, grid: { stroke: CHART_COLORS.grid }, font: '10px Space Grotesk' },
                 { ...createYAxis(`${primary().label} (${primary().unit})`, primary().color), scale: 'primary' },
             ],
             series: [

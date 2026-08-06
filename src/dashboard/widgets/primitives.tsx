@@ -1,10 +1,11 @@
 import { For, Show, createMemo, type Component, type JSX } from 'solid-js';
 import type { AlignedData, Options, Series } from 'uplot';
-import { UPlotChart, createSeries, createYAxis } from '@/components/charts';
+import { CHART_COLORS, UPlotChart, createSeries, createYAxis } from '@/components/charts';
 import type { TelemetryRow } from '@/types/telemetry';
 
 export const INSTRUMENT_COLORS = {
     white: '#FAFAFA',
+    speed: CHART_COLORS.speed,
     orange: '#FF6B35',
     green: '#22C55E',
     teal: '#14B8A6',
@@ -141,8 +142,8 @@ export const TrendChart: Component<{
     const options = createMemo((): Omit<Options, 'width' | 'height'> => {
         const scales: NonNullable<Options['scales']> = { x: { time: true } };
         const axes: NonNullable<Options['axes']> = [{
-            stroke: 'rgba(250,250,250,.42)',
-            grid: { stroke: 'rgba(250,250,250,.065)' },
+            stroke: CHART_COLORS.axis,
+            grid: { stroke: CHART_COLORS.grid },
             font: '10px Space Grotesk',
         }];
         const chartSeries: Series[] = [{}];
@@ -154,7 +155,7 @@ export const TrendChart: Component<{
                 ...createYAxis(`${series.label} (${series.unit})`, series.color),
                 scale,
                 side: index % 2 === 0 ? 1 : 3,
-                grid: index === 0 ? { stroke: 'rgba(250,250,250,.055)' } : { show: false },
+                grid: index === 0 ? { stroke: CHART_COLORS.grid } : { show: false },
             });
             chartSeries.push({
                 ...createSeries(series.label, series.color, {
@@ -198,7 +199,7 @@ export const XYChart: Component<{
     const options = createMemo((): Omit<Options, 'width' | 'height'> => ({
         scales: { x: { time: false, auto: true }, y: { auto: true } },
         axes: [
-            { label: `${props.x.label} (${props.x.unit})`, stroke: 'rgba(250,250,250,.42)', grid: { stroke: 'rgba(250,250,250,.065)' }, font: '10px Space Grotesk' },
+            { label: `${props.x.label} (${props.x.unit})`, stroke: CHART_COLORS.axis, grid: { stroke: CHART_COLORS.grid }, font: '10px Space Grotesk' },
             createYAxis(`${props.y.label} (${props.y.unit})`, props.y.color),
         ],
         series: [

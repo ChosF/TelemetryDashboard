@@ -1,6 +1,6 @@
 import { For, createMemo, createSignal, lazy, type Component } from 'solid-js';
 import type { AlignedData, Options } from 'uplot';
-import { UPlotChart, createSeries, createYAxis } from '@/components/charts';
+import { CHART_COLORS, UPlotChart, createSeries, createYAxis } from '@/components/charts';
 import type { GPSPoint } from '@/components/map/TelemetryMap';
 import { haversineDistance } from '@/lib/historical-utils';
 import type { WidgetRenderProps } from '@/dashboard/types';
@@ -238,7 +238,7 @@ const DistanceProfile: Component<{ rows: TelemetryRow[]; field: 'altitude' | 'sp
     const options = createMemo((): Omit<Options, 'width' | 'height'> => ({
         scales: { x: { time: false, auto: true }, y: { auto: true } },
         axes: [
-            { label: 'Distance (km)', stroke: 'rgba(250,250,250,.42)', grid: { stroke: 'rgba(250,250,250,.065)' }, font: '10px Space Grotesk' },
+            { label: 'Distance (km)', stroke: CHART_COLORS.axis, grid: { stroke: CHART_COLORS.grid }, font: '10px Space Grotesk' },
             createYAxis(`${label()} (${unit()})`, color()),
         ],
         series: [{}, createSeries(label(), color(), { fill: `${color()}18` })],

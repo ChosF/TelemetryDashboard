@@ -17,6 +17,7 @@
   --ev-selected-bg: color-mix(in srgb, var(--ev-orange) 13%, var(--ev-instrument));
   --ev-selected-ring: color-mix(in srgb, var(--ev-orange) 38%, transparent);
   --ev-popover-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --ev-chart-surface: #101010;
   --ev-orange: #ff6b35;
   --ev-green: #22c55e;
   --ev-teal: #14b8a6;
@@ -53,6 +54,7 @@
   --ev-selected-bg: color-mix(in srgb, var(--ev-orange) 11%, var(--ev-instrument));
   --ev-selected-ring: color-mix(in srgb, var(--ev-orange) 28%, transparent);
   --ev-popover-shadow: 0 18px 48px rgba(60, 48, 35, 0.16);
+  --ev-chart-surface: #f7f3ed;
   color-scheme: light;
 }
 
@@ -146,7 +148,7 @@ button.ev-signal-node { cursor: pointer; }
 .ev-signal-node.tone-amber { --tone: var(--ev-amber); }
 .ev-signal-node.tone-red { --tone: var(--ev-red); }
 .ev-signal-node.tone-orange { --tone: var(--ev-orange); }
-.ev-signal-node.tone-quiet { --tone: rgba(250, 250, 250, 0.35); }
+.ev-signal-node.tone-quiet { --tone: var(--ev-quiet); }
 .ev-mode-switch { display: flex; align-items: center; padding-left: 18px; }
 .ev-mode-switch button { min-height: 44px; padding: 0 15px; border: 1px solid var(--ev-line-strong); color: var(--ev-white); background: transparent; font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; }
 .ev-mode-switch button + button { border-left: 0; }
@@ -242,6 +244,7 @@ button.ev-signal-node { cursor: pointer; }
 .ev-tone-quiet .ev-status-light { background: var(--ev-quiet); }
 .ev-hero-number { display: flex; align-items: flex-end; gap: 12px; line-height: 0.76; }
 .ev-hero-number > span { font: 600 clamp(82px, 9vw, 142px)/0.76 "Space Grotesk", monospace; letter-spacing: -0.09em; font-variant-numeric: tabular-nums; }
+.ev-hero-number.is-empty > span { color: var(--ev-quiet); font-size: clamp(42px, 5vw, 72px); letter-spacing: 0; }
 .ev-hero-number small { padding-bottom: 8px; color: var(--ev-muted); font: 600 16px "Space Grotesk", monospace; }
 .ev-speed-secondary { margin-top: 22px; display: flex; justify-content: space-between; gap: 10px; color: var(--ev-muted); font: 500 10px "Space Grotesk", monospace; }
 .ev-speed-secondary > span { text-align: right; }
@@ -250,6 +253,7 @@ button.ev-signal-node { cursor: pointer; }
 .ev-pace-rule b { position: absolute; top: -5px; bottom: -5px; left: 48%; width: 1px; background: var(--ev-orange); }
 .ev-power-block { padding-left: 30px; border-left: 1px solid var(--ev-line); }
 .ev-power-number { margin-top: 12px; font: 600 clamp(48px, 5vw, 72px)/1 "Space Grotesk", monospace; letter-spacing: -0.055em; font-variant-numeric: tabular-nums; }
+.ev-power-number.is-empty { color: var(--ev-quiet); font-size: clamp(30px, 3vw, 46px); letter-spacing: 0; }
 .ev-power-number small { margin-left: 8px; color: var(--ev-muted); font-size: 15px; letter-spacing: 0; }
 .ev-power-block > p { margin: 8px 0 0; color: var(--ev-muted); font-size: 11px; }
 .ev-battery-readout { margin-top: 30px; }
@@ -262,7 +266,7 @@ button.ev-signal-node { cursor: pointer; }
 .ev-track-schematic { padding-top: 18px; }
 .ev-track-schematic svg { width: 100%; height: 92px; }
 .ev-track-base, .ev-track-fill { fill: none; }
-.ev-track-base { stroke: rgba(250, 250, 250, 0.12); stroke-width: 7; }
+.ev-track-base { stroke: var(--ev-line-strong); stroke-width: 7; }
 .ev-track-fill { stroke: var(--ev-cyan); stroke-width: 2; }
 .ev-track-schematic span { color: var(--ev-quiet); font: 500 8px "Space Grotesk", monospace; text-transform: uppercase; letter-spacing: 0.1em; }
 .ev-route-metrics { padding-left: 25px; display: grid; grid-template-columns: 1fr 1fr; align-content: center; gap: 20px; border-left: 1px solid var(--ev-line); }
@@ -303,14 +307,14 @@ button.ev-signal-node { cursor: pointer; }
 .ev-series-toggles { display: flex; flex-wrap: wrap; gap: 5px; }
 .ev-series-toggles button { min-height: 34px; padding: 0 10px; border: 1px solid var(--ev-line); border-radius: 6px; color: var(--ev-muted); background: transparent; font: 600 9px "Space Grotesk", monospace; cursor: pointer; }
 .ev-series-toggles button[aria-pressed="true"] { color: var(--ev-white); border-color: var(--ev-orange); background: var(--ev-selected-bg); box-shadow: inset 0 0 0 1px var(--ev-selected-ring); }
-.ev-core-chart { height: 250px; margin-top: 18px; border-top: 1px solid var(--ev-line); border-bottom: 1px solid var(--ev-line); }
+.ev-core-chart { height: 250px; margin-top: 18px; border-top: 1px solid var(--ev-line); border-bottom: 1px solid var(--ev-line); color: var(--ev-text); background: var(--ev-chart-surface); }
 .ev-chart-summary { margin: 10px 0 0; color: var(--ev-quiet); font: 500 9px "Space Grotesk", monospace; }
 .ev-load-energy > header { padding-bottom: 18px; border-bottom: 1px solid var(--ev-line); }
 .ev-load-grid { min-height: 270px; display: grid; grid-template-columns: 1fr 1fr; }
 .ev-load-grid > div { padding: 20px; }
 .ev-load-grid > div + div { border-left: 1px solid var(--ev-line); }
 .ev-g-stage { position: relative; width: min(160px, 100%); aspect-ratio: 1; margin: 20px auto 14px; border: 1px solid var(--ev-line-strong); background-image: linear-gradient(var(--ev-line) 1px, transparent 1px), linear-gradient(90deg, var(--ev-line) 1px, transparent 1px); background-size: 50% 50%; }
-.ev-g-stage::before, .ev-g-stage::after { content: ""; position: absolute; background: rgba(250, 250, 250, 0.2); }
+.ev-g-stage::before, .ev-g-stage::after { content: ""; position: absolute; background: var(--ev-line-strong); }
 .ev-g-stage::before { left: 50%; top: 0; bottom: 0; width: 1px; }
 .ev-g-stage::after { top: 50%; left: 0; right: 0; height: 1px; }
 .ev-g-stage i { position: absolute; z-index: 2; width: 13px; height: 13px; transform: translate(-50%, -50%); border: 2px solid var(--ev-circuit); background: var(--ev-teal); transition: left 0.25s ease, top 0.25s ease; }
@@ -361,8 +365,10 @@ button.ev-signal-node { cursor: pointer; }
 .ev-metric-cell > strong { margin-top: 12px; overflow: hidden; color: var(--metric-tone); font: 600 clamp(16px, 1.55vw, 24px)/1 "Space Grotesk", monospace; letter-spacing: -.045em; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .ev-metric-cell > small { margin-top: 7px; color: var(--ev-quiet); font: 500 9px/1.4 "Space Grotesk", monospace; }
 
-.ev-instrument-chart { min-width: 0; margin-top: 2px; border-top: 1px solid var(--ev-line); border-bottom: 1px solid var(--ev-line); contain: strict; }
+.ev-instrument-chart { min-width: 0; margin-top: 2px; border-top: 1px solid var(--ev-line); border-bottom: 1px solid var(--ev-line); color: var(--ev-text); background: var(--ev-chart-surface); contain: strict; }
 .ev-instrument-chart .uplot { max-width: 100%; }
+.ev-live .u-legend { color: var(--ev-text); }
+.ev-live .u-value { color: var(--ev-muted); }
 .ev-horizontal-bars { display: grid; gap: 14px; }
 .ev-horizontal-bar { --bar-tone: var(--ev-orange); display: grid; grid-template-columns: minmax(88px, 1fr) minmax(120px, 3fr) minmax(82px, auto); gap: 13px; align-items: center; }
 .ev-horizontal-bar[data-tone="green"] { --bar-tone: var(--ev-green); }
@@ -383,6 +389,7 @@ button.ev-signal-node { cursor: pointer; }
 
 .ev-recommendation > div:first-child { display: flex; align-items: flex-end; gap: 12px; }
 .ev-recommendation > div:first-child strong { font: 600 clamp(56px, 7vw, 96px)/.8 "Space Grotesk", monospace; letter-spacing: -.08em; }
+.ev-recommendation.is-empty > div:first-child strong { color: var(--ev-quiet); font-size: clamp(30px, 4vw, 52px); letter-spacing: 0; }
 .ev-recommendation > div:first-child span { padding-bottom: 6px; color: var(--ev-muted); font: 600 11px "Space Grotesk", monospace; }
 .ev-recommendation > p { margin: 22px 0 12px; color: var(--ev-muted); font-size: 12px; line-height: 1.55; }
 .ev-confidence { height: 5px; margin-bottom: 22px; background: var(--ev-graphite); }
@@ -493,8 +500,6 @@ button.ev-signal-node { cursor: pointer; }
 .ev-live .admin-tab.active { border: 1px solid var(--ev-orange); border-radius: 7px; background: var(--ev-selected-bg); box-shadow: inset 0 0 0 1px var(--ev-selected-ring); }
 .ev-live .admin-tab.active::after { display: none; }
 
-:root[data-theme="light"] .ev-core-chart, :root[data-theme="light"] .ev-instrument-chart { padding: 1px; color: #fafafa; background: #111; }
-:root[data-theme="light"] .ev-core-chart .u-legend { color: #fafafa; }
 :root[data-theme="light"] .ev-widget-frame .maplibregl-map { filter: saturate(0.65) brightness(0.94) contrast(1.04); }
 .ev-dialog-actions { margin-top: 22px; display: flex; justify-content: flex-end; gap: 8px; }
 

@@ -185,9 +185,11 @@ export const CHART_COLORS = {
     gyroZ: '#48dbfb',
     altitude: '#1dd1a1',
     gForce: '#ff6348',
-    grid: 'rgba(255, 255, 255, 0.1)',
-    axis: 'rgba(255, 255, 255, 0.4)',
-    text: 'rgba(255, 255, 255, 0.8)',
+    // Neutral values remain legible on both the dark graphite and warm light
+    // chart surfaces without recreating charts when the theme changes.
+    grid: 'rgba(127, 127, 127, 0.18)',
+    axis: 'rgba(112, 106, 100, 0.78)',
+    text: 'rgba(112, 106, 100, 0.92)',
 };
 
 /**
