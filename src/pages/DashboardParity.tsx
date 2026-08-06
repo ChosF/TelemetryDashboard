@@ -245,6 +245,7 @@ const DashboardParity: Component = () => {
             if (!new URL(window.location.href).searchParams.has('view') && preferred) activateView(preferred, false);
             setLayoutsLoaded(true);
         } catch (error) {
+            loadedForUserId = null;
             setSaveState(navigator.onLine ? 'error' : 'offline');
             setSaveMessage(error instanceof Error ? error.message : 'Could not load dashboard views.');
             setLayoutsLoaded(true);
@@ -575,6 +576,10 @@ const DashboardParity: Component = () => {
         window.location.assign('/dashboard/sessions');
     };
 
+    const openDriverCockpit = () => {
+        window.location.assign(DRIVER_DASHBOARD_HREF);
+    };
+
     const toggleTheme = () => {
         const next: DashboardTheme = theme() === 'dark' ? 'light' : 'dark';
         setTheme(next);
@@ -611,7 +616,7 @@ const DashboardParity: Component = () => {
                         <main class="ev-frame" id="main">
                             <section class="ev-session-header" aria-labelledby="session-heading">
                                 <div><span class="ev-eyebrow">Live telemetry workspace</span><h1 id="session-heading">{telemetryStore.currentSessionName() ?? (telemetryStore.currentSessionId() ? 'Active vehicle session' : 'Waiting for vehicle session')}</h1><p>{telemetryStore.currentSessionId() ? `${telemetryStore.currentSessionId()!.slice(0, 18)} · ${rows().length.toLocaleString()} records` : 'The dashboard is read-only. Start telemetry at the vehicle or bridge.'}</p></div>
-                                <div class="ev-session-actions"><button class="ev-primary-action" onMouseEnter={() => runtime()?.prewarmHistoricalMode()} onFocus={() => runtime()?.prewarmHistoricalMode()} onClick={openHistorical}>Historical Analysis</button><Show when={authStore.userRole() === 'internal' || authStore.userRole() === 'admin'}><a class="ev-secondary-action" href={DRIVER_DASHBOARD_HREF}>Driver cockpit</a></Show><AccountMenu open={accountOpen()} setOpen={setAccountOpen} onLogin={() => setShowLogin(true)} onSignup={() => setShowSignup(true)} onAdmin={() => setShowAdmin(true)} theme={theme()} onToggleTheme={toggleTheme} /></div>
+                                <div class="ev-session-actions"><button class="ev-primary-action" onMouseEnter={() => runtime()?.prewarmHistoricalMode()} onFocus={() => runtime()?.prewarmHistoricalMode()} onClick={openHistorical}>Historical Analysis</button><Show when={authStore.userRole() === 'internal' || authStore.userRole() === 'admin'}><button type="button" class="ev-secondary-action" onClick={openDriverCockpit}>Driver cockpit</button></Show><AccountMenu open={accountOpen()} setOpen={setAccountOpen} onLogin={() => setShowLogin(true)} onSignup={() => setShowSignup(true)} onAdmin={() => setShowAdmin(true)} theme={theme()} onToggleTheme={toggleTheme} /></div>
                             </section>
 
                             <section class="ev-view-toolbar">

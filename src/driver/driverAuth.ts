@@ -19,6 +19,11 @@ interface ProfileRow {
     role?: string;
 }
 
+interface ConvexProfileResponse {
+    status?: 'success' | 'error';
+    value?: ProfileRow | null;
+}
+
 /**
  * Returns whether the current browser session may use the driver cockpit.
  */
@@ -40,9 +45,10 @@ export async function verifyDriverDashboardAccess(): Promise<DriverAccessResult>
             }),
         });
 
-        if (!response.ok) return 'forbidden';
+        if (!response.ok) return 'error';
 
-        const body = (await response.json()) as { value?: ProfileRow | null };
+        const body = (await response.json()) as ConvexProfileResponse;
+        if (body.status !== 'success') return 'error';
         const profile = body.value ?? null;
         if (!profile) return 'forbidden';
 
