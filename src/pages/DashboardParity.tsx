@@ -18,7 +18,7 @@ import { convexClient } from '@/lib/convex';
 import { getTelemetryRecordKey } from '@/lib/utils';
 import { DRIVER_DASHBOARD_HREF } from '@/lib/appEntrypoints';
 import { createOperationalEventStore } from '@/dashboard/events';
-import { SYSTEM_VIEWS, WIDGET_REGISTRY } from '@/dashboard/registry';
+import { SYSTEM_VIEWS, WIDGET_REGISTRY, expandLegacyWidgets } from '@/dashboard/registry';
 import type {
     PersistedDashboardView,
     SystemViewId,
@@ -29,7 +29,7 @@ import '@/styles/live-dashboard.css';
 
 const VIEW_STORAGE_KEY = 'ecovolt-dashboard-views-v1';
 const LAST_VIEW_STORAGE_KEY = 'ecovolt-dashboard-last-view-v1';
-const SYSTEM_VIEW_VERSION = 1;
+const SYSTEM_VIEW_VERSION = 2;
 const LEGACY_CUSTOM_CHART_KEY = 'custom-panel-widgets-v2';
 const LEGACY_IMPORT_VERSION = 1;
 type DashboardTheme = 'dark' | 'light';
@@ -73,7 +73,9 @@ function sanitizeLocalViews(raw: unknown): LocalView[] {
         if (!entry || typeof entry !== 'object') return [];
         const view = entry as Partial<LocalView>;
         if (typeof view.viewKey !== 'string' || typeof view.name !== 'string' || !Array.isArray(view.widgets)) return [];
-        const widgets = view.widgets.filter((widget) => widget && widget.widgetType in WIDGET_REGISTRY).slice(0, 24);
+        const widgets = expandLegacyWidgets(
+            view.widgets.filter((widget) => widget && widget.widgetType in WIDGET_REGISTRY).slice(0, 24),
+        );
         return [{ viewKey: view.viewKey, name: view.name, systemViewId: view.systemViewId, widgets }];
     }).slice(0, 12);
 }
@@ -186,9 +188,9 @@ const DashboardParity: Component = () => {
 
     const visibleCatalog = createMemo(() => {
         const query = catalogSearch().trim().toLowerCase();
-        return Object.values(WIDGET_REGISTRY).filter((definition) => !query
+        return Object.values(WIDGET_REGISTRY).filter((definition) => !definition.catalogHidden && (!query
             || definition.displayName.toLowerCase().includes(query)
-            || definition.description.toLowerCase().includes(query));
+            || definition.description.toLowerCase().includes(query)));
     });
     const switcherViews = createMemo(() => [
         ...SYSTEM_VIEWS.map((view) => ({ key: view.id, label: view.shortLabel, custom: false })),
@@ -227,7 +229,7 @@ const DashboardParity: Component = () => {
             setRemoteViews(views);
             setRemoteLayouts(Object.fromEntries(layouts.map(([key, widgets]) => [
                 key,
-                widgets.map((widget) => ({
+                expandLegacyWidgets(widgets.map((widget) => ({
                     instanceId: widget.instanceId,
                     widgetType: widget.widgetType,
                     column: widget.column,
@@ -236,7 +238,7 @@ const DashboardParity: Component = () => {
                     height: widget.height,
                     pinned: widget.pinned,
                     config: widget.config,
-                })),
+                }))),
             ])));
             const preferred = String(preferences?.lastViewKey ?? preferences?.defaultViewKey ?? '');
             setTheme(preferences?.theme === 'technical-light' ? 'light' : 'dark');

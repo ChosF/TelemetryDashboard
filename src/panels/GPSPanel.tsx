@@ -2,13 +2,17 @@
  * GPSPanel - Legacy-aligned GPS analysis with hardened MapLibre
  */
 
-import { JSX, createMemo, createSignal } from 'solid-js';
-import { TelemetryMap } from '@/components/map';
+import { JSX, createMemo, createSignal, lazy } from 'solid-js';
 import { CHART_COLORS, UPlotChart, createSeries, createYAxis } from '@/components/charts';
 import { haversineDistance } from '@/lib/historical-utils';
 import type { TelemetryRow } from '@/types/telemetry';
-import type { GPSPoint } from '@/components/map';
+import type { GPSPoint } from '@/components/map/TelemetryMap';
 import type { AlignedData, Options } from 'uplot';
+
+const TelemetryMap = lazy(async () => {
+    const module = await import('@/components/map/TelemetryMap');
+    return { default: module.TelemetryMap };
+});
 
 export interface GPSPanelProps {
     data: TelemetryRow[];

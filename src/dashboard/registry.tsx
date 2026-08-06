@@ -1,14 +1,6 @@
 import { Component, For, Show, createMemo, createSignal } from 'solid-js';
 import type { AlignedData, Options } from 'uplot';
 import { UPlotChart, createSeries, createYAxis } from '@/components/charts';
-import { SpeedPanel } from '@/panels/SpeedPanel';
-import { PowerPanel } from '@/panels/PowerPanel';
-import { MotorPanel } from '@/panels/MotorPanel';
-import { IMUPanel } from '@/panels/IMUPanel';
-import { IMUDetailPanel } from '@/panels/IMUDetailPanel';
-import { EfficiencyPanel } from '@/panels/EfficiencyPanel';
-import { GPSPanel } from '@/panels/GPSPanel';
-import { DataPanel } from '@/panels/DataPanel';
 import { telemetryStore } from '@/stores/telemetry';
 import { formatDuration } from '@/lib/utils';
 import type { TelemetryRow } from '@/types/telemetry';
@@ -20,6 +12,59 @@ import type {
     WidgetRenderProps,
     WidgetType,
 } from './types';
+import {
+    AccelerationTrendWidget,
+    EfficiencyBySpeedWidget,
+    EfficiencySummaryWidget,
+    EfficiencyTrendWidget,
+    OptimalSpeedWidget,
+    SpeedDistributionWidget,
+    SpeedPowerRelationshipWidget,
+    SpeedRangesWidget,
+    SpeedSummaryWidget,
+    SpeedTrendWidget,
+} from './widgets/speedEfficiency';
+import {
+    CurrentPeaksWidget,
+    CurrentSpikeLogWidget,
+    EnergyTrendWidget,
+    MotorEnvelopeWidget,
+    MotorPhaseCurrentWidget,
+    MotorRpmSpeedWidget,
+    MotorStatisticsWidget,
+    MotorSummaryWidget,
+    MotorVoltageWidget,
+    PowerSummaryWidget,
+    VoltageCurrentTrendWidget,
+    VoltageStabilityWidget,
+} from './widgets/powerMotor';
+import {
+    AccelerationDetailWidget,
+    AltitudeProfileWidget,
+    AngularHistogramWidget,
+    DynamicsSummaryWidget,
+    ForcePeaksWidget,
+    GpsSummaryWidget,
+    GyroscopeDetailWidget,
+    ImuAxisReadoutWidget,
+    ImuSensorTrendWidget,
+    MotionClassificationWidget,
+    OrientationWidget,
+    RouteMapWidget,
+    RouteSpeedProfileWidget,
+    VibrationWidget,
+} from './widgets/dynamicsTrack';
+import {
+    BridgeHealthWidget,
+    FieldAvailabilityWidget,
+    IntegrityKpisWidget,
+    LiveGaugesWidget,
+    OutlierAnalysisWidget,
+    QualityOverviewWidget,
+    QualityTrendWidget,
+    RawTelemetryWidget,
+    SessionKpisWidget,
+} from './widgets/overviewData';
 
 export function canonicalBatteryPercentage(voltage: number | null | undefined): number | null {
     if (typeof voltage !== 'number' || !Number.isFinite(voltage)) return null;
@@ -234,13 +279,15 @@ const DriverInputsWidget: Component<WidgetRenderProps> = (props) => {
 
 const InputMeter: Component<{ label: string; value: number | null; tone: string }> = (props) => <div class="ev-input-meter"><span>{props.label}</span><div><i class={`tone-${props.tone}`} style={{ width: `${Math.max(0, Math.min(100, props.value ?? 0))}%` }} /></div><strong>{props.value === null ? '—' : `${Math.round(props.value)}%`}</strong></div>;
 
-const SpeedAnalysis: Component<WidgetRenderProps> = (props) => <SpeedPanel data={props.rows} />;
-const EfficiencyAnalysis: Component<WidgetRenderProps> = (props) => <EfficiencyPanel data={props.rows} />;
-const PowerAnalysis: Component<WidgetRenderProps> = (props) => <PowerPanel data={props.rows} />;
-const MotorAnalysis: Component<WidgetRenderProps> = (props) => <MotorPanel data={props.rows} />;
-const DynamicsAnalysis: Component<WidgetRenderProps> = (props) => <><IMUPanel data={props.rows} /><details class="ev-progressive"><summary>Detailed IMU drilldown</summary><IMUDetailPanel data={props.rows} /></details></>;
-const TrackAnalysis: Component<WidgetRenderProps> = (props) => <GPSPanel data={props.rows} />;
-const DataIntegrity: Component<WidgetRenderProps> = (props) => <DataPanel data={props.rows} sessionId={latestOf(props.rows)?.session_id} />;
+// V1 persisted layouts are expanded before rendering. These lightweight
+// fallbacks make stale external payloads safe without mounting a legacy panel.
+const SpeedAnalysis: Component<WidgetRenderProps> = SpeedSummaryWidget;
+const EfficiencyAnalysis: Component<WidgetRenderProps> = EfficiencySummaryWidget;
+const PowerAnalysis: Component<WidgetRenderProps> = PowerSummaryWidget;
+const MotorAnalysis: Component<WidgetRenderProps> = MotorSummaryWidget;
+const DynamicsAnalysis: Component<WidgetRenderProps> = DynamicsSummaryWidget;
+const TrackAnalysis: Component<WidgetRenderProps> = GpsSummaryWidget;
+const DataIntegrity: Component<WidgetRenderProps> = QualityOverviewWidget;
 const CUSTOM_METRICS = {
     speed: { label: 'Speed', unit: 'm/s', color: '#FAFAFA', read: (row: TelemetryRow) => row.speed_ms },
     power: { label: 'Power', unit: 'W', color: '#FF6B35', read: (row: TelemetryRow) => row.power_w },
@@ -327,30 +374,127 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDefinition> = {
     'track-progress': definition('track-progress', 'Track progress', 'Compact route progress and coordinate truth state.', TrackProgressWidget, { categories: ['pit-wall', 'track'], optionalFields: ['latitude', 'longitude', 'route_distance_km'] }),
     attention: definition('attention', 'Attention queue', 'Consolidated operational events with evidence and actions.', AttentionWidget, { importance: 'safety-critical', categories: ['pit-wall', 'vehicle-health'], allowedSizes: ['standard', 'wide'] }),
     'load-energy': definition('load-energy', 'Load & energy', 'Planar G, power path, and instant efficiency.', LoadEnergyWidget, { categories: ['pit-wall', 'dynamics', 'power-energy'], optionalFields: ['g_lateral', 'g_longitudinal', 'power_w'] }),
-    'speed-analysis': definition('speed-analysis', 'Speed analysis', 'Current, average, extrema, acceleration, histogram, and time in range.', SpeedAnalysis, { categories: ['pit-wall', 'efficiency-strategy'], performanceCost: 'medium', importance: 'analysis-only' }),
-    'efficiency-analysis': definition('efficiency-analysis', 'Efficiency strategy', 'Efficiency trends, speed-power relationship, and evidence-backed pace guidance.', EfficiencyAnalysis, { categories: ['efficiency-strategy'], performanceCost: 'medium', importance: 'recommended' }),
-    'power-analysis': definition('power-analysis', 'Power & energy', 'Voltage, current, energy, stability, and current peak analysis.', PowerAnalysis, { categories: ['power-energy'], performanceCost: 'medium', importance: 'recommended' }),
-    'motor-analysis': definition('motor-analysis', 'Motor & CAN', 'RPM, motor voltage/current, phase availability, envelopes, and correlations.', MotorAnalysis, { categories: ['motor-can'], performanceCost: 'medium', optionalFields: ['motor_rpm', 'motor_voltage_v', 'motor_current_a'] }),
+    'session-kpis': definition('session-kpis', 'Session KPIs', 'Distance, speed, energy, voltage, current, power, and efficiency ledger.', SessionKpisWidget, { categories: ['pit-wall', 'efficiency-strategy', 'power-energy'], importance: 'recommended' }),
+    'live-gauges': definition('live-gauges', 'Live performance gauges', 'Lightweight glance instruments for speed, battery, power, efficiency, and G-force.', LiveGaugesWidget, { categories: ['pit-wall', 'driver-inputs'], importance: 'recommended' }),
+    'speed-summary': definition('speed-summary', 'Speed summary', 'Current, average, maximum, and minimum speed.', SpeedSummaryWidget, { categories: ['pit-wall', 'efficiency-strategy', 'driver-inputs'], importance: 'recommended' }),
+    'speed-trend': definition('speed-trend', 'Speed over time', 'Bounded session speed trace.', SpeedTrendWidget, { categories: ['pit-wall', 'efficiency-strategy', 'driver-inputs'], performanceCost: 'medium' }),
+    'acceleration-trend': definition('acceleration-trend', 'Acceleration rate', 'Derived longitudinal acceleration trace.', AccelerationTrendWidget, { categories: ['efficiency-strategy', 'driver-inputs', 'dynamics'], performanceCost: 'medium' }),
+    'speed-distribution': definition('speed-distribution', 'Speed histogram', 'Session speed distribution in adaptive bins.', SpeedDistributionWidget, { categories: ['efficiency-strategy', 'driver-inputs'], performanceCost: 'low' }),
+    'speed-ranges': definition('speed-ranges', 'Time in speed ranges', 'Share of samples in operational pace bands.', SpeedRangesWidget, { categories: ['efficiency-strategy', 'driver-inputs'], performanceCost: 'low' }),
+    'efficiency-summary': definition('efficiency-summary', 'Efficiency summary', 'Instant, accumulated, average, and best efficiency.', EfficiencySummaryWidget, { categories: ['efficiency-strategy', 'power-energy'], importance: 'recommended' }),
+    'speed-power-relationship': definition('speed-power-relationship', 'Speed vs power', 'Paired speed and electrical power operating points.', SpeedPowerRelationshipWidget, { categories: ['efficiency-strategy', 'power-energy'], performanceCost: 'medium' }),
+    'efficiency-trend': definition('efficiency-trend', 'Efficiency over time', 'Instant and accumulated efficiency traces.', EfficiencyTrendWidget, { categories: ['efficiency-strategy'], performanceCost: 'medium' }),
+    'efficiency-by-speed': definition('efficiency-by-speed', 'Efficiency by speed', 'Average instant efficiency by pace band.', EfficiencyBySpeedWidget, { categories: ['efficiency-strategy'], performanceCost: 'low' }),
+    'optimal-speed': definition('optimal-speed', 'Optimal speed', 'Evidence-backed target, confidence, operating band, and action.', OptimalSpeedWidget, { categories: ['efficiency-strategy', 'pit-wall'], importance: 'safety-critical' }),
+    'power-summary': definition('power-summary', 'Power summary', 'Voltage, current, power, peaks, and cumulative energy.', PowerSummaryWidget, { categories: ['power-energy', 'pit-wall'], importance: 'recommended' }),
+    'voltage-current-trend': definition('voltage-current-trend', 'Voltage and current', 'Dual-axis source behavior trace.', VoltageCurrentTrendWidget, { categories: ['power-energy'], performanceCost: 'medium' }),
+    'voltage-stability': definition('voltage-stability', 'Voltage stability', 'Rolling voltage deviation and supply-integrity summary.', VoltageStabilityWidget, { categories: ['power-energy', 'vehicle-health'], performanceCost: 'medium' }),
+    'current-peaks': definition('current-peaks', 'Current peaks', 'Adaptive current transient detection plotted against load.', CurrentPeaksWidget, { categories: ['power-energy', 'vehicle-health'], performanceCost: 'medium' }),
+    'energy-trend': definition('energy-trend', 'Cumulative energy', 'Canonical session energy budget trace.', EnergyTrendWidget, { categories: ['power-energy', 'efficiency-strategy'], performanceCost: 'medium' }),
+    'current-spike-log': definition('current-spike-log', 'Current spike log', 'Timestamped transient evidence and severity.', CurrentSpikeLogWidget, { categories: ['power-energy', 'vehicle-health'] }),
+    'motor-summary': definition('motor-summary', 'Motor state', 'RPM, motor voltage/current, and three phase channels.', MotorSummaryWidget, { categories: ['motor-can'], importance: 'recommended' }),
+    'motor-rpm-speed': definition('motor-rpm-speed', 'RPM vs speed', 'Synchronized mechanical correlation trace.', MotorRpmSpeedWidget, { categories: ['motor-can'], performanceCost: 'medium' }),
+    'motor-phase-current': definition('motor-phase-current', 'Motor phase currents', 'Motor current and phase availability trace.', MotorPhaseCurrentWidget, { categories: ['motor-can'], performanceCost: 'medium' }),
+    'motor-voltage': definition('motor-voltage', 'Motor voltage', 'Motor voltage timeline from CAN.', MotorVoltageWidget, { categories: ['motor-can'], performanceCost: 'medium' }),
+    'motor-envelope': definition('motor-envelope', 'Motor operating envelope', 'Current position relative to session peaks.', MotorEnvelopeWidget, { categories: ['motor-can'], performanceCost: 'low' }),
+    'motor-statistics': definition('motor-statistics', 'Motor statistics', 'Min, average, and peak table for all CAN channels.', MotorStatisticsWidget, { categories: ['motor-can'], minimumViewportBehavior: 'scroll' }),
     'health-summary': definition('health-summary', 'Health summary', 'Freshness, quality, sample rate, dropouts, gaps, and active events.', HealthSummaryWidget, { categories: ['vehicle-health', 'data-integrity'], importance: 'safety-critical' }),
-    'dynamics-analysis': definition('dynamics-analysis', 'Dynamics', 'Planar loads, orientation, vibration, motion state, and progressive IMU drilldown.', DynamicsAnalysis, { categories: ['dynamics'], performanceCost: 'high', importance: 'analysis-only', minimumViewportBehavior: 'disclose' }),
-    'track-analysis': definition('track-analysis', 'Track', 'Detailed MapLibre route, controls, coordinates, altitude, and speed profile.', TrackAnalysis, { categories: ['track'], performanceCost: 'high', importance: 'analysis-only', minimumViewportBehavior: 'disclose' }),
+    'dynamics-summary': definition('dynamics-summary', 'Dynamics summary', 'Maximum G, pitch, roll, and motion classification.', DynamicsSummaryWidget, { categories: ['dynamics'], importance: 'recommended' }),
+    'imu-sensor-trend': definition('imu-sensor-trend', 'IMU sensor overview', 'Bounded six-axis gyroscope and accelerometer trace.', ImuSensorTrendWidget, { categories: ['dynamics'], performanceCost: 'medium' }),
+    orientation: definition('orientation', 'Pitch and roll', 'Vehicle attitude over time.', OrientationWidget, { categories: ['dynamics'], performanceCost: 'medium' }),
+    vibration: definition('vibration', 'Vibration analysis', 'Gravity-compensated acceleration magnitude.', VibrationWidget, { categories: ['dynamics', 'vehicle-health'], performanceCost: 'medium' }),
+    'motion-classification': definition('motion-classification', 'Motion classification', 'Motion, driver mode, throttle, and brake classification.', MotionClassificationWidget, { categories: ['dynamics', 'driver-inputs'] }),
+    'imu-axis-readout': definition('imu-axis-readout', 'IMU axis readout', 'Live gyro, acceleration, total angular, and total G values.', ImuAxisReadoutWidget, { categories: ['dynamics'], importance: 'recommended' }),
+    'gyroscope-detail': definition('gyroscope-detail', 'Gyroscope axes', 'Detailed X, Y, and Z angular velocity.', GyroscopeDetailWidget, { categories: ['dynamics'], performanceCost: 'medium' }),
+    'acceleration-detail': definition('acceleration-detail', 'Accelerometer axes', 'Detailed X, Y, and Z acceleration.', AccelerationDetailWidget, { categories: ['dynamics'], performanceCost: 'medium' }),
+    'force-peaks': definition('force-peaks', 'Force peaks', 'Timestamped acceleration events above 1.2 G.', ForcePeaksWidget, { categories: ['dynamics', 'vehicle-health'] }),
+    'angular-histogram': definition('angular-histogram', 'Angular velocity histogram', 'Distribution of total angular velocity.', AngularHistogramWidget, { categories: ['dynamics'] }),
+    'gps-summary': definition('gps-summary', 'GPS summary', 'Distance, elevation, accuracy, coordinates, altitude, and pace.', GpsSummaryWidget, { categories: ['track'], importance: 'recommended' }),
+    'route-map': definition('route-map', 'Track map', 'MapLibre route with trail, follow, endpoint, and speed-color controls.', RouteMapWidget, { categories: ['track'], performanceCost: 'high', minimumViewportBehavior: 'disclose' }),
+    'altitude-profile': definition('altitude-profile', 'Altitude profile', 'Elevation over cumulative route distance.', AltitudeProfileWidget, { categories: ['track'], performanceCost: 'medium' }),
+    'route-speed-profile': definition('route-speed-profile', 'Speed along route', 'Vehicle pace over cumulative route distance.', RouteSpeedProfileWidget, { categories: ['track'], performanceCost: 'medium' }),
     'driver-inputs': definition('driver-inputs', 'Driver inputs', 'Steering estimate, throttle, and both brake channels.', DriverInputsWidget, { categories: ['driver-inputs'], optionalFields: ['throttle_pct', 'brake_pct', 'brake2_pct'], importance: 'recommended' }),
-    'data-integrity': definition('data-integrity', 'Data integrity', 'Raw table, quality, missing fields, outliers, bridge health, and permission-aware export.', DataIntegrity, { categories: ['data-integrity'], performanceCost: 'high', importance: 'analysis-only', minimumViewportBehavior: 'scroll' }),
+    'quality-overview': definition('quality-overview', 'Quality overview', 'Quality score, record count, sample rate, dropouts, and missing fields.', QualityOverviewWidget, { categories: ['data-integrity', 'vehicle-health'], importance: 'safety-critical' }),
+    'bridge-health': definition('bridge-health', 'Bridge and stream', 'Connection, freshness, message count, errors, latency, gaps, and span.', BridgeHealthWidget, { categories: ['data-integrity', 'vehicle-health'], importance: 'safety-critical' }),
+    'outlier-analysis': definition('outlier-analysis', 'Outlier analysis', 'Severity, field frequency, reasons, and recent timeline.', OutlierAnalysisWidget, { categories: ['data-integrity', 'vehicle-health'] }),
+    'integrity-kpis': definition('integrity-kpis', 'Integrity counters', 'Duplicates, anomalies, dropouts, maximum gap, and alerts.', IntegrityKpisWidget, { categories: ['data-integrity', 'vehicle-health'] }),
+    'quality-trend': definition('quality-trend', 'Quality score trend', 'Windowed quality calculation across the session.', QualityTrendWidget, { categories: ['data-integrity'], performanceCost: 'medium' }),
+    'field-availability': definition('field-availability', 'Field availability', 'Per-field schema coverage and missing-data severity.', FieldAvailabilityWidget, { categories: ['data-integrity'], minimumViewportBehavior: 'scroll' }),
+    'raw-telemetry': definition('raw-telemetry', 'Raw telemetry', 'Permission-aware export and paginated raw records.', RawTelemetryWidget, { categories: ['data-integrity'], performanceCost: 'high', importance: 'analysis-only', minimumViewportBehavior: 'scroll' }),
     'custom-chart': definition('custom-chart', 'Custom chart studio', 'Live chart metrics, comparison series, windows, styles, presets, and summary statistics.', CustomChart, { categories: ['pit-wall', 'efficiency-strategy', 'power-energy', 'motor-can', 'vehicle-health', 'dynamics', 'track', 'driver-inputs', 'data-integrity'], performanceCost: 'high', importance: 'analysis-only' }),
+    'speed-analysis': definition('speed-analysis', 'Legacy speed bundle', 'Automatically expanded into granular speed instruments.', SpeedAnalysis, { categories: ['efficiency-strategy'], catalogHidden: true }),
+    'efficiency-analysis': definition('efficiency-analysis', 'Legacy efficiency bundle', 'Automatically expanded into granular efficiency instruments.', EfficiencyAnalysis, { categories: ['efficiency-strategy'], catalogHidden: true }),
+    'power-analysis': definition('power-analysis', 'Legacy power bundle', 'Automatically expanded into granular power instruments.', PowerAnalysis, { categories: ['power-energy'], catalogHidden: true }),
+    'motor-analysis': definition('motor-analysis', 'Legacy motor bundle', 'Automatically expanded into granular motor instruments.', MotorAnalysis, { categories: ['motor-can'], catalogHidden: true }),
+    'dynamics-analysis': definition('dynamics-analysis', 'Legacy dynamics bundle', 'Automatically expanded into granular dynamics instruments.', DynamicsAnalysis, { categories: ['dynamics'], catalogHidden: true }),
+    'track-analysis': definition('track-analysis', 'Legacy track bundle', 'Automatically expanded into granular track instruments.', TrackAnalysis, { categories: ['track'], catalogHidden: true }),
+    'data-integrity': definition('data-integrity', 'Legacy data bundle', 'Automatically expanded into granular data-integrity instruments.', DataIntegrity, { categories: ['data-integrity'], catalogHidden: true }),
 };
 
 function widget(instanceId: string, widgetType: WidgetType, width: number, row: number, height = 2): WidgetLayout {
     return { instanceId, widgetType, column: 0, row, width, height, pinned: widgetType === 'vehicle-pulse' || widgetType === 'attention', config: {} };
 }
 
+const LEGACY_EXPANSIONS: Partial<Record<WidgetType, Array<{ type: WidgetType; width: number; height?: number }>>> = {
+    'speed-analysis': [
+        { type: 'speed-summary', width: 12 }, { type: 'speed-trend', width: 8 }, { type: 'acceleration-trend', width: 4 },
+        { type: 'speed-distribution', width: 6 }, { type: 'speed-ranges', width: 6 },
+    ],
+    'efficiency-analysis': [
+        { type: 'efficiency-summary', width: 12 }, { type: 'speed-power-relationship', width: 7 }, { type: 'optimal-speed', width: 5 },
+        { type: 'efficiency-trend', width: 7 }, { type: 'efficiency-by-speed', width: 5 },
+    ],
+    'power-analysis': [
+        { type: 'power-summary', width: 12 }, { type: 'voltage-current-trend', width: 8 }, { type: 'voltage-stability', width: 4 },
+        { type: 'current-peaks', width: 6 }, { type: 'energy-trend', width: 6 }, { type: 'current-spike-log', width: 12 },
+    ],
+    'motor-analysis': [
+        { type: 'motor-summary', width: 12 }, { type: 'motor-rpm-speed', width: 6 }, { type: 'motor-phase-current', width: 6 },
+        { type: 'motor-voltage', width: 6 }, { type: 'motor-envelope', width: 6 }, { type: 'motor-statistics', width: 12 },
+    ],
+    'dynamics-analysis': [
+        { type: 'dynamics-summary', width: 12 }, { type: 'imu-sensor-trend', width: 12 }, { type: 'orientation', width: 6 },
+        { type: 'vibration', width: 6 }, { type: 'motion-classification', width: 5 }, { type: 'imu-axis-readout', width: 7 },
+        { type: 'gyroscope-detail', width: 6 }, { type: 'acceleration-detail', width: 6 }, { type: 'force-peaks', width: 6 },
+        { type: 'angular-histogram', width: 6 },
+    ],
+    'track-analysis': [
+        { type: 'gps-summary', width: 12 }, { type: 'route-map', width: 12, height: 4 },
+        { type: 'altitude-profile', width: 6 }, { type: 'route-speed-profile', width: 6 },
+    ],
+    'data-integrity': [
+        { type: 'quality-overview', width: 6 }, { type: 'bridge-health', width: 6 }, { type: 'integrity-kpis', width: 5 },
+        { type: 'outlier-analysis', width: 7 }, { type: 'quality-trend', width: 6 }, { type: 'field-availability', width: 6 },
+        { type: 'raw-telemetry', width: 12, height: 6 },
+    ],
+};
+
+/** Expand v1 panel-sized widgets without discarding a user's saved ordering. */
+export function expandLegacyWidgets(layout: WidgetLayout[]): WidgetLayout[] {
+    return layout.flatMap((entry, legacyIndex) => {
+        const expansion = LEGACY_EXPANSIONS[entry.widgetType];
+        if (!expansion) return [entry];
+        return expansion.map((replacement, replacementIndex) => ({
+            ...entry,
+            instanceId: `${entry.instanceId}-${replacement.type}`.slice(0, 80),
+            widgetType: replacement.type,
+            width: replacement.width,
+            height: replacement.height ?? 2,
+            row: entry.row + legacyIndex + replacementIndex,
+            pinned: false,
+            config: {},
+        }));
+    }).slice(0, 24);
+}
+
 export const SYSTEM_VIEWS: DashboardViewDefinition[] = [
-    { id: 'pit-wall', label: 'Pit Wall', shortLabel: 'Pit Wall', description: 'Immediate vehicle state and intervention queue.', widgets: [widget('pit-pulse', 'vehicle-pulse', 8, 0, 3), widget('pit-attention', 'attention', 4, 0, 3), widget('pit-trend', 'core-trend', 8, 3, 2), widget('pit-load', 'load-energy', 4, 3, 2)] },
-    { id: 'efficiency-strategy', label: 'Efficiency Strategy', shortLabel: 'Efficiency', description: 'Pace recommendation, evidence, energy budget, and efficiency analysis.', widgets: [widget('efficiency-pulse', 'vehicle-pulse', 5, 0, 2), widget('efficiency-analysis', 'efficiency-analysis', 7, 0, 4), widget('efficiency-speed', 'speed-analysis', 12, 4, 4)] },
-    { id: 'power-energy', label: 'Power & Energy', shortLabel: 'Power', description: 'Electrical state, load behavior, energy, and current peaks.', widgets: [widget('power-summary', 'load-energy', 4, 0, 2), widget('power-analysis', 'power-analysis', 8, 0, 5), widget('power-trend', 'core-trend', 12, 5, 2)] },
-    { id: 'motor-can', label: 'Motor & CAN', shortLabel: 'Motor', description: 'Motor RPM, voltage, current, phase channels, and operating envelope.', widgets: [widget('motor-analysis', 'motor-analysis', 12, 0, 6)] },
-    { id: 'vehicle-health', label: 'Vehicle Health', shortLabel: 'Health', description: 'Consolidated system availability, anomalies, freshness, and unresolved events.', widgets: [widget('health-summary', 'health-summary', 8, 0, 2), widget('health-attention', 'attention', 4, 0, 3), widget('health-data', 'data-integrity', 12, 3, 6)] },
-    { id: 'dynamics', label: 'Dynamics', shortLabel: 'Dynamics', description: 'Planar G, attitude, vibration, classification, and IMU drilldown.', widgets: [widget('dynamics-load', 'load-energy', 4, 0, 2), widget('dynamics-analysis', 'dynamics-analysis', 8, 0, 6)] },
-    { id: 'track', label: 'Track', shortLabel: 'Track', description: 'Schematic progress plus detailed GPS truth and route profiles.', widgets: [widget('track-progress', 'track-progress', 4, 0, 2), widget('track-analysis', 'track-analysis', 8, 0, 6)] },
-    { id: 'driver-inputs', label: 'Driver Inputs', shortLabel: 'Driver', description: 'Steering estimate, controls, motion context, and response trends.', widgets: [widget('driver-inputs', 'driver-inputs', 5, 0, 3), widget('driver-speed', 'speed-analysis', 7, 0, 5)] },
-    { id: 'data-integrity', label: 'Data Integrity', shortLabel: 'Data', description: 'Raw telemetry, sample quality, missing fields, outliers, and export.', widgets: [widget('data-health', 'health-summary', 12, 0, 2), widget('data-integrity', 'data-integrity', 12, 2, 7)] },
+    { id: 'pit-wall', label: 'Pit Wall', shortLabel: 'Pit Wall', description: 'Immediate vehicle state and intervention queue.', widgets: [widget('pit-pulse', 'vehicle-pulse', 8, 0, 3), widget('pit-attention', 'attention', 4, 0, 3), widget('pit-kpis', 'session-kpis', 12, 3), widget('pit-trend', 'core-trend', 8, 4), widget('pit-load', 'load-energy', 4, 4), widget('pit-gauges', 'live-gauges', 12, 5)] },
+    { id: 'efficiency-strategy', label: 'Efficiency Strategy', shortLabel: 'Efficiency', description: 'Pace recommendation, evidence, energy budget, and efficiency analysis.', widgets: [widget('eff-summary', 'efficiency-summary', 12, 0), widget('eff-optimal', 'optimal-speed', 5, 1), widget('eff-relationship', 'speed-power-relationship', 7, 1), widget('eff-trend', 'efficiency-trend', 7, 2), widget('eff-by-speed', 'efficiency-by-speed', 5, 2), widget('eff-speed-summary', 'speed-summary', 12, 3), widget('eff-speed-trend', 'speed-trend', 8, 4), widget('eff-accel', 'acceleration-trend', 4, 4), widget('eff-distribution', 'speed-distribution', 6, 5), widget('eff-ranges', 'speed-ranges', 6, 5)] },
+    { id: 'power-energy', label: 'Power & Energy', shortLabel: 'Power', description: 'Electrical state, load behavior, energy, stability, and current peaks.', widgets: [widget('power-summary', 'power-summary', 12, 0), widget('power-source', 'voltage-current-trend', 8, 1), widget('power-stability', 'voltage-stability', 4, 1), widget('power-peaks', 'current-peaks', 6, 2), widget('power-energy', 'energy-trend', 6, 2), widget('power-spikes', 'current-spike-log', 12, 3), widget('power-flow', 'load-energy', 6, 4), widget('power-core', 'core-trend', 6, 4)] },
+    { id: 'motor-can', label: 'Motor & CAN', shortLabel: 'Motor', description: 'Motor RPM, voltage, current, phase channels, and operating envelope.', widgets: [widget('motor-summary', 'motor-summary', 12, 0), widget('motor-rpm', 'motor-rpm-speed', 6, 1), widget('motor-phase', 'motor-phase-current', 6, 1), widget('motor-voltage', 'motor-voltage', 6, 2), widget('motor-envelope', 'motor-envelope', 6, 2), widget('motor-stats', 'motor-statistics', 12, 3)] },
+    { id: 'vehicle-health', label: 'Vehicle Health', shortLabel: 'Health', description: 'Consolidated availability, anomalies, freshness, transport, and unresolved events.', widgets: [widget('health-summary', 'health-summary', 6, 0), widget('health-attention', 'attention', 6, 0, 3), widget('health-bridge', 'bridge-health', 6, 1), widget('health-quality', 'quality-overview', 6, 1), widget('health-integrity', 'integrity-kpis', 5, 2), widget('health-outliers', 'outlier-analysis', 7, 2), widget('health-voltage', 'voltage-stability', 6, 3), widget('health-vibration', 'vibration', 6, 3)] },
+    { id: 'dynamics', label: 'Dynamics', shortLabel: 'Dynamics', description: 'Planar G, attitude, vibration, classification, and granular IMU evidence.', widgets: [widget('dyn-summary', 'dynamics-summary', 12, 0), widget('dyn-load', 'load-energy', 4, 1), widget('dyn-axis', 'imu-axis-readout', 8, 1), widget('dyn-overview', 'imu-sensor-trend', 12, 2), widget('dyn-orientation', 'orientation', 6, 3), widget('dyn-vibration', 'vibration', 6, 3), widget('dyn-motion', 'motion-classification', 5, 4), widget('dyn-peaks', 'force-peaks', 7, 4), widget('dyn-gyro', 'gyroscope-detail', 6, 5), widget('dyn-accel', 'acceleration-detail', 6, 5), widget('dyn-histogram', 'angular-histogram', 12, 6)] },
+    { id: 'track', label: 'Track', shortLabel: 'Track', description: 'Route truth, map controls, elevation, position, and pace profiles.', widgets: [widget('track-progress', 'track-progress', 4, 0), widget('track-summary', 'gps-summary', 8, 0), widget('track-map', 'route-map', 12, 1, 4), widget('track-altitude', 'altitude-profile', 6, 2), widget('track-speed', 'route-speed-profile', 6, 2)] },
+    { id: 'driver-inputs', label: 'Driver Inputs', shortLabel: 'Driver', description: 'Steering, controls, classification, speed response, and pace occupancy.', widgets: [widget('driver-inputs', 'driver-inputs', 5, 0, 3), widget('driver-motion', 'motion-classification', 7, 0), widget('driver-speed-summary', 'speed-summary', 12, 1), widget('driver-speed', 'speed-trend', 8, 2), widget('driver-accel', 'acceleration-trend', 4, 2), widget('driver-distribution', 'speed-distribution', 6, 3), widget('driver-ranges', 'speed-ranges', 6, 3), widget('driver-gauges', 'live-gauges', 12, 4)] },
+    { id: 'data-integrity', label: 'Data Integrity', shortLabel: 'Data', description: 'Quality, transport, missing fields, outliers, alerts, raw records, and export.', widgets: [widget('data-quality', 'quality-overview', 6, 0), widget('data-bridge', 'bridge-health', 6, 0), widget('data-integrity', 'integrity-kpis', 5, 1), widget('data-outliers', 'outlier-analysis', 7, 1), widget('data-trend', 'quality-trend', 6, 2), widget('data-fields', 'field-availability', 6, 2), widget('data-raw', 'raw-telemetry', 12, 3, 7)] },
 ];

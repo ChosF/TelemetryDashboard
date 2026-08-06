@@ -92,7 +92,8 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             'vendor-solid': ['solid-js', '@solidjs/router'],
             'vendor-charts': ['uplot'],
-            'vendor-map': ['maplibre-gl'],
+            // MapLibre is intentionally left out of a manual chunk so the
+            // lazy Track/legacy map components keep it off the critical path.
             'vendor-table': ['@tanstack/solid-table'],
             'vendor-ably': ['ably'],
           },
