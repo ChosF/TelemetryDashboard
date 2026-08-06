@@ -485,7 +485,8 @@ button.ev-signal-node { cursor: pointer; }
 .ev-dialog > header { min-height: 68px; padding: 0 20px 0 25px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--ev-line); }
 .ev-dialog h2 { margin: 0; font-size: 22px; }
 .ev-dialog > header p { margin: 5px 0 0; color: var(--ev-muted); font-size: 10px; }
-.ev-dialog > header button { width: 44px; height: 44px; border: 0; color: var(--ev-white); background: transparent; font-size: 24px; cursor: pointer; }
+.ev-dialog > header button { width: 38px; height: 38px; padding: 0; display: grid; place-items: center; border: 1px solid var(--ev-line-strong); border-radius: 7px; color: var(--ev-white); background: transparent; font: 700 18px/1 "Space Grotesk", monospace; cursor: pointer; }
+.ev-dialog > header button:hover { border-color: var(--ev-orange); color: var(--ev-orange); background: var(--ev-selected-bg); }
 .ev-dialog > .ev-dialog-content { padding: 24px; }
 .ev-dialog-wide > .ev-dialog-content { min-height: 0; padding: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .ev-field { display: grid; gap: 7px; color: var(--ev-muted); font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
@@ -498,10 +499,10 @@ button.ev-signal-node { cursor: pointer; }
 .ev-catalog-workspace { min-height: 0; display: grid; grid-template-columns: 205px minmax(0, 1fr); }
 .ev-catalog-nav { min-height: 0; overflow-y: auto; padding: 18px 12px; display: flex; flex-direction: column; gap: 3px; border-right: 1px solid var(--ev-line); background: var(--ev-circuit); }
 .ev-catalog-nav > span { padding: 0 10px 9px; color: var(--ev-quiet); font-size: 8px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
-.ev-catalog-nav button { min-height: 44px; padding: 7px 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 1px solid transparent; color: var(--ev-muted); background: transparent; text-align: left; cursor: pointer; }
+.ev-catalog-nav button { min-height: 44px; padding: 7px 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 0; border-radius: 0; color: var(--ev-muted); background: transparent; text-align: left; cursor: pointer; }
 .ev-catalog-nav button strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .ev-catalog-nav button small { color: var(--ev-quiet); font: 600 8px "Space Grotesk", monospace; }
-.ev-catalog-nav button.active { color: var(--ev-white); border-color: var(--ev-orange); background: var(--ev-selected-bg); box-shadow: inset 3px 0 0 var(--ev-orange); }
+.ev-catalog-nav button.active { color: var(--ev-white); background: var(--ev-selected-bg); box-shadow: inset 3px 0 0 var(--ev-orange); }
 .ev-catalog-nav button.active small { color: var(--ev-orange); }
 .ev-catalog-nav-rule { height: 1px; margin: 9px 10px; background: var(--ev-line); }
 .ev-catalog-results { min-height: 0; overflow-y: auto; padding: 22px 24px 30px; scrollbar-width: thin; }
@@ -534,6 +535,7 @@ button.ev-signal-node { cursor: pointer; }
 .ev-catalog-footer > span { color: var(--ev-muted); font: 500 10px "Space Grotesk", monospace; }
 .ev-catalog-footer > span strong { color: var(--ev-white); }
 .ev-catalog-footer > span em { display: block; margin-top: 4px; color: var(--ev-quiet); font-style: normal; font-size: 8px; text-transform: uppercase; }
+.ev-catalog-footer .ev-catalog-close-action { min-height: 40px; padding: 0 17px; border-radius: 7px; font-size: 10px; font-weight: 800; letter-spacing: .08em; line-height: 1; }
 .ev-choice-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 18px; }
 .ev-choice-row button { min-height: 74px; border: 1px solid var(--ev-line); border-radius: 7px; color: var(--ev-muted); background: var(--ev-circuit); cursor: pointer; }
 .ev-choice-row button.active { color: var(--ev-white); border-color: var(--ev-orange); background: var(--ev-selected-bg); box-shadow: inset 0 0 0 1px var(--ev-selected-ring); }
@@ -647,6 +649,34 @@ button.ev-signal-node { cursor: pointer; }
   .ev-catalog-results > header h3 { font-size: 18px; }
   .ev-widget-catalog { grid-template-columns: 1fr; }
   .ev-catalog-footer { min-height: 60px; padding-inline: 16px; }
+}
+
+@media (min-width: 1400px) {
+  .ev-dialog.ev-dialog-wide { width: min(1560px, calc(100vw - 88px)); height: min(920px, calc(100vh - 64px)); }
+  .ev-dialog-wide > header { min-height: 76px; padding-inline: 30px 24px; }
+  .ev-dialog-wide h2 { font-size: 25px; }
+  .ev-dialog-wide > header p { font-size: 11px; }
+  .ev-catalog-toolbar { min-height: 92px; padding: 18px 30px; }
+  .ev-catalog-search { font-size: 10px; }
+  .ev-catalog-search input { min-height: 48px; font-size: 11px; }
+  .ev-catalog-workspace { grid-template-columns: 240px minmax(0, 1fr); }
+  .ev-catalog-nav { padding: 22px 16px; gap: 5px; }
+  .ev-catalog-nav button { min-height: 48px; padding-inline: 13px; }
+  .ev-catalog-nav button strong { font-size: 11px; }
+  .ev-catalog-nav button small { font-size: 9px; }
+  .ev-catalog-results { padding: 28px 32px 36px; }
+  .ev-catalog-results > header { min-height: 60px; }
+  .ev-catalog-results > header h3 { font-size: 24px; }
+  .ev-catalog-group { margin-top: 22px; }
+  .ev-catalog-group-heading { min-height: 51px; }
+  .ev-catalog-group-heading h4 { font-size: 12px; }
+  .ev-catalog-group-heading p { font-size: 10px; }
+  .ev-widget-catalog { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ev-widget-catalog > button { min-height: 132px; padding: 18px 19px; gap: 10px; }
+  .ev-catalog-card-title strong { font-size: 14px; }
+  .ev-catalog-card-description { font-size: 11px; line-height: 1.5; }
+  .ev-widget-catalog > button small, .ev-widget-catalog > button b { font-size: 8px; }
+  .ev-catalog-footer { min-height: 72px; padding-inline: 30px 24px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

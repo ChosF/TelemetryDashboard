@@ -766,7 +766,7 @@ const WidgetCatalog: Component<{
                 </For>
             </div>
         </div>
-        <footer class="ev-catalog-footer"><span><strong>{props.layout.length}/24</strong> instruments in view<Show when={added() > 0}> · {added()} added now</Show><em>Save the view to keep this draft.</em></span><button class="ev-primary-action" onClick={props.onClose}>{added() > 0 ? 'Done adding' : 'Close'}</button></footer>
+        <footer class="ev-catalog-footer"><span><strong>{props.layout.length}/24</strong> instruments in view<Show when={added() > 0}> · {added()} added now</Show><em>Save the view to keep this draft.</em></span><button class="ev-primary-action ev-catalog-close-action" onClick={props.onClose}>{added() > 0 ? 'Done adding' : 'Close'}</button></footer>
     </Modal>;
 };
 
