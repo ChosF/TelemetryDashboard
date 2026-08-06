@@ -179,7 +179,8 @@ button.ev-signal-node { cursor: pointer; }
 .ev-primary-action { border-color: var(--ev-orange) !important; color: var(--ev-circuit) !important; background: var(--ev-orange) !important; }
 .ev-primary-action:hover { background: #ff4500 !important; }
 .ev-secondary-action:hover, .ev-session-actions button:hover, .ev-customize-actions button:hover { border-color: rgba(255, 107, 53, 0.55); }
-.ev-account-trigger { width: 44px; padding: 0 !important; border-color: rgba(255, 107, 53, 0.45) !important; color: var(--ev-orange) !important; font: 700 13px "Space Grotesk", monospace !important; }
+.ev-account-trigger { width: 44px; padding: 0 !important; display: inline-grid !important; place-items: center; border-color: rgba(255, 107, 53, 0.45) !important; color: var(--ev-orange) !important; font: 700 13px "Space Grotesk", monospace !important; }
+.ev-account-icon { width: 20px; height: 20px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: square; vector-effect: non-scaling-stroke; }
 .ev-account-menu { position: relative; }
 .ev-account-popover { position: absolute; right: 0; top: calc(100% + 9px); z-index: 60; width: 250px; max-height: calc(100vh - 96px); overflow: auto; padding: 16px; display: grid; gap: 8px; border: 1px solid var(--ev-line-strong); background: var(--ev-instrument); box-shadow: var(--ev-popover-shadow); }
 .ev-account-popover strong { font-size: 13px; }
