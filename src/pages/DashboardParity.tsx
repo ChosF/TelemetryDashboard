@@ -72,6 +72,12 @@ function readViewFromUrl(): string {
     }
 }
 
+function navigateToLanding(event: MouseEvent): void {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    window.location.assign(new URL('/', window.location.origin).href);
+}
+
 function makeViewKey(name: string): string {
     const slug = name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'custom';
     return `${slug}-${Math.random().toString(36).slice(2, 8)}`;
@@ -623,7 +629,7 @@ const DashboardParity: Component = () => {
                     <Show when={!api().bootError()} fallback={<StartupFailure message={api().bootError()!} />}>
                         <header class="ev-topbar" aria-label="Telemetry status">
                             <div class="ev-topbar-inner">
-                                <a class="ev-brand" href="/" aria-label="EcoVolt home">
+                                <a class="ev-brand" href="/" aria-label="EcoVolt home" onClick={navigateToLanding}>
                                     <img src="/images/logo.png" alt="" width="756" height="706" decoding="async" />
                                 </a>
                                 <div class="ev-signal-rail" aria-live="polite">
@@ -651,7 +657,7 @@ const DashboardParity: Component = () => {
                                 <div class="ev-customize-actions"><Show when={legacyImportAvailable()}><button onClick={() => void importLegacyCharts()}>Import legacy charts</button></Show><Show when={!editing()} fallback={<><button onClick={() => setShowCatalog(true)}>Add widget</button><button class="ev-primary-action" disabled={saveState() === 'saving'} onClick={() => void saveLayout()}>{saveState() === 'saving' ? 'Saving…' : 'Save view'}</button><button onClick={cancelEditing}>Cancel</button></>}><button onClick={startEditing}>Customize current view</button><details class="ev-view-options"><summary>View options</summary><div><button onClick={() => void setCurrentAsDefault()}>Set as default</button><button onClick={() => void duplicateCurrentView()}>Duplicate view</button><Show when={!systemView()}><button onClick={() => { setRenameViewName(currentViewName()); setShowRenameView(true); }}>Rename</button><button onClick={() => void moveCurrentView(-1)}>Move left</button><button onClick={() => void moveCurrentView(1)}>Move right</button><button class="ev-danger-action" onClick={() => void removeCurrentCustomView()}>Delete view</button></Show><Show when={systemView() && (persistedSystemOverride() || localViews().some((view) => view.systemViewId === systemView()!.id))}><button class="ev-danger-action" onClick={() => void resetCurrentSystemView()}>Reset built-in layout</button></Show></div></details></Show><Show when={saveMessage()}><span class={`ev-save-state state-${saveState()}`}>{saveMessage()}</span></Show></div>
                             </section>
 
-                            <Show when={notice()}>{(currentNotice) => <div class="ev-notice" data-tone={currentNotice().tone} role="status"><span>{currentNotice().message}</span><button aria-label="Dismiss message" onClick={() => setNotice(null)}>×</button></div>}</Show>
+                            <Show when={notice()}>{(currentNotice) => <div class="ev-notice" data-tone={currentNotice().tone} role="status"><span>{currentNotice().message}</span><button class="ev-notice-dismiss" type="button" aria-label="Dismiss message" onClick={() => setNotice(null)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M 3 3 L 13 13 M 13 3 L 3 13" /></svg></button></div>}</Show>
 
                             <section class="ev-widget-grid" aria-label={`${currentViewName()} widgets`}>
                                 <For each={currentLayout()} fallback={<div class="ev-empty-view"><h2>Empty custom view</h2><p>Add a widget to build this workspace. Connection, freshness, session, and attention remain available above.</p><button onClick={() => { startEditing(); setShowCatalog(true); }}>Add first widget</button></div>}>

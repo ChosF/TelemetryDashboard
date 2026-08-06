@@ -206,11 +206,16 @@ button.ev-signal-node { cursor: pointer; }
 .ev-save-state.state-saved { color: var(--ev-green); }
 .ev-save-state.state-error, .ev-save-state.state-conflict { color: var(--ev-red); }
 .ev-save-state.state-offline { color: var(--ev-amber); }
-.ev-notice { --notice-tone: var(--ev-amber); margin: 14px 0; min-height: 44px; padding: 9px 12px 9px 16px; display: flex; justify-content: space-between; align-items: center; border: 1px solid color-mix(in srgb, var(--notice-tone) 38%, var(--ev-line)); border-left: 3px solid var(--notice-tone); background: color-mix(in srgb, var(--notice-tone) 7%, var(--ev-instrument)); color: var(--ev-muted); font-size: 12px; }
+.ev-notice { --notice-tone: var(--ev-amber); margin: 14px 0; min-height: 44px; padding: 9px 9px 9px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 1px solid color-mix(in srgb, var(--notice-tone) 38%, var(--ev-line)); border-left: 3px solid var(--notice-tone); background: color-mix(in srgb, var(--notice-tone) 7%, var(--ev-instrument)); color: var(--ev-muted); font-size: 12px; }
 .ev-notice[data-tone="info"] { --notice-tone: var(--ev-cyan); }
 .ev-notice[data-tone="success"] { --notice-tone: var(--ev-green); }
 .ev-notice[data-tone="error"] { --notice-tone: var(--ev-red); }
-.ev-notice button { width: 36px; height: 36px; border: 0; color: var(--ev-white); background: transparent; font-size: 20px; cursor: pointer; }
+.ev-notice > span { min-width: 0; flex: 1; }
+.ev-notice-dismiss { width: 36px; height: 36px; flex: 0 0 36px; padding: 0; display: inline-grid; place-items: center; align-self: center; border: 0; color: var(--ev-white); background: transparent; cursor: pointer; }
+.ev-notice-dismiss svg { width: 14px; height: 14px; display: block; overflow: visible; }
+.ev-notice-dismiss path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: square; }
+.ev-notice-dismiss:hover { color: var(--notice-tone); background: color-mix(in srgb, var(--notice-tone) 10%, transparent); }
+.ev-notice-dismiss:focus-visible { outline: 1px solid var(--notice-tone); outline-offset: -4px; }
 
 .ev-widget-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); border-left: 1px solid var(--ev-line); }
 .ev-widget-frame { grid-column: span var(--ev-span); min-width: 0; position: relative; border-right: 1px solid var(--ev-line); border-bottom: 1px solid var(--ev-line); background: var(--ev-card-bg); }
@@ -326,9 +331,16 @@ button.ev-signal-node { cursor: pointer; }
 .ev-health-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 27px; background: var(--ev-line); }
 .ev-health-grid .ev-micro-metric { min-height: 77px; padding: 15px; background: var(--ev-instrument); }
 .ev-driver-widget { min-height: 350px; }
-.ev-steering { width: 120px; aspect-ratio: 1; margin: 22px auto; position: relative; border: 2px solid var(--ev-line-strong); border-radius: 50%; }
-.ev-steering i { position: absolute; inset: 12px; border-top: 3px solid var(--ev-orange); border-left: 2px solid var(--ev-line-strong); border-right: 2px solid var(--ev-line-strong); transform-origin: center; }
-.ev-steering span { position: absolute; top: calc(100% + 7px); left: 50%; width: 180px; transform: translateX(-50%); color: var(--ev-muted); font: 500 9px "Space Grotesk", monospace; text-align: center; }
+.ev-steering { width: 136px; margin: 18px auto 34px; position: relative; }
+.ev-steering-wheel { width: 100%; height: auto; display: block; overflow: visible; transform-box: fill-box; transform-origin: center; }
+.ev-steering-rim, .ev-steering-grip, .ev-steering-spokes, .ev-steering-hub, .ev-steering-index { fill: none; vector-effect: non-scaling-stroke; }
+.ev-steering-rim { stroke: var(--ev-line-strong); stroke-width: 5; }
+.ev-steering-grip { stroke: var(--ev-white); stroke-width: 8; stroke-linecap: round; }
+.ev-steering-spokes { stroke: var(--ev-line-strong); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+.ev-steering-hub { fill: var(--ev-instrument); stroke: var(--ev-white); stroke-width: 4; }
+.ev-steering-cap { fill: var(--ev-orange); }
+.ev-steering-index { stroke: var(--ev-orange); stroke-width: 4; stroke-linecap: square; }
+.ev-steering span { position: absolute; top: calc(100% + 2px); left: 50%; width: 180px; transform: translateX(-50%); color: var(--ev-muted); font: 500 9px "Space Grotesk", monospace; text-align: center; }
 .ev-input-meter { display: grid; grid-template-columns: 75px minmax(0, 1fr) 42px; gap: 10px; align-items: center; margin-top: 13px; font-size: 10px; }
 .ev-input-meter > div { height: 10px; background: var(--ev-graphite); }
 .ev-input-meter i { display: block; height: 100%; background: var(--ev-green); }
