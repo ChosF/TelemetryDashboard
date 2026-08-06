@@ -22,6 +22,7 @@ import { SYSTEM_VIEWS, WIDGET_REGISTRY, expandLegacyWidgets } from '@/dashboard/
 import type {
     PersistedDashboardView,
     SystemViewId,
+    WidgetDefinition,
     WidgetLayout,
 } from '@/dashboard/types';
 import type { LegacyNotificationType } from '@/lib/legacyNotifications';
@@ -34,6 +35,19 @@ const LEGACY_CUSTOM_CHART_KEY = 'custom-panel-widgets-v2';
 const LEGACY_IMPORT_VERSION = 1;
 type DashboardTheme = 'dark' | 'light';
 type NoticeTone = 'info' | 'success' | 'warning' | 'error';
+type CatalogScope = 'current' | 'all' | SystemViewId;
+
+const CATALOG_DEFINITIONS = Object.values(WIDGET_REGISTRY).filter((definition) => !definition.catalogHidden);
+const IMPORTANCE_ORDER: Record<WidgetDefinition['importance'], number> = { 'safety-critical': 0, recommended: 1, optional: 2, 'analysis-only': 3 };
+const COST_ORDER: Record<WidgetDefinition['performanceCost'], number> = { low: 0, medium: 1, high: 2 };
+
+function importanceLabel(importance: WidgetDefinition['importance']): string {
+    return { 'safety-critical': 'Operational', recommended: 'Recommended', optional: 'Optional', 'analysis-only': 'Deep analysis' }[importance];
+}
+
+function costLabel(cost: WidgetDefinition['performanceCost']): string {
+    return { low: 'Light compute', medium: 'Moderate compute', high: 'Heavy compute' }[cost];
+}
 
 function readTheme(): DashboardTheme {
     try {
@@ -123,7 +137,6 @@ const DashboardParity: Component = () => {
     const [saveState, setSaveState] = createSignal<'idle' | 'saving' | 'saved' | 'offline' | 'conflict' | 'error'>('idle');
     const [saveMessage, setSaveMessage] = createSignal<string | null>(null);
     const [showCatalog, setShowCatalog] = createSignal(false);
-    const [catalogSearch, setCatalogSearch] = createSignal('');
     const [showCreateView, setShowCreateView] = createSignal(false);
     const [showRenameView, setShowRenameView] = createSignal(false);
     const [renameViewName, setRenameViewName] = createSignal('');
@@ -186,12 +199,6 @@ const DashboardParity: Component = () => {
         return localView()?.widgets ?? [];
     });
 
-    const visibleCatalog = createMemo(() => {
-        const query = catalogSearch().trim().toLowerCase();
-        return Object.values(WIDGET_REGISTRY).filter((definition) => !definition.catalogHidden && (!query
-            || definition.displayName.toLowerCase().includes(query)
-            || definition.description.toLowerCase().includes(query)));
-    });
     const switcherViews = createMemo(() => [
         ...SYSTEM_VIEWS.map((view) => ({ key: view.id, label: view.shortLabel, custom: false })),
         ...(authStore.isAuthenticated() ? remoteViews().filter((view) => view.kind === 'custom').map((view) => ({ key: view.viewKey, label: view.name, custom: true })) : localViews().filter((view) => !view.systemViewId).map((view) => ({ key: view.viewKey, label: view.name, custom: true }))),
@@ -364,11 +371,11 @@ const DashboardParity: Component = () => {
         setDraftLayout((layout) => [...layout, { ...widget, instanceId: `${widget.instanceId}-${Math.random().toString(36).slice(2, 7)}`, pinned: false, row: layout.length }]);
     };
     const addWidget = (widgetType: WidgetLayout['widgetType']) => {
+        if (draftLayout().length >= 24) return;
         setDraftLayout((layout) => [...layout, {
             instanceId: `${widgetType}-${Math.random().toString(36).slice(2, 9)}`,
             widgetType, column: 0, row: layout.length, width: 12, height: 2, pinned: false, config: {},
         }]);
-        setShowCatalog(false);
     };
 
     const saveLayout = async () => {
@@ -642,7 +649,7 @@ const DashboardParity: Component = () => {
                             </section>
                         </main>
 
-                        <Show when={showCatalog()}><Modal title="Add widget" onClose={() => setShowCatalog(false)}><label class="ev-field"><span>Search widget catalog</span><input autofocus value={catalogSearch()} onInput={(event) => setCatalogSearch(event.currentTarget.value)} /></label><div class="ev-widget-catalog"><For each={visibleCatalog()}>{(definition) => <button onClick={() => addWidget(definition.type)}><strong>{definition.displayName}</strong><span>{definition.description}</span><small>{definition.importance} · {definition.performanceCost} cost</small></button>}</For></div></Modal></Show>
+                        <Show when={showCatalog()}><WidgetCatalog currentViewId={systemView()?.id} currentViewName={currentViewName()} layout={draftLayout()} onAdd={addWidget} onClose={() => setShowCatalog(false)} /></Show>
                         <Show when={showCreateView()}><Modal title="Create custom view" onClose={() => setShowCreateView(false)}><label class="ev-field"><span>View name</span><input autofocus maxlength="60" value={newViewName()} onInput={(event) => setNewViewName(event.currentTarget.value)} /></label><div class="ev-choice-row"><button classList={{ active: createMode() === 'clone' }} onClick={() => setCreateMode('clone')}>Clone current view</button><button classList={{ active: createMode() === 'blank' }} onClick={() => setCreateMode('blank')}>Start blank</button></div><div class="ev-dialog-actions"><button onClick={() => setShowCreateView(false)}>Cancel</button><button class="ev-primary-action" onClick={() => void createCustomView()}>Create view</button></div></Modal></Show>
                         <Show when={showRenameView()}><Modal title="Rename custom view" onClose={() => setShowRenameView(false)}><label class="ev-field"><span>View name</span><input autofocus maxlength="60" value={renameViewName()} onInput={(event) => setRenameViewName(event.currentTarget.value)} /></label><div class="ev-dialog-actions"><button onClick={() => setShowRenameView(false)}>Cancel</button><button class="ev-primary-action" onClick={() => void renameCurrentView()}>Save name</button></div></Modal></Show>
 
@@ -674,6 +681,102 @@ const AccountMenu: Component<{ open: boolean; setOpen: (open: boolean) => void; 
     return <div class="ev-account-menu"><button class="ev-account-trigger" aria-label="Account and dashboard preferences" aria-expanded={props.open} onClick={() => props.setOpen(!props.open)}>{authStore.user()?.name?.charAt(0).toUpperCase() ?? authStore.user()?.email?.charAt(0).toUpperCase() ?? 'A'}</button><Show when={props.open}><div class="ev-account-popover"><Show when={authStore.isAuthenticated()} fallback={<><strong>Guest monitoring</strong><span>Sign in to sync views and preferences.</span><button onClick={() => { props.setOpen(false); props.onLogin(); }}>Sign in</button><button onClick={() => { props.setOpen(false); props.onSignup(); }}>Create account</button></>}><strong>{authStore.user()?.name ?? authStore.user()?.email}</strong><span>{authStore.userRole()} · {authStore.user()?.approval_status}</span><Show when={authStore.canAccessAdmin()}><button onClick={() => { props.setOpen(false); props.onAdmin(); }}>User management</button></Show><button onClick={() => void authStore.signOut()}>Sign out</button></Show><button onClick={() => { props.onToggleTheme(); props.setOpen(false); }}>{props.theme === 'dark' ? 'Light theme' : 'Dark theme'}</button></div></Show></div>;
 };
 
-const Modal: Component<{ title: string; onClose: () => void; children: JSX.Element }> = (props) => <div class="ev-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}><section class="ev-dialog" role="dialog" aria-modal="true" aria-label={props.title}><header><h2>{props.title}</h2><button aria-label="Close dialog" onClick={props.onClose}>×</button></header><div>{props.children}</div></section></div>;
+const WidgetCatalog: Component<{
+    currentViewId?: SystemViewId;
+    currentViewName: string;
+    layout: WidgetLayout[];
+    onAdd: (type: WidgetLayout['widgetType']) => void;
+    onClose: () => void;
+}> = (props) => {
+    const [search, setSearch] = createSignal('');
+    const [scope, setScope] = createSignal<CatalogScope>(props.currentViewId ? 'current' : 'all');
+    const [added, setAdded] = createSignal(0);
+    const atLimit = createMemo(() => props.layout.length >= 24);
+    const countInView = (type: WidgetLayout['widgetType']) => props.layout.filter((widget) => widget.widgetType === type).length;
+    const categoryCount = (id: SystemViewId) => CATALOG_DEFINITIONS.filter((definition) => definition.categories.includes(id)).length;
+    const scopeDefinition = createMemo(() => SYSTEM_VIEWS.find((view) => view.id === scope()));
+    const filtered = createMemo(() => {
+        const query = search().trim().toLowerCase();
+        const selectedScope = scope();
+        const requestedScope: 'all' | SystemViewId | undefined = selectedScope === 'current' ? props.currentViewId : selectedScope;
+        return CATALOG_DEFINITIONS
+            .filter((definition) => {
+                if (query) return `${definition.displayName} ${definition.description} ${definition.type} ${definition.categories.join(' ')}`.toLowerCase().includes(query);
+                return requestedScope === 'all' || !requestedScope || definition.categories.includes(requestedScope);
+            })
+            .sort((a, b) => IMPORTANCE_ORDER[a.importance] - IMPORTANCE_ORDER[b.importance]
+                || COST_ORDER[a.performanceCost] - COST_ORDER[b.performanceCost]
+                || a.displayName.localeCompare(b.displayName));
+    });
+    const groups = createMemo(() => {
+        const definitions = filtered();
+        const query = search().trim();
+        if (query) return definitions.length > 0 ? [{ title: 'Search results', detail: `${definitions.length} matching instrument${definitions.length === 1 ? '' : 's'}`, definitions }] : [];
+        const priority = definitions.filter((definition) => definition.importance === 'safety-critical' || definition.importance === 'recommended');
+        const specialist = definitions.filter((definition) => definition.importance === 'optional' || definition.importance === 'analysis-only');
+        return [
+            { title: 'Priority instruments', detail: 'Best starting point for this workspace', definitions: priority },
+            { title: 'Specialist tools', detail: 'Add when the analysis calls for them', definitions: specialist },
+        ].filter((group) => group.definitions.length > 0);
+    });
+    const resultTitle = createMemo(() => {
+        if (search().trim()) return `Results for “${search().trim()}”`;
+        if (scope() === 'current') return `Suggested for ${props.currentViewName}`;
+        if (scope() === 'all') return 'All instruments';
+        return scopeDefinition()?.label ?? 'Instruments';
+    });
+    const add = (definition: WidgetDefinition) => {
+        if (atLimit()) return;
+        props.onAdd(definition.type);
+        setAdded((count) => count + 1);
+    };
+
+    return <Modal wide title="Add widget" description="Choose focused instruments for the current workspace." onClose={props.onClose}>
+        <div class="ev-catalog-toolbar">
+            <label class="ev-catalog-search">
+                <span>Search all widgets</span>
+                <input autofocus type="search" placeholder="Try speed, voltage, GPS, quality…" value={search()} onInput={(event) => setSearch(event.currentTarget.value)} />
+            </label>
+            <span class="ev-catalog-total">{CATALOG_DEFINITIONS.length} instruments</span>
+        </div>
+        <div class="ev-catalog-workspace">
+            <nav class="ev-catalog-nav" aria-label="Widget categories">
+                <span>Browse</span>
+                <Show when={props.currentViewId}><button classList={{ active: scope() === 'current' && !search().trim() }} onClick={() => { setScope('current'); setSearch(''); }}><strong>Suggested</strong><small>{props.currentViewName}</small></button></Show>
+                <button classList={{ active: scope() === 'all' && !search().trim() }} onClick={() => { setScope('all'); setSearch(''); }}><strong>All instruments</strong><small>{CATALOG_DEFINITIONS.length}</small></button>
+                <div class="ev-catalog-nav-rule" />
+                <For each={SYSTEM_VIEWS}>{(view) => <button classList={{ active: scope() === view.id && !search().trim() }} onClick={() => { setScope(view.id); setSearch(''); }}><strong>{view.shortLabel}</strong><small>{categoryCount(view.id)}</small></button>}</For>
+            </nav>
+            <div class="ev-catalog-results">
+                <header><div><span class="ev-eyebrow">Instrument library</span><h3>{resultTitle()}</h3></div><span>{filtered().length} shown</span></header>
+                <For each={groups()} fallback={<div class="ev-catalog-empty"><strong>No matching widgets</strong><span>Try a system name or telemetry field such as power, IMU, or GPS.</span><button onClick={() => setSearch('')}>Clear search</button></div>}>
+                    {(group) => <section class="ev-catalog-group">
+                        <div class="ev-catalog-group-heading"><div><h4>{group.title}</h4><p>{group.detail}</p></div><span>{group.definitions.length}</span></div>
+                        <div class="ev-widget-catalog">
+                            <For each={group.definitions}>{(definition) => {
+                                const present = () => countInView(definition.type);
+                                return <button disabled={atLimit()} classList={{ 'is-present': present() > 0 }} onClick={() => add(definition)} aria-label={`Add ${definition.displayName}`}>
+                                    <span class="ev-catalog-card-title"><strong>{definition.displayName}</strong><i aria-hidden="true">+</i></span>
+                                    <span class="ev-catalog-card-description">{definition.description}</span>
+                                    <span class="ev-catalog-card-meta"><small data-importance={definition.importance}>{importanceLabel(definition.importance)}</small><small>{costLabel(definition.performanceCost)}</small><Show when={present() > 0}><b>{present()} in view</b></Show></span>
+                                </button>;
+                            }}</For>
+                        </div>
+                    </section>}
+                </For>
+            </div>
+        </div>
+        <footer class="ev-catalog-footer"><span><strong>{props.layout.length}/24</strong> instruments in view<Show when={added() > 0}> · {added()} added now</Show><em>Save the view to keep this draft.</em></span><button class="ev-primary-action" onClick={props.onClose}>{added() > 0 ? 'Done adding' : 'Close'}</button></footer>
+    </Modal>;
+};
+
+const Modal: Component<{ title: string; description?: string; wide?: boolean; onClose: () => void; children: JSX.Element }> = (props) => {
+    onMount(() => {
+        const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') props.onClose(); };
+        window.addEventListener('keydown', closeOnEscape);
+        onCleanup(() => window.removeEventListener('keydown', closeOnEscape));
+    });
+    return <div class="ev-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}><section class="ev-dialog" classList={{ 'ev-dialog-wide': props.wide }} role="dialog" aria-modal="true" aria-label={props.title}><header><div><h2>{props.title}</h2><Show when={props.description}><p>{props.description}</p></Show></div><button aria-label="Close dialog" onClick={props.onClose}>×</button></header><div class="ev-dialog-content">{props.children}</div></section></div>;
+};
 
 export default DashboardParity;
