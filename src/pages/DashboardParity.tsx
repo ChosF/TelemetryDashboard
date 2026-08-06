@@ -201,7 +201,6 @@ const DashboardParity: Component = () => {
     const remoteView = createMemo(() => remoteViews().find((view) => view.viewKey === activeViewKey()));
     const localView = createMemo(() => localViews().find((view) => view.viewKey === activeViewKey()));
     const currentViewName = createMemo(() => systemView()?.label ?? remoteView()?.name ?? localView()?.name ?? 'Pit Wall');
-    const currentViewDescription = createMemo(() => systemView()?.description ?? 'A user-defined telemetry workspace.');
     const persistedSystemOverride = createMemo(() => remoteViews().find((view) => view.kind === 'system-override' && view.systemViewId === systemView()?.id));
     const currentLayout = createMemo(() => {
         if (editing()) return draftLayout();
@@ -648,7 +647,6 @@ const DashboardParity: Component = () => {
                             </section>
 
                             <section class="ev-view-toolbar">
-                                <div class="ev-view-copy"><span class="ev-eyebrow">Current operational view</span><h2>{currentViewName()}</h2><p>{currentViewDescription()}</p></div>
                                 <nav class="ev-view-switcher" aria-label="Dashboard views"><For each={switcherViews()}>{(view) => <button classList={{ active: activeViewKey() === view.key, custom: view.custom }} onClick={() => activateView(view.key)}>{view.label}</button>}</For><button class="ev-add-view" onClick={() => setShowCreateView(true)}>+ New view</button></nav>
                                 <div class="ev-customize-actions"><Show when={legacyImportAvailable()}><button onClick={() => void importLegacyCharts()}>Import legacy charts</button></Show><Show when={!editing()} fallback={<><button onClick={() => setShowCatalog(true)}>Add widget</button><button class="ev-primary-action" disabled={saveState() === 'saving'} onClick={() => void saveLayout()}>{saveState() === 'saving' ? 'Saving…' : 'Save view'}</button><button onClick={cancelEditing}>Cancel</button></>}><button onClick={startEditing}>Customize current view</button><details class="ev-view-options"><summary>View options</summary><div><button onClick={() => void setCurrentAsDefault()}>Set as default</button><button onClick={() => void duplicateCurrentView()}>Duplicate view</button><Show when={!systemView()}><button onClick={() => { setRenameViewName(currentViewName()); setShowRenameView(true); }}>Rename</button><button onClick={() => void moveCurrentView(-1)}>Move left</button><button onClick={() => void moveCurrentView(1)}>Move right</button><button class="ev-danger-action" onClick={() => void removeCurrentCustomView()}>Delete view</button></Show><Show when={systemView() && (persistedSystemOverride() || localViews().some((view) => view.systemViewId === systemView()!.id))}><button class="ev-danger-action" onClick={() => void resetCurrentSystemView()}>Reset built-in layout</button></Show></div></details></Show><Show when={saveMessage()}><span class={`ev-save-state state-${saveState()}`}>{saveMessage()}</span></Show></div>
                             </section>

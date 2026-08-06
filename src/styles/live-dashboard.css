@@ -187,9 +187,7 @@ button.ev-signal-node { cursor: pointer; }
 .ev-account-popover button, .ev-account-popover a { min-height: 40px; width: 100%; padding: 0 10px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--ev-line); border-radius: 8px; color: var(--ev-white); background: transparent; text-decoration: none; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
 .ev-account-popover button:hover, .ev-account-popover a:hover { border-color: var(--ev-orange); background: var(--ev-selected-bg); }
 
-.ev-view-toolbar { min-height: 124px; padding: 22px 0; display: grid; grid-template-columns: 230px minmax(0, 1fr) auto; gap: 26px; align-items: center; border-bottom: 1px solid var(--ev-line); }
-.ev-view-copy h2 { margin: 7px 0 4px; font-size: 20px; letter-spacing: -0.035em; }
-.ev-view-copy p { margin: 0; color: var(--ev-muted); font-size: 11px; line-height: 1.5; }
+.ev-view-toolbar { min-height: 88px; padding: 22px 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 26px; align-items: center; border-bottom: 1px solid var(--ev-line); }
 .ev-view-switcher { min-width: 0; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: thin; }
 .ev-view-switcher button { min-height: 40px; flex: 0 0 auto; padding: 0 12px; display: inline-flex; align-items: center; border: 1px solid var(--ev-line); border-radius: 7px; color: var(--ev-muted); background: var(--ev-card-bg); font-size: 9px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
 .ev-view-switcher button.active { color: var(--ev-white); border-color: var(--ev-orange); background: var(--ev-selected-bg); box-shadow: inset 0 0 0 1px var(--ev-selected-ring); }
@@ -545,7 +543,6 @@ button.ev-signal-node { cursor: pointer; }
   .ev-signal-node { padding: 0 11px; }
   .ev-signal-node small { font-size: 8px; }
   .ev-frame { padding-inline: 20px; }
-  .ev-view-toolbar { grid-template-columns: 190px minmax(0, 1fr); }
   .ev-customize-actions { grid-column: 1 / -1; }
   .ev-widget-frame { grid-column: span max(6, var(--ev-span)); }
   .ev-pulse-grid { grid-template-columns: 1fr; }
@@ -580,7 +577,6 @@ button.ev-signal-node { cursor: pointer; }
   .ev-frame { padding: 0 16px 32px; }
   .ev-session-actions { display: grid; grid-template-columns: 1fr 1fr 44px; }
   .ev-session-actions .ev-primary-action { grid-column: span 2; }
-  .ev-view-copy { padding-right: 28px; }
   .ev-view-switcher { margin-inline: -16px; padding-inline: 16px; }
   .ev-customize-actions button { flex: 1 1 145px; }
   .ev-widget-grid { display: flex; flex-direction: column; }
