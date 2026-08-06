@@ -143,6 +143,9 @@ export function TelemetryMap(props: TelemetryMapProps): JSX.Element {
     let startMarker: maplibregl.Marker | undefined;
     let endMarker: maplibregl.Marker | undefined;
     let currentMarker: maplibregl.Marker | undefined;
+    let resizeFrame: number | undefined;
+    let resizeTimer: number | undefined;
+    let disposed = false;
 
     const [isReady, setIsReady] = createSignal(false);
     let lastTrackSignature: string | null = null;
@@ -165,9 +168,18 @@ export function TelemetryMap(props: TelemetryMapProps): JSX.Element {
     );
 
     const scheduleResize = () => {
-        if (!map) return;
-        requestAnimationFrame(() => map?.resize());
-        setTimeout(() => map?.resize(), 80);
+        if (disposed || !map) return;
+        if (resizeFrame === undefined) {
+            resizeFrame = requestAnimationFrame(() => {
+                resizeFrame = undefined;
+                if (!disposed) map?.resize();
+            });
+        }
+        if (resizeTimer !== undefined) window.clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(() => {
+            resizeTimer = undefined;
+            if (!disposed) map?.resize();
+        }, 80);
     };
 
     const updateTrailVisibility = () => {
@@ -200,7 +212,7 @@ export function TelemetryMap(props: TelemetryMapProps): JSX.Element {
         map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
 
         map.on('load', () => {
-            if (!map) return;
+            if (disposed || !map) return;
 
             // Add track source and layer
             map.addSource('track', {
@@ -409,13 +421,19 @@ export function TelemetryMap(props: TelemetryMapProps): JSX.Element {
     };
 
     onCleanup(() => {
+        disposed = true;
         resizeObserver?.disconnect();
         window.removeEventListener('resize', scheduleResize);
+        if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
+        if (resizeTimer !== undefined) window.clearTimeout(resizeTimer);
+        resizeFrame = undefined;
+        resizeTimer = undefined;
         popup?.remove();
         startMarker?.remove();
         endMarker?.remove();
         currentMarker?.remove();
         map?.remove();
+        map = undefined;
     });
 
     return (

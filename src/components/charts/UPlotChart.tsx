@@ -38,6 +38,13 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
     let container: HTMLDivElement | undefined;
     let chart: uPlot | undefined;
     let resizeObserver: ResizeObserver | undefined;
+    let createFrame: number | undefined;
+    let dataFrame: number | undefined;
+    let resizeFrame: number | undefined;
+    let disposed = false;
+    let latestData = props.data;
+    let latestOptions = props.options;
+    let renderedSize: { width: number; height: number } | undefined;
     let optionsInitialized = false;
 
     const sanitizeAlignedData = (input: AlignedData): AlignedData => {
@@ -84,73 +91,104 @@ export function UPlotChart(props: UPlotChartProps): JSX.Element {
     };
 
     // Create chart instance
+    const cancelFrame = (frame: number | undefined) => {
+        if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+
+    const destroyChart = () => {
+        if (!chart) return;
+        chart.destroy();
+        chart = undefined;
+        renderedSize = undefined;
+    };
+
     const createChart = () => {
-        if (!container) return;
+        createFrame = undefined;
+        if (disposed || !container || !container.isConnected) return;
 
         // Dispose existing chart
-        if (chart) {
-            chart.destroy();
-            chart = undefined;
-        }
+        cancelFrame(dataFrame);
+        dataFrame = undefined;
+        destroyChart();
 
         const size = getSize();
         const fullOptions: Options = {
-            ...props.options,
+            ...latestOptions,
             title: undefined,
             width: size.width,
             height: size.height,
         };
 
-        chart = new uPlot(fullOptions, sanitizeAlignedData(props.data), container);
+        chart = new uPlot(fullOptions, sanitizeAlignedData(latestData), container);
+        renderedSize = size;
         props.onCreate?.(chart);
+    };
+
+    const scheduleCreate = () => {
+        cancelFrame(createFrame);
+        createFrame = requestAnimationFrame(createChart);
     };
 
     // Handle resize
     const handleResize = () => {
-        if (!chart || !container) return;
+        resizeFrame = undefined;
+        if (disposed || !chart || !container || !container.isConnected) return;
         const size = getSize();
+        if (renderedSize?.width === size.width && renderedSize.height === size.height) return;
         chart.setSize(size);
+        renderedSize = size;
+    };
+
+    const scheduleResize = () => {
+        if (resizeFrame !== undefined) return;
+        resizeFrame = requestAnimationFrame(handleResize);
+    };
+
+    const updateData = () => {
+        dataFrame = undefined;
+        if (disposed || !chart || !container?.isConnected) return;
+        chart.setData(sanitizeAlignedData(latestData));
     };
 
     onMount(() => {
-        // Initial chart creation
-        createChart();
+        // Yield chart construction until the next paint. If the user switches
+        // views immediately, cleanup cancels this work before uPlot allocates.
+        scheduleCreate();
 
         // Set up resize observer
         if (container && typeof ResizeObserver !== 'undefined') {
-            resizeObserver = new ResizeObserver(() => {
-                // Debounce resize handling
-                requestAnimationFrame(handleResize);
-            });
+            resizeObserver = new ResizeObserver(scheduleResize);
             resizeObserver.observe(container);
         }
     });
 
-    // Reactive data updates - only update data, not entire chart
+    // Coalesce high-frequency telemetry updates into one uPlot update per frame.
     createEffect(() => {
-        const data = props.data;
-        if (chart && data) {
-            chart.setData(sanitizeAlignedData(data));
-        }
+        latestData = props.data;
+        if (!chart || dataFrame !== undefined) return;
+        dataFrame = requestAnimationFrame(updateData);
     });
 
     // Handle options changes (requires chart recreation)
     createEffect(() => {
-        // Track options for reactivity but don't need the value
-        void props.options;
+        latestOptions = props.options;
         if (!optionsInitialized) {
             optionsInitialized = true;
             return;
         }
-        if (chart && container) {
-            // Options changed, need to recreate chart
-            createChart();
-        }
+        if (!disposed) scheduleCreate();
     });
 
     onCleanup(() => {
+        disposed = true;
         resizeObserver?.disconnect();
-        chart?.destroy();
+        cancelFrame(createFrame);
+        cancelFrame(dataFrame);
+        cancelFrame(resizeFrame);
+        createFrame = undefined;
+        dataFrame = undefined;
+        resizeFrame = undefined;
+        destroyChart();
     });
 
     return (
