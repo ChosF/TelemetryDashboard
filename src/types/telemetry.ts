@@ -112,8 +112,13 @@ export interface TelemetryRecord {
     optimal_speed_confidence?: number;
     optimal_speed_data_points?: number;
     optimal_speed_range?: {
-        min_kmh: number;
-        max_kmh: number;
+        min_kmh?: number;
+        max_kmh?: number;
+        efficiency_km_kwh?: number;
+        /** Legacy bridge keys retained while stored live sessions age out. */
+        min?: number;
+        max?: number;
+        efficiency?: number;
     };
 
     // Motion classification

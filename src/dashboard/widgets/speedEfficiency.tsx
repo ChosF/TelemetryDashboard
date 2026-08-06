@@ -152,6 +152,14 @@ export const OptimalSpeedWidget: Component<WidgetRenderProps> = (props) => {
     const target = createMemo(() => latest()?.optimal_speed_kmh);
     const confidence = createMemo(() => Math.max(0, Math.min(1, latest()?.optimal_speed_confidence ?? 0)));
     const current = createMemo(() => latest() ? speedKmh(latest()!) : null);
+    const rangeDetail = createMemo(() => {
+        const range = latest()?.optimal_speed_range;
+        const min = range?.min_kmh ?? range?.min;
+        const max = range?.max_kmh ?? range?.max;
+        return finiteNumber(min) && finiteNumber(max)
+            ? `${min.toFixed(1)}–${max.toFixed(1)} km/h band`
+            : undefined;
+    });
     const guidance = createMemo(() => {
         if (!finiteNumber(target()) || confidence() < 0.3) return 'Collecting enough clean operating points for a recommendation.';
         const delta = (current() ?? target()!) - target()!;
@@ -166,7 +174,7 @@ export const OptimalSpeedWidget: Component<WidgetRenderProps> = (props) => {
             <MetricGrid compact columns={3} metrics={[
                 { label: 'Current pace', value: `${formatNumber(current())} km/h` },
                 { label: 'Target efficiency', value: `${formatNumber(latest()?.optimal_efficiency_km_kwh)} km/kWh` },
-                { label: 'Evidence', value: `${latest()?.optimal_speed_data_points ?? 0} points`, detail: latest()?.optimal_speed_range ? `${latest()!.optimal_speed_range!.min_kmh.toFixed(1)}–${latest()!.optimal_speed_range!.max_kmh.toFixed(1)} km/h band` : undefined },
+                { label: 'Evidence', value: `${latest()?.optimal_speed_data_points ?? 0} points`, detail: rangeDetail() },
             ]} />
         </div>
     </Instrument>;

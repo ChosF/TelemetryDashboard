@@ -266,7 +266,7 @@ const TrackProgressWidget: Component<WidgetRenderProps> = (props) => {
 };
 
 const HealthSummaryWidget: Component<WidgetRenderProps> = (props) => {
-    // Use the dashboard's deferred row snapshot. Reading the store-level memo
+    // Use the dashboard's sampled row snapshot. Reading the store-level memo
     // here would bypass view scheduling and recompute the full report for every
     // incoming Ably packet.
     const report = createMemo(() => computeDataQualityReport(props.rows));

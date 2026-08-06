@@ -891,9 +891,9 @@ class TelemetryCalculator:
         
         if optimal_bucket:
             result["optimal_speed_range"] = {
-                "min": optimal_bucket[0],
-                "max": optimal_bucket[1],
-                "efficiency": round(best_efficiency, 2)
+                "min_kmh": optimal_bucket[0],
+                "max_kmh": optimal_bucket[1],
+                "efficiency_km_kwh": round(best_efficiency, 2)
             }
         else:
             result["optimal_speed_range"] = None
