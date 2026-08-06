@@ -221,6 +221,74 @@ export default defineSchema({
     .index("by_email", ["email"])
     .index("by_approval_status", ["approval_status"]),
 
+  dashboardPreferences: defineTable({
+    ownerId: v.id("authUsers"),
+    theme: v.union(v.literal("circuit"), v.literal("technical-light")),
+    defaultViewKey: v.optional(v.string()),
+    lastViewKey: v.optional(v.string()),
+    systemViewVersion: v.number(),
+    legacyImportVersion: v.number(),
+    updatedAt: v.number(),
+  }).index("by_owner", ["ownerId"]),
+
+  dashboardViews: defineTable({
+    ownerId: v.id("authUsers"),
+    viewKey: v.string(),
+    name: v.string(),
+    kind: v.union(v.literal("system-override"), v.literal("custom")),
+    systemViewId: v.optional(v.string()),
+    position: v.number(),
+    revision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_key", ["ownerId", "viewKey"])
+    .index("by_owner_position", ["ownerId", "position"]),
+
+  dashboardWidgets: defineTable({
+    ownerId: v.id("authUsers"),
+    viewId: v.id("dashboardViews"),
+    instanceId: v.string(),
+    widgetType: v.string(),
+    title: v.optional(v.string()),
+    column: v.number(),
+    row: v.number(),
+    width: v.number(),
+    height: v.number(),
+    pinned: v.boolean(),
+    config: v.object({
+      metric: v.optional(v.string()),
+      comparisonMetric: v.optional(v.string()),
+      timeWindow: v.optional(v.union(
+        v.literal("30s"),
+        v.literal("60s"),
+        v.literal("5m"),
+        v.literal("15m"),
+        v.literal("session"),
+      )),
+      chartStyle: v.optional(v.union(
+        v.literal("line"),
+        v.literal("area"),
+        v.literal("scatter"),
+        v.literal("bar"),
+        v.literal("histogram"),
+      )),
+      series: v.optional(v.array(v.string())),
+    }),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_view_row", ["viewId", "row"])
+    .index("by_owner_view", ["ownerId", "viewId"])
+    .index("by_view_instance", ["viewId", "instanceId"]),
+
+  dashboardAlertAcknowledgements: defineTable({
+    ownerId: v.id("authUsers"),
+    eventKey: v.string(),
+    sessionId: v.optional(v.string()),
+    acknowledgedAt: v.number(),
+  }).index("by_owner_event", ["ownerId", "eventKey"]),
+
   // Driver notifications — driving recommendations, efficiency hints, optimal speed
   driver_notifications: defineTable({
     session_id: v.string(),
