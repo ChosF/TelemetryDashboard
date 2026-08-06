@@ -2,7 +2,6 @@ import {
     Component,
     For,
     Show,
-    createDeferred,
     createEffect,
     createMemo,
     createSignal,
@@ -170,11 +169,23 @@ const DashboardParity: Component = () => {
         }
     };
 
-    const liveRows = createMemo(() => telemetryStore.telemetryData());
-    // Full-session vectors and statistics are non-urgent work. Deferring their
-    // invalidation lets view controls render first when Ably is publishing at a
-    // high rate, while the telemetry store still receives every record.
-    const rows = createDeferred(liveRows, { timeoutMs: CHART_UPDATE_INTERVAL });
+    const [rows, setRows] = createSignal(telemetryStore.telemetryData());
+    let pendingRows = rows();
+    let rowsUpdateTimer: number | null = null;
+
+    // Dashboard widgets only need a sampled view of the live buffer. A Solid
+    // deferred signal schedules every source invalidation; under a continuous
+    // telemetry stream those jobs accumulate instead of coalescing and can
+    // starve clicks and chart teardown. Keep only the latest array and publish
+    // it at the chart cadence so there is never a reactive-update backlog.
+    createEffect(() => {
+        pendingRows = telemetryStore.telemetryData();
+        if (rowsUpdateTimer !== null) return;
+        rowsUpdateTimer = window.setTimeout(() => {
+            rowsUpdateTimer = null;
+            setRows(pendingRows);
+        }, CHART_UPDATE_INTERVAL);
+    });
     const selectedIndex = createMemo(() => {
         if (mode() !== 'inspect' || rows().length === 0) return rows().length - 1;
         const key = selectedRecordKey();
@@ -320,6 +331,7 @@ const DashboardParity: Component = () => {
     });
 
     onCleanup(() => {
+        if (rowsUpdateTimer !== null) window.clearTimeout(rowsUpdateTimer);
         if (saveResetTimer !== null) window.clearTimeout(saveResetTimer);
         if (noticeTimer !== null) window.clearTimeout(noticeTimer);
     });
