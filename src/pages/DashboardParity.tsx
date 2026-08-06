@@ -2,6 +2,7 @@ import {
     Component,
     For,
     Show,
+    createDeferred,
     createEffect,
     createMemo,
     createSignal,
@@ -15,7 +16,7 @@ import { LoginModal, SignupModal, AdminDashboardModal } from '@/components/auth'
 import { authStore } from '@/stores/auth';
 import { telemetryStore } from '@/stores/telemetry';
 import { convexClient } from '@/lib/convex';
-import { getTelemetryRecordKey } from '@/lib/utils';
+import { CHART_UPDATE_INTERVAL, getTelemetryRecordKey } from '@/lib/utils';
 import { DRIVER_DASHBOARD_HREF } from '@/lib/appEntrypoints';
 import { createOperationalEventStore } from '@/dashboard/events';
 import { SYSTEM_VIEWS, WIDGET_REGISTRY, expandLegacyWidgets } from '@/dashboard/registry';
@@ -169,7 +170,11 @@ const DashboardParity: Component = () => {
         }
     };
 
-    const rows = createMemo(() => telemetryStore.telemetryData());
+    const liveRows = createMemo(() => telemetryStore.telemetryData());
+    // Full-session vectors and statistics are non-urgent work. Deferring their
+    // invalidation lets view controls render first when Ably is publishing at a
+    // high rate, while the telemetry store still receives every record.
+    const rows = createDeferred(liveRows, { timeoutMs: CHART_UPDATE_INTERVAL });
     const selectedIndex = createMemo(() => {
         if (mode() !== 'inspect' || rows().length === 0) return rows().length - 1;
         const key = selectedRecordKey();

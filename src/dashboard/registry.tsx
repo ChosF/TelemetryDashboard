@@ -2,7 +2,7 @@ import { Component, For, Show, createMemo, createSignal } from 'solid-js';
 import type { AlignedData, Options } from 'uplot';
 import { CHART_COLORS, UPlotChart, createSeries, createYAxis } from '@/components/charts';
 import { telemetryStore } from '@/stores/telemetry';
-import { formatDuration } from '@/lib/utils';
+import { computeDataQualityReport, formatDuration } from '@/lib/utils';
 import type { TelemetryRow } from '@/types/telemetry';
 import type {
     DashboardViewDefinition,
@@ -266,7 +266,10 @@ const TrackProgressWidget: Component<WidgetRenderProps> = (props) => {
 };
 
 const HealthSummaryWidget: Component<WidgetRenderProps> = (props) => {
-    const report = createMemo(() => telemetryStore.dataQuality());
+    // Use the dashboard's deferred row snapshot. Reading the store-level memo
+    // here would bypass view scheduling and recompute the full report for every
+    // incoming Ably packet.
+    const report = createMemo(() => computeDataQualityReport(props.rows));
     const active = createMemo(() => props.eventList.filter((event) => event.status === 'active' && !event.acknowledged));
     return <section class="ev-health-summary"><div class="ev-widget-heading"><div><span class="ev-zone-kicker">Health chain</span><h2>Vehicle health</h2></div><strong>{Math.round(report().quality_score)}%</strong></div><div class="ev-health-grid"><Metric label="Freshness" value={telemetryStore.isDataFresh() ? 'Fresh' : 'Stale'} /><Metric label="Median rate" value={report().hz ? `${report().hz!.toFixed(2)} Hz` : 'Unavailable'} /><Metric label="Dropouts" value={String(report().dropouts ?? 0)} /><Metric label="Maximum gap" value={report().max_gap_s ? `${report().max_gap_s!.toFixed(1)} s` : 'Unavailable'} /><Metric label="Unresolved events" value={String(active().length)} /><Metric label="Missing fields" value={String(Object.values(report().missing_fields).filter((ratio) => ratio > 0.05).length)} /></div></section>;
 };
