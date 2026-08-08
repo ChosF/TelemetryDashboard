@@ -469,15 +469,13 @@ button.ev-signal-node { cursor: pointer; }
 .ev-event-ledger article[data-severity="critical"] > b { color: var(--ev-red); border-color: color-mix(in srgb, var(--ev-red) 45%, transparent); }
 .ev-event-ledger article[data-severity="warning"] > b { color: var(--ev-amber); border-color: color-mix(in srgb, var(--ev-amber) 45%, transparent); }
 
-.ev-vesc-status { margin-bottom: 14px; padding: 15px 17px; position: relative; overflow: hidden; border: 1px solid var(--ev-line-strong); background: linear-gradient(110deg, color-mix(in srgb, var(--ev-green) 9%, transparent), transparent 65%); }
+.ev-vesc-status { margin-bottom: 14px; padding: 15px 17px; position: relative; overflow: hidden; border: 1px solid var(--ev-line-strong); background: transparent; }
 .ev-vesc-status::before { content: ""; width: 3px; position: absolute; inset: 0 auto 0 0; background: var(--ev-green); }
 .ev-vesc-status > span { color: var(--ev-green); font-size: 8px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
 .ev-vesc-status > strong { display: block; margin-top: 7px; font-size: 15px; }
 .ev-vesc-status > p { margin: 5px 0 0; color: var(--ev-muted); font-size: 9px; line-height: 1.55; }
-.ev-vesc-status[data-status="warning"], .ev-vesc-status[data-status="critical"] { background: linear-gradient(110deg, color-mix(in srgb, var(--ev-amber) 12%, transparent), transparent 68%); }
 .ev-vesc-status[data-status="warning"]::before { background: var(--ev-amber); }
 .ev-vesc-status[data-status="warning"] > span { color: var(--ev-amber); }
-.ev-vesc-status[data-status="critical"] { background: linear-gradient(110deg, color-mix(in srgb, var(--ev-red) 14%, transparent), transparent 68%); }
 .ev-vesc-status[data-status="critical"]::before { background: var(--ev-red); }
 .ev-vesc-status[data-status="critical"] > span { color: var(--ev-red); }
 .ev-vesc-status[data-status="unavailable"] { background: var(--ev-attention-bg); }
