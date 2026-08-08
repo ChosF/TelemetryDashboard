@@ -138,23 +138,48 @@ export const CurrentSpikeLogWidget: Component<WidgetRenderProps> = (props) => {
     </Instrument>;
 };
 
-const MOTOR_FIELDS = [
+const MOTOR_PRIMARY_FIELDS = [
     { label: 'RPM', unit: 'rpm', digits: 0, color: C.orange, read: (row: TelemetryRow) => row.motor_rpm },
     { label: 'VESC voltage', unit: 'V', digits: 1, color: C.teal, read: (row: TelemetryRow) => row.vesc_voltage_v ?? row.motor_voltage_v },
     { label: 'VESC current', unit: 'A', digits: 1, color: C.amber, read: (row: TelemetryRow) => row.vesc_current_a ?? row.motor_current_a },
     { label: 'Motor temp', unit: '°C', digits: 1, color: C.red, read: (row: TelemetryRow) => row.motor_temp_c },
+] as const;
+
+const MOTOR_PHASE_FIELDS = [
     { label: 'Phase 1', unit: 'A', digits: 1, color: C.green, read: (row: TelemetryRow) => row.motor_phase_1_current_a ?? row.motor_phase_current_a },
     { label: 'Phase 2', unit: 'A', digits: 1, color: C.cyan, read: (row: TelemetryRow) => row.motor_phase_2_current_a },
     { label: 'Phase 3', unit: 'A', digits: 1, color: C.red, read: (row: TelemetryRow) => row.motor_phase_3_current_a },
 ] as const;
 
+const MOTOR_FIELDS = [...MOTOR_PRIMARY_FIELDS, ...MOTOR_PHASE_FIELDS] as const;
+
 export const MotorSummaryWidget: Component<WidgetRenderProps> = (props) => {
     const latest = createMemo(() => latestRow(props.rows));
     return <Instrument kicker="VESC powertrain" title="Motor state" meta="Seven live channels">
-        <MetricGrid columns={3} metrics={MOTOR_FIELDS.map((field) => {
-            const series = values(props.rows, field.read);
-            return { label: field.label, value: `${formatNumber(latest() ? field.read(latest()!) : null, field.digits)} ${field.unit}`, detail: `Peak ${formatNumber(maximum(series), field.digits)} ${field.unit}` };
-        })} />
+        <div class="ev-metric-grid ev-motor-state-grid">
+            <For each={MOTOR_PRIMARY_FIELDS}>
+                {(field) => <div class="ev-metric-cell">
+                    <span>{field.label}</span>
+                    <strong>{formatNumber(latest() ? field.read(latest()!) : null, field.digits)} {field.unit}</strong>
+                    <small>Peak {formatNumber(maximum(values(props.rows, field.read)), field.digits)} {field.unit}</small>
+                </div>}
+            </For>
+            <div class="ev-motor-phase-card">
+                <header>
+                    <span>Motor phases</span>
+                    <small>Three current channels</small>
+                </header>
+                <div>
+                    <For each={MOTOR_PHASE_FIELDS}>
+                        {(field) => <section>
+                            <span>{field.label}</span>
+                            <strong>{formatNumber(latest() ? field.read(latest()!) : null, field.digits)} {field.unit}</strong>
+                            <small>Peak {formatNumber(maximum(values(props.rows, field.read)), field.digits)} {field.unit}</small>
+                        </section>}
+                    </For>
+                </div>
+            </div>
+        </div>
     </Instrument>;
 };
 
