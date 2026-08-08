@@ -724,7 +724,7 @@ const DashboardParity: Component = () => {
 
                         <main class="ev-frame" classList={{ 'ev-session-content-hidden': showSessionTransition() }} id="main">
                             <section class="ev-session-header" aria-labelledby="session-heading">
-                                <div><span class="ev-eyebrow">Live telemetry workspace</span><h1 id="session-heading">{telemetryStore.currentSessionName() ?? (telemetryStore.currentSessionId() ? 'Active vehicle session' : 'Waiting for vehicle session')}</h1><p>{telemetryStore.currentSessionId() ? `${telemetryStore.currentSessionId()!.slice(0, 18)} · ${rows().length.toLocaleString()} records` : 'The dashboard is read-only. Start telemetry at the vehicle or bridge.'}</p></div>
+                                <div><span class="ev-eyebrow">Live telemetry workspace</span><h1 id="session-heading">{telemetryStore.currentSessionName() ?? (telemetryStore.currentSessionId() ? 'Active vehicle session' : 'Waiting for vehicle session')}</h1><p>{telemetryStore.currentSessionId() ? `${telemetryStore.currentSessionId()!.slice(0, 18)} · ${rows().length.toLocaleString()} records` : 'The dashboard is ready and will begin displaying data when the next vehicle session starts.'}</p></div>
                                 <div class="ev-session-actions"><button class="ev-primary-action" onMouseEnter={() => runtime()?.prewarmHistoricalMode()} onFocus={() => runtime()?.prewarmHistoricalMode()} onClick={openHistorical}>Historical Analysis</button><Show when={authStore.userRole() === 'internal' || authStore.userRole() === 'admin'}><button type="button" class="ev-secondary-action" onClick={openDriverCockpit}>Driver cockpit</button></Show><AccountMenu open={accountOpen()} setOpen={setAccountOpen} onLogin={() => setShowLogin(true)} onSignup={() => setShowSignup(true)} onAdmin={() => setShowAdmin(true)} theme={theme()} onToggleTheme={toggleTheme} /></div>
                             </section>
 
@@ -794,14 +794,14 @@ const SessionTransitionState: Component<{
             <Show when={!props.waiting} fallback={
                 <div class="ev-session-waiting-copy">
                     <h1>Ready for the next session.</h1>
-                    <p>The dashboard will return to live telemetry automatically as soon as the bridge opens a new run.</p>
+                    <p>The dashboard will return to live telemetry automatically as soon as the next session begins.</p>
                     <div class="ev-session-scan" aria-hidden="true"><i /></div>
                     <span>Realtime and Convex lifecycle channels are listening</span>
                 </div>
             }>
                 <div class="ev-session-finished-copy">
                     <h1>Session over.<br /><em>Thanks for joining us.</em></h1>
-                    <p>The bridge was closed intentionally with Ctrl+C. The final telemetry is held here for inspection while the live dashboard remains ready for what comes next.</p>
+                    <p>The final telemetry is ready to review. You can inspect this session now or leave the dashboard standing by for the next one.</p>
                 </div>
                 <dl class="ev-session-end-metrics">
                     <div><dt>Session</dt><dd>{props.state.session_name ?? props.state.session_id.slice(0, 12)}</dd></div>
