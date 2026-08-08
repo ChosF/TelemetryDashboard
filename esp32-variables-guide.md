@@ -42,11 +42,13 @@ These are the **most important** variables for efficiency calculations:
 
 | Variable Name | Type | Unit | Valid Range | Description |
 |---------------|------|------|-------------|-------------|
-| `voltage_v` | `number` | Volts | 35.0 - 60.0 | Battery/system voltage |
+| `voltage_v` | `number` | Volts | 18.0 - 31.0 | Battery/system voltage (24 V nominal) |
 | `current_a` | `number` | Amps | -10.0 - 35.0 | Current draw (negative = regen) |
 | `avg_power_w` | `number` | Watts | -500 - 2500 | Average electrical power for the measurement window |
 
 The bridge maps `avg_power_w` to the established dashboard field `power_w` without recalculating it. Older firmware may continue sending `power_w` during migration.
+
+The dashboard reports **battery operating condition**, not a chemistry-specific state-of-charge estimate. It maps 20.0 V to 0% condition and the normal 24.0 V operating point to 100%, clamping higher readings at 100%. The backend raises its low-voltage warning below 21.0 V, while values outside 18.0–31.0 V are treated as implausible.
 
 > ⚠️ **Important**: These variables are flagged as `CRITICAL_FIELDS` in outlier detection. Ensure accuracy!
 
@@ -213,7 +215,7 @@ Here's a complete example of a JSON payload the ESP32 should send:
   "message_id": 42,
   "uptime_seconds": 1234.5,
   
-  "voltage_v": 48.2,
+  "voltage_v": 24.2,
   "current_a": 12.5,
   "avg_power_w": 602.5,
   
@@ -246,7 +248,7 @@ Here's a complete example of a JSON payload the ESP32 should send:
   "brake_pct": 0.0,
   "brake2_pct": 12.0,
 
-  "vesc_voltage_v": 45.3,
+  "vesc_voltage_v": 23.7,
   "vesc_current_a": 18.4,
   "motor_rpm": 2630.0,
   "motor_temp_c": 54.2,
@@ -268,7 +270,7 @@ If you need to send minimal data:
 {
   "timestamp": "2026-02-04T19:06:52.123Z",
   "session_id": "my-session",
-  "voltage_v": 48.2,
+  "voltage_v": 24.2,
   "current_a": 12.5,
   "avg_power_w": 602.5,
   "speed_ms": 8.3
@@ -321,7 +323,7 @@ The backend automatically flags values outside these ranges:
 
 | Variable | Min | Max | Notes |
 |----------|-----|-----|-------|
-| `voltage_v` | 35.0 V | 60.0 V | Absolute bounds |
+| `voltage_v` | 18.0 V | 31.0 V | Absolute bounds for the 24 V nominal pack |
 | `current_a` | -10.0 A | 35.0 A | Negative = regeneration |
 | `power_w` | -500 W | 2500 W | |
 | `speed_ms` | 0 m/s | 50 m/s | Negative values flagged |

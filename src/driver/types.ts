@@ -57,6 +57,7 @@ export interface DriverTelemetrySnapshot {
     // GPS
     latitude: number;
     longitude: number;
+    distance_m: number | null;
 
     // Timing
     timestamp: string;

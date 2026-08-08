@@ -246,8 +246,8 @@ function computeKPIs(rows) {
     const V = toNum(LR.voltage_v, null);
     if (V !== null) {
         out.battery_voltage_v = Math.max(0, V);
-        const minV = 50.4;
-        const fullV = 58.5;
+        const minV = 20.0;
+        const fullV = 24.0;
         let pct = 0;
         if (V <= minV) pct = 0;
         else if (V >= fullV) pct = 100;

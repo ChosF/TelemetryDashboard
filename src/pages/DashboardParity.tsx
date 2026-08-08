@@ -815,7 +815,7 @@ function createDashboardPreviewRows(): TelemetryRow[] {
         const speedMs = Math.max(0, 7.4 + Math.sin(phase) * 1.55 + Math.sin(index / 31) * 0.65);
         const throttlePct = Math.max(4, Math.min(88, 42 + Math.sin(index / 9) * 26 + Math.cos(index / 23) * 9));
         const brakePct = Math.max(0, Math.sin(index / 17 - 1.1) * 26 - 16);
-        const voltageV = 53.8 - index * 0.002 + Math.sin(index / 28) * 0.22;
+        const voltageV = 26.8 - index * 0.001 + Math.sin(index / 28) * 0.11;
         const currentA = Math.max(1.2, 5.8 + throttlePct * 0.13 - brakePct * 0.04 + Math.sin(index / 7) * 0.8);
         const powerW = voltageV * currentA;
         const lateralG = Math.sin(index / 12) * 0.17;
@@ -844,10 +844,10 @@ function createDashboardPreviewRows(): TelemetryRow[] {
             acc_eff_km_kwh: 34.8 + Math.sin(index / 47) * 1.4,
             avg_speed_kmh: avgSpeedKmh,
             max_speed_kmh: 34.2,
-            avg_power: 545,
-            avg_voltage: 53.6,
+            avg_power: 272,
+            avg_voltage: 26.7,
             avg_current: 10.2,
-            max_power_w: 835,
+            max_power_w: 418,
             max_current_a: 15.6,
             optimal_speed_kmh: 27.5,
             optimal_speed_ms: 27.5 / 3.6,
@@ -861,9 +861,9 @@ function createDashboardPreviewRows(): TelemetryRow[] {
             throttle: throttlePct,
             brake: brakePct,
             brake2: brakePct * 0.86,
-            motor_voltage_v: voltageV - 0.7,
+            motor_voltage_v: voltageV - 0.35,
             motor_current_a: currentA * 0.93,
-            vesc_voltage_v: voltageV - 0.7,
+            vesc_voltage_v: voltageV - 0.35,
             vesc_current_a: currentA * 0.93,
             motor_rpm: speedMs * 286,
             motor_temp_c: 48 + Math.sin(index / 28) * 3.5,

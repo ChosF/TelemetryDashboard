@@ -2,6 +2,7 @@ import { Component, For, Show, createMemo, createSignal } from 'solid-js';
 import type { AlignedData, Options } from 'uplot';
 import { CHART_COLORS, UPlotChart, createSeries, createYAxis } from '@/components/charts';
 import { telemetryStore } from '@/stores/telemetry';
+import { batteryConditionPercentage } from '@/lib/battery';
 import { computeDataQualityReport, formatDuration } from '@/lib/utils';
 import type { TelemetryRow } from '@/types/telemetry';
 import type {
@@ -67,10 +68,7 @@ import {
     SessionKpisWidget,
 } from './widgets/overviewData';
 
-export function canonicalBatteryPercentage(voltage: number | null | undefined): number | null {
-    if (typeof voltage !== 'number' || !Number.isFinite(voltage)) return null;
-    return Math.round(Math.max(0, Math.min(100, ((voltage - 50.4) / (58.5 - 50.4)) * 100)));
-}
+export const canonicalBatteryPercentage = batteryConditionPercentage;
 
 function latestOf(rows: TelemetryRow[]): TelemetryRow | undefined {
     return rows[rows.length - 1];

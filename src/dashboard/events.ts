@@ -1,6 +1,7 @@
 import { createSignal } from 'solid-js';
 import type { OperationalEvent, SystemViewId, EventSeverity } from './types';
 import type { TelemetryRow } from '@/types/telemetry';
+import { BATTERY_CONDITION_MIN_V, BATTERY_NOMINAL_V, batteryConditionPercentage } from '@/lib/battery';
 import { analyzeVescDiagnostics } from '@/lib/vesc-diagnostics';
 
 interface EventInput {
@@ -177,14 +178,14 @@ export function createOperationalEventStore() {
         }
 
         const voltage = latest?.voltage_v;
-        const batteryPct = typeof voltage === 'number' ? Math.max(0, Math.min(100, ((voltage - 50.4) / 8.1) * 100)) : null;
+        const batteryPct = batteryConditionPercentage(voltage);
         if (batteryPct !== null) {
             if (batteryPct < 25) batteryWarningActive = true;
             if (batteryPct > 30) batteryWarningActive = false;
             if (batteryWarningActive) {
                 condition({
                     key: `battery:advisory:${sessionKey}`, severity: batteryPct < 12 ? 'critical' : 'warning', title: 'Battery reserve advisory',
-                    explanation: 'The canonical 50.4–58.5 V battery estimate crossed the advisory band.',
+                    explanation: `The ${BATTERY_CONDITION_MIN_V.toFixed(1)}–${BATTERY_NOMINAL_V.toFixed(1)} V operating-condition band crossed the advisory threshold.`,
                     evidence: `${voltage!.toFixed(1)} V · ${Math.round(batteryPct)}% estimated.`,
                     recommendedAction: 'Review pace and electrical load in Power & Energy.', relevantView: 'power-energy',
                     signature: batteryPct < 12 ? 'critical' : 'warning', cooldownMs: 180_000,

@@ -3,6 +3,7 @@ import { TelemetryTable, ExportButton } from '@/components/table';
 import { computeDataQualityReport } from '@/lib/utils';
 import { telemetryStore } from '@/stores/telemetry';
 import { authStore } from '@/stores/auth';
+import { batteryConditionPercentage } from '@/lib/battery';
 import type { WidgetRenderProps } from '@/dashboard/types';
 import type { TelemetryRow } from '@/types/telemetry';
 import {
@@ -20,11 +21,6 @@ import {
     speedKmh,
     values,
 } from './primitives';
-
-function canonicalBatteryPercentage(voltage: number | null | undefined): number | null {
-    if (!finiteNumber(voltage)) return null;
-    return Math.round(Math.max(0, Math.min(100, ((voltage - 50.4) / (58.5 - 50.4)) * 100)));
-}
 
 function durationSeconds(rows: TelemetryRow[]): number {
     if (rows.length < 2) return 0;
@@ -198,7 +194,7 @@ export const LiveGaugesWidget: Component<WidgetRenderProps> = (props) => {
     const latest = createMemo(() => latestRow(props.rows));
     const gauges = createMemo<GaugeDatum[]>(() => {
         const speed = latest() ? speedKmh(latest()!) : null;
-        const battery = canonicalBatteryPercentage(latest()?.voltage_v);
+        const battery = batteryConditionPercentage(latest()?.voltage_v);
         const power = latest()?.power_w;
         const efficiency = latest()?.acc_eff_km_kwh ?? latest()?.inst_eff_km_kwh ?? latest()?.current_efficiency_km_kwh;
         const g = latest()?.current_g_force ?? latest()?.g_total;

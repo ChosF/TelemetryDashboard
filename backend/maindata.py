@@ -171,6 +171,13 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 logger = logging.getLogger("TelemetryBridge")
 
+BATTERY_NOMINAL_V = 24.0
+BATTERY_LOW_WARNING_V = 21.0
+BATTERY_MOCK_MIN_V = 20.0
+BATTERY_MOCK_MAX_V = 29.4
+BATTERY_VALID_MIN_V = 18.0
+BATTERY_VALID_MAX_V = 31.0
+
 
 # ============================================================
 # MODULE: OUTLIER DETECTION ENGINE
@@ -183,8 +190,8 @@ class OutlierConfig:
     """Configuration for outlier detection thresholds"""
     window_size: int = 36
     z_score_threshold: float = 5.0
-    voltage_min: float = 35.0
-    voltage_max: float = 60.0
+    voltage_min: float = BATTERY_VALID_MIN_V
+    voltage_max: float = BATTERY_VALID_MAX_V
     current_min: float = -10.0
     current_max: float = 35.0
     power_min: float = -500.0
@@ -1357,7 +1364,7 @@ class DriverNotificationEngine:
             )
         
         # ── System health ─────────────────────────────────────────────────
-        if voltage > 0 and voltage < 48:
+        if voltage > 0 and voltage < BATTERY_LOW_WARNING_V:
             self._emit(
                 "critical",
                 "Low Battery Voltage",
@@ -1415,10 +1422,10 @@ class MockModeConfig:
     data_interval: float = 0.2  # seconds between data points
     
     # Electrical generation parameters (granular control)
-    voltage_base: float = 48.0
-    voltage_noise: float = 1.4
-    voltage_min: float = 40.0
-    voltage_max: float = 55.0
+    voltage_base: float = BATTERY_NOMINAL_V
+    voltage_noise: float = 0.7
+    voltage_min: float = BATTERY_MOCK_MIN_V
+    voltage_max: float = BATTERY_MOCK_MAX_V
     current_base: float = 7.5
     current_noise: float = 0.9
     current_speed_factor: float = 0.2  # current increases with speed

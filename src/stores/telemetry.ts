@@ -23,6 +23,7 @@ import {
     last,
     getTelemetryRecordKey,
 } from '@/lib/utils';
+import { batteryConditionPercentage } from '@/lib/battery';
 import { integrateSteeringFromLiveRow, resetSteeringIntegration } from '@/lib/steeringEstimate';
 
 // =============================================================================
@@ -82,15 +83,7 @@ const currentPowerW = createMemo(() => {
 /** Battery percentage (estimated from voltage) */
 const batteryPercentage = createMemo(() => {
     const latest = latestRecord();
-    if (!latest?.voltage_v) return 0;
-
-    const minV = 50.4;
-    const fullV = 58.5;
-    const v = latest.voltage_v;
-
-    if (v <= minV) return 0;
-    if (v >= fullV) return 100;
-    return Math.round(((v - minV) / (fullV - minV)) * 100);
+    return batteryConditionPercentage(latest?.voltage_v) ?? 0;
 });
 
 /** Is connected */

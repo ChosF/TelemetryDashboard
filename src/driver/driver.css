@@ -645,6 +645,45 @@ html.driver-page #root {
   z-index: 0;
 }
 
+.drv-gps-mini-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 2px 2px;
+  flex: 0 0 auto;
+}
+
+.drv-distance-readout {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 3px;
+  min-width: 0;
+  font-family: var(--drv-font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.drv-distance-readout span,
+.drv-distance-readout small {
+  font-size: 0.38rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--drv-text-muted);
+}
+
+.drv-distance-readout strong {
+  font-size: clamp(0.55rem, 1.8vw, 0.7rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--drv-text-dim);
+}
+
 .drv-gps-mini-svg {
   width: 100%;
   flex: 1 1 0;

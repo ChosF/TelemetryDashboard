@@ -5,6 +5,7 @@
 import { JSX, createEffect, createMemo, createSignal, For } from 'solid-js';
 import { SpeedGauge, BatteryGauge, PowerGauge, EfficiencyGauge } from '@/components/gauges';
 import { OverviewGForceUPlot } from '@/components/charts/OverviewGForceUPlot';
+import { batteryConditionPercentage } from '@/lib/battery';
 import type { TelemetryRow } from '@/types/telemetry';
 
 export interface OverviewPanelProps {
@@ -299,7 +300,7 @@ export function OverviewPanel(props: OverviewPanelProps): JSX.Element {
                         </div>
                         <div class="gauge-wrap">
                             <div class="gauge">
-                                <BatteryGauge value={Math.min(100, (latest()?.voltage_v ?? 0) * 2)} active={props.active} />
+                                <BatteryGauge value={batteryConditionPercentage(latest()?.voltage_v) ?? 0} active={props.active} />
                             </div>
                             <div class="gauge-title">Battery (%)</div>
                         </div>

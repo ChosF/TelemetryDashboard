@@ -59,7 +59,7 @@ class SimState:
         self.t          = 0.0          # elapsed real time (s)
         self.lap_angle  = 0.0          # position on circular track (radians)
         self.speed_ms   = 0.0          # current speed m/s
-        self.voltage_v  = 84.0         # battery voltage
+        self.voltage_v  = 24.0         # nominal battery voltage
         self.message_id = 0
 
         # Scenario cycling
@@ -217,7 +217,7 @@ class SimState:
 
         # Voltage sags slightly with current
         current_a = power_w / max(self.voltage_v, 1.0)
-        self.voltage_v = max(60.0, 84.0 - current_a * 0.05 + random.gauss(0, 0.1))
+        self.voltage_v = max(20.0, 24.0 - current_a * 0.05 + random.gauss(0, 0.1))
         brake2_pct = round(min(100.0, max(0.0, self._brake * 100.0 * 0.72 + random.gauss(0, 2.0))), 1)
         motor_voltage_v = round(max(0.0, self.voltage_v * 0.94 + random.gauss(0, 0.15)), 2)
         motor_current_a = round(max(-40.0, current_a * 1.08 + random.gauss(0, 0.35)), 2)

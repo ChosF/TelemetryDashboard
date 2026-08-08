@@ -90,6 +90,7 @@ const EMPTY_SNAPSHOT: DriverTelemetrySnapshot = {
     g_long: 0,
     latitude: 0,
     longitude: 0,
+    distance_m: null,
     timestamp: '',
     session_id: '',
     session_name: '',
@@ -187,6 +188,11 @@ function ingestTelemetry(raw: Record<string, unknown>): void {
     const instantEfficiency = toOptionalEfficiency(
         raw.inst_eff_km_kwh ?? raw.current_efficiency_km_kwh,
     );
+    const distanceM = toOptionalFiniteNumber(raw.distance_m);
+    const routeDistanceKm = distanceM === null
+        ? toOptionalFiniteNumber(raw.route_distance_km)
+        : null;
+    const resolvedDistanceM = distanceM ?? (routeDistanceKm !== null ? routeDistanceKm * 1000 : null);
 
     const data: DriverTelemetrySnapshot = {
         speed_kmh: speedKmh,
@@ -211,6 +217,7 @@ function ingestTelemetry(raw: Record<string, unknown>): void {
         g_long: toFiniteNumber(raw.g_long),
         latitude: toFiniteNumber(raw.latitude),
         longitude: toFiniteNumber(raw.longitude),
+        distance_m: resolvedDistanceM === null ? null : Math.max(0, resolvedDistanceM),
         timestamp: typeof raw.timestamp === 'string' ? raw.timestamp : '',
         session_id: typeof raw.session_id === 'string' ? raw.session_id : '',
         session_name: typeof raw.session_name === 'string' ? raw.session_name : '',

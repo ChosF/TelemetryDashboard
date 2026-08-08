@@ -1,9 +1,9 @@
 import type { TelemetryRow } from '@/types/telemetry';
+import { BATTERY_VESC_ABSOLUTE_DELTA_V } from '@/lib/battery';
 
 const COMPARISON_WINDOW = 5;
 const MIN_VALID_SAMPLES = 3;
 const VOLTAGE_RELATIVE_LIMIT = 0.08;
-const VOLTAGE_ABSOLUTE_LIMIT_V = 2.5;
 const CURRENT_RELATIVE_LIMIT = 0.25;
 const CURRENT_ABSOLUTE_LIMIT_A = 5;
 const MOTOR_TEMP_WARNING_C = 85;
@@ -52,7 +52,7 @@ function mismatchFor(row: TelemetryRow): boolean | null {
     if (batteryVoltage === null || controllerVoltage === null
         || batteryCurrent === null || controllerCurrent === null) return null;
 
-    const voltageLimit = Math.max(VOLTAGE_ABSOLUTE_LIMIT_V, Math.abs(batteryVoltage) * VOLTAGE_RELATIVE_LIMIT);
+    const voltageLimit = Math.max(BATTERY_VESC_ABSOLUTE_DELTA_V, Math.abs(batteryVoltage) * VOLTAGE_RELATIVE_LIMIT);
     const currentScale = Math.max(Math.abs(batteryCurrent), Math.abs(controllerCurrent));
     const currentLimit = Math.max(CURRENT_ABSOLUTE_LIMIT_A, currentScale * CURRENT_RELATIVE_LIMIT);
     return Math.abs(batteryVoltage - controllerVoltage) > voltageLimit
@@ -87,7 +87,7 @@ export function analyzeVescDiagnostics(rows: TelemetryRow[]): VescDiagnostics {
         ? Math.abs(batteryCurrent - controllerCurrent)
         : null;
     const voltageLimit = batteryVoltage !== null
-        ? Math.max(VOLTAGE_ABSOLUTE_LIMIT_V, Math.abs(batteryVoltage) * VOLTAGE_RELATIVE_LIMIT)
+        ? Math.max(BATTERY_VESC_ABSOLUTE_DELTA_V, Math.abs(batteryVoltage) * VOLTAGE_RELATIVE_LIMIT)
         : null;
     const currentScale = batteryCurrent !== null && controllerCurrent !== null
         ? Math.max(Math.abs(batteryCurrent), Math.abs(controllerCurrent))

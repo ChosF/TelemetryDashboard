@@ -6,6 +6,7 @@
  */
 
 import { Component, onMount, onCleanup, Show, For, createMemo, createSignal } from 'solid-js';
+import { BATTERY_VESC_ABSOLUTE_DELTA_V } from '@/lib/battery';
 import { driverStore } from './store';
 import { connectDriverAbly } from './ablyDriver';
 import { startNotificationPoller } from './notificationPoller';
@@ -121,7 +122,7 @@ const CurrentHero: Component = () => {
         const vescVoltage = snap().vesc_voltage_v;
         const vescCurrent = snap().vesc_current_a;
         if (vescVoltage === null || vescCurrent === null) return false;
-        const voltageLimit = Math.max(2.5, Math.abs(snap().voltage_v) * 0.08);
+        const voltageLimit = Math.max(BATTERY_VESC_ABSOLUTE_DELTA_V, Math.abs(snap().voltage_v) * 0.08);
         const currentLimit = Math.max(5, Math.max(Math.abs(snap().current_a), Math.abs(vescCurrent)) * 0.25);
         return Math.abs(snap().voltage_v - vescVoltage) > voltageLimit
             || Math.abs(snap().current_a - vescCurrent) > currentLimit;
@@ -386,10 +387,24 @@ const MiniGPSMap: Component = () => {
 
     const snap = createMemo(() => driverStore.snapshot());
     const hasGps = createMemo(() => snap().latitude !== 0 || snap().longitude !== 0);
+    const distanceKm = createMemo(() => {
+        const distanceM = snap().distance_m;
+        return distanceM === null ? null : distanceM / 1000;
+    });
 
     return (
         <div class="drv-gps-mini-panel">
-            <span class="drv-panel-label">Track</span>
+            <div class="drv-gps-mini-head">
+                <span class="drv-panel-label">Track</span>
+                <div
+                    class="drv-distance-readout"
+                    aria-label={distanceKm() === null ? 'Distance unavailable' : `Distance ${distanceKm()!.toFixed(2)} kilometers`}
+                >
+                    <span>Dist</span>
+                    <strong>{distanceKm() === null ? '—' : distanceKm()!.toFixed(2)}</strong>
+                    <small>km</small>
+                </div>
+            </div>
             <Show
                 when={hasGps()}
                 fallback={
