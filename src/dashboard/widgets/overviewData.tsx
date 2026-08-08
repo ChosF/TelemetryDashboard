@@ -296,12 +296,12 @@ export const QualityOverviewWidget: Component<WidgetRenderProps> = (props) => {
 export const BridgeHealthWidget: Component<WidgetRenderProps> = (props) => {
     const sampleTiming = createMemo(() => timing(props.rows));
     const latest = createMemo(() => latestRow(props.rows));
-    const latency = createMemo(() => latest() && telemetryStore.lastMessageTime() ? Math.max(0, telemetryStore.lastMessageTime()! - Date.parse(latest()!.timestamp)) : null);
-    return <Instrument kicker="Transport health" title="Bridge and stream" meta={telemetryStore.connectionStatus()}>
+    const latency = createMemo(() => props.previewMode ? 42 : latest() && telemetryStore.lastMessageTime() ? Math.max(0, telemetryStore.lastMessageTime()! - Date.parse(latest()!.timestamp)) : null);
+    return <Instrument kicker="Transport health" title="Live data connection" meta={props.previewMode ? 'sample' : telemetryStore.connectionStatus()}>
         <MetricGrid columns={3} metrics={[
-            { label: 'Connection', value: telemetryStore.connectionStatus(), detail: telemetryStore.isDataFresh() ? 'Data fresh' : 'Data stale', tone: telemetryStore.connectionStatus() === 'connected' ? 'green' : 'red' },
-            { label: 'Messages', value: telemetryStore.messageCount().toLocaleString(), detail: `${formatNumber(sampleTiming().hz, 2)} Hz median`, tone: 'cyan' },
-            { label: 'Reconnect errors', value: telemetryStore.errorCount().toLocaleString(), tone: telemetryStore.errorCount() ? 'amber' : 'green' },
+            { label: 'Connection', value: props.previewMode ? 'preview' : telemetryStore.connectionStatus(), detail: props.previewMode ? 'Sample data' : telemetryStore.isDataFresh() ? 'Data fresh' : 'Data stale', tone: props.previewMode || telemetryStore.connectionStatus() === 'connected' ? 'green' : 'red' },
+            { label: 'Messages', value: (props.previewMode ? props.rows.length : telemetryStore.messageCount()).toLocaleString(), detail: `${formatNumber(sampleTiming().hz, 2)} Hz median`, tone: 'cyan' },
+            { label: 'Reconnect errors', value: props.previewMode ? '0' : telemetryStore.errorCount().toLocaleString(), tone: props.previewMode || !telemetryStore.errorCount() ? 'green' : 'amber' },
             { label: 'Latest latency', value: finiteNumber(latency()) && latency()! < 10_000 ? `${latency()} ms` : 'Unavailable' },
             { label: 'Maximum gap', value: `${formatNumber(sampleTiming().maxGap, 2)} s`, tone: 'amber' },
             { label: 'Session span', value: formatDuration(sampleTiming().span) },
@@ -330,8 +330,8 @@ export const IntegrityKpisWidget: Component<WidgetRenderProps> = (props) => {
     const outliers = createMemo(() => outlierSummary(props.rows));
     const anomalies = createMemo(() => Object.values(outliers().fields).reduce((sum, count) => sum + count, 0));
     const alerts = createMemo(() => [
-        telemetryStore.connectionStatus() !== 'connected' ? 'Bridge connection is not healthy.' : null,
-        !telemetryStore.isDataFresh() && props.rows.length ? 'Incoming telemetry is stale.' : null,
+        !props.previewMode && telemetryStore.connectionStatus() !== 'connected' ? 'Live data connection is not healthy.' : null,
+        !props.previewMode && !telemetryStore.isDataFresh() && props.rows.length ? 'Incoming telemetry is stale.' : null,
         sampleTiming().dropouts ? `${sampleTiming().dropouts} sample gaps exceed three times the median interval.` : null,
         outliers().severity.critical ? `${outliers().severity.critical} critical outlier records require review.` : null,
     ].filter((message): message is string => Boolean(message)));

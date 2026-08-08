@@ -26,7 +26,7 @@ import type {
     WidgetLayout,
 } from '@/dashboard/types';
 import type { LegacyNotificationType } from '@/lib/legacyNotifications';
-import type { LiveSessionState } from '@/types/telemetry';
+import type { LiveSessionState, TelemetryRow } from '@/types/telemetry';
 import '@/styles/live-dashboard.css';
 
 const VIEW_STORAGE_KEY = 'ecovolt-dashboard-views-v1';
@@ -161,8 +161,10 @@ const DashboardParity: Component = () => {
     const [mode, setMode] = createSignal<'live' | 'inspect'>('live');
     const [selectedRecordKey, setSelectedRecordKey] = createSignal<string | null>(null);
     const [sessionEndDisposition, setSessionEndDisposition] = createSignal<SessionEndDisposition>(null);
+    const [waitingPreview, setWaitingPreview] = createSignal(false);
     const [clock, setClock] = createSignal(Date.now());
     const eventStore = createOperationalEventStore();
+    const previewRows = createDashboardPreviewRows();
     let loadedForUserId: string | null = null;
     let saveResetTimer: number | null = null;
     let noticeTimer: number | null = null;
@@ -197,23 +199,26 @@ const DashboardParity: Component = () => {
             setRows(pendingRows);
         }, CHART_UPDATE_INTERVAL);
     });
+    const workspaceRows = createMemo(() => waitingPreview() ? previewRows : rows());
     const selectedIndex = createMemo(() => {
-        if (mode() !== 'inspect' || rows().length === 0) return rows().length - 1;
+        const availableRows = workspaceRows();
+        if (mode() !== 'inspect' || availableRows.length === 0) return availableRows.length - 1;
         const key = selectedRecordKey();
-        const found = key ? rows().findIndex((row) => getTelemetryRecordKey(row) === key) : -1;
-        return found >= 0 ? found : Math.max(0, rows().length - 1);
+        const found = key ? availableRows.findIndex((row) => getTelemetryRecordKey(row) === key) : -1;
+        return found >= 0 ? found : Math.max(0, availableRows.length - 1);
     });
-    const displayRows = createMemo(() => mode() === 'inspect' ? rows().slice(0, selectedIndex() + 1) : rows());
+    const displayRows = createMemo(() => mode() === 'inspect' ? workspaceRows().slice(0, selectedIndex() + 1) : workspaceRows());
     const selected = createMemo(() => displayRows().at(-1));
     const previousSelected = createMemo(() => displayRows().at(-2));
-    const liveLatest = createMemo(() => rows().at(-1));
+    const liveLatest = createMemo(() => workspaceRows().at(-1));
+    const visibleEvents = createMemo(() => waitingPreview() ? [] : eventStore.events());
     const endedSession = createMemo(() => {
         const state = telemetryStore.liveSessionState();
         return state?.status === 'ended' ? state : null;
     });
     const showSessionTransition = createMemo(() => {
         const disposition = sessionEndDisposition();
-        return Boolean(endedSession() && (disposition === 'prompt' || disposition === 'waiting'));
+        return Boolean(!waitingPreview() && endedSession() && (disposition === 'prompt' || disposition === 'waiting'));
     });
 
     const systemView = createMemo(() => SYSTEM_VIEWS.find((view) => view.id === activeViewKey()));
@@ -331,9 +336,13 @@ const DashboardParity: Component = () => {
         const state = telemetryStore.liveSessionState();
         if (!state) return;
         if (state.status === 'active') {
-            if (observedSessionEndKey) {
+            if (observedSessionEndKey || waitingPreview()) {
                 observedSessionEndKey = null;
                 setSessionEndDisposition(null);
+                setWaitingPreview(false);
+                setEditing(false);
+                setDraftLayout([]);
+                setShowCatalog(false);
                 setMode('live');
                 setSelectedRecordKey(null);
             }
@@ -398,7 +407,7 @@ const DashboardParity: Component = () => {
     };
     const inspectEndedSession = () => {
         if (rows().length === 0) {
-            showNotice('The saved session is still loading from Convex. Inspection will be ready shortly.', 'info');
+            showNotice('The saved session is still loading. Inspection will be ready shortly.', 'info');
             return;
         }
         enterInspection();
@@ -448,6 +457,19 @@ const DashboardParity: Component = () => {
     const cancelEditing = () => {
         setEditing(false);
         setDraftLayout([]);
+    };
+    const customizeWhileWaiting = () => {
+        returnToLive();
+        setSessionEndDisposition('waiting');
+        setWaitingPreview(true);
+        startEditing();
+    };
+    const finishWaitingPreview = () => {
+        if (editing() && !window.confirm('Return to the waiting screen? Unsaved layout changes will be discarded.')) return;
+        cancelEditing();
+        setShowCatalog(false);
+        setWaitingPreview(false);
+        setSessionEndDisposition('waiting');
     };
     const patchWidget = (instanceId: string, patch: Partial<WidgetLayout>) => {
         setDraftLayout((layout) => layout.map((widget) => widget.instanceId === instanceId ? { ...widget, ...patch } : widget));
@@ -705,12 +727,12 @@ const DashboardParity: Component = () => {
                                     <img src="/images/logo.png" alt="" width="756" height="706" decoding="async" />
                                 </a>
                                 <div class="ev-signal-rail" aria-live="polite">
-                                    <SignalNode label={api().statusText()} detail={api().statusDetail() ?? 'Realtime link stable'} tone={telemetryStore.connectionStatus() === 'connected' ? 'green' : telemetryStore.connectionStatus() === 'failed' ? 'red' : 'amber'} active={telemetryStore.connectionStatus() === 'connected'} action={api().canRetryConnection() ? () => void api().retryConnection() : undefined} />
-                                    <SignalNode label={telemetryStore.isDataFresh() ? 'Data fresh' : rows().length ? 'Data stale' : 'No samples'} detail={rows().length ? `Updated ${api().lastMessageLabel()}` : 'Waiting for first valid sample'} tone={telemetryStore.isDataFresh() ? 'green' : 'amber'} active={telemetryStore.isDataFresh()} />
-                                    <SignalNode label={endedSession() ? 'Session ended' : telemetryStore.currentSessionId() ? 'Session active' : 'Session waiting'} detail={endedSession()?.session_name ?? telemetryStore.currentSessionName() ?? telemetryStore.currentSessionId()?.slice(0, 12) ?? 'No active run detected'} tone={endedSession() ? 'orange' : telemetryStore.currentSessionId() ? 'orange' : 'quiet'} active={Boolean(telemetryStore.currentSessionId() && !endedSession())} />
-                                    <SignalNode label={eventStore.events().some((event) => event.status === 'active' && !event.acknowledged && (event.severity === 'critical' || event.severity === 'warning')) ? 'Review required' : 'Vehicle normal'} detail={eventStore.events().find((event) => event.status === 'active' && !event.acknowledged)?.title ?? 'No intervention'} tone={eventStore.events().some((event) => event.status === 'active' && event.severity === 'critical') ? 'red' : eventStore.events().some((event) => event.status === 'active' && event.severity === 'warning') ? 'amber' : 'green'} active />
+                                    <SignalNode label={waitingPreview() ? 'Preview mode' : api().statusText()} detail={waitingPreview() ? 'Editing with sample telemetry' : api().statusDetail() ?? 'Realtime link stable'} tone={waitingPreview() ? 'orange' : telemetryStore.connectionStatus() === 'connected' ? 'green' : telemetryStore.connectionStatus() === 'failed' ? 'red' : 'amber'} active={waitingPreview() || telemetryStore.connectionStatus() === 'connected'} action={!waitingPreview() && api().canRetryConnection() ? () => void api().retryConnection() : undefined} />
+                                    <SignalNode label={waitingPreview() ? 'Sample data' : telemetryStore.isDataFresh() ? 'Data fresh' : rows().length ? 'Data stale' : 'No samples'} detail={waitingPreview() ? `${previewRows.length} preview points` : rows().length ? `Updated ${api().lastMessageLabel()}` : 'Waiting for first valid sample'} tone={waitingPreview() || telemetryStore.isDataFresh() ? 'green' : 'amber'} active={waitingPreview() || telemetryStore.isDataFresh()} />
+                                    <SignalNode label={waitingPreview() ? 'Layout preview' : endedSession() ? 'Session ended' : telemetryStore.currentSessionId() ? 'Session active' : 'Session waiting'} detail={waitingPreview() ? currentViewName() : endedSession()?.session_name ?? telemetryStore.currentSessionName() ?? telemetryStore.currentSessionId()?.slice(0, 12) ?? 'No active run detected'} tone={waitingPreview() ? 'orange' : endedSession() ? 'orange' : telemetryStore.currentSessionId() ? 'orange' : 'quiet'} active={waitingPreview() || Boolean(telemetryStore.currentSessionId() && !endedSession())} />
+                                    <SignalNode label={waitingPreview() ? 'Preview normal' : visibleEvents().some((event) => event.status === 'active' && !event.acknowledged && (event.severity === 'critical' || event.severity === 'warning')) ? 'Review required' : 'Vehicle normal'} detail={waitingPreview() ? 'Live alerts remain paused' : visibleEvents().find((event) => event.status === 'active' && !event.acknowledged)?.title ?? 'No intervention'} tone={waitingPreview() ? 'green' : visibleEvents().some((event) => event.status === 'active' && event.severity === 'critical') ? 'red' : visibleEvents().some((event) => event.status === 'active' && event.severity === 'warning') ? 'amber' : 'green'} active />
                                 </div>
-                                <div class="ev-mode-switch" aria-label="Display mode"><button classList={{ active: mode() === 'live' }} onClick={selectLiveMode}>Live</button><button classList={{ active: mode() === 'inspect' }} disabled={Boolean(endedSession() && rows().length === 0)} onClick={selectInspectMode}>Inspect</button></div>
+                                <div class="ev-mode-switch" aria-label="Display mode"><button classList={{ active: mode() === 'live' }} onClick={waitingPreview() ? finishWaitingPreview : selectLiveMode}>{waitingPreview() ? 'Exit preview' : 'Live'}</button><button classList={{ active: mode() === 'inspect' }} disabled={waitingPreview() || Boolean(endedSession() && rows().length === 0)} onClick={selectInspectMode}>Inspect</button></div>
                             </div>
                         </header>
 
@@ -718,13 +740,17 @@ const DashboardParity: Component = () => {
                             <div class="ev-inspection-banner" role="status"><div><strong>Inspection mode</strong><span>Values frozen at {selected() ? new Date(selected()!.timestamp).toLocaleTimeString() : '—'} · {endedSession() ? 'session closed' : 'acquisition continues'}</span><input type="range" aria-label="Inspect telemetry record" min="0" max={Math.max(0, rows().length - 1)} value={selectedIndex()} onInput={(event) => updateInspectionIndex(Number(event.currentTarget.value))} /><span class="ev-compare">Δ previous: {selected() && previousSelected() ? `${((selected()!.speed_ms ?? 0) - (previousSelected()!.speed_ms ?? 0)).toFixed(2)} m/s` : '—'} · Δ live: {selected() && liveLatest() ? `${((selected()!.speed_ms ?? 0) - (liveLatest()!.speed_ms ?? 0)).toFixed(2)} m/s` : '—'}</span></div><button onClick={endedSession() ? waitForNextSession : returnToLive}>{endedSession() ? 'Wait for next session →' : 'Return to live →'}</button></div>
                         </Show>
 
+                        <Show when={waitingPreview()}>
+                            <div class="ev-preview-banner" role="status"><div><strong>Dashboard customization preview</strong><span>Sample telemetry is shown only as a visual guide. Arrange, add, and save widgets exactly as you want them for the next session.</span></div><button onClick={finishWaitingPreview}>Return to waiting →</button></div>
+                        </Show>
+
                         <Show when={showSessionTransition() && endedSession()}>
-                            {(state) => <SessionTransitionState state={state()} waiting={sessionEndDisposition() === 'waiting'} canInspect={rows().length > 0} onInspect={inspectEndedSession} onWait={waitForNextSession} />}
+                            {(state) => <SessionTransitionState state={state()} waiting={sessionEndDisposition() === 'waiting'} canInspect={rows().length > 0} onInspect={inspectEndedSession} onWait={waitForNextSession} onCustomize={customizeWhileWaiting} utilities={<div class="ev-session-utility-actions"><button onMouseEnter={() => runtime()?.prewarmHistoricalMode()} onFocus={() => runtime()?.prewarmHistoricalMode()} onClick={openHistorical}>Historical analysis</button><Show when={authStore.userRole() === 'internal' || authStore.userRole() === 'admin'}><button onClick={openDriverCockpit}>Driver cockpit</button></Show><AccountMenu open={accountOpen()} setOpen={setAccountOpen} onLogin={() => setShowLogin(true)} onSignup={() => setShowSignup(true)} onAdmin={() => setShowAdmin(true)} theme={theme()} onToggleTheme={toggleTheme} /></div>} />}
                         </Show>
 
                         <main class="ev-frame" classList={{ 'ev-session-content-hidden': showSessionTransition() }} id="main">
                             <section class="ev-session-header" aria-labelledby="session-heading">
-                                <div><span class="ev-eyebrow">Live telemetry workspace</span><h1 id="session-heading">{telemetryStore.currentSessionName() ?? (telemetryStore.currentSessionId() ? 'Active vehicle session' : 'Waiting for vehicle session')}</h1><p>{telemetryStore.currentSessionId() ? `${telemetryStore.currentSessionId()!.slice(0, 18)} · ${rows().length.toLocaleString()} records` : 'The dashboard is ready and will begin displaying data when the next vehicle session starts.'}</p></div>
+                                <div><span class="ev-eyebrow">{waitingPreview() ? 'Dashboard customization preview' : 'Live telemetry workspace'}</span><h1 id="session-heading">{waitingPreview() ? currentViewName() : telemetryStore.currentSessionName() ?? (telemetryStore.currentSessionId() ? 'Active vehicle session' : 'Waiting for vehicle session')}</h1><p>{waitingPreview() ? `${workspaceRows().length.toLocaleString()} sample points · Preview values are not saved` : telemetryStore.currentSessionId() ? `${telemetryStore.currentSessionId()!.slice(0, 18)} · ${rows().length.toLocaleString()} records` : 'The dashboard is ready and will begin displaying data when the next vehicle session starts.'}</p></div>
                                 <div class="ev-session-actions"><button class="ev-primary-action" onMouseEnter={() => runtime()?.prewarmHistoricalMode()} onFocus={() => runtime()?.prewarmHistoricalMode()} onClick={openHistorical}>Historical Analysis</button><Show when={authStore.userRole() === 'internal' || authStore.userRole() === 'admin'}><button type="button" class="ev-secondary-action" onClick={openDriverCockpit}>Driver cockpit</button></Show><AccountMenu open={accountOpen()} setOpen={setAccountOpen} onLogin={() => setShowLogin(true)} onSignup={() => setShowSignup(true)} onAdmin={() => setShowAdmin(true)} theme={theme()} onToggleTheme={toggleTheme} /></div>
                             </section>
 
@@ -741,7 +767,7 @@ const DashboardParity: Component = () => {
                                         const definition = WIDGET_REGISTRY[widget.widgetType];
                                         return <article class={`ev-widget-frame ev-widget-${widget.widgetType}`} style={{ '--ev-span': String(Math.max(1, Math.min(12, widget.width))) } as JSX.CSSProperties} data-pinned={widget.pinned ? 'true' : 'false'}>
                                             <Show when={editing()}><div class="ev-widget-editbar"><strong>{definition.displayName}</strong><div><button aria-label="Move widget earlier" disabled={index() === 0} onClick={() => moveWidget(index(), -1)}>↑</button><button aria-label="Move widget later" disabled={index() === draftLayout().length - 1} onClick={() => moveWidget(index(), 1)}>↓</button><button onClick={() => patchWidget(widget.instanceId, { width: widget.width >= 12 ? 4 : widget.width + 2 })}>Width {widget.width}/12</button><button onClick={() => patchWidget(widget.instanceId, { pinned: !widget.pinned })}>{widget.pinned ? 'Unpin' : 'Pin'}</button><button onClick={() => duplicateWidget(widget)}>Duplicate</button><button disabled={widget.pinned} onClick={() => setDraftLayout((layout) => layout.filter((entry) => entry.instanceId !== widget.instanceId))}>Remove</button></div></div></Show>
-                                            <Dynamic component={definition.component} rows={displayRows()} liveRows={rows()} inspectionMode={mode() === 'inspect'} eventList={eventStore.events()} acknowledgeEvent={acknowledgeEvent} activateView={(view: SystemViewId) => activateView(view)} title={widget.title} config={widget.config} />
+                                            <Dynamic component={definition.component} rows={displayRows()} liveRows={workspaceRows()} inspectionMode={!waitingPreview() && mode() === 'inspect'} previewMode={waitingPreview()} eventList={visibleEvents()} acknowledgeEvent={acknowledgeEvent} activateView={(view: SystemViewId) => activateView(view)} title={widget.title} config={widget.config} />
                                         </article>;
                                     }}
                                 </For>
@@ -777,26 +803,133 @@ function formatSessionDuration(state: LiveSessionState): string {
     return minutes > 0 ? `${minutes}m ${seconds.toString().padStart(2, '0')}s` : `${seconds}s`;
 }
 
+function createDashboardPreviewRows(): TelemetryRow[] {
+    const pointCount = 180;
+    const sampleIntervalSeconds = 1;
+    const endTime = Date.now();
+    let distanceM = 0;
+    let energyJ = 0;
+
+    return Array.from({ length: pointCount }, (_, index) => {
+        const phase = index / 13;
+        const speedMs = Math.max(0, 7.4 + Math.sin(phase) * 1.55 + Math.sin(index / 31) * 0.65);
+        const throttlePct = Math.max(4, Math.min(88, 42 + Math.sin(index / 9) * 26 + Math.cos(index / 23) * 9));
+        const brakePct = Math.max(0, Math.sin(index / 17 - 1.1) * 26 - 16);
+        const voltageV = 53.8 - index * 0.002 + Math.sin(index / 28) * 0.22;
+        const currentA = Math.max(1.2, 5.8 + throttlePct * 0.13 - brakePct * 0.04 + Math.sin(index / 7) * 0.8);
+        const powerW = voltageV * currentA;
+        const lateralG = Math.sin(index / 12) * 0.17;
+        const longitudinalG = Math.cos(index / 19) * 0.11;
+        distanceM += speedMs * sampleIntervalSeconds;
+        energyJ += powerW * sampleIntervalSeconds;
+        const avgSpeedKmh = 26.4 + Math.sin(index / 42) * 1.1;
+
+        return {
+            session_id: 'dashboard-preview',
+            session_name: 'Sample telemetry',
+            timestamp: new Date(endTime - (pointCount - 1 - index) * 1000).toISOString(),
+            message_id: index + 1,
+            data_source: 'PREVIEW',
+            speed_ms: speedMs,
+            speed_kmh: speedMs * 3.6,
+            distance_m: distanceM,
+            route_distance_km: distanceM / 1000,
+            voltage_v: voltageV,
+            current_a: currentA,
+            power_w: powerW,
+            energy_j: energyJ,
+            cumulative_energy_kwh: energyJ / 3_600_000,
+            current_efficiency_km_kwh: Math.max(18, 36 + Math.sin(index / 21) * 7),
+            inst_eff_km_kwh: Math.max(18, 36 + Math.sin(index / 21) * 7),
+            acc_eff_km_kwh: 34.8 + Math.sin(index / 47) * 1.4,
+            avg_speed_kmh: avgSpeedKmh,
+            max_speed_kmh: 34.2,
+            avg_power: 545,
+            avg_voltage: 53.6,
+            avg_current: 10.2,
+            max_power_w: 835,
+            max_current_a: 15.6,
+            optimal_speed_kmh: 27.5,
+            optimal_speed_ms: 27.5 / 3.6,
+            optimal_efficiency_km_kwh: 39.2,
+            optimal_speed_confidence: 0.91,
+            optimal_speed_data_points: index + 1,
+            optimal_speed_range: { min_kmh: 25.8, max_kmh: 29.1, efficiency_km_kwh: 39.2 },
+            throttle_pct: throttlePct,
+            brake_pct: brakePct,
+            brake2_pct: brakePct * 0.86,
+            throttle: throttlePct,
+            brake: brakePct,
+            brake2: brakePct * 0.86,
+            motor_voltage_v: voltageV - 0.7,
+            motor_current_a: currentA * 0.93,
+            motor_rpm: speedMs * 286,
+            motor_phase_1_current_a: currentA * 0.9,
+            motor_phase_2_current_a: currentA * 0.94,
+            motor_phase_3_current_a: currentA * 0.92,
+            motor_phase_current_a: currentA * 0.92,
+            latitude: 19.4326 + index * 0.000012,
+            longitude: -99.1332 + Math.sin(index / 45) * 0.0007,
+            altitude_m: 2240 + Math.sin(index / 38) * 4.2,
+            elevation_gain_m: Math.max(0, Math.sin(index / 38) * 4.2),
+            gyro_x: Math.sin(index / 14) * 1.8,
+            gyro_y: Math.cos(index / 18) * 1.4,
+            gyro_z: Math.sin(index / 11) * 4.8,
+            steering_gyro_x: Math.sin(index / 15) * 2.2,
+            steering_gyro_y: Math.cos(index / 17) * 1.6,
+            steering_gyro_z: Math.sin(index / 10) * 7.5,
+            accel_x: longitudinalG * 9.80665,
+            accel_y: lateralG * 9.80665,
+            accel_z: 9.80665 + Math.sin(index / 8) * 0.09,
+            steering_accel_x: Math.sin(index / 15) * 0.7,
+            steering_accel_y: Math.cos(index / 16) * 0.5,
+            steering_accel_z: 9.80665,
+            total_acceleration: 9.80665 * Math.sqrt(1 + lateralG ** 2 + longitudinalG ** 2),
+            current_g_force: Math.sqrt(lateralG ** 2 + longitudinalG ** 2),
+            max_g_force: 0.24,
+            accel_magnitude: Math.sqrt(lateralG ** 2 + longitudinalG ** 2) * 9.80665,
+            avg_acceleration: 0.42,
+            g_lateral: lateralG,
+            g_longitudinal: longitudinalG,
+            g_vertical: 1,
+            g_total: Math.sqrt(1 + lateralG ** 2 + longitudinalG ** 2),
+            roll_deg: lateralG * 5.2,
+            pitch_deg: longitudinalG * 4.8,
+            motion_state: brakePct > 4 ? 'braking' : throttlePct > 58 ? 'accelerating' : 'cruising',
+            driver_mode: brakePct > 4 ? 'braking' : throttlePct > 24 ? 'accelerating' : 'coasting',
+            throttle_intensity: throttlePct > 70 ? 'heavy' : throttlePct > 42 ? 'moderate' : 'light',
+            brake_intensity: brakePct > 18 ? 'moderate' : brakePct > 2 ? 'light' : 'none',
+            quality_score: 98.4,
+            outlier_severity: 'low',
+            outliers: { detected: false, fields: [], severity: 'low' },
+            uptime_seconds: index,
+        } satisfies TelemetryRow;
+    });
+}
+
 const SessionTransitionState: Component<{
     state: LiveSessionState;
     waiting: boolean;
     canInspect: boolean;
     onInspect: () => void;
     onWait: () => void;
+    onCustomize: () => void;
+    utilities: JSX.Element;
 }> = (props) => (
     <main class="ev-session-transition" data-waiting={props.waiting ? 'true' : 'false'} aria-live="polite">
         <div class="ev-session-transition-mark" aria-hidden="true"><i /><span>EV</span></div>
         <section class="ev-session-transition-card">
             <header>
-                <span class="ev-eyebrow">Session lifecycle // operator confirmed</span>
+                <span class="ev-eyebrow">Session status // ready</span>
                 <b>{props.waiting ? 'Standing by' : 'Run complete'}</b>
             </header>
             <Show when={!props.waiting} fallback={
                 <div class="ev-session-waiting-copy">
                     <h1>Ready for the next session.</h1>
                     <p>The dashboard will return to live telemetry automatically as soon as the next session begins.</p>
+                    <button class="ev-waiting-customize" onClick={props.onCustomize}><strong>Customize dashboard</strong><span>Arrange your views with sample data while you wait</span></button>
                     <div class="ev-session-scan" aria-hidden="true"><i /></div>
-                    <span>Realtime and Convex lifecycle channels are listening</span>
+                    <span>No action needed — the next session will appear automatically</span>
                 </div>
             }>
                 <div class="ev-session-finished-copy">
@@ -813,7 +946,7 @@ const SessionTransitionState: Component<{
                     <button class="ev-secondary-action" onClick={props.onWait}>Wait for next session</button>
                 </div>
             </Show>
-            <footer><i aria-hidden="true" />Lifecycle state received · {new Date(props.state.ended_at ?? props.state.updated_at).toLocaleTimeString()}</footer>
+            <footer><div class="ev-session-ready-state"><i aria-hidden="true" />Session summary ready · {new Date(props.state.ended_at ?? props.state.updated_at).toLocaleTimeString()}</div>{props.utilities}</footer>
         </section>
     </main>
 );

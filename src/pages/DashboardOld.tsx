@@ -880,13 +880,13 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
             telemetryStore.setSession(state.session_id, state.session_name ?? null);
         }
         setRealtimeActivity('waiting');
-        setConnectionNote('The bridge operator ended this session. Realtime remains ready for the next run.');
+        setConnectionNote('This session has ended. The dashboard is ready for the next one.');
 
         const channelName = runtimeConfig?.ABLY_CHANNEL_NAME ?? 'telemetry-dashboard-channel';
         if (telemetryStore.connectionStatus() === 'connected') {
             void hydrateLiveSession(channelName, state.session_id, state.session_name ?? null).finally(() => {
                 setRealtimeActivity('waiting');
-                setConnectionNote('The bridge operator ended this session. Realtime remains ready for the next run.');
+                setConnectionNote('This session has ended. The dashboard is ready for the next one.');
             });
         }
     };
@@ -1044,7 +1044,7 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
             if (lifecycle?.status === 'ended') {
                 await hydrateLiveSession(channelName, lifecycle.session_id, lifecycle.session_name ?? null);
                 setRealtimeActivity('waiting');
-                setConnectionNote('The bridge operator ended this session. Realtime remains ready for the next run.');
+                setConnectionNote('This session has ended. The dashboard is ready for the next one.');
             } else {
                 await loadRecentSessionFromAbly(channelName);
             }

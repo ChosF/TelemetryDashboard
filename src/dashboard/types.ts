@@ -128,6 +128,7 @@ export interface WidgetRenderProps {
     rows: TelemetryRow[];
     liveRows: TelemetryRow[];
     inspectionMode: boolean;
+    previewMode?: boolean;
     eventList: OperationalEvent[];
     acknowledgeEvent: (key: string, acknowledged: boolean) => void;
     activateView: (view: SystemViewId) => void;

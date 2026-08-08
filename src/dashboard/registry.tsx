@@ -103,7 +103,7 @@ const VehiclePulseWidget: Component<WidgetRenderProps> = (props) => {
         if (delta < 0) return { label: 'Increase pace', detail: `${Math.abs(delta).toFixed(1)} km/h below target`, tone: 'advisory' };
         return { label: 'Ease pace', detail: `${delta.toFixed(1)} km/h above target`, tone: 'advisory' };
     });
-    const isStale = createMemo(() => !telemetryStore.isDataFresh() && props.liveRows.length > 0);
+    const isStale = createMemo(() => !props.previewMode && !telemetryStore.isDataFresh() && props.liveRows.length > 0);
 
     return (
         <section class="ev-pulse" aria-labelledby="vehicle-pulse-title">
@@ -271,12 +271,12 @@ const HealthSummaryWidget: Component<WidgetRenderProps> = (props) => {
     // incoming Ably packet.
     const report = createMemo(() => computeDataQualityReport(props.rows));
     const active = createMemo(() => props.eventList.filter((event) => event.status === 'active' && !event.acknowledged));
-    return <section class="ev-health-summary"><div class="ev-widget-heading"><div><span class="ev-zone-kicker">Health chain</span><h2>Vehicle health</h2></div><strong>{Math.round(report().quality_score)}%</strong></div><div class="ev-health-grid"><Metric label="Freshness" value={telemetryStore.isDataFresh() ? 'Fresh' : 'Stale'} /><Metric label="Median rate" value={report().hz ? `${report().hz!.toFixed(2)} Hz` : 'Unavailable'} /><Metric label="Dropouts" value={String(report().dropouts ?? 0)} /><Metric label="Maximum gap" value={report().max_gap_s ? `${report().max_gap_s!.toFixed(1)} s` : 'Unavailable'} /><Metric label="Unresolved events" value={String(active().length)} /><Metric label="Missing fields" value={String(Object.values(report().missing_fields).filter((ratio) => ratio > 0.05).length)} /></div></section>;
+    return <section class="ev-health-summary"><div class="ev-widget-heading"><div><span class="ev-zone-kicker">Health chain</span><h2>Vehicle health</h2></div><strong>{Math.round(report().quality_score)}%</strong></div><div class="ev-health-grid"><Metric label="Freshness" value={props.previewMode ? 'Sample' : telemetryStore.isDataFresh() ? 'Fresh' : 'Stale'} /><Metric label="Median rate" value={report().hz ? `${report().hz!.toFixed(2)} Hz` : 'Unavailable'} /><Metric label="Dropouts" value={String(report().dropouts ?? 0)} /><Metric label="Maximum gap" value={report().max_gap_s ? `${report().max_gap_s!.toFixed(1)} s` : 'Unavailable'} /><Metric label="Unresolved events" value={String(active().length)} /><Metric label="Missing fields" value={String(Object.values(report().missing_fields).filter((ratio) => ratio > 0.05).length)} /></div></section>;
 };
 
 const DriverInputsWidget: Component<WidgetRenderProps> = (props) => {
     const latest = createMemo(() => latestOf(props.rows));
-    const steeringAngle = createMemo(() => telemetryStore.liveSteeringAngleDeg());
+    const steeringAngle = createMemo(() => props.previewMode ? (latest()?.steering_gyro_z ?? 0) * 2.4 : telemetryStore.liveSteeringAngleDeg());
     const input = (primary: number | undefined, fallback: number | undefined) => finite(primary) ? primary : finite(fallback) ? fallback * 100 : null;
     return <section class="ev-driver-widget"><span class="ev-zone-kicker">Driver interface</span><h2>Driver inputs</h2><div class="ev-steering"><svg class="ev-steering-wheel" viewBox="0 0 160 160" role="img" aria-label={`Steering wheel at ${steeringAngle().toFixed(1)} degrees`} style={{ transform: `rotate(${steeringAngle()}deg)` }}><circle class="ev-steering-rim" cx="80" cy="80" r="59" /><path class="ev-steering-grip" d="M 38 39 A 59 59 0 0 1 122 39" /><path class="ev-steering-spokes" d="M 80 70 L 80 23 M 72 84 L 34 112 M 88 84 L 126 112" /><circle class="ev-steering-hub" cx="80" cy="80" r="12" /><circle class="ev-steering-cap" cx="80" cy="80" r="5" /><path class="ev-steering-index" d="M 73 22 L 87 22" /></svg><span>{steeringAngle().toFixed(1)}° estimated steering</span></div><InputMeter label="Throttle" value={input(latest()?.throttle_pct, latest()?.throttle)} tone="green" /><InputMeter label="Brake 1" value={input(latest()?.brake_pct, latest()?.brake)} tone="red" /><InputMeter label="Brake 2" value={input(latest()?.brake2_pct, latest()?.brake2)} tone="amber" /></section>;
 };

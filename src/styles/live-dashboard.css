@@ -153,6 +153,11 @@ button.ev-signal-node { cursor: pointer; }
 .ev-inspection-banner input { accent-color: var(--ev-circuit); }
 .ev-inspection-banner button { border: 0; background: transparent; color: var(--ev-circuit); font-size: 11px; font-weight: 800; text-transform: uppercase; text-decoration: underline; cursor: pointer; }
 .ev-inspection-banner .ev-compare { grid-column: 1 / -1; color: rgba(10, 10, 10, 0.72); font-family: "Space Grotesk", monospace; }
+.ev-preview-banner { position: sticky; top: 74px; z-index: 45; min-height: 58px; padding: 10px max(16px, calc((100vw - 1536px) / 2)); display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--ev-orange); background: var(--ev-instrument); }
+.ev-preview-banner > div { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; }
+.ev-preview-banner strong { color: var(--ev-orange); font: 700 9px/1 "Space Grotesk", monospace; letter-spacing: .15em; text-transform: uppercase; }
+.ev-preview-banner span { color: var(--ev-muted); font-size: 10px; line-height: 1.45; }
+.ev-preview-banner button { flex: 0 0 auto; border: 0; color: var(--ev-orange); background: transparent; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
 
 .ev-session-content-hidden { display: none; }
 .ev-session-transition {
@@ -187,12 +192,23 @@ button.ev-signal-node { cursor: pointer; }
 .ev-session-end-metrics dd { margin: 10px 0 0; overflow: hidden; color: var(--ev-white); font: 600 clamp(15px, 1.6vw, 22px)/1.2 "Space Grotesk", monospace; text-overflow: ellipsis; white-space: nowrap; }
 .ev-session-end-actions { padding: 24px clamp(22px, 4vw, 48px); display: flex; flex-wrap: wrap; gap: 9px; }
 .ev-session-end-actions button { min-height: 48px; padding: 0 20px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ev-line-strong); color: var(--ev-white); background: transparent; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
-.ev-session-transition-card > footer { min-height: 44px; padding: 0 clamp(22px, 4vw, 48px); display: flex; align-items: center; gap: 9px; border-top: 1px solid var(--ev-line); color: var(--ev-quiet); font: 600 8px/1 "Space Grotesk", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.ev-session-transition-card > footer { min-height: 58px; padding: 7px clamp(22px, 4vw, 48px); display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--ev-line); color: var(--ev-quiet); font: 600 8px/1 "Space Grotesk", monospace; letter-spacing: .08em; text-transform: uppercase; }
 .ev-session-transition-card > footer i { width: 6px; height: 6px; border-radius: 50%; background: var(--ev-green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ev-green) 14%, transparent); }
+.ev-session-ready-state { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+.ev-session-utility-actions { display: flex; align-items: center; gap: 6px; }
+.ev-session-utility-actions > button { min-height: 36px; padding: 0 11px; border: 1px solid var(--ev-line); color: var(--ev-muted); background: transparent; font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.ev-session-utility-actions > button:hover { color: var(--ev-white); border-color: var(--ev-orange); background: var(--ev-selected-bg); }
+.ev-session-utility-actions .ev-account-trigger { width: 36px; min-height: 36px; height: 36px; }
+.ev-session-utility-actions .ev-account-popover { top: auto; bottom: calc(100% + 9px); text-transform: none; letter-spacing: normal; }
 .ev-session-transition[data-waiting="true"] .ev-session-transition-card { max-width: 1060px; }
 .ev-session-waiting-copy { min-height: 430px; display: flex; flex-direction: column; justify-content: center; }
 .ev-session-waiting-copy h1 { max-width: 780px; }
 .ev-session-waiting-copy > span { margin-top: 13px; color: var(--ev-quiet); font: 600 8px/1 "Space Grotesk", monospace; letter-spacing: .14em; text-transform: uppercase; }
+.ev-waiting-customize { width: min(420px, 100%); min-height: 64px; margin-top: 30px; padding: 0 18px; display: grid; align-content: center; justify-items: start; gap: 6px; border: 1px solid var(--ev-orange); color: var(--ev-white); background: var(--ev-selected-bg); text-align: left; cursor: pointer; }
+.ev-waiting-customize strong { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.ev-waiting-customize span { color: var(--ev-muted); font: 500 9px/1.3 "Space Grotesk", monospace; }
+.ev-waiting-customize:hover { color: var(--ev-circuit); background: var(--ev-orange); }
+.ev-waiting-customize:hover span { color: color-mix(in srgb, var(--ev-circuit) 72%, transparent); }
 .ev-session-scan { width: min(620px, 100%); height: 2px; margin-top: 48px; position: relative; overflow: hidden; background: var(--ev-line-strong); }
 .ev-session-scan i { position: absolute; inset: 0 auto 0 0; width: 24%; background: var(--ev-orange); animation: ev-session-scan 2.1s ease-in-out infinite; }
 @keyframes ev-session-transition-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -639,6 +655,7 @@ button.ev-signal-node { cursor: pointer; }
   .ev-widget-frame { grid-column: span 12; }
   .ev-pulse, .ev-attention { min-height: auto; }
   .ev-inspection-banner { position: relative; top: auto; }
+  .ev-preview-banner { position: relative; top: auto; }
   .ev-session-transition { grid-template-columns: 1fr; }
   .ev-session-transition-mark { width: 92px; }
 }
@@ -688,6 +705,9 @@ button.ev-signal-node { cursor: pointer; }
   .ev-view-options > div { position: fixed; left: 16px; right: 16px; bottom: 16px; width: auto; }
   .ev-inspection-banner > div { grid-template-columns: 1fr; }
   .ev-inspection-banner button { min-height: 44px; text-align: left; }
+  .ev-preview-banner { align-items: flex-start; flex-direction: column; gap: 8px; padding-block: 14px; }
+  .ev-preview-banner > div { grid-template-columns: 1fr; gap: 7px; }
+  .ev-preview-banner button { min-height: 34px; }
   .ev-power-flow { flex-wrap: wrap; }
   .ev-account-popover { position: fixed; left: 16px; right: 16px; top: 132px; width: auto; }
   .ev-session-transition { min-height: calc(100vh - 202px); padding: 44px 16px; gap: 28px; }
@@ -698,6 +718,11 @@ button.ev-signal-node { cursor: pointer; }
   .ev-session-end-metrics > div + div { border-left: 0; border-top: 1px solid var(--ev-line); }
   .ev-session-end-actions { display: grid; grid-template-columns: 1fr; }
   .ev-session-end-actions button { width: 100%; }
+  .ev-session-transition-card > footer { align-items: flex-start; flex-direction: column; padding-block: 12px; }
+  .ev-session-ready-state { white-space: normal; }
+  .ev-session-utility-actions { width: 100%; flex-wrap: wrap; }
+  .ev-session-utility-actions > button { flex: 1 1 130px; }
+  .ev-session-utility-actions .ev-account-popover { position: fixed; left: 16px; right: 16px; top: 132px; bottom: auto; width: auto; }
   .ev-instrument-header { padding: 19px 20px 15px; }
   .ev-instrument-body { padding: 18px 20px 20px; }
   .ev-horizontal-bar { grid-template-columns: 92px minmax(70px, 1fr) 72px; gap: 8px; }
