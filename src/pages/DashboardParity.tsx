@@ -26,16 +26,19 @@ import type {
     WidgetLayout,
 } from '@/dashboard/types';
 import type { LegacyNotificationType } from '@/lib/legacyNotifications';
+import type { LiveSessionState } from '@/types/telemetry';
 import '@/styles/live-dashboard.css';
 
 const VIEW_STORAGE_KEY = 'ecovolt-dashboard-views-v1';
 const LAST_VIEW_STORAGE_KEY = 'ecovolt-dashboard-last-view-v1';
 const SYSTEM_VIEW_VERSION = 2;
 const LEGACY_CUSTOM_CHART_KEY = 'custom-panel-widgets-v2';
+const SESSION_END_HANDLED_KEY = 'ecovolt-session-end-handled-v1';
 const LEGACY_IMPORT_VERSION = 1;
 type DashboardTheme = 'dark' | 'light';
 type NoticeTone = 'info' | 'success' | 'warning' | 'error';
 type CatalogScope = 'current' | 'all' | SystemViewId;
+type SessionEndDisposition = 'prompt' | 'inspect' | 'waiting' | null;
 
 const CATALOG_DEFINITIONS = Object.values(WIDGET_REGISTRY).filter((definition) => !definition.catalogHidden);
 const IMPORTANCE_ORDER: Record<WidgetDefinition['importance'], number> = { 'safety-critical': 0, recommended: 1, optional: 2, 'analysis-only': 3 };
@@ -157,11 +160,13 @@ const DashboardParity: Component = () => {
     const [legacyImportAvailable, setLegacyImportAvailable] = createSignal(false);
     const [mode, setMode] = createSignal<'live' | 'inspect'>('live');
     const [selectedRecordKey, setSelectedRecordKey] = createSignal<string | null>(null);
+    const [sessionEndDisposition, setSessionEndDisposition] = createSignal<SessionEndDisposition>(null);
     const [clock, setClock] = createSignal(Date.now());
     const eventStore = createOperationalEventStore();
     let loadedForUserId: string | null = null;
     let saveResetTimer: number | null = null;
     let noticeTimer: number | null = null;
+    let observedSessionEndKey: string | null = null;
 
     const showNotice = (message: string, type: LegacyNotificationType | NoticeTone = 'warning', duration = 8000) => {
         const tone: NoticeTone = type === 'critical' ? 'error' : type;
@@ -202,6 +207,14 @@ const DashboardParity: Component = () => {
     const selected = createMemo(() => displayRows().at(-1));
     const previousSelected = createMemo(() => displayRows().at(-2));
     const liveLatest = createMemo(() => rows().at(-1));
+    const endedSession = createMemo(() => {
+        const state = telemetryStore.liveSessionState();
+        return state?.status === 'ended' ? state : null;
+    });
+    const showSessionTransition = createMemo(() => {
+        const disposition = sessionEndDisposition();
+        return Boolean(endedSession() && (disposition === 'prompt' || disposition === 'waiting'));
+    });
 
     const systemView = createMemo(() => SYSTEM_VIEWS.find((view) => view.id === activeViewKey()));
     const remoteView = createMemo(() => remoteViews().find((view) => view.viewKey === activeViewKey()));
@@ -314,6 +327,33 @@ const DashboardParity: Component = () => {
         document.querySelector('meta[name="theme-color"]')?.setAttribute('content', currentTheme === 'light' ? '#F2EFE9' : '#0A0A0A');
     });
 
+    createEffect(() => {
+        const state = telemetryStore.liveSessionState();
+        if (!state) return;
+        if (state.status === 'active') {
+            if (observedSessionEndKey) {
+                observedSessionEndKey = null;
+                setSessionEndDisposition(null);
+                setMode('live');
+                setSelectedRecordKey(null);
+            }
+            return;
+        }
+
+        const endKey = `${state.session_id}:${state.ended_at ?? state.updated_at}`;
+        if (endKey === observedSessionEndKey) return;
+        observedSessionEndKey = endKey;
+        let alreadyHandled = false;
+        try {
+            alreadyHandled = localStorage.getItem(SESSION_END_HANDLED_KEY) === endKey;
+        } catch {
+            // Session transitions remain usable when storage is unavailable.
+        }
+        setMode('live');
+        setSelectedRecordKey(null);
+        setSessionEndDisposition(alreadyHandled ? 'waiting' : 'prompt');
+    });
+
     onMount(() => {
         try {
             setLocalViews(sanitizeLocalViews(JSON.parse(localStorage.getItem(VIEW_STORAGE_KEY) ?? '[]')));
@@ -324,7 +364,10 @@ const DashboardParity: Component = () => {
         const timer = window.setInterval(() => setClock(Date.now()), 1000);
         const onPopState = () => activateView(readViewFromUrl(), false);
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape' && mode() === 'inspect' && !showCatalog() && !showCreateView()) returnToLive();
+            if (event.key === 'Escape' && mode() === 'inspect' && !showCatalog() && !showCreateView()) {
+                if (endedSession()) setSessionEndDisposition('prompt');
+                returnToLive();
+            }
         };
         window.addEventListener('popstate', onPopState);
         document.addEventListener('keydown', onKeyDown);
@@ -352,6 +395,35 @@ const DashboardParity: Component = () => {
     const returnToLive = () => {
         setMode('live');
         setSelectedRecordKey(null);
+    };
+    const inspectEndedSession = () => {
+        if (rows().length === 0) {
+            showNotice('The saved session is still loading from Convex. Inspection will be ready shortly.', 'info');
+            return;
+        }
+        enterInspection();
+        setSessionEndDisposition('inspect');
+    };
+    const waitForNextSession = () => {
+        const state = endedSession();
+        if (state) {
+            const endKey = `${state.session_id}:${state.ended_at ?? state.updated_at}`;
+            try {
+                localStorage.setItem(SESSION_END_HANDLED_KEY, endKey);
+            } catch {
+                // Waiting state is still maintained for this page lifecycle.
+            }
+        }
+        returnToLive();
+        setSessionEndDisposition('waiting');
+    };
+    const selectLiveMode = () => {
+        if (endedSession()) setSessionEndDisposition('prompt');
+        returnToLive();
+    };
+    const selectInspectMode = () => {
+        if (endedSession()) inspectEndedSession();
+        else enterInspection();
     };
     const updateInspectionIndex = (index: number) => {
         const row = rows()[Math.max(0, Math.min(rows().length - 1, index))];
@@ -635,18 +707,22 @@ const DashboardParity: Component = () => {
                                 <div class="ev-signal-rail" aria-live="polite">
                                     <SignalNode label={api().statusText()} detail={api().statusDetail() ?? 'Realtime link stable'} tone={telemetryStore.connectionStatus() === 'connected' ? 'green' : telemetryStore.connectionStatus() === 'failed' ? 'red' : 'amber'} active={telemetryStore.connectionStatus() === 'connected'} action={api().canRetryConnection() ? () => void api().retryConnection() : undefined} />
                                     <SignalNode label={telemetryStore.isDataFresh() ? 'Data fresh' : rows().length ? 'Data stale' : 'No samples'} detail={rows().length ? `Updated ${api().lastMessageLabel()}` : 'Waiting for first valid sample'} tone={telemetryStore.isDataFresh() ? 'green' : 'amber'} active={telemetryStore.isDataFresh()} />
-                                    <SignalNode label={telemetryStore.currentSessionId() ? 'Session active' : 'Session waiting'} detail={telemetryStore.currentSessionName() ?? telemetryStore.currentSessionId()?.slice(0, 12) ?? 'No active run detected'} tone={telemetryStore.currentSessionId() ? 'orange' : 'quiet'} active={Boolean(telemetryStore.currentSessionId())} />
+                                    <SignalNode label={endedSession() ? 'Session ended' : telemetryStore.currentSessionId() ? 'Session active' : 'Session waiting'} detail={endedSession()?.session_name ?? telemetryStore.currentSessionName() ?? telemetryStore.currentSessionId()?.slice(0, 12) ?? 'No active run detected'} tone={endedSession() ? 'orange' : telemetryStore.currentSessionId() ? 'orange' : 'quiet'} active={Boolean(telemetryStore.currentSessionId() && !endedSession())} />
                                     <SignalNode label={eventStore.events().some((event) => event.status === 'active' && !event.acknowledged && (event.severity === 'critical' || event.severity === 'warning')) ? 'Review required' : 'Vehicle normal'} detail={eventStore.events().find((event) => event.status === 'active' && !event.acknowledged)?.title ?? 'No intervention'} tone={eventStore.events().some((event) => event.status === 'active' && event.severity === 'critical') ? 'red' : eventStore.events().some((event) => event.status === 'active' && event.severity === 'warning') ? 'amber' : 'green'} active />
                                 </div>
-                                <div class="ev-mode-switch" aria-label="Display mode"><button classList={{ active: mode() === 'live' }} onClick={returnToLive}>Live</button><button classList={{ active: mode() === 'inspect' }} onClick={enterInspection}>Inspect</button></div>
+                                <div class="ev-mode-switch" aria-label="Display mode"><button classList={{ active: mode() === 'live' }} onClick={selectLiveMode}>Live</button><button classList={{ active: mode() === 'inspect' }} disabled={Boolean(endedSession() && rows().length === 0)} onClick={selectInspectMode}>Inspect</button></div>
                             </div>
                         </header>
 
                         <Show when={mode() === 'inspect'}>
-                            <div class="ev-inspection-banner" role="status"><div><strong>Inspection mode</strong><span>Values frozen at {selected() ? new Date(selected()!.timestamp).toLocaleTimeString() : '—'} · acquisition continues</span><input type="range" aria-label="Inspect telemetry record" min="0" max={Math.max(0, rows().length - 1)} value={selectedIndex()} onInput={(event) => updateInspectionIndex(Number(event.currentTarget.value))} /><span class="ev-compare">Δ previous: {selected() && previousSelected() ? `${((selected()!.speed_ms ?? 0) - (previousSelected()!.speed_ms ?? 0)).toFixed(2)} m/s` : '—'} · Δ live: {selected() && liveLatest() ? `${((selected()!.speed_ms ?? 0) - (liveLatest()!.speed_ms ?? 0)).toFixed(2)} m/s` : '—'}</span></div><button onClick={returnToLive}>Return to live →</button></div>
+                            <div class="ev-inspection-banner" role="status"><div><strong>Inspection mode</strong><span>Values frozen at {selected() ? new Date(selected()!.timestamp).toLocaleTimeString() : '—'} · {endedSession() ? 'session closed' : 'acquisition continues'}</span><input type="range" aria-label="Inspect telemetry record" min="0" max={Math.max(0, rows().length - 1)} value={selectedIndex()} onInput={(event) => updateInspectionIndex(Number(event.currentTarget.value))} /><span class="ev-compare">Δ previous: {selected() && previousSelected() ? `${((selected()!.speed_ms ?? 0) - (previousSelected()!.speed_ms ?? 0)).toFixed(2)} m/s` : '—'} · Δ live: {selected() && liveLatest() ? `${((selected()!.speed_ms ?? 0) - (liveLatest()!.speed_ms ?? 0)).toFixed(2)} m/s` : '—'}</span></div><button onClick={endedSession() ? waitForNextSession : returnToLive}>{endedSession() ? 'Wait for next session →' : 'Return to live →'}</button></div>
                         </Show>
 
-                        <main class="ev-frame" id="main">
+                        <Show when={showSessionTransition() && endedSession()}>
+                            {(state) => <SessionTransitionState state={state()} waiting={sessionEndDisposition() === 'waiting'} canInspect={rows().length > 0} onInspect={inspectEndedSession} onWait={waitForNextSession} />}
+                        </Show>
+
+                        <main class="ev-frame" classList={{ 'ev-session-content-hidden': showSessionTransition() }} id="main">
                             <section class="ev-session-header" aria-labelledby="session-heading">
                                 <div><span class="ev-eyebrow">Live telemetry workspace</span><h1 id="session-heading">{telemetryStore.currentSessionName() ?? (telemetryStore.currentSessionId() ? 'Active vehicle session' : 'Waiting for vehicle session')}</h1><p>{telemetryStore.currentSessionId() ? `${telemetryStore.currentSessionId()!.slice(0, 18)} · ${rows().length.toLocaleString()} records` : 'The dashboard is read-only. Start telemetry at the vehicle or bridge.'}</p></div>
                                 <div class="ev-session-actions"><button class="ev-primary-action" onMouseEnter={() => runtime()?.prewarmHistoricalMode()} onFocus={() => runtime()?.prewarmHistoricalMode()} onClick={openHistorical}>Historical Analysis</button><Show when={authStore.userRole() === 'internal' || authStore.userRole() === 'admin'}><button type="button" class="ev-secondary-action" onClick={openDriverCockpit}>Driver cockpit</button></Show><AccountMenu open={accountOpen()} setOpen={setAccountOpen} onLogin={() => setShowLogin(true)} onSignup={() => setShowSignup(true)} onAdmin={() => setShowAdmin(true)} theme={theme()} onToggleTheme={toggleTheme} /></div>
@@ -690,6 +766,57 @@ const SignalNode: Component<{ label: string; detail: string; tone: 'green' | 'am
     const content = <><span><i aria-hidden="true" />{props.label}</span><small>{props.detail}</small></>;
     return <Show when={props.action} fallback={<div class={`ev-signal-node tone-${props.tone}`} data-active={props.active ? 'true' : 'false'}>{content}</div>}>{(action) => <button class={`ev-signal-node tone-${props.tone}`} data-active={props.active ? 'true' : 'false'} onClick={action()}>{content}</button>}</Show>;
 };
+
+function formatSessionDuration(state: LiveSessionState): string {
+    const start = new Date(state.started_at).getTime();
+    const end = new Date(state.ended_at ?? state.updated_at).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return '—';
+    const totalSeconds = Math.max(0, Math.round((end - start) / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return minutes > 0 ? `${minutes}m ${seconds.toString().padStart(2, '0')}s` : `${seconds}s`;
+}
+
+const SessionTransitionState: Component<{
+    state: LiveSessionState;
+    waiting: boolean;
+    canInspect: boolean;
+    onInspect: () => void;
+    onWait: () => void;
+}> = (props) => (
+    <main class="ev-session-transition" data-waiting={props.waiting ? 'true' : 'false'} aria-live="polite">
+        <div class="ev-session-transition-mark" aria-hidden="true"><i /><span>EV</span></div>
+        <section class="ev-session-transition-card">
+            <header>
+                <span class="ev-eyebrow">Session lifecycle // operator confirmed</span>
+                <b>{props.waiting ? 'Standing by' : 'Run complete'}</b>
+            </header>
+            <Show when={!props.waiting} fallback={
+                <div class="ev-session-waiting-copy">
+                    <h1>Ready for the next session.</h1>
+                    <p>The dashboard will return to live telemetry automatically as soon as the bridge opens a new run.</p>
+                    <div class="ev-session-scan" aria-hidden="true"><i /></div>
+                    <span>Realtime and Convex lifecycle channels are listening</span>
+                </div>
+            }>
+                <div class="ev-session-finished-copy">
+                    <h1>Session over.<br /><em>Thanks for joining us.</em></h1>
+                    <p>The bridge was closed intentionally with Ctrl+C. The final telemetry is held here for inspection while the live dashboard remains ready for what comes next.</p>
+                </div>
+                <dl class="ev-session-end-metrics">
+                    <div><dt>Session</dt><dd>{props.state.session_name ?? props.state.session_id.slice(0, 12)}</dd></div>
+                    <div><dt>Duration</dt><dd>{formatSessionDuration(props.state)}</dd></div>
+                    <div><dt>Records received</dt><dd>{props.state.record_count.toLocaleString()}</dd></div>
+                </dl>
+                <div class="ev-session-end-actions">
+                    <button class="ev-primary-action" disabled={!props.canInspect} onClick={props.onInspect}>{props.canInspect ? 'Inspect session' : 'Preparing session…'}</button>
+                    <button class="ev-secondary-action" onClick={props.onWait}>Wait for next session</button>
+                </div>
+            </Show>
+            <footer><i aria-hidden="true" />Lifecycle state received · {new Date(props.state.ended_at ?? props.state.updated_at).toLocaleTimeString()}</footer>
+        </section>
+    </main>
+);
 
 const StartupFailure: Component<{ message: string }> = (props) => <main class="ev-startup-failure"><span class="ev-eyebrow">Dashboard startup failed</span><h1>Live telemetry is unavailable</h1><p>{props.message}</p><div><a class="ev-primary-action" href="/dashboard/old">Open previous dashboard</a><a class="ev-secondary-action" href="/dashboard-legacy">Emergency fallback</a></div></main>;
 

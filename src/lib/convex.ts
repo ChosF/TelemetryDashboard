@@ -3,7 +3,7 @@
  * Ported from convex-bridge.js with TypeScript
  */
 
-import type { TelemetryRecord, TelemetrySession } from '@/types/telemetry';
+import type { LiveSessionState, TelemetryRecord, TelemetrySession } from '@/types/telemetry';
 import type { PersistedDashboardView, WidgetLayout } from '@/dashboard/types';
 import { debugRewind } from '@/lib/rewindDebug';
 import { getStoredSessionToken } from '@/lib/authSession';
@@ -992,6 +992,33 @@ export function subscribeToSessions(
     };
 }
 
+/** Subscribe to the bridge's durable active/ended lifecycle signal. */
+export function subscribeToLiveSessionState(
+    onUpdate: (state: LiveSessionState | null) => void
+): Unsubscribe {
+    if (!client) throw new Error('Convex not initialized');
+
+    const subKey = 'sessions:live-state';
+    if (activeSubscriptions.has(subKey)) {
+        activeSubscriptions.get(subKey)!();
+        activeSubscriptions.delete(subKey);
+    }
+
+    const unsubscribe = client.onUpdate(
+        'sessions:getLiveSessionState',
+        {},
+        (state) => onUpdate(state as LiveSessionState | null)
+    );
+    activeSubscriptions.set(subKey, unsubscribe);
+
+    return () => {
+        if (activeSubscriptions.has(subKey)) {
+            activeSubscriptions.get(subKey)!();
+            activeSubscriptions.delete(subKey);
+        }
+    };
+}
+
 /**
  * Unsubscribe from all active subscriptions
  */
@@ -1059,6 +1086,7 @@ export const convexClient = {
     subscribeToSession,
     subscribeToRecentRecords,
     subscribeToSessions,
+    subscribeToLiveSessionState,
     unsubscribeAll,
     close: closeConvex,
 };

@@ -21,6 +21,18 @@ export type Intensity = 'none' | 'light' | 'moderate' | 'heavy';
 /** Outlier severity levels */
 export type OutlierSeverity = 'low' | 'medium' | 'high' | 'critical';
 
+/** Durable lifecycle state reported by the telemetry bridge. */
+export interface LiveSessionState {
+    status: 'active' | 'ended';
+    session_id: string;
+    session_name?: string;
+    started_at: string;
+    ended_at?: string;
+    reason?: 'user_interrupt';
+    record_count: number;
+    updated_at: string;
+}
+
 /**
  * Raw telemetry data point as received from ESP32/Python bridge
  * All fields are optional except session_id and timestamp

@@ -8,7 +8,8 @@ import type {
     TelemetryRow,
     ConnectionStatus,
     KPISummary,
-    DataQualityReport
+    DataQualityReport,
+    LiveSessionState,
 } from '@/types/telemetry';
 import {
     withDerived,
@@ -37,6 +38,7 @@ const [lastMessageTime, setLastMessageTime] = createSignal<number | null>(null);
 // Session state
 const [currentSessionId, setCurrentSessionId] = createSignal<string | null>(null);
 const [currentSessionName, setCurrentSessionName] = createSignal<string | null>(null);
+const [liveSessionState, setLiveSessionState] = createSignal<LiveSessionState | null>(null);
 
 // Telemetry data
 const [telemetryData, setTelemetryData] = createSignal<TelemetryRow[]>([]);
@@ -213,6 +215,7 @@ export const telemetryStore = {
     lastMessageTime,
     currentSessionId,
     currentSessionName,
+    liveSessionState,
     mode,
     telemetryData,
     liveSteeringAngleDeg,
@@ -233,6 +236,7 @@ export const telemetryStore = {
     setData,
     clearData,
     setSession,
+    setLiveSessionState,
     setConnectionStatus,
     incrementErrors,
     switchMode,
@@ -246,6 +250,7 @@ export {
     lastMessageTime,
     currentSessionId,
     currentSessionName,
+    liveSessionState,
     mode,
     telemetryData,
     liveSteeringAngleDeg,
@@ -259,6 +264,7 @@ export {
     isConnected,
     isDataFresh,
     setConnectionStatus,
+    setLiveSessionState,
     addData,
     setData,
     clearData,

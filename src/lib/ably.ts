@@ -3,7 +3,7 @@
  */
 
 import Ably from 'ably';
-import type { TelemetryRecord } from '@/types/telemetry';
+import type { LiveSessionState, TelemetryRecord } from '@/types/telemetry';
 import { setConnectionStatus, addData, incrementErrors } from '@/stores/telemetry';
 import { debugRewind } from '@/lib/rewindDebug';
 
@@ -319,6 +319,34 @@ export async function subscribeToChannel(
     }
 }
 
+/** Subscribe to the tiny bridge lifecycle event alongside telemetry updates. */
+export async function subscribeToSessionState(
+    channelName: string,
+    onMessage: (state: LiveSessionState, meta: { timestamp?: number }) => void
+): Promise<() => void> {
+    if (!ablyRealtime) return () => { };
+
+    try {
+        const channel = getChannel(channelName);
+        const callback = (message: AblyMessage) => {
+            const state = parseSessionStateMessage(message);
+            if (state) onMessage(state, { timestamp: message.timestamp });
+        };
+        await Promise.resolve(channel.subscribe('session_state', callback));
+        return () => {
+            try {
+                channel.unsubscribe('session_state', callback);
+            } catch (error) {
+                console.error('[Ably] Session state unsubscribe error:', error);
+            }
+        };
+    } catch (error) {
+        console.error('[Ably] Session state subscribe error:', error);
+        incrementErrors();
+        return () => { };
+    }
+}
+
 export async function getLatestHistoryMessage(
     channelName: string,
     eventName = 'telemetry_update'
@@ -453,6 +481,28 @@ export function getConnectionState(): AblyConnectionState | null {
     return ablyRealtime?.connection.state ?? null;
 }
 
+function parseSessionStateMessage(message: AblyMessage): LiveSessionState | null {
+    try {
+        const data = typeof message.data === 'string' ? JSON.parse(message.data) : message.data;
+        if (!data || typeof data !== 'object') return null;
+        const state = data as Partial<LiveSessionState>;
+        if (
+            (state.status !== 'active' && state.status !== 'ended')
+            || typeof state.session_id !== 'string'
+            || typeof state.started_at !== 'string'
+            || typeof state.updated_at !== 'string'
+            || typeof state.record_count !== 'number'
+        ) {
+            return null;
+        }
+        return state as LiveSessionState;
+    } catch (error) {
+        console.error('[Ably] Session state parse error:', error);
+        incrementErrors();
+        return null;
+    }
+}
+
 export function getLastInitializationError(): string | null {
     return lastInitializationError;
 }
@@ -487,6 +537,7 @@ export function isAblyConnected(): boolean {
 export const ablyClient = {
     init: initAbly,
     subscribe: subscribeToChannel,
+    subscribeToSessionState,
     getLatestHistoryMessage,
     fetchHistory,
     onStateChange: onConnectionStateChange,

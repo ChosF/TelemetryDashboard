@@ -94,6 +94,21 @@ export default defineSchema({
     .index("by_archive_status_end_time", ["archive_status", "end_time"])
     .index("by_archive_overview_end_time", ["archive_status", "overview_storage_id", "end_time"]),
 
+  // Singleton lifecycle signal for the live dashboard. The bridge updates this
+  // on startup and only marks a session ended after an explicit Ctrl+C.
+  liveSessionState: defineTable({
+    state_key: v.literal("dashboard"),
+    status: v.union(v.literal("active"), v.literal("ended")),
+    session_id: v.string(),
+    session_name: v.optional(v.string()),
+    started_at: v.string(),
+    ended_at: v.optional(v.string()),
+    reason: v.optional(v.literal("user_interrupt")),
+    record_count: v.number(),
+    updated_at: v.string(),
+  })
+    .index("by_state_key", ["state_key"]),
+
   // Small database manifest for immutable telemetry blobs in file storage.
   // A session normally has only a few parts, so opening historical mode reads
   // metadata here instead of scanning thousands of wide telemetry documents.

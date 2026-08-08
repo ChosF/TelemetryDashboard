@@ -4,9 +4,115 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { getHistoricalAccess } from "./historicalAccess";
 
+const liveSessionStateValidator = v.object({
+    status: v.union(v.literal("active"), v.literal("ended")),
+    session_id: v.string(),
+    session_name: v.optional(v.string()),
+    started_at: v.string(),
+    ended_at: v.optional(v.string()),
+    reason: v.optional(v.literal("user_interrupt")),
+    record_count: v.number(),
+    updated_at: v.string(),
+});
+
+function publicLiveSessionState(state: {
+    status: "active" | "ended";
+    session_id: string;
+    session_name?: string;
+    started_at: string;
+    ended_at?: string;
+    reason?: "user_interrupt";
+    record_count: number;
+    updated_at: string;
+}) {
+    return {
+        status: state.status,
+        session_id: state.session_id,
+        session_name: state.session_name,
+        started_at: state.started_at,
+        ended_at: state.ended_at,
+        reason: state.reason,
+        record_count: state.record_count,
+        updated_at: state.updated_at,
+    };
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // PUBLIC QUERIES
 // ──────────────────────────────────────────────────────────────────────────────
+
+/** Durable singleton used by live dashboards to recover the current lifecycle state. */
+export const getLiveSessionState = query({
+    args: {},
+    returns: v.union(liveSessionStateValidator, v.null()),
+    handler: async (ctx) => {
+        const state = await ctx.db
+            .query("liveSessionState")
+            .withIndex("by_state_key", q => q.eq("state_key", "dashboard"))
+            .unique();
+        return state ? publicLiveSessionState(state) : null;
+    },
+});
+
+/**
+ * Bridge lifecycle write. The Python bridge calls this through Convex's
+ * authenticated deployment API; repeated calls are intentionally idempotent.
+ */
+export const reportLiveSessionState = mutation({
+    args: {
+        status: v.union(v.literal("active"), v.literal("ended")),
+        session_id: v.string(),
+        session_name: v.optional(v.string()),
+        started_at: v.string(),
+        ended_at: v.optional(v.string()),
+        reason: v.optional(v.literal("user_interrupt")),
+        record_count: v.number(),
+    },
+    returns: liveSessionStateValidator,
+    handler: async (ctx, args) => {
+        const existing = await ctx.db
+            .query("liveSessionState")
+            .withIndex("by_state_key", q => q.eq("state_key", "dashboard"))
+            .unique();
+
+        // A delayed end retry from an older session must never close a newer run.
+        if (existing && args.status === "ended" && existing.session_id !== args.session_id) {
+            return publicLiveSessionState(existing);
+        }
+
+        // Once a session is ended, a delayed startup retry for that same run must
+        // not resurrect it. A new session id is always allowed to become active.
+        if (
+            existing
+            && args.status === "active"
+            && existing.session_id === args.session_id
+            && existing.status === "ended"
+        ) {
+            return publicLiveSessionState(existing);
+        }
+
+        const updatedAt = new Date().toISOString();
+        const next = {
+            state_key: "dashboard" as const,
+            status: args.status,
+            session_id: args.session_id,
+            session_name: args.session_name,
+            started_at: args.started_at,
+            ended_at: args.status === "ended" ? args.ended_at : undefined,
+            reason: args.status === "ended" ? args.reason : undefined,
+            record_count: Math.max(0, Math.floor(args.record_count)),
+            updated_at: updatedAt,
+        };
+
+        if (existing) {
+            await ctx.db.patch(existing._id, next);
+        } else {
+            await ctx.db.insert("liveSessionState", next);
+        }
+
+        return publicLiveSessionState(next);
+    },
+});
 
 /**
  * List all telemetry sessions.

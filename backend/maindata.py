@@ -126,6 +126,9 @@ PUBLISH_MAX_INFLIGHT = 16  # cover 20 Hz at ~500 ms ACK RTT with bounded headroo
 PUBLISH_TRANSFER_MAX = 256
 SHUTDOWN_DRAIN_TIMEOUT = 10.0
 PERSISTENCE_SHUTDOWN_TIMEOUT = 35.0
+SESSION_STATE_EVENT_NAME = "session_state"
+SESSION_STATE_MAX_ATTEMPTS = 3
+SESSION_STATE_REQUEST_TIMEOUT = 4.0
 PUBLISH_ACTIVE_SLEEP = 0.001
 PUBLISH_IDLE_SLEEP = 0.050
 CALC_IDLE_SLEEP = 0.002
@@ -2207,6 +2210,9 @@ class TelemetryBridgeWithDB:
         self.shutdown_event = asyncio.Event()
         self._publish_wakeup = asyncio.Event()
         self._calculation_done = asyncio.Event()
+        self._session_was_running = False
+        self._ended_by_ctrl_c = False
+        self._session_end_notified = False
 
         # Use bounded queue to prevent memory issues
         self.message_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=MAX_QUEUE_SIZE)
@@ -2326,6 +2332,8 @@ class TelemetryBridgeWithDB:
 
     def _signal_handler(self, signum, frame):
         logger.info(f"Received signal {signum}, initiating shutdown...")
+        if signum == signal.SIGINT:
+            self._ended_by_ctrl_c = True
         self.running = False
         try:
             loop = asyncio.get_event_loop()
@@ -2391,6 +2399,92 @@ class TelemetryBridgeWithDB:
             self._count_error(f"Dashboard connect failed: {e}")
             self.dashboard_health.record_error()
             return False
+
+    def _build_session_state_payload(
+        self,
+        status: str,
+        ended_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "status": status,
+            "session_id": self.session_id,
+            "session_name": self.session_name,
+            "started_at": self.session_start_time.isoformat(),
+            "record_count": int(self.stats["messages_received"]),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if status == "ended":
+            payload["ended_at"] = ended_at or payload["updated_at"]
+            payload["reason"] = "user_interrupt"
+        return payload
+
+    async def _report_session_state_to_convex(self, payload: Dict[str, Any]) -> bool:
+        if not self.convex_client:
+            return False
+
+        args = {
+            key: value
+            for key, value in payload.items()
+            if key != "updated_at"
+        }
+        for attempt in range(1, SESSION_STATE_MAX_ATTEMPTS + 1):
+            try:
+                await asyncio.to_thread(
+                    self.convex_client.mutation,
+                    "sessions:reportLiveSessionState",
+                    args,
+                    SESSION_STATE_REQUEST_TIMEOUT,
+                )
+                return True
+            except Exception as exc:
+                if attempt == SESSION_STATE_MAX_ATTEMPTS:
+                    logger.error(f"❌ Convex session-state delivery failed: {exc}")
+                    return False
+                logger.warning(
+                    f"⚠️ Convex session-state attempt {attempt} failed; retrying: {exc}"
+                )
+                await asyncio.sleep(0.25 * (2 ** (attempt - 1)))
+        return False
+
+    async def _publish_session_state_to_dashboard(self, payload: Dict[str, Any]) -> bool:
+        if not self.dashboard_channel:
+            return False
+
+        for attempt in range(1, SESSION_STATE_MAX_ATTEMPTS + 1):
+            try:
+                await asyncio.wait_for(
+                    self.dashboard_channel.publish(SESSION_STATE_EVENT_NAME, payload),
+                    timeout=SESSION_STATE_REQUEST_TIMEOUT,
+                )
+                return True
+            except Exception as exc:
+                self.dashboard_health.is_connected = False
+                self.dashboard_health.record_error()
+                if attempt == SESSION_STATE_MAX_ATTEMPTS:
+                    logger.error(f"❌ Dashboard session-state delivery failed: {exc}")
+                    return False
+                logger.warning(
+                    f"⚠️ Dashboard session-state attempt {attempt} failed; retrying: {exc}"
+                )
+                if not self.dashboard_health.is_connected:
+                    await self._reconnect_dashboard()
+                await asyncio.sleep(0.25 * (2 ** (attempt - 1)))
+        return False
+
+    async def _announce_session_state(self, status: str) -> bool:
+        payload = self._build_session_state_payload(status)
+        convex_ok, dashboard_ok = await asyncio.gather(
+            self._report_session_state_to_convex(payload),
+            self._publish_session_state_to_dashboard(payload),
+        )
+        if convex_ok or dashboard_ok:
+            logger.info(
+                f"📡 Session {status} signal delivered "
+                f"(Convex: {'yes' if convex_ok else 'no'}, Ably: {'yes' if dashboard_ok else 'no'})"
+            )
+            return True
+        logger.error(f"❌ Session {status} signal could not be delivered")
+        return False
 
     def _merge_heavy_result(self, message: Dict[str, Any]) -> Dict[str, Any]:
         msg_id = message.get("_bridge_seq")
@@ -3478,9 +3572,11 @@ class TelemetryBridgeWithDB:
                 return
 
             self.running = True
+            self._session_was_running = True
             logger.info(
                 f"🚀 Bridge started (Session: {self.session_name} / {self.session_id[:8]})"
             )
+            await self._announce_session_state("active")
             if self.mock_mode:
                 logger.info(f"🎭 Simulation scenario: {self.mock_config.scenario.value}")
 
@@ -3621,6 +3717,16 @@ class TelemetryBridgeWithDB:
                 except Exception as exc:
                     self.notification_engine.requeue(notifications)
                     logger.warning(f"⚠️ Final notification flush failed: {exc}")
+
+            # An ended lifecycle is a deliberate operator action, not a network
+            # inference. SIGTERM, reconnects, worker failures, and link loss do
+            # not emit this state.
+            if (
+                self._ended_by_ctrl_c
+                and self._session_was_running
+                and not self._session_end_notified
+            ):
+                self._session_end_notified = await self._announce_session_state("ended")
 
             live_pending = self.message_queue.qsize() + self.rate_limiter.pending_depth()
             if live_pending:

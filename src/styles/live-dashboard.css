@@ -154,6 +154,50 @@ button.ev-signal-node { cursor: pointer; }
 .ev-inspection-banner button { border: 0; background: transparent; color: var(--ev-circuit); font-size: 11px; font-weight: 800; text-transform: uppercase; text-decoration: underline; cursor: pointer; }
 .ev-inspection-banner .ev-compare { grid-column: 1 / -1; color: rgba(10, 10, 10, 0.72); font-family: "Space Grotesk", monospace; }
 
+.ev-session-content-hidden { display: none; }
+.ev-session-transition {
+  width: min(1600px, 100%);
+  min-height: calc(100vh - 74px);
+  margin: auto;
+  padding: clamp(36px, 6vw, 88px) 32px;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.28fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(30px, 5vw, 82px);
+  animation: ev-session-transition-in 320ms cubic-bezier(.2, .72, .28, 1) both;
+}
+.ev-session-transition-mark { width: min(210px, 100%); aspect-ratio: 1; position: relative; display: grid; place-items: center; border: 1px solid var(--ev-line-strong); color: var(--ev-orange); }
+.ev-session-transition-mark::before, .ev-session-transition-mark::after { content: ""; position: absolute; background: var(--ev-orange); }
+.ev-session-transition-mark::before { width: 42%; height: 1px; left: -18%; top: 50%; }
+.ev-session-transition-mark::after { width: 1px; height: 42%; top: -18%; left: 50%; }
+.ev-session-transition-mark i { position: absolute; inset: 16%; border: 1px solid var(--ev-line); transform: rotate(45deg); }
+.ev-session-transition-mark span { font: 700 clamp(32px, 4vw, 58px)/1 "Space Grotesk", monospace; letter-spacing: -.08em; }
+.ev-session-transition-card { position: relative; border: 1px solid var(--ev-line-strong); border-top: 3px solid var(--ev-orange); background: var(--ev-card-bg); }
+.ev-session-transition-card::after { content: "SESSION / CLOSED"; position: absolute; right: 20px; top: -20px; color: var(--ev-quiet); font: 600 8px/1 "Space Grotesk", monospace; letter-spacing: .18em; }
+.ev-session-transition-card > header { min-height: 64px; padding: 0 clamp(22px, 4vw, 48px); display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--ev-line); }
+.ev-session-transition-card > header b { padding: 6px 9px; border: 1px solid color-mix(in srgb, var(--ev-orange) 48%, var(--ev-line)); color: var(--ev-orange); font: 700 8px/1 "Space Grotesk", monospace; letter-spacing: .12em; text-transform: uppercase; }
+.ev-session-finished-copy, .ev-session-waiting-copy { padding: clamp(32px, 5vw, 68px) clamp(22px, 5vw, 62px) clamp(28px, 4vw, 48px); }
+.ev-session-finished-copy h1, .ev-session-waiting-copy h1 { max-width: 850px; margin: 0; font-size: clamp(42px, 6.6vw, 96px); line-height: .91; letter-spacing: -.065em; }
+.ev-session-finished-copy h1 em { color: var(--ev-orange); font-style: normal; }
+.ev-session-finished-copy p, .ev-session-waiting-copy p { max-width: 720px; margin: 26px 0 0; color: var(--ev-muted); font-size: clamp(12px, 1.1vw, 15px); line-height: 1.75; }
+.ev-session-end-metrics { margin: 0; display: grid; grid-template-columns: 1.35fr .8fr .8fr; border-top: 1px solid var(--ev-line); border-bottom: 1px solid var(--ev-line); }
+.ev-session-end-metrics > div { min-width: 0; padding: 22px clamp(20px, 3vw, 36px); }
+.ev-session-end-metrics > div + div { border-left: 1px solid var(--ev-line); }
+.ev-session-end-metrics dt { color: var(--ev-quiet); font: 700 8px/1 "Space Grotesk", monospace; letter-spacing: .16em; text-transform: uppercase; }
+.ev-session-end-metrics dd { margin: 10px 0 0; overflow: hidden; color: var(--ev-white); font: 600 clamp(15px, 1.6vw, 22px)/1.2 "Space Grotesk", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.ev-session-end-actions { padding: 24px clamp(22px, 4vw, 48px); display: flex; flex-wrap: wrap; gap: 9px; }
+.ev-session-end-actions button { min-height: 48px; padding: 0 20px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ev-line-strong); color: var(--ev-white); background: transparent; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.ev-session-transition-card > footer { min-height: 44px; padding: 0 clamp(22px, 4vw, 48px); display: flex; align-items: center; gap: 9px; border-top: 1px solid var(--ev-line); color: var(--ev-quiet); font: 600 8px/1 "Space Grotesk", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.ev-session-transition-card > footer i { width: 6px; height: 6px; border-radius: 50%; background: var(--ev-green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ev-green) 14%, transparent); }
+.ev-session-transition[data-waiting="true"] .ev-session-transition-card { max-width: 1060px; }
+.ev-session-waiting-copy { min-height: 430px; display: flex; flex-direction: column; justify-content: center; }
+.ev-session-waiting-copy h1 { max-width: 780px; }
+.ev-session-waiting-copy > span { margin-top: 13px; color: var(--ev-quiet); font: 600 8px/1 "Space Grotesk", monospace; letter-spacing: .14em; text-transform: uppercase; }
+.ev-session-scan { width: min(620px, 100%); height: 2px; margin-top: 48px; position: relative; overflow: hidden; background: var(--ev-line-strong); }
+.ev-session-scan i { position: absolute; inset: 0 auto 0 0; width: 24%; background: var(--ev-orange); animation: ev-session-scan 2.1s ease-in-out infinite; }
+@keyframes ev-session-transition-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ev-session-scan { 0% { transform: translateX(-110%); } 55%, 100% { transform: translateX(430%); } }
+
 .ev-frame { width: min(1600px, 100%); margin: auto; padding: 0 32px 48px; }
 .ev-session-header { min-height: 98px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; border-bottom: 1px solid var(--ev-line); }
 .ev-eyebrow { color: var(--ev-orange); font: 700 9px/1 "Space Grotesk", monospace; letter-spacing: 0.25em; text-transform: uppercase; }
@@ -595,6 +639,8 @@ button.ev-signal-node { cursor: pointer; }
   .ev-widget-frame { grid-column: span 12; }
   .ev-pulse, .ev-attention { min-height: auto; }
   .ev-inspection-banner { position: relative; top: auto; }
+  .ev-session-transition { grid-template-columns: 1fr; }
+  .ev-session-transition-mark { width: 92px; }
 }
 
 @media (max-width: 640px) {
@@ -644,12 +690,25 @@ button.ev-signal-node { cursor: pointer; }
   .ev-inspection-banner button { min-height: 44px; text-align: left; }
   .ev-power-flow { flex-wrap: wrap; }
   .ev-account-popover { position: fixed; left: 16px; right: 16px; top: 132px; width: auto; }
+  .ev-session-transition { min-height: calc(100vh - 202px); padding: 44px 16px; gap: 28px; }
+  .ev-session-transition-mark { width: 74px; }
+  .ev-session-transition-card > header { align-items: flex-start; padding-block: 17px; flex-direction: column; }
+  .ev-session-finished-copy h1, .ev-session-waiting-copy h1 { font-size: clamp(38px, 13vw, 62px); }
+  .ev-session-end-metrics { grid-template-columns: 1fr; }
+  .ev-session-end-metrics > div + div { border-left: 0; border-top: 1px solid var(--ev-line); }
+  .ev-session-end-actions { display: grid; grid-template-columns: 1fr; }
+  .ev-session-end-actions button { width: 100%; }
   .ev-instrument-header { padding: 19px 20px 15px; }
   .ev-instrument-body { padding: 18px 20px 20px; }
   .ev-horizontal-bar { grid-template-columns: 92px minmax(70px, 1fr) 72px; gap: 8px; }
   .ev-event-ledger article { grid-template-columns: 58px minmax(0, 1fr); }
   .ev-event-ledger article > b { display: none; }
   .ev-stat-table { min-width: 560px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ev-session-transition { animation: none; }
+  .ev-session-scan i { animation: none; width: 100%; opacity: .65; }
 }
 
 @media (max-width: 760px) {

@@ -28,7 +28,7 @@ import { debugRewind } from '@/lib/rewindDebug';
 import { ensureLegacyNotificationApi, showLegacyNotification, type LegacyNotificationType } from '@/lib/legacyNotifications';
 import { mergeHistoricalTelemetry } from '@/lib/utils';
 import { DRIVER_DASHBOARD_HREF } from '@/lib/appEntrypoints';
-import type { TelemetryRow } from '@/types/telemetry';
+import type { LiveSessionState, TelemetryRow } from '@/types/telemetry';
 
 type WindowWithConfig = Window & {
     CONFIG?: Record<string, string>;
@@ -214,6 +214,8 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
     });
 
     let unsubscribeAbly: (() => void) | null = null;
+    let unsubscribeSessionStateAbly: (() => void) | null = null;
+    let unsubscribeLiveSessionState: (() => void) | null = null;
     let activeHistoryLoad: Promise<void> | null = null;
     let activeHistorySessionId: string | null = null;
     let hydratedSessionId: string | null = null;
@@ -853,6 +855,42 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
         return activeHistoryLoad;
     };
 
+    const applyLiveSessionState = (state: LiveSessionState): void => {
+        const currentSession = telemetryStore.currentSessionId();
+        if (state.status === 'ended' && currentSession && currentSession !== state.session_id) {
+            return;
+        }
+
+        telemetryStore.setLiveSessionState(state);
+        if (state.status === 'active') {
+            if (currentSession !== state.session_id) {
+                hydrationVersion += 1;
+                hydratedSessionId = null;
+                activeHistorySessionId = null;
+                activeHistoryLoad = null;
+                bufferedRealtime = [];
+                lastLoadedSessionNotificationId = null;
+                telemetryStore.setSession(state.session_id, state.session_name ?? null);
+            }
+            setConnectionNote(null);
+            return;
+        }
+
+        if (!currentSession) {
+            telemetryStore.setSession(state.session_id, state.session_name ?? null);
+        }
+        setRealtimeActivity('waiting');
+        setConnectionNote('The bridge operator ended this session. Realtime remains ready for the next run.');
+
+        const channelName = runtimeConfig?.ABLY_CHANNEL_NAME ?? 'telemetry-dashboard-channel';
+        if (telemetryStore.connectionStatus() === 'connected') {
+            void hydrateLiveSession(channelName, state.session_id, state.session_name ?? null).finally(() => {
+                setRealtimeActivity('waiting');
+                setConnectionNote('The bridge operator ended this session. Realtime remains ready for the next run.');
+            });
+        }
+    };
+
     const attemptRealtimeConnection = async (forceReconnect = false): Promise<void> => {
         if (!runtimeConfig || isRealtimeConnecting()) return;
         if (!forceReconnect && telemetryStore.connectionStatus() === 'connected') return;
@@ -867,6 +905,8 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
 
         try {
             if (forceReconnect) {
+                unsubscribeSessionStateAbly?.();
+                unsubscribeSessionStateAbly = null;
                 unsubscribeAbly?.();
                 unsubscribeAbly = null;
                 ablyClient.disconnect();
@@ -914,6 +954,18 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
                 },
                 onMessage: (record) => {
                     if (!record.session_id) return;
+
+                    const lifecycle = telemetryStore.liveSessionState();
+                    if (lifecycle?.status !== 'active' || lifecycle.session_id !== record.session_id) {
+                        telemetryStore.setLiveSessionState({
+                            status: 'active',
+                            session_id: record.session_id,
+                            session_name: record.session_name,
+                            started_at: record.timestamp,
+                            record_count: telemetryStore.messageCount() + 1,
+                            updated_at: new Date().toISOString(),
+                        });
+                    }
 
                     const currentSession = telemetryStore.currentSessionId();
                     if (currentSession && currentSession !== record.session_id) {
@@ -977,6 +1029,10 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
                     telemetryStore.addData(record);
                 },
             });
+            unsubscribeSessionStateAbly = await ablyClient.subscribeToSessionState(
+                channelName,
+                (state) => applyLiveSessionState(state),
+            );
             debugRewind('dashboard.connection.subscribed', {
                 channelName,
                 rewind: '5s',
@@ -984,7 +1040,14 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
             setRealtimeActivity('probing');
             setConnectionNote('Connected to realtime. Checking for an active session.');
 
-            await loadRecentSessionFromAbly(channelName);
+            const lifecycle = telemetryStore.liveSessionState();
+            if (lifecycle?.status === 'ended') {
+                await hydrateLiveSession(channelName, lifecycle.session_id, lifecycle.session_name ?? null);
+                setRealtimeActivity('waiting');
+                setConnectionNote('The bridge operator ended this session. Realtime remains ready for the next run.');
+            } else {
+                await loadRecentSessionFromAbly(channelName);
+            }
             debugRewind('dashboard.connection.probeCompleted', { channelName });
         } catch (error) {
             debugRewind('dashboard.connection.error', {
@@ -1106,6 +1169,9 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
             }
 
             await authStore.initAuth(convexClient.getClient());
+            unsubscribeLiveSessionState = convexClient.subscribeToLiveSessionState((state) => {
+                if (state) applyLiveSessionState(state);
+            });
             setBooting(false);
             void convexClient.kickstartSessions();
             void attemptRealtimeConnection();
@@ -1128,6 +1194,8 @@ const DashboardOld: Component<DashboardOldProps> = (props) => {
             notificationTimer = null;
         }
         try {
+            unsubscribeSessionStateAbly?.();
+            unsubscribeLiveSessionState?.();
             unsubscribeAbly?.();
             ablyClient.disconnect();
         } catch {
