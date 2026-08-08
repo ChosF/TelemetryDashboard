@@ -44,9 +44,13 @@ These are the **most important** variables for efficiency calculations:
 |---------------|------|------|-------------|-------------|
 | `voltage_v` | `number` | Volts | 35.0 - 60.0 | Battery/system voltage |
 | `current_a` | `number` | Amps | -10.0 - 35.0 | Current draw (negative = regen) |
-| `power_w` | `number` | Watts | -500 - 2500 | Instantaneous power (`voltage_v * current_a`) |
+| `avg_power_w` | `number` | Watts | -500 - 2500 | Average electrical power for the measurement window |
+
+The bridge maps `avg_power_w` to the established dashboard field `power_w` without recalculating it. Older firmware may continue sending `power_w` during migration.
 
 > ⚠️ **Important**: These variables are flagged as `CRITICAL_FIELDS` in outlier detection. Ensure accuracy!
+
+Current firmware streams the ADC current reading immediately after boot. The former 1000-sample startup calibration is no longer part of the telemetry contract, so the bridge must not wait for or apply a calibration offset.
 
 ---
 
@@ -75,13 +79,13 @@ Calculate and send both values from the ESP32 when available:
 
 | Variable Name | Type | Unit | Valid Range | Description |
 |---------------|------|------|-------------|-------------|
-| `inst_eff_km_kwh` | `number` | km/kWh | 0 - 500 | Instant efficiency for the current sample |
-| `acc_eff_km_kwh` | `number` | km/kWh | 0 - 500 | Accumulated efficiency since session start |
+| `inst_eff_km_kwh` | `number` | km/kWh | -500 - 500 | Instant efficiency for the current sample; negative is valid during regeneration |
+| `acc_eff_km_kwh` | `number` | km/kWh | -500 - 500 | Accumulated efficiency since session start; signed firmware value |
 
-The bridge treats finite ESP32 values in this range as authoritative. If either
-field is missing or invalid, `maindata.py` calculates only that field as a
-fallback. Instant efficiency falls back to its rolling speed/power window;
-accumulated efficiency falls back to `distance_m / energy_j`.
+The bridge treats finite ESP32 values in this range as authoritative. Missing or
+invalid values remain unavailable: `maindata.py` does not calculate efficiency
+from speed, distance, power, or energy. Negative power during regenerative
+braking is therefore represented exactly according to the firmware metrics.
 
 ---
 
@@ -150,20 +154,21 @@ If you omit them, the bridge falls back to raw accelerometer data below.
 
 ---
 
-### ⚙️ Motor CAN Bus (Optional but Supported)
+### ⚙️ VESC / Motor Telemetry (Optional but Supported)
 
 These values are now supported end to end by `maindata.py`, Convex, Ably, the live dashboard, and historical custom-analysis tooling:
 
 | Variable Name | Type | Unit | Suggested Range | Description |
 |---------------|------|------|-----------------|-------------|
-| `motor_current_a` | `number` | Amps | -50 to 200 | Motor-side current from CAN bus |
-| `motor_voltage_v` | `number` | Volts | 0 to 120 | Motor-side voltage from CAN bus |
+| `vesc_current_a` | `number` | Amps | -50 to 200 | VESC input current reported over CAN |
+| `vesc_voltage_v` | `number` | Volts | 0 to 120 | VESC input voltage reported over CAN |
 | `motor_rpm` | `number` | RPM | 0 to 20000 | Motor rotational speed |
+| `motor_temp_c` | `number` | °C | -20 to 180 | Motor temperature reported by the controller |
 | `motor_phase_1_current_a` | `number` | Amps | -50 to 250 | Instantaneous current on motor phase 1 |
 | `motor_phase_2_current_a` | `number` | Amps | -50 to 250 | Instantaneous current on motor phase 2 |
 | `motor_phase_3_current_a` | `number` | Amps | -50 to 250 | Instantaneous current on motor phase 3 |
 
-> 💡 Use these exact names when possible. The bridge also tolerates a few aliases such as `motor_voltage`, `motor_current`, `rpm`, `phase_1_current_a`, `phase_2_current_a`, and `phase_3_current_a`, but the canonical names above are preferred.
+> 💡 Use these exact names when possible. The bridge accepts the current firmware names `rpms`, `vesc_voltage`, and `vesc_current_a`, as well as older `motor_voltage_v`, `motor_current_a`, and `rpm` variants. It normalizes them to `motor_rpm`, `vesc_voltage_v`, and `vesc_current_a` and keeps the old motor voltage/current names as compatibility mirrors.
 >
 > Legacy note: `motor_phase_current_a` is still accepted for backwards compatibility, but it is now treated as a legacy single-phase/aggregate field. New integrations should send the three per-phase fields instead.
 
@@ -210,7 +215,7 @@ Here's a complete example of a JSON payload the ESP32 should send:
   
   "voltage_v": 48.2,
   "current_a": 12.5,
-  "power_w": 602.5,
+  "avg_power_w": 602.5,
   
   "speed_ms": 8.3,
   
@@ -232,14 +237,19 @@ Here's a complete example of a JSON payload the ESP32 should send:
   "accel_y": 0.18,
   "accel_z": 9.78,
   "total_acceleration": 9.81,
+  "vehicle_heading": 184.3,
+
+  "inst_eff_km_kwh": 49.6,
+  "acc_eff_km_kwh": 52.1,
   
   "throttle_pct": 45.0,
   "brake_pct": 0.0,
   "brake2_pct": 12.0,
 
-  "motor_voltage_v": 45.3,
-  "motor_current_a": 18.4,
+  "vesc_voltage_v": 45.3,
+  "vesc_current_a": 18.4,
   "motor_rpm": 2630.0,
+  "motor_temp_c": 54.2,
   "motor_phase_1_current_a": 21.7,
   "motor_phase_2_current_a": 20.9,
   "motor_phase_3_current_a": 22.3,
@@ -260,23 +270,22 @@ If you need to send minimal data:
   "session_id": "my-session",
   "voltage_v": 48.2,
   "current_a": 12.5,
-  "power_w": 602.5,
+  "avg_power_w": 602.5,
   "speed_ms": 8.3
 }
 ```
 
-> ⚠️ Missing optional fields will result in `null` values in the database and may affect calculated metrics.
+> ⚠️ Missing optional fields remain unavailable in the database. In particular, missing efficiency values are not reconstructed by the bridge or dashboard.
 
 ---
 
 ## 📊 Bridge Output Fields
 
-The following fields are added by `maindata.py`. Do not send these bridge-specific
-names from the ESP32; send `inst_eff_km_kwh` and `acc_eff_km_kwh` as documented above.
+The following fields are added by `maindata.py`. Efficiency is intentionally not
+listed because both efficiency values now come exclusively from the ESP32.
 
 | Calculated Field | Source Variables | Description |
 |------------------|------------------|-------------|
-| `current_efficiency_km_kwh` | `inst_eff_km_kwh` or `speed_ms`, `power_w` | Compatibility mirror of instant efficiency; rolling fallback when ESP32 data is unavailable |
 | `cumulative_energy_kwh` | `power_w` | Total energy in kWh |
 | `route_distance_km` | `latitude`, `longitude` | GPS-based distance |
 | `avg_speed_kmh` | `speed_ms` | Rolling average speed |
@@ -348,7 +357,7 @@ The backend automatically flags values outside these ranges:
 | `uptime_seconds` | ⬜ | number | seconds |
 | `voltage_v` | ✅ | number | V |
 | `current_a` | ✅ | number | A |
-| `power_w` | ✅ | number | W |
+| `avg_power_w` | ✅ | number | W |
 | `speed_ms` | ✅ | number | m/s |
 | `energy_j` | ⬜ | number | J |
 | `distance_m` | ⬜ | number | m |
@@ -370,9 +379,13 @@ The backend automatically flags values outside these ranges:
 | `throttle` | ⬜ | number | ratio |
 | `brake` | ⬜ | number | ratio |
 | `brake2` | ⬜ | number | ratio |
-| `motor_voltage_v` | ⬜ | number | V |
-| `motor_current_a` | ⬜ | number | A |
+| `inst_eff_km_kwh` | ⬜ | number | km/kWh |
+| `acc_eff_km_kwh` | ⬜ | number | km/kWh |
+| `vesc_voltage_v` | ⬜ | number | V |
+| `vesc_current_a` | ⬜ | number | A |
 | `motor_rpm` | ⬜ | number | rpm |
+| `motor_temp_c` | ⬜ | number | °C |
+| `vehicle_heading` | ⬜ | number | ° |
 | `motor_phase_1_current_a` | ⬜ | number | A |
 | `motor_phase_2_current_a` | ⬜ | number | A |
 | `motor_phase_3_current_a` | ⬜ | number | A |

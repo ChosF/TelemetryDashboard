@@ -1,6 +1,7 @@
 import { For, createMemo, type Component } from 'solid-js';
 import type { WidgetRenderProps } from '@/dashboard/types';
 import type { TelemetryRow } from '@/types/telemetry';
+import { analyzeVescDiagnostics } from '@/lib/vesc-diagnostics';
 import {
     INSTRUMENT_COLORS as C,
     HorizontalBars,
@@ -60,7 +61,7 @@ export const PowerSummaryWidget: Component<WidgetRenderProps> = (props) => {
     return <Instrument kicker="Electrical state" title="Power summary" meta="Live and session envelope">
         <MetricGrid columns={4} metrics={[
             { label: 'Voltage', value: `${formatNumber(latest()?.voltage_v, 2)} V`, detail: `Average ${formatNumber(latest()?.avg_voltage, 2)} V`, tone: 'teal' },
-            { label: 'Current', value: `${formatNumber(latest()?.current_a, 2)} A`, detail: `Peak ${formatNumber(latest()?.max_current_a ?? maximum(currents()), 2)} A`, tone: 'amber' },
+            { label: 'Current', value: `${formatNumber(latest()?.current_a, 2)} A`, detail: `ESP window peak ${formatNumber(latest()?.max_current_a ?? maximum(currents()), 2)} A`, tone: 'amber' },
             { label: 'Power', value: `${formatNumber(latest()?.power_w, 0)} W`, detail: `Peak ${formatNumber(latest()?.max_power_w ?? maximum(powers()), 0)} W`, tone: 'orange' },
             { label: 'Energy', value: `${formatNumber(energyKwh(), 3)} kWh`, detail: `${formatNumber(latest()?.energy_j, 0)} J`, tone: 'green' },
         ]} />
@@ -139,8 +140,9 @@ export const CurrentSpikeLogWidget: Component<WidgetRenderProps> = (props) => {
 
 const MOTOR_FIELDS = [
     { label: 'RPM', unit: 'rpm', digits: 0, color: C.orange, read: (row: TelemetryRow) => row.motor_rpm },
-    { label: 'Voltage', unit: 'V', digits: 1, color: C.teal, read: (row: TelemetryRow) => row.motor_voltage_v },
-    { label: 'Current', unit: 'A', digits: 1, color: C.amber, read: (row: TelemetryRow) => row.motor_current_a },
+    { label: 'VESC voltage', unit: 'V', digits: 1, color: C.teal, read: (row: TelemetryRow) => row.vesc_voltage_v ?? row.motor_voltage_v },
+    { label: 'VESC current', unit: 'A', digits: 1, color: C.amber, read: (row: TelemetryRow) => row.vesc_current_a ?? row.motor_current_a },
+    { label: 'Motor temp', unit: '°C', digits: 1, color: C.red, read: (row: TelemetryRow) => row.motor_temp_c },
     { label: 'Phase 1', unit: 'A', digits: 1, color: C.green, read: (row: TelemetryRow) => row.motor_phase_1_current_a ?? row.motor_phase_current_a },
     { label: 'Phase 2', unit: 'A', digits: 1, color: C.cyan, read: (row: TelemetryRow) => row.motor_phase_2_current_a },
     { label: 'Phase 3', unit: 'A', digits: 1, color: C.red, read: (row: TelemetryRow) => row.motor_phase_3_current_a },
@@ -148,7 +150,7 @@ const MOTOR_FIELDS = [
 
 export const MotorSummaryWidget: Component<WidgetRenderProps> = (props) => {
     const latest = createMemo(() => latestRow(props.rows));
-    return <Instrument kicker="CAN powertrain" title="Motor state" meta="Six live channels">
+    return <Instrument kicker="VESC powertrain" title="Motor state" meta="Seven live channels">
         <MetricGrid columns={3} metrics={MOTOR_FIELDS.map((field) => {
             const series = values(props.rows, field.read);
             return { label: field.label, value: `${formatNumber(latest() ? field.read(latest()!) : null, field.digits)} ${field.unit}`, detail: `Peak ${formatNumber(maximum(series), field.digits)} ${field.unit}` };
@@ -166,9 +168,10 @@ export const MotorRpmSpeedWidget: Component<WidgetRenderProps> = (props) => (
 );
 
 export const MotorPhaseCurrentWidget: Component<WidgetRenderProps> = (props) => (
-    <Instrument kicker="Phase availability" title="Motor and phase currents" meta="A">
+    <Instrument kicker="Current agreement" title="Battery, VESC and phase currents" meta="A">
         <TrendChart rows={props.rows} series={[
-            { label: 'Motor', unit: 'A', color: C.amber, read: (row) => row.motor_current_a },
+            { label: 'Battery', unit: 'A', color: C.orange, read: (row) => row.current_a },
+            { label: 'VESC', unit: 'A', color: C.amber, read: (row) => row.vesc_current_a ?? row.motor_current_a },
             { label: 'Phase 1', unit: 'A', color: C.green, read: (row) => row.motor_phase_1_current_a ?? row.motor_phase_current_a },
             { label: 'Phase 2', unit: 'A', color: C.cyan, read: (row) => row.motor_phase_2_current_a },
             { label: 'Phase 3', unit: 'A', color: C.red, read: (row) => row.motor_phase_3_current_a },
@@ -177,12 +180,38 @@ export const MotorPhaseCurrentWidget: Component<WidgetRenderProps> = (props) => 
 );
 
 export const MotorVoltageWidget: Component<WidgetRenderProps> = (props) => (
-    <Instrument kicker="CAN electrical" title="Motor voltage timeline" meta="V">
+    <Instrument kicker="Voltage agreement" title="Battery vs VESC voltage" meta="V">
         <TrendChart rows={props.rows} series={[
-            { label: 'Motor voltage', unit: 'V', color: C.teal, read: (row) => row.motor_voltage_v, fill: true },
+            { label: 'Battery', unit: 'V', color: C.orange, read: (row) => row.voltage_v },
+            { label: 'VESC', unit: 'V', color: C.teal, read: (row) => row.vesc_voltage_v ?? row.motor_voltage_v, fill: true },
         ]} height={220} />
     </Instrument>
 );
+
+export const VescDiagnosticsWidget: Component<WidgetRenderProps> = (props) => {
+    const diagnostics = createMemo(() => analyzeVescDiagnostics(props.rows));
+    const statusCopy = createMemo(() => {
+        if (diagnostics().status === 'critical') return 'Critical thermal condition';
+        if (diagnostics().persistentMismatch) return 'Possible VESC malfunction';
+        if (diagnostics().status === 'warning') return 'VESC thermal advisory';
+        if (diagnostics().status === 'normal') return 'Battery and VESC agree';
+        return 'Waiting for paired VESC data';
+    });
+    return <Instrument kicker="Cross-sensor check" title="VESC diagnostics" meta={`${diagnostics().validSamples}/5 paired samples`}>
+        <div class="ev-vesc-status" data-status={diagnostics().status}>
+            <span>{diagnostics().status}</span>
+            <strong>{statusCopy()}</strong>
+            <p>{diagnostics().persistentMismatch
+                ? 'The difference persists beyond 2.5 V / 8% or 5 A / 25% tolerances.'
+                : 'A warning requires three recent paired samples, preventing one-frame timing skew from raising an alarm.'}</p>
+        </div>
+        <MetricGrid compact columns={3} metrics={[
+            { label: 'Voltage delta', value: `${formatNumber(diagnostics().voltageDelta, 2)} V`, detail: `${formatNumber(diagnostics().voltageDeltaPercent, 1)}% · limit ${formatNumber(diagnostics().voltageLimit, 1)} V`, tone: diagnostics().persistentMismatch ? 'red' : 'teal' },
+            { label: 'Current delta', value: `${formatNumber(diagnostics().currentDelta, 2)} A`, detail: `${formatNumber(diagnostics().currentDeltaPercent, 1)}% · limit ${formatNumber(diagnostics().currentLimit, 1)} A`, tone: diagnostics().persistentMismatch ? 'red' : 'amber' },
+            { label: 'Motor temperature', value: `${formatNumber(diagnostics().motorTemp, 1)} °C`, detail: 'Advisory 85 °C · critical 100 °C', tone: (diagnostics().motorTemp ?? 0) >= 85 ? 'red' : 'green' },
+        ]} />
+    </Instrument>;
+};
 
 export const MotorEnvelopeWidget: Component<WidgetRenderProps> = (props) => {
     const envelope = createMemo(() => MOTOR_FIELDS.map((field) => {

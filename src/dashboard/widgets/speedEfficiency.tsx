@@ -19,7 +19,7 @@ import {
 } from './primitives';
 
 function efficiency(row: WidgetRenderProps['rows'][number]): number | null {
-    const value = row.current_efficiency_km_kwh ?? row.inst_eff_km_kwh;
+    const value = row.inst_eff_km_kwh ?? row.current_efficiency_km_kwh;
     return finiteNumber(value) ? value : null;
 }
 
@@ -98,7 +98,7 @@ export const SpeedRangesWidget: Component<WidgetRenderProps> = (props) => {
 };
 
 export const EfficiencySummaryWidget: Component<WidgetRenderProps> = (props) => {
-    const efficiencies = createMemo(() => values(props.rows, efficiency).filter((value) => value >= 0));
+    const efficiencies = createMemo(() => values(props.rows, efficiency));
     const latest = createMemo(() => latestRow(props.rows));
     return <Instrument kicker="Energy conversion" title="Efficiency summary" meta="km/kWh">
         <MetricGrid columns={4} metrics={[

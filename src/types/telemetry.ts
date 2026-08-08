@@ -52,6 +52,7 @@ export interface TelemetryRecord {
     voltage_v?: number;
     current_a?: number;
     power_w?: number;
+    avg_power_w?: number;
     energy_j?: number;
 
     // GPS
@@ -79,6 +80,7 @@ export interface TelemetryRecord {
     steering_accel_z?: number;
 
     total_acceleration?: number;
+    vehicle_heading?: number;
 
     // Driver inputs
     throttle_pct?: number;
@@ -91,7 +93,10 @@ export interface TelemetryRecord {
     // Motor CAN bus
     motor_voltage_v?: number;
     motor_current_a?: number;
+    vesc_voltage_v?: number;
+    vesc_current_a?: number;
     motor_rpm?: number;
+    motor_temp_c?: number;
     motor_phase_1_current_a?: number;
     motor_phase_2_current_a?: number;
     motor_phase_3_current_a?: number;
@@ -101,11 +106,12 @@ export interface TelemetryRecord {
     uptime_seconds?: number;
     data_source?: string;
 
-    // Efficiency (ESP32 values, with bridge fallbacks)
+    // Efficiency (authoritative ESP32 values; no bridge calculation fallback)
     inst_eff_km_kwh?: number;
     acc_eff_km_kwh?: number;
 
     // Backend-computed fields
+    /** Legacy field retained only for older stored sessions. */
     current_efficiency_km_kwh?: number;
     cumulative_energy_kwh?: number;
     route_distance_km?: number;

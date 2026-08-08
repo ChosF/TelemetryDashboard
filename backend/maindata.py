@@ -702,7 +702,7 @@ class TelemetryCalculator:
             efficiency = float(value)
         except (TypeError, ValueError):
             return None
-        if not math.isfinite(efficiency) or efficiency < 0 or efficiency > 500:
+        if not math.isfinite(efficiency) or abs(efficiency) > 500:
             return None
         return round(efficiency, 2)
 
@@ -824,7 +824,7 @@ class TelemetryCalculator:
         self.current_window.push(current)
         self.power_window.push(power)
         
-        # --- Efficiency Calculation ---
+        # --- Session energy/distance accounting ---
         dist_delta_km = (speed * self.sample_interval) / 1000.0
         energy_delta_kwh = (power * self.sample_interval) / 3600000.0
         
@@ -832,31 +832,14 @@ class TelemetryCalculator:
         self.energy_deltas.push(energy_delta_kwh)
         self.cumulative_energy_kwh += energy_delta_kwh
         
-        # ESP32 efficiency is authoritative. Calculate only the missing/invalid value.
+        # ESP32 efficiency is authoritative. Never synthesize a replacement in
+        # the bridge: missing firmware values must remain visibly unavailable.
         instant_efficiency = self._valid_efficiency(data.get("inst_eff_km_kwh"))
-        if instant_efficiency is None:
-            total_energy = self.energy_deltas.sum_values
-            if total_energy > 0.00001:
-                instant_efficiency = self._valid_efficiency(
-                    self.distance_deltas.sum_values / total_energy
-                )
-
         accumulated_efficiency = self._valid_efficiency(data.get("acc_eff_km_kwh"))
-        if accumulated_efficiency is None:
-            try:
-                energy_j = float(data.get("energy_j", 0.0))
-                distance_m = float(data.get("distance_m", 0.0))
-                if math.isfinite(energy_j) and math.isfinite(distance_m) and energy_j > 0:
-                    accumulated_efficiency = self._valid_efficiency(
-                        distance_m * 3600.0 / energy_j
-                    )
-            except (TypeError, ValueError):
-                accumulated_efficiency = None
-
-        result["inst_eff_km_kwh"] = instant_efficiency
-        result["acc_eff_km_kwh"] = accumulated_efficiency
-        # Preserve the established pit-dashboard field while migrating consumers.
-        result["current_efficiency_km_kwh"] = instant_efficiency
+        if instant_efficiency is not None:
+            result["inst_eff_km_kwh"] = instant_efficiency
+        if accumulated_efficiency is not None:
+            result["acc_eff_km_kwh"] = accumulated_efficiency
         
         # --- Session Maximums ---
         self.max_speed_ms = max(self.max_speed_ms, speed)
@@ -865,7 +848,6 @@ class TelemetryCalculator:
         
         result["max_speed_kmh"] = round(self.max_speed_ms * 3.6, 1)
         result["max_power_w"] = round(self.max_power_w, 1)
-        result["max_current_a"] = round(self.max_current_a, 2)
         
         # --- Rolling Averages ---
         result["avg_speed_kmh"] = round(self.speed_window.mean() * 3.6, 1)
@@ -1297,7 +1279,7 @@ class DriverNotificationEngine:
         
         speed_kmh = data.get("speed_ms", 0) * 3.6
         optimal_kmh = data.get("optimal_speed_kmh")
-        efficiency = data.get("current_efficiency_km_kwh")
+        efficiency = data.get("inst_eff_km_kwh")
         voltage = data.get("voltage_v", 0)
         current = data.get("current_a", 0)
         driver_mode = data.get("driver_mode", "")
@@ -1575,7 +1557,8 @@ class MockDataGenerator:
                 self._sensor_failure_remaining = cfg.sensor_failure_duration
                 all_sensors = ["voltage_v", "current_a", "gyro_x", "gyro_y", "gyro_z",
                                "accel_x", "accel_y", "accel_z",
-                               "motor_voltage_v", "motor_current_a", "motor_rpm",
+                               "vesc_voltage_v", "vesc_current_a", "motor_rpm", "motor_temp_c",
+                               "motor_voltage_v", "motor_current_a",
                                "motor_phase_1_current_a", "motor_phase_2_current_a", "motor_phase_3_current_a"]
                 self._current_failed_sensors = random.sample(all_sensors, random.randint(1, 4))
                 self.stats["sensor_failures"] += 1
@@ -1722,6 +1705,7 @@ class MockDataGenerator:
         motor_voltage_v = round(max(0.0, voltage * 0.95 + random.gauss(0, 0.12)), 2)
         motor_current_a = round(max(-5.0, current * 1.06 + random.gauss(0, 0.28)), 2)
         motor_rpm = round(max(0.0, speed * 300.0 + random.gauss(0, 18.0)), 1)
+        motor_temp_c = round(34.0 + abs(motor_current_a) * 0.42 + random.gauss(0, 0.35), 1)
         motor_phase_1_current_a = round(max(-10.0, motor_current_a * 1.10 + random.gauss(0, 0.35)), 2)
         motor_phase_2_current_a = round(max(-10.0, motor_current_a * 1.14 + random.gauss(0, 0.40)), 2)
         motor_phase_3_current_a = round(max(-10.0, motor_current_a * 1.18 + random.gauss(0, 0.45)), 2)
@@ -1759,7 +1743,10 @@ class MockDataGenerator:
             "brake2": round(brake2_pct_val / 100.0, 3),
             "motor_voltage_v": motor_voltage_v,
             "motor_current_a": motor_current_a,
+            "vesc_voltage_v": motor_voltage_v,
+            "vesc_current_a": motor_current_a,
             "motor_rpm": motor_rpm,
+            "motor_temp_c": motor_temp_c,
             "motor_phase_1_current_a": motor_phase_1_current_a,
             "motor_phase_2_current_a": motor_phase_2_current_a,
             "motor_phase_3_current_a": motor_phase_3_current_a,
@@ -2517,7 +2504,6 @@ class TelemetryBridgeWithDB:
             "outliers",
             "inst_eff_km_kwh",
             "acc_eff_km_kwh",
-            "current_efficiency_km_kwh",
             "max_speed_kmh",
             "max_power_w",
             "max_current_a",
@@ -2716,8 +2702,8 @@ class TelemetryBridgeWithDB:
         if not has_core:
             return False, f"Missing all core fields {core_fields}. Keys found: {list(data.keys())[:10]}"
         
-        # Sanity check numeric values (prevent NaN/Inf). Efficiency uses None so
-        # TelemetryCalculator can detect the failure and activate its fallback.
+        # Sanity check numeric values (prevent NaN/Inf). Invalid firmware
+        # efficiency remains absent rather than being synthesized by the bridge.
         for key, val in data.items():
             if isinstance(val, float):
                 if math.isnan(val) or math.isinf(val):
@@ -2752,13 +2738,15 @@ class TelemetryBridgeWithDB:
 
         # Canonicalize optional aliases before defaults are applied.
         alias_map = {
+            "power_w": ["avg_power_w"],
             "g_lat": ["g_lateral", "lateral_g", "lat_g"],
             "g_long": ["g_longitudinal", "longitudinal_g", "long_g", "lon_g"],
             "brake2_pct": ["brake_2_pct", "brake2_percent"],
             "brake2": ["brake2_ratio", "brake_2_ratio"],
-            "motor_current_a": ["motor_current", "can_motor_current_a"],
-            "motor_voltage_v": ["motor_voltage", "can_motor_voltage_v"],
-            "motor_rpm": ["rpm", "motor_speed_rpm", "can_motor_rpm"],
+            "vesc_current_a": ["vesc_current", "vec_current_a", "motor_current_a", "motor_current", "can_motor_current_a"],
+            "vesc_voltage_v": ["vesc_voltage", "vesc_v", "motor_voltage_v", "motor_voltage", "can_motor_voltage_v"],
+            "motor_rpm": ["rpms", "rpm", "motor_speed_rpm", "can_motor_rpm"],
+            "motor_temp_c": ["motor_temperature_c", "motor_temp", "vesc_temp_c", "vesc_temperature_c"],
             "motor_phase_1_current_a": ["phase_1_current_a", "motor_phase_1_current", "can_phase_1_current_a"],
             "motor_phase_2_current_a": ["phase_2_current_a", "motor_phase_2_current", "can_phase_2_current_a"],
             "motor_phase_3_current_a": ["phase_3_current_a", "motor_phase_3_current", "can_phase_3_current_a"],
@@ -2780,8 +2768,16 @@ class TelemetryBridgeWithDB:
                 out.pop(efficiency_field, None)
             else:
                 out[efficiency_field] = efficiency
-        # This compatibility field is bridge-owned and always mirrors resolved instant efficiency.
+        # Old bridge versions emitted this calculated compatibility field. Do
+        # not accept or republish it now that firmware owns both efficiencies.
         out.pop("current_efficiency_km_kwh", None)
+
+        # Keep the established motor_* names as compatibility mirrors while the
+        # explicit VESC names become the source of truth for new consumers.
+        if out.get("vesc_voltage_v") is not None:
+            out["motor_voltage_v"] = out["vesc_voltage_v"]
+        if out.get("vesc_current_a") is not None:
+            out["motor_current_a"] = out["vesc_current_a"]
 
         legacy_phase_current = out.get("motor_phase_current_a")
         phase_fields = [
@@ -2834,13 +2830,6 @@ class TelemetryBridgeWithDB:
             "throttle": 0.0,
             "brake": 0.0,
             "brake2": 0.0,
-            "motor_voltage_v": 0.0,
-            "motor_current_a": 0.0,
-            "motor_rpm": 0.0,
-            "motor_phase_1_current_a": 0.0,
-            "motor_phase_2_current_a": 0.0,
-            "motor_phase_3_current_a": 0.0,
-            "motor_phase_current_a": 0.0,
             "data_source": "ESP32_REAL" if not self.mock_mode else "MOCK_GENERATOR",
         }
         for k, v in defaults.items():
@@ -3443,14 +3432,15 @@ class TelemetryBridgeWithDB:
                     
                     # Core sensor fields (always included if present)
                     sensor_fields = [
-                        "speed_ms", "voltage_v", "current_a", "power_w", "energy_j",
+                        "speed_ms", "voltage_v", "current_a", "power_w", "avg_power_w", "energy_j",
                         "distance_m", "latitude", "longitude", "altitude", "altitude_m",
                         "gyro_x", "gyro_y", "gyro_z",
                         "steering_gyro_x", "steering_gyro_y", "steering_gyro_z",
                         "accel_x", "accel_y", "accel_z",
                         "steering_accel_x", "steering_accel_y", "steering_accel_z",
-                        "total_acceleration", "message_id", "uptime_seconds",
+                        "total_acceleration", "vehicle_heading", "message_id", "uptime_seconds",
                         "throttle_pct", "brake_pct", "brake2_pct", "throttle", "brake", "brake2",
+                        "vesc_voltage_v", "vesc_current_a", "motor_temp_c",
                         "motor_voltage_v", "motor_current_a", "motor_rpm",
                         "motor_phase_1_current_a", "motor_phase_2_current_a", "motor_phase_3_current_a",
                         "motor_phase_current_a",
@@ -3473,7 +3463,7 @@ class TelemetryBridgeWithDB:
                     
                     # Calculated fields from TelemetryCalculator
                     calculated_fields = [
-                        "inst_eff_km_kwh", "acc_eff_km_kwh", "current_efficiency_km_kwh",
+                        "inst_eff_km_kwh", "acc_eff_km_kwh",
                         "cumulative_energy_kwh", "route_distance_km",
                         "avg_speed_kmh", "max_speed_kmh", "avg_power", "avg_voltage", "avg_current",
                         "max_power_w", "max_current_a",
@@ -3746,6 +3736,7 @@ class TelemetryBridgeWithDB:
                     "voltage_v",
                     "current_a",
                     "power_w",
+                    "avg_power_w",
                     "energy_j",
                     "distance_m",
                     "latitude",
@@ -3764,6 +3755,7 @@ class TelemetryBridgeWithDB:
                     "steering_accel_y",
                     "steering_accel_z",
                     "total_acceleration",
+                    "vehicle_heading",
                     "message_id",
                     "uptime_seconds",
                     "throttle_pct",
@@ -3774,7 +3766,10 @@ class TelemetryBridgeWithDB:
                     "brake2",
                     "motor_voltage_v",
                     "motor_current_a",
+                    "vesc_voltage_v",
+                    "vesc_current_a",
                     "motor_rpm",
+                    "motor_temp_c",
                     "motor_phase_1_current_a",
                     "motor_phase_2_current_a",
                     "motor_phase_3_current_a",

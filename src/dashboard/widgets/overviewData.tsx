@@ -55,7 +55,7 @@ export const SessionKpisWidget: Component<WidgetRenderProps> = (props) => {
             { label: 'Average voltage', value: `${formatNumber(latest()?.avg_voltage ?? average(voltages()), 2)} V`, tone: 'teal' },
             { label: 'Current', value: `${formatNumber(latest()?.current_a, 2)} A`, detail: `Average ${formatNumber(latest()?.avg_current ?? average(currents()), 2)} A` },
             { label: 'Average power', value: `${formatNumber(latest()?.avg_power ?? average(powers()), 1)} W`, tone: 'amber' },
-            { label: 'Instant efficiency', value: `${formatNumber(latest()?.inst_eff_km_kwh ?? latest()?.current_efficiency_km_kwh)} km/kWh`, tone: 'green' },
+            { label: 'Accumulated efficiency', value: `${formatNumber(latest()?.acc_eff_km_kwh)} km/kWh`, tone: 'green' },
         ]} />
     </Instrument>;
 };
@@ -200,7 +200,7 @@ export const LiveGaugesWidget: Component<WidgetRenderProps> = (props) => {
         const speed = latest() ? speedKmh(latest()!) : null;
         const battery = canonicalBatteryPercentage(latest()?.voltage_v);
         const power = latest()?.power_w;
-        const efficiency = latest()?.inst_eff_km_kwh ?? latest()?.current_efficiency_km_kwh;
+        const efficiency = latest()?.acc_eff_km_kwh ?? latest()?.inst_eff_km_kwh ?? latest()?.current_efficiency_km_kwh;
         const g = latest()?.current_g_force ?? latest()?.g_total;
         const speedMax = Math.max(100, (latest()?.max_speed_kmh ?? 0) + 5);
         const powerMax = Math.max(100, Math.abs(latest()?.max_power_w ?? 0), Math.abs(power ?? 0) * 1.5);

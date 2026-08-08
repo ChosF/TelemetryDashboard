@@ -45,7 +45,7 @@ export function toNum(x: unknown, fallback: number | null = null): number | null
 function toEfficiency(x: unknown): number | null {
     if (x == null || x === '') return null;
     const efficiency = toNum(x, null);
-    return efficiency !== null && efficiency >= 0 && efficiency <= 500
+    return efficiency !== null && Math.abs(efficiency) <= 500
         ? efficiency
         : null;
 }
@@ -107,59 +107,15 @@ export function throttle<T extends (...args: unknown[]) => void>(
  */
 export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
     const normalized = { ...row } as TelemetryRow;
-
-    const voltage = toNum(normalized.voltage_v, null);
-    const current = toNum(normalized.current_a, null);
-    const power = toNum(normalized.power_w, null);
-    const motorVoltage = toNum(normalized.motor_voltage_v, null);
-    const motorCurrent = toNum(normalized.motor_current_a, null);
-    const motorRpm = toNum(normalized.motor_rpm, null);
-    const motorPhase1Current = toNum(normalized.motor_phase_1_current_a, null);
-    const motorPhase2Current = toNum(normalized.motor_phase_2_current_a, null);
-    const motorPhase3Current = toNum(normalized.motor_phase_3_current_a, null);
-    const motorPhaseCurrent = toNum(normalized.motor_phase_current_a, null);
-
-    if (voltage !== null) normalized.voltage_v = voltage;
-    if (current !== null) normalized.current_a = current;
-    if (power !== null) {
-        normalized.power_w = power;
-    } else if (voltage !== null && current !== null) {
-        // Some historical records omit power; recover it from V * A.
-        normalized.power_w = voltage * current;
-    }
-    if (motorVoltage !== null) normalized.motor_voltage_v = motorVoltage;
-    if (motorCurrent !== null) normalized.motor_current_a = motorCurrent;
-    if (motorRpm !== null) normalized.motor_rpm = motorRpm;
-    if (motorPhase1Current !== null) normalized.motor_phase_1_current_a = motorPhase1Current;
-    if (motorPhase2Current !== null) normalized.motor_phase_2_current_a = motorPhase2Current;
-    if (motorPhase3Current !== null) normalized.motor_phase_3_current_a = motorPhase3Current;
-    if (motorPhaseCurrent !== null) normalized.motor_phase_current_a = motorPhaseCurrent;
-
-    const instantEfficiency = toEfficiency(normalized.inst_eff_km_kwh)
-        ?? toEfficiency(normalized.current_efficiency_km_kwh);
-    if (instantEfficiency !== null) {
-        normalized.inst_eff_km_kwh = instantEfficiency;
-        normalized.current_efficiency_km_kwh = instantEfficiency;
-    } else {
-        normalized.inst_eff_km_kwh = undefined;
-        normalized.current_efficiency_km_kwh = undefined;
-    }
-
-    const accumulatedEfficiency = toEfficiency(normalized.acc_eff_km_kwh);
-    if (accumulatedEfficiency !== null) {
-        normalized.acc_eff_km_kwh = accumulatedEfficiency;
-    } else {
-        normalized.acc_eff_km_kwh = undefined;
-    }
-
     const rowAny = row as unknown as Record<string, unknown>;
     const normalizedAny = normalized as unknown as Record<string, unknown>;
     const aliasGroups: Array<[string, string[]]> = [
         ['brake2_pct', ['brake_2_pct', 'brake2_percent']],
         ['brake2', ['brake2_ratio', 'brake_2_ratio']],
-        ['motor_current_a', ['motor_current', 'can_motor_current_a']],
-        ['motor_voltage_v', ['motor_voltage', 'can_motor_voltage_v']],
-        ['motor_rpm', ['rpm', 'motor_speed_rpm', 'can_motor_rpm']],
+        ['vesc_current_a', ['vesc_current', 'vec_current_a', 'motor_current_a', 'motor_current', 'can_motor_current_a']],
+        ['vesc_voltage_v', ['vesc_voltage', 'vesc_v', 'motor_voltage_v', 'motor_voltage', 'can_motor_voltage_v']],
+        ['motor_rpm', ['rpms', 'rpm', 'motor_speed_rpm', 'can_motor_rpm']],
+        ['motor_temp_c', ['motor_temperature_c', 'motor_temp', 'vesc_temp_c', 'vesc_temperature_c']],
         ['motor_phase_1_current_a', ['phase_1_current_a', 'motor_phase_1_current', 'can_phase_1_current_a']],
         ['motor_phase_2_current_a', ['phase_2_current_a', 'motor_phase_2_current', 'can_phase_2_current_a']],
         ['motor_phase_3_current_a', ['phase_3_current_a', 'motor_phase_3_current', 'can_phase_3_current_a']],
@@ -174,6 +130,58 @@ export function normalizeFieldNames(row: TelemetryRecord): TelemetryRow {
                 break;
             }
         }
+    }
+
+    const voltage = toNum(normalized.voltage_v, null);
+    const current = toNum(normalized.current_a, null);
+    const power = toNum(normalized.power_w ?? normalized.avg_power_w, null);
+    const vescVoltage = toNum(normalized.vesc_voltage_v, null);
+    const vescCurrent = toNum(normalized.vesc_current_a, null);
+    const motorRpm = toNum(normalized.motor_rpm, null);
+    const motorTemp = toNum(normalized.motor_temp_c, null);
+    const motorPhase1Current = toNum(normalized.motor_phase_1_current_a, null);
+    const motorPhase2Current = toNum(normalized.motor_phase_2_current_a, null);
+    const motorPhase3Current = toNum(normalized.motor_phase_3_current_a, null);
+    const motorPhaseCurrent = toNum(normalized.motor_phase_current_a, null);
+
+    if (voltage !== null) normalized.voltage_v = voltage;
+    if (current !== null) normalized.current_a = current;
+    if (power !== null) {
+        normalized.power_w = power;
+    } else if (voltage !== null && current !== null) {
+        // Some historical records omit power; recover it from V * A.
+        normalized.power_w = voltage * current;
+    }
+    if (vescVoltage !== null) {
+        normalized.vesc_voltage_v = vescVoltage;
+        normalized.motor_voltage_v = vescVoltage;
+    }
+    if (vescCurrent !== null) {
+        normalized.vesc_current_a = vescCurrent;
+        normalized.motor_current_a = vescCurrent;
+    }
+    if (motorRpm !== null) normalized.motor_rpm = motorRpm;
+    if (motorTemp !== null) normalized.motor_temp_c = motorTemp;
+    if (motorPhase1Current !== null) normalized.motor_phase_1_current_a = motorPhase1Current;
+    if (motorPhase2Current !== null) normalized.motor_phase_2_current_a = motorPhase2Current;
+    if (motorPhase3Current !== null) normalized.motor_phase_3_current_a = motorPhase3Current;
+    if (motorPhaseCurrent !== null) normalized.motor_phase_current_a = motorPhaseCurrent;
+
+    // Prefer firmware data. The legacy field is read only when loading an old
+    // record that predates the ESP32-owned efficiency contract.
+    const instantEfficiency = toEfficiency(normalized.inst_eff_km_kwh)
+        ?? toEfficiency(normalized.current_efficiency_km_kwh);
+    if (instantEfficiency !== null) {
+        normalized.inst_eff_km_kwh = instantEfficiency;
+    } else {
+        normalized.inst_eff_km_kwh = undefined;
+    }
+
+    const accumulatedEfficiency = toEfficiency(normalized.acc_eff_km_kwh);
+    if (accumulatedEfficiency !== null) {
+        normalized.acc_eff_km_kwh = accumulatedEfficiency;
+    } else {
+        normalized.acc_eff_km_kwh = undefined;
     }
 
     const normalizedPhase1 = toNum(normalized.motor_phase_1_current_a, null);
@@ -440,12 +448,10 @@ export function computeKPIs(rows: TelemetryRow[]): KPISummary {
         out.avg_voltage = nzVoltages.length ? mean(nzVoltages) : 0;
     }
 
-    // Prefer the ESP32/bridge accumulated value; derive only for older records.
+    // Session efficiency is firmware-owned. Never derive a replacement here.
     const reportedEfficiency = toNum(latest.acc_eff_km_kwh, null);
-    if (reportedEfficiency !== null && reportedEfficiency >= 0 && reportedEfficiency <= 500) {
+    if (reportedEfficiency !== null && Math.abs(reportedEfficiency) <= 500) {
         out.efficiency_km_kwh = reportedEfficiency;
-    } else if (out.total_energy_kwh > 0) {
-        out.efficiency_km_kwh = out.distance_km / out.total_energy_kwh;
     }
 
     // Duration from first to last timestamp

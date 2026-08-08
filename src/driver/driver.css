@@ -298,6 +298,19 @@ html.driver-page #root {
   letter-spacing: 0.12em;
   margin-top: -1px;
 }
+.drv-vesc-mini {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  width: 100%;
+  margin-top: 5px;
+  color: var(--drv-text-dim);
+  font: 600 0.36rem/1.15 var(--drv-font-mono);
+  white-space: nowrap;
+}
+.drv-vesc-mini span { padding-top: 3px; border-top: 1px solid var(--drv-border); }
+.drv-vesc-mini b { display: block; color: var(--drv-text); font-size: 0.5rem; font-variant-numeric: tabular-nums; }
+.drv-current-hero[data-vesc-alert="true"] .drv-vesc-mini b { color: var(--drv-warn); }
 
 /* Efficiency pair | RPM — strict half-and-half powertrain strip */
 .drv-eff-rev-strip {

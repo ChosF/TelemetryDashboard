@@ -51,7 +51,7 @@ function toOptionalFiniteNumber(value: unknown): number | null {
 
 function toOptionalEfficiency(value: unknown): number | null {
     const efficiency = toOptionalFiniteNumber(value);
-    return efficiency !== null && efficiency >= 0 && efficiency <= 500
+    return efficiency !== null && Math.abs(efficiency) <= 500
         ? efficiency
         : null;
 }
@@ -74,6 +74,9 @@ const EMPTY_SNAPSHOT: DriverTelemetrySnapshot = {
     voltage_v: 0,
     current_a: 0,
     power_w: 0,
+    vesc_voltage_v: null,
+    vesc_current_a: null,
+    motor_temp_c: null,
     inst_eff_km_kwh: null,
     acc_eff_km_kwh: null,
     optimal_speed_kmh: null,
@@ -172,12 +175,12 @@ function ingestTelemetry(raw: Record<string, unknown>): void {
     const speedKmh = speedKmhFromField ?? speedMs * 3.6;
 
     const motorRpm = toFiniteNumber(
-        raw.motor_rpm ?? raw.rpm ?? raw.motor_speed_rpm ?? raw.motor_rpm_est,
+        raw.motor_rpm ?? raw.rpms ?? raw.rpm ?? raw.motor_speed_rpm ?? raw.motor_rpm_est,
     );
 
     const voltageV = toFiniteNumber(raw.voltage_v);
     const currentA = toFiniteNumber(raw.current_a);
-    let powerW = toFiniteNumber(raw.power_w);
+    let powerW = toFiniteNumber(raw.power_w ?? raw.avg_power_w);
     if (powerW === 0 && voltageV !== 0 && currentA !== 0) {
         powerW = voltageV * currentA;
     }
@@ -192,6 +195,9 @@ function ingestTelemetry(raw: Record<string, unknown>): void {
         voltage_v: voltageV,
         current_a: currentA,
         power_w: powerW,
+        vesc_voltage_v: toOptionalFiniteNumber(raw.vesc_voltage_v ?? raw.vesc_voltage ?? raw.vesc_v ?? raw.motor_voltage_v),
+        vesc_current_a: toOptionalFiniteNumber(raw.vesc_current_a ?? raw.vesc_current ?? raw.vec_current_a ?? raw.motor_current_a),
+        motor_temp_c: toOptionalFiniteNumber(raw.motor_temp_c ?? raw.motor_temperature_c ?? raw.vesc_temp_c),
         inst_eff_km_kwh: instantEfficiency,
         acc_eff_km_kwh: toOptionalEfficiency(raw.acc_eff_km_kwh),
         optimal_speed_kmh: toOptionalFiniteNumber(raw.optimal_speed_kmh),

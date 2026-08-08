@@ -75,10 +75,11 @@ export const ImuSensorTrendWidget: Component<WidgetRenderProps> = (props) => (
 );
 
 export const OrientationWidget: Component<WidgetRenderProps> = (props) => (
-    <Instrument kicker="Vehicle attitude" title="Pitch and roll" meta="Degrees">
+    <Instrument kicker="Vehicle attitude" title="Pitch, roll and heading" meta="Degrees">
         <TrendChart rows={props.rows} series={[
             { label: 'Pitch', unit: '°', color: C.orange, read: (row) => row.pitch_deg, fill: true },
             { label: 'Roll', unit: '°', color: C.teal, read: (row) => row.roll_deg },
+            { label: 'Heading', unit: '°', color: C.cyan, read: (row) => row.vehicle_heading },
         ]} />
     </Instrument>
 );

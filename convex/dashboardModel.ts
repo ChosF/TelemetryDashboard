@@ -36,6 +36,7 @@ export const widgetTypeValidator = v.union(
   v.literal("energy-trend"),
   v.literal("current-spike-log"),
   v.literal("motor-summary"),
+  v.literal("vesc-diagnostics"),
   v.literal("motor-rpm-speed"),
   v.literal("motor-phase-current"),
   v.literal("motor-voltage"),
@@ -83,6 +84,7 @@ export const metricValidator = v.union(
   v.literal("motorVoltage"),
   v.literal("motorCurrent"),
   v.literal("motorRpm"),
+  v.literal("motorTemp"),
   v.literal("motorPhase1Current"),
   v.literal("motorPhase2Current"),
   v.literal("motorPhase3Current"),
@@ -94,6 +96,7 @@ export const metricValidator = v.union(
   v.literal("gforce"),
   v.literal("altitude"),
   v.literal("gyroZ"),
+  v.literal("heading"),
 );
 
 export const timeWindowValidator = v.union(

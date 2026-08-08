@@ -31,7 +31,7 @@ import '@/styles/live-dashboard.css';
 
 const VIEW_STORAGE_KEY = 'ecovolt-dashboard-views-v1';
 const LAST_VIEW_STORAGE_KEY = 'ecovolt-dashboard-last-view-v1';
-const SYSTEM_VIEW_VERSION = 2;
+const SYSTEM_VIEW_VERSION = 3;
 const LEGACY_CUSTOM_CHART_KEY = 'custom-panel-widgets-v2';
 const SESSION_END_HANDLED_KEY = 'ecovolt-session-end-handled-v1';
 const LEGACY_IMPORT_VERSION = 1;
@@ -837,9 +837,9 @@ function createDashboardPreviewRows(): TelemetryRow[] {
             voltage_v: voltageV,
             current_a: currentA,
             power_w: powerW,
+            avg_power_w: powerW,
             energy_j: energyJ,
             cumulative_energy_kwh: energyJ / 3_600_000,
-            current_efficiency_km_kwh: Math.max(18, 36 + Math.sin(index / 21) * 7),
             inst_eff_km_kwh: Math.max(18, 36 + Math.sin(index / 21) * 7),
             acc_eff_km_kwh: 34.8 + Math.sin(index / 47) * 1.4,
             avg_speed_kmh: avgSpeedKmh,
@@ -863,7 +863,10 @@ function createDashboardPreviewRows(): TelemetryRow[] {
             brake2: brakePct * 0.86,
             motor_voltage_v: voltageV - 0.7,
             motor_current_a: currentA * 0.93,
+            vesc_voltage_v: voltageV - 0.7,
+            vesc_current_a: currentA * 0.93,
             motor_rpm: speedMs * 286,
+            motor_temp_c: 48 + Math.sin(index / 28) * 3.5,
             motor_phase_1_current_a: currentA * 0.9,
             motor_phase_2_current_a: currentA * 0.94,
             motor_phase_3_current_a: currentA * 0.92,
@@ -895,6 +898,7 @@ function createDashboardPreviewRows(): TelemetryRow[] {
             g_total: Math.sqrt(1 + lateralG ** 2 + longitudinalG ** 2),
             roll_deg: lateralG * 5.2,
             pitch_deg: longitudinalG * 4.8,
+            vehicle_heading: (index * 1.8) % 360,
             motion_state: brakePct > 4 ? 'braking' : throttlePct > 58 ? 'accelerating' : 'cruising',
             driver_mode: brakePct > 4 ? 'braking' : throttlePct > 24 ? 'accelerating' : 'coasting',
             throttle_intensity: throttlePct > 70 ? 'heavy' : throttlePct > 42 ? 'moderate' : 'light',

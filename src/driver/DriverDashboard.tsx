@@ -115,13 +115,28 @@ const PrimarySpeedBar: Component = () => {
 
 /** Large current readout — center-left slot (formerly speed) */
 const CurrentHero: Component = () => {
-    const amps = createMemo(() => driverStore.snapshot().current_a.toFixed(2));
+    const snap = createMemo(() => driverStore.snapshot());
+    const amps = createMemo(() => snap().current_a.toFixed(2));
+    const mismatch = createMemo(() => {
+        const vescVoltage = snap().vesc_voltage_v;
+        const vescCurrent = snap().vesc_current_a;
+        if (vescVoltage === null || vescCurrent === null) return false;
+        const voltageLimit = Math.max(2.5, Math.abs(snap().voltage_v) * 0.08);
+        const currentLimit = Math.max(5, Math.max(Math.abs(snap().current_a), Math.abs(vescCurrent)) * 0.25);
+        return Math.abs(snap().voltage_v - vescVoltage) > voltageLimit
+            || Math.abs(snap().current_a - vescCurrent) > currentLimit;
+    });
 
     return (
-        <div class="drv-current-hero" aria-label={`Current ${amps()} amps`}>
+        <div class="drv-current-hero" data-vesc-alert={mismatch() || (snap().motor_temp_c ?? 0) >= 85 ? 'true' : 'false'} aria-label={`Battery current ${amps()} amps`}>
             <div class="drv-current-main">
                 <div class="drv-current-value">{amps()}</div>
-                <div class="drv-current-unit">A</div>
+                <div class="drv-current-unit">Battery A</div>
+                <div class="drv-vesc-mini">
+                    <span><b>{snap().vesc_current_a?.toFixed(1) ?? '—'}</b> VESC A</span>
+                    <span><b>{snap().vesc_voltage_v?.toFixed(1) ?? '—'}</b> VESC V</span>
+                    <span><b>{snap().motor_temp_c?.toFixed(0) ?? '—'}</b> °C</span>
+                </div>
             </div>
         </div>
     );

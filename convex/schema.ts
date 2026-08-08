@@ -138,6 +138,7 @@ export default defineSchema({
     voltage_v: v.optional(v.number()),
     current_a: v.optional(v.number()),
     power_w: v.optional(v.number()),
+    avg_power_w: v.optional(v.number()),
     energy_j: v.optional(v.number()),
     distance_m: v.optional(v.number()),
     latitude: v.optional(v.number()),
@@ -157,6 +158,7 @@ export default defineSchema({
     steering_accel_y: v.optional(v.number()),
     steering_accel_z: v.optional(v.number()),
     total_acceleration: v.optional(v.number()),
+    vehicle_heading: v.optional(v.number()),
     message_id: v.optional(v.number()),
     uptime_seconds: v.optional(v.number()),
     throttle_pct: v.optional(v.number()),
@@ -167,17 +169,20 @@ export default defineSchema({
     brake2: v.optional(v.number()),
     motor_voltage_v: v.optional(v.number()),
     motor_current_a: v.optional(v.number()),
+    vesc_voltage_v: v.optional(v.number()),
+    vesc_current_a: v.optional(v.number()),
     motor_rpm: v.optional(v.number()),
+    motor_temp_c: v.optional(v.number()),
     motor_phase_1_current_a: v.optional(v.number()),
     motor_phase_2_current_a: v.optional(v.number()),
     motor_phase_3_current_a: v.optional(v.number()),
     motor_phase_current_a: v.optional(v.number()),
     data_source: v.optional(v.string()),
     outliers: v.optional(v.any()), // JSON object for outlier detection data
-    // ESP32 efficiency values, resolved by the bridge with calculation fallbacks
+    // ESP32-owned efficiency values; the bridge never synthesizes replacements
     inst_eff_km_kwh: v.optional(v.number()),
     acc_eff_km_kwh: v.optional(v.number()),
-    // Calculated fields from backend bridge
+    // Legacy bridge field retained so older stored sessions remain readable
     current_efficiency_km_kwh: v.optional(v.number()),
     cumulative_energy_kwh: v.optional(v.number()),
     route_distance_km: v.optional(v.number()),

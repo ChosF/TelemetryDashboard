@@ -540,14 +540,18 @@ __global.HA = __global.HA || {};
         n._ts = new Date(r.timestamp).getTime();
         n.speed_kmh = r.speed_ms != null ? r.speed_ms * 3.6 : (r.speed_kmh || r.avg_speed_kmh || 0);
         n.speed_ms = r.speed_ms != null ? r.speed_ms : n.speed_kmh / 3.6;
-        n.power_w = r.power_w != null ? r.power_w : ((r.voltage_v || 0) * (r.current_a || 0));
+        n.power_w = r.power_w ?? r.avg_power_w ?? ((r.voltage_v || 0) * (r.current_a || 0));
         n.voltage_v = r.voltage_v || 0; n.current_a = r.current_a || 0;
         n.throttle_pct = r.throttle_pct || r.throttle || 0;
         n.brake_pct = r.brake_pct || r.brake || 0;
         n.brake2_pct = r.brake2_pct || (typeof r.brake2 === 'number' ? r.brake2 * 100 : 0);
-        n.motor_voltage_v = r.motor_voltage_v || 0;
-        n.motor_current_a = r.motor_current_a || 0;
-        n.motor_rpm = r.motor_rpm || 0;
+        n.vesc_voltage_v = r.vesc_voltage_v ?? r.vesc_voltage ?? r.motor_voltage_v ?? 0;
+        n.vesc_current_a = r.vesc_current_a ?? r.vesc_current ?? r.vec_current_a ?? r.motor_current_a ?? 0;
+        n.motor_voltage_v = n.vesc_voltage_v;
+        n.motor_current_a = n.vesc_current_a;
+        n.motor_rpm = r.motor_rpm ?? r.rpms ?? r.rpm ?? 0;
+        n.motor_temp_c = r.motor_temp_c ?? r.motor_temperature_c ?? r.vesc_temp_c ?? null;
+        n.vehicle_heading = r.vehicle_heading ?? null;
         n.motor_phase_1_current_a = r.motor_phase_1_current_a || r.phase_1_current_a || 0;
         n.motor_phase_2_current_a = r.motor_phase_2_current_a || r.phase_2_current_a || 0;
         n.motor_phase_3_current_a = r.motor_phase_3_current_a || r.phase_3_current_a || 0;
@@ -569,7 +573,7 @@ __global.HA = __global.HA || {};
         n.elevation_gain_m = r.elevation_gain_m || 0;
         n.instEfficiency = r.inst_eff_km_kwh ?? r.current_efficiency_km_kwh ?? null;
         n.accEfficiency = r.acc_eff_km_kwh ?? null;
-        n.efficiency = n.instEfficiency;
+        n.efficiency = n.accEfficiency ?? n.instEfficiency;
         n.cumEnergy = r.cumulative_energy_kwh ?? null;
         n.routeDist = r.route_distance_km ?? null;
         n.energy_j = r.energy_j || 0; n.distance_m = r.distance_m || 0;
@@ -619,18 +623,17 @@ __global.HA = __global.HA || {};
         const energyWh = serverEnergyWh ?? integratedEnergyWh;
         const durationMs = data.length > 1 ? data[data.length - 1]._ts - data[0]._ts : 0;
         const accumulatedEfficiency = last && Number.isFinite(last.accEfficiency)
-            && last.accEfficiency > 0 && last.accEfficiency <= 500
+            && Math.abs(last.accEfficiency) <= 500
             ? last.accEfficiency
             : null;
-        const computedEfficiency = energyWh > 0 ? distKm / (energyWh / 1000) : 0;
         const instantEfficiency = last && Number.isFinite(last.instEfficiency)
-            && last.instEfficiency > 0 && last.instEfficiency <= 500
+            && Math.abs(last.instEfficiency) <= 500
             ? last.instEfficiency
             : 0;
         return {
             distance: distKm, maxSpeed: speeds.length ? Math.max(...speeds) : 0, avgSpeed: HA.mean(speeds),
             energyWh,
-            efficiency: accumulatedEfficiency ?? (computedEfficiency || instantEfficiency),
+            efficiency: accumulatedEfficiency ?? instantEfficiency,
             durationMin: durationMs / 60000,
             avgPower: HA.mean(data.map(r => r.power_w)), maxG: data.length ? Math.max(...data.map(r => r.g_force)) : 0,
             optimalSpeed: data.find(r => r.optimalSpeed != null)?.optimalSpeed || 0,
@@ -648,9 +651,11 @@ __global.HA = __global.HA || {};
         { key: 'power_w', label: 'Power (W)' },
         { key: 'voltage_v', label: 'Voltage (V)' },
         { key: 'current_a', label: 'Current (A)' },
-        { key: 'motor_voltage_v', label: 'Motor Voltage (V)' },
-        { key: 'motor_current_a', label: 'Motor Current (A)' },
+        { key: 'vesc_voltage_v', label: 'VESC Voltage (V)' },
+        { key: 'vesc_current_a', label: 'VESC Current (A)' },
         { key: 'motor_rpm', label: 'Motor RPM' },
+        { key: 'motor_temp_c', label: 'Motor Temperature (°C)' },
+        { key: 'vehicle_heading', label: 'Vehicle Heading (°)' },
         { key: 'motor_phase_1_current_a', label: 'Motor Phase 1 Current (A)' },
         { key: 'motor_phase_2_current_a', label: 'Motor Phase 2 Current (A)' },
         { key: 'motor_phase_3_current_a', label: 'Motor Phase 3 Current (A)' },

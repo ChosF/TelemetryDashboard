@@ -37,6 +37,7 @@ export type WidgetType =
     | 'energy-trend'
     | 'current-spike-log'
     | 'motor-summary'
+    | 'vesc-diagnostics'
     | 'motor-rpm-speed'
     | 'motor-phase-current'
     | 'motor-voltage'

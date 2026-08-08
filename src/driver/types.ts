@@ -31,6 +31,9 @@ export interface DriverTelemetrySnapshot {
     voltage_v: number;
     current_a: number;
     power_w: number;
+    vesc_voltage_v: number | null;
+    vesc_current_a: number | null;
+    motor_temp_c: number | null;
 
     // Efficiency
     inst_eff_km_kwh: number | null;

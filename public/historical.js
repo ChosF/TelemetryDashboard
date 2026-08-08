@@ -634,7 +634,7 @@
         else { let m = 0; for (let i = 1; i < d.length; i++) { const dt = (d[i]._ts - d[i - 1]._ts) / 1000; if (dt > 0 && dt < 60) m += d[i].speed_ms * dt } distKm = m / 1000 }
         if (last.cumEnergy != null && last.cumEnergy > 0) energyWh = last.cumEnergy * 1000;
         else { let e = 0; for (let i = 1; i < d.length; i++) { const dt = (d[i]._ts - d[i - 1]._ts) / 3600000; if (dt > 0 && dt < 0.02) e += Math.abs(d[i].power_w) * dt } energyWh = e }
-        eff = (last.efficiency != null && last.efficiency > 0) ? last.efficiency : (energyWh > 0 ? distKm / (energyWh / 1000) : 0);
+        eff = (Number.isFinite(last.efficiency) && Math.abs(last.efficiency) <= 500) ? last.efficiency : 0;
         const speeds = d.map(r => r.speed_kmh).filter(v => v > 0);
         const durMs = last._ts - first._ts;
         const optSpd = d.find(r => r.optimalSpeed != null)?.optimalSpeed;
@@ -741,32 +741,8 @@
         }
         initChart('hc-energy-cum', { ...CHART_THEME, dataZoom: DATA_ZOOM, grid: { ...CHART_THEME.grid, bottom: 52 }, series: [mkSeries('Cumulative Energy (Wh)', cumEnergyData, '#f59e0b')] });
 
-        // Rolling efficiency: compute client-side using 30-point window if backend null
-        let effData = d.filter(r => r.efficiency != null && r.efficiency > 0 && r.efficiency < 500);
-        if (!effData.length) {
-            // Compute rolling efficiency from cumulative energy and distance
-            const windowSec = 60; // 60-second rolling window
-            const rollingEff = [];
-            for (let i = 1; i < d.length; i++) {
-                // Find window start
-                const winStart = d[i]._ts - windowSec * 1000;
-                const j = d.findIndex(r => r._ts >= winStart);
-                if (j < 0 || j >= i) continue;
-                const slice = d.slice(j, i + 1);
-                let dist = 0, energy = 0;
-                for (let k = 1; k < slice.length; k++) {
-                    const dt = (slice[k]._ts - slice[k - 1]._ts) / 1000;
-                    if (dt > 0 && dt < 10) {
-                        dist += slice[k].speed_ms * dt;
-                        energy += Math.abs(slice[k].power_w) * dt / 3600;
-                    }
-                }
-                const distKm = dist / 1000;
-                const energyKwh = energy / 1000;
-                if (energyKwh > 0.0001 && distKm > 0) rollingEff.push([d[i]._ts, distKm / energyKwh]);
-            }
-            effData = rollingEff.map(([ts, v]) => ({ _ts: ts, efficiency: v }));
-        }
+        // Firmware-provided efficiency only; missing values remain unavailable.
+        const effData = d.filter(r => Number.isFinite(r.efficiency) && Math.abs(r.efficiency) <= 500);
         initChart('hc-efficiency', { ...CHART_THEME, dataZoom: DATA_ZOOM, grid: { ...CHART_THEME.grid, bottom: 52 }, series: [mkSeries('Efficiency (km/kWh)', effData.map(r => [r._ts, r.efficiency]), '#22c55e')] });
 
         // Energy by speed bracket
@@ -1276,8 +1252,8 @@
 
     // ── Data Table ──
     function renderDataTable(d) {
-        const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'motor_voltage_v', 'motor_current_a', 'motor_rpm', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'throttle_pct', 'brake_pct', 'brake2_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
-        const labels = ['Time', 'Speed', 'Power', 'Voltage', 'Current', 'Motor V', 'Motor A', 'RPM', 'Phase 1 A', 'Phase 2 A', 'Phase 3 A', 'Throttle', 'Brake 1', 'Brake 2', 'G-Force', 'Lat', 'Lon', 'Alt', 'Motion'];
+        const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'vesc_voltage_v', 'vesc_current_a', 'motor_rpm', 'motor_temp_c', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'throttle_pct', 'brake_pct', 'brake2_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
+        const labels = ['Time', 'Speed', 'Power', 'Battery V', 'Battery A', 'VESC V', 'VESC A', 'RPM', 'Motor °C', 'Phase 1 A', 'Phase 2 A', 'Phase 3 A', 'Throttle', 'Brake 1', 'Brake 2', 'G-Force', 'Lat', 'Lon', 'Alt', 'Motion'];
         const filter = ($('h-table-filter')?.value || '').toLowerCase();
         const filtered = filter ? d.filter(r => cols.some(c => { const v = r[c]; return v != null && String(v).toLowerCase().includes(filter) })) : d;
         const totalRows = S.isPreview ? (S.stats?.recordCount || filtered.length) : filtered.length;
@@ -1867,7 +1843,7 @@
         if (!S.data.length) { toast('No data'); return }
         await ensureFullSessionData('table export');
         const filter = ($('h-table-filter')?.value || '').toLowerCase();
-        const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'motor_voltage_v', 'motor_current_a', 'motor_rpm', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'throttle_pct', 'brake_pct', 'brake2_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
+        const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'vesc_voltage_v', 'vesc_current_a', 'motor_rpm', 'motor_temp_c', 'vehicle_heading', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'instEfficiency', 'accEfficiency', 'throttle_pct', 'brake_pct', 'brake2_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
         const filtered = filter ? S.data.filter(r => cols.some(c => { const v = r[c]; return v != null && String(v).toLowerCase().includes(filter) })) : S.data;
         const lines = [cols.join(','), ...filtered.map(r => cols.map(k => r[k] ?? '').join(','))];
         const sessionName = (S.activeSessionMeta?.session_name || S.activeSessionId?.slice(0, 8) || 'session')

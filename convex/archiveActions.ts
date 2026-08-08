@@ -153,7 +153,13 @@ function summarizePart(records: ArchiveRecord[]): ArchivePartSummary {
     optimalSpeedKmh,
     lastRouteDistanceKm: typeof last.route_distance_km === "number" ? last.route_distance_km : undefined,
     lastCumulativeEnergyKwh: typeof last.cumulative_energy_kwh === "number" ? last.cumulative_energy_kwh : undefined,
-    lastEfficiencyKmKwh: typeof last.current_efficiency_km_kwh === "number" ? last.current_efficiency_km_kwh : undefined,
+    lastEfficiencyKmKwh: typeof last.acc_eff_km_kwh === "number"
+      ? last.acc_eff_km_kwh
+      : typeof last.inst_eff_km_kwh === "number"
+        ? last.inst_eff_km_kwh
+        : typeof last.current_efficiency_km_kwh === "number"
+          ? last.current_efficiency_km_kwh
+          : undefined,
   };
 }
 
@@ -222,9 +228,8 @@ function mergeSummaries(summaries: ArchivePartSummary[]): ArchiveStats {
   const energyWh = last.lastCumulativeEnergyKwh && last.lastCumulativeEnergyKwh > 0
     ? last.lastCumulativeEnergyKwh * 1000
     : integratedEnergyWh;
-  const backendEfficiency = last.lastEfficiencyKmKwh
-    && last.lastEfficiencyKmKwh > 0
-    && last.lastEfficiencyKmKwh < 1000
+  const backendEfficiency = typeof last.lastEfficiencyKmKwh === "number"
+    && Math.abs(last.lastEfficiencyKmKwh) <= 500
     ? last.lastEfficiencyKmKwh
     : null;
 
@@ -233,7 +238,7 @@ function mergeSummaries(summaries: ArchivePartSummary[]): ArchiveStats {
     maxSpeed,
     avgSpeed: positiveSpeedCount ? positiveSpeedSumKmh / positiveSpeedCount : 0,
     energyWh,
-    efficiency: backendEfficiency ?? (energyWh > 0 ? distance / (energyWh / 1000) : 0),
+    efficiency: backendEfficiency ?? 0,
     durationMin: Math.max(0, Date.parse(last.lastTimestamp) - Date.parse(first.firstTimestamp)) / 60000,
     avgPower: recordCount ? powerSumW / recordCount : 0,
     maxPower,

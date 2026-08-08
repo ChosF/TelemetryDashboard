@@ -1,6 +1,7 @@
 import { createSignal } from 'solid-js';
 import type { OperationalEvent, SystemViewId, EventSeverity } from './types';
 import type { TelemetryRow } from '@/types/telemetry';
+import { analyzeVescDiagnostics } from '@/lib/vesc-diagnostics';
 
 interface EventInput {
     key: string;
@@ -189,6 +190,34 @@ export function createOperationalEventStore() {
                     signature: batteryPct < 12 ? 'critical' : 'warning', cooldownMs: 180_000,
                 });
             }
+        }
+
+        const vesc = analyzeVescDiagnostics(state.rows);
+        if (vesc.persistentMismatch) {
+            condition({
+                key: `vesc:mismatch:${sessionKey}`,
+                severity: 'warning',
+                title: 'Possible VESC malfunction',
+                explanation: 'Battery-side and VESC-side electrical measurements disagree persistently beyond the diagnostic tolerance.',
+                evidence: `ΔV ${vesc.voltageDelta?.toFixed(1) ?? '—'} V (${vesc.voltageDeltaPercent?.toFixed(0) ?? '—'}%) · ΔI ${vesc.currentDelta?.toFixed(1) ?? '—'} A (${vesc.currentDeltaPercent?.toFixed(0) ?? '—'}%) · ${vesc.mismatchSamples}/${vesc.validSamples} recent samples.`,
+                recommendedAction: 'Open Motor & CAN, reduce load if safe, and inspect VESC power/CAN wiring and sensor calibration.',
+                relevantView: 'motor-can',
+                signature: `${Math.round(vesc.voltageDeltaPercent ?? 0)}:${Math.round(vesc.currentDeltaPercent ?? 0)}`,
+                cooldownMs: 120_000,
+            });
+        }
+        if (vesc.motorTemp !== null && vesc.motorTemp >= 85) {
+            condition({
+                key: `vesc:temperature:${sessionKey}`,
+                severity: vesc.motorTemp >= 100 ? 'critical' : 'warning',
+                title: vesc.motorTemp >= 100 ? 'Motor temperature critical' : 'Motor temperature high',
+                explanation: 'The motor temperature reported by the ESP32 has crossed the operating advisory band.',
+                evidence: `${vesc.motorTemp.toFixed(1)} °C reported; advisory begins at 85 °C.`,
+                recommendedAction: 'Reduce load if safe and inspect motor cooling and VESC current demand.',
+                relevantView: 'motor-can',
+                signature: vesc.motorTemp >= 100 ? 'critical' : 'warning',
+                cooldownMs: 120_000,
+            });
         }
 
         const interpolationCount = recent.filter((row) => (row as TelemetryRow & { _interpolated?: boolean })._interpolated).length;
