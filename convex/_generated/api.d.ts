@@ -25,6 +25,7 @@ import type * as dashboardWidgets from "../dashboardWidgets.js";
 import type * as driverNotifications from "../driverNotifications.js";
 import type * as historicalAccess from "../historicalAccess.js";
 import type * as http from "../http.js";
+import type * as inventory from "../inventory.js";
 import type * as sessions from "../sessions.js";
 import type * as telemetry from "../telemetry.js";
 import type * as users from "../users.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   driverNotifications: typeof driverNotifications;
   historicalAccess: typeof historicalAccess;
   http: typeof http;
+  inventory: typeof inventory;
   sessions: typeof sessions;
   telemetry: typeof telemetry;
   users: typeof users;

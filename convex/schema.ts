@@ -309,6 +309,81 @@ export default defineSchema({
     acknowledgedAt: v.number(),
   }).index("by_owner_event", ["ownerId", "eventKey"]),
 
+  inventoryItems: defineTable({
+    assetCode: v.string(),
+    name: v.string(),
+    category: v.string(),
+    description: v.optional(v.string()),
+    homeLocation: v.string(),
+    currentLocation: v.string(),
+    status: v.union(
+      v.literal("available"),
+      v.literal("on_loan"),
+      v.literal("reserved"),
+      v.literal("maintenance"),
+      v.literal("retired"),
+    ),
+    stewardTeam: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    active: v.boolean(),
+    createdBy: v.id("authUsers"),
+    createdByName: v.string(),
+    createdAt: v.number(),
+    updatedBy: v.id("authUsers"),
+    updatedByName: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_asset_code", ["assetCode"])
+    .index("by_status", ["status"])
+    .index("by_active_updated_at", ["active", "updatedAt"])
+    .index("by_updated_at", ["updatedAt"]),
+
+  inventoryMovements: defineTable({
+    itemId: v.id("inventoryItems"),
+    assetCode: v.string(),
+    fromLocation: v.string(),
+    toLocation: v.string(),
+    fromStatus: v.string(),
+    toStatus: v.string(),
+    actorUserId: v.id("authUsers"),
+    actorName: v.string(),
+    actorRole: v.string(),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_item_created_at", ["itemId", "createdAt"])
+    .index("by_created_at", ["createdAt"]),
+
+  inventoryLoanRequests: defineTable({
+    itemId: v.id("inventoryItems"),
+    assetCode: v.string(),
+    itemName: v.string(),
+    requesterUserId: v.id("authUsers"),
+    requesterName: v.string(),
+    requesterEmail: v.string(),
+    requesterTeam: v.string(),
+    startAt: v.number(),
+    dueAt: v.number(),
+    purpose: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("denied"),
+      v.literal("cancelled"),
+      v.literal("returned"),
+    ),
+    decisionById: v.optional(v.id("authUsers")),
+    decisionByName: v.optional(v.string()),
+    decisionAt: v.optional(v.number()),
+    decisionNote: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_created_at", ["createdAt"])
+    .index("by_status_created_at", ["status", "createdAt"])
+    .index("by_requester_created_at", ["requesterUserId", "createdAt"])
+    .index("by_requester_item_status", ["requesterUserId", "itemId", "status"]),
+
   // Driver notifications — driving recommendations, efficiency hints, optimal speed
   driver_notifications: defineTable({
     session_id: v.string(),

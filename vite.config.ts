@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import solidPlugin from 'vite-plugin-solid';
+import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'path';
 /**
  * Match production Vercel rewrites in dev/preview for the multi-page entries.
@@ -15,6 +16,8 @@ function mpaEntryRewrite(): Plugin {
     const qs = raw.includes('?') ? raw.slice(raw.indexOf('?')) : '';
     if (pathOnly === '/driver' || pathOnly === '/driver/') {
       req.url = '/driver.html' + qs;
+    } else if (pathOnly === '/inventory' || pathOnly === '/inventory/') {
+      req.url = '/inventory.html' + qs;
     } else if (pathOnly === '/dashboard/sessions' || pathOnly === '/dashboard/sessions/') {
       req.url = '/historical.html' + qs;
     } else if (pathOnly === '/historical/custom' || pathOnly === '/historical/custom/' || /^\/historical\/[^/]+\/?$/.test(pathOnly)) {
@@ -45,7 +48,7 @@ export default defineConfig(({ mode }) => {
   const isProd = mode === 'production';
 
   return {
-    plugins: [mpaEntryRewrite(), solidPlugin()],
+    plugins: [mpaEntryRewrite(), solidPlugin(), tailwindcss()],
 
     // Public directory for static assets
     publicDir: 'public',
@@ -85,6 +88,7 @@ export default defineConfig(({ mode }) => {
           dashboard: resolve(__dirname, 'dashboard.html'),
           dashboardOld: resolve(__dirname, 'dashboard-old.html'),
           driver: resolve(__dirname, 'driver.html'),
+          inventory: resolve(__dirname, 'inventory.html'),
           legacyCompat: resolve(__dirname, 'src/legacy/legacyCompat.ts'),
         },
         output: {

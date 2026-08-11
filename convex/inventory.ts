@@ -1,0 +1,431 @@
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { ConvexError, v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
+import { requireCurrentUserId } from "./authHelpers";
+
+const itemStatusValidator = v.union(
+  v.literal("available"),
+  v.literal("on_loan"),
+  v.literal("reserved"),
+  v.literal("maintenance"),
+  v.literal("retired"),
+);
+
+const loanStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("approved"),
+  v.literal("denied"),
+  v.literal("cancelled"),
+  v.literal("returned"),
+);
+
+const itemValidator = v.object({
+  _id: v.id("inventoryItems"),
+  _creationTime: v.number(),
+  assetCode: v.string(),
+  name: v.string(),
+  category: v.string(),
+  description: v.optional(v.string()),
+  homeLocation: v.string(),
+  currentLocation: v.string(),
+  status: itemStatusValidator,
+  stewardTeam: v.optional(v.string()),
+  notes: v.optional(v.string()),
+  active: v.boolean(),
+  createdBy: v.id("authUsers"),
+  createdByName: v.string(),
+  createdAt: v.number(),
+  updatedBy: v.id("authUsers"),
+  updatedByName: v.string(),
+  updatedAt: v.number(),
+});
+
+const loanValidator = v.object({
+  _id: v.id("inventoryLoanRequests"),
+  _creationTime: v.number(),
+  itemId: v.id("inventoryItems"),
+  assetCode: v.string(),
+  itemName: v.string(),
+  requesterUserId: v.id("authUsers"),
+  requesterName: v.string(),
+  requesterEmail: v.string(),
+  requesterTeam: v.string(),
+  startAt: v.number(),
+  dueAt: v.number(),
+  purpose: v.string(),
+  status: loanStatusValidator,
+  decisionById: v.optional(v.id("authUsers")),
+  decisionByName: v.optional(v.string()),
+  decisionAt: v.optional(v.number()),
+  decisionNote: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
+type InventoryCtx = QueryCtx | MutationCtx;
+type ApprovedProfile = {
+  userId: Id<"authUsers">;
+  profile: Doc<"user_profiles">;
+};
+
+function fail(code: string, message: string): never {
+  throw new ConvexError({ code, message });
+}
+
+function requiredText(value: string, label: string, maxLength: number): string {
+  const trimmed = value.trim();
+  if (!trimmed) fail("INVALID_INPUT", `${label} is required`);
+  if (trimmed.length > maxLength) fail("INVALID_INPUT", `${label} is too long`);
+  return trimmed;
+}
+
+function optionalText(value: string | undefined, maxLength: number): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > maxLength) fail("INVALID_INPUT", "A text field is too long");
+  return trimmed;
+}
+
+function normalizedAssetCode(value: string): string {
+  const code = value.trim().toUpperCase().replace(/\s+/g, "-");
+  if (!/^[A-Z0-9-]{3,7}$/.test(code)) {
+    fail("INVALID_ASSET_CODE", "Asset code must be 3–7 letters, numbers, or hyphens");
+  }
+  return code;
+}
+
+function actorName(profile: Doc<"user_profiles">): string {
+  return profile.name?.trim() || profile.email;
+}
+
+async function profileByUserId(
+  ctx: InventoryCtx,
+  userId: Id<"authUsers">,
+): Promise<Doc<"user_profiles"> | null> {
+  return await ctx.db
+    .query("user_profiles")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .unique();
+}
+
+async function requireApprovedProfile(
+  ctx: InventoryCtx,
+  token?: string,
+): Promise<ApprovedProfile> {
+  const userId = await requireCurrentUserId(ctx, token);
+  const profile = await profileByUserId(ctx, userId);
+  if (!profile || profile.approval_status !== "approved" || profile.role === "guest") {
+    fail("UNAUTHORIZED", "An approved EcoVolt account is required");
+  }
+  return { userId, profile };
+}
+
+async function requireApprover(ctx: InventoryCtx, token?: string): Promise<ApprovedProfile> {
+  const actor = await requireApprovedProfile(ctx, token);
+  if (actor.profile.role !== "internal" && actor.profile.role !== "admin") {
+    fail("UNAUTHORIZED", "Internal or admin access is required");
+  }
+  return actor;
+}
+
+async function requireAdmin(ctx: InventoryCtx, token?: string): Promise<ApprovedProfile> {
+  const actor = await requireApprovedProfile(ctx, token);
+  if (actor.profile.role !== "admin") fail("UNAUTHORIZED", "Admin access is required");
+  return actor;
+}
+
+export const listItems = query({
+  args: { token: v.optional(v.string()) },
+  returns: v.array(itemValidator),
+  handler: async (ctx, args) => {
+    await requireApprovedProfile(ctx, args.token);
+    return await ctx.db
+      .query("inventoryItems")
+      .withIndex("by_active_updated_at", (q) => q.eq("active", true))
+      .order("desc")
+      .take(300);
+  },
+});
+
+export const getItemByAssetCode = query({
+  args: { token: v.optional(v.string()), assetCode: v.string() },
+  returns: v.union(itemValidator, v.null()),
+  handler: async (ctx, args) => {
+    await requireApprovedProfile(ctx, args.token);
+    return await ctx.db
+      .query("inventoryItems")
+      .withIndex("by_asset_code", (q) => q.eq("assetCode", normalizedAssetCode(args.assetCode)))
+      .unique();
+  },
+});
+
+export const listLoans = query({
+  args: { token: v.optional(v.string()) },
+  returns: v.array(loanValidator),
+  handler: async (ctx, args) => {
+    const actor = await requireApprovedProfile(ctx, args.token);
+    if (actor.profile.role === "internal" || actor.profile.role === "admin") {
+      return await ctx.db
+        .query("inventoryLoanRequests")
+        .withIndex("by_created_at")
+        .order("desc")
+        .take(150);
+    }
+    return await ctx.db
+      .query("inventoryLoanRequests")
+      .withIndex("by_requester_created_at", (q) => q.eq("requesterUserId", actor.userId))
+      .order("desc")
+      .take(100);
+  },
+});
+
+export const createItem = mutation({
+  args: {
+    token: v.optional(v.string()),
+    assetCode: v.string(),
+    name: v.string(),
+    category: v.string(),
+    description: v.optional(v.string()),
+    homeLocation: v.string(),
+    stewardTeam: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  },
+  returns: v.object({ itemId: v.id("inventoryItems"), assetCode: v.string() }),
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.token);
+    const assetCode = normalizedAssetCode(args.assetCode);
+    const existing = await ctx.db
+      .query("inventoryItems")
+      .withIndex("by_asset_code", (q) => q.eq("assetCode", assetCode))
+      .unique();
+    if (existing) fail("ASSET_CODE_EXISTS", "That asset code is already in use");
+
+    const now = Date.now();
+    const name = actorName(actor.profile);
+    const homeLocation = requiredText(args.homeLocation, "Home location", 100);
+    const itemId = await ctx.db.insert("inventoryItems", {
+      assetCode,
+      name: requiredText(args.name, "Item name", 120),
+      category: requiredText(args.category, "Category", 60),
+      description: optionalText(args.description, 600),
+      homeLocation,
+      currentLocation: homeLocation,
+      status: "available",
+      stewardTeam: optionalText(args.stewardTeam, 80),
+      notes: optionalText(args.notes, 600),
+      active: true,
+      createdBy: actor.userId,
+      createdByName: name,
+      createdAt: now,
+      updatedBy: actor.userId,
+      updatedByName: name,
+      updatedAt: now,
+    });
+    return { itemId, assetCode };
+  },
+});
+
+export const recordMovement = mutation({
+  args: {
+    token: v.optional(v.string()),
+    itemId: v.id("inventoryItems"),
+    location: v.string(),
+    status: itemStatusValidator,
+    note: v.optional(v.string()),
+  },
+  returns: v.object({ success: v.boolean(), updatedAt: v.number() }),
+  handler: async (ctx, args) => {
+    const actor = await requireApprover(ctx, args.token);
+    const item = await ctx.db.get(args.itemId);
+    if (!item || !item.active) fail("NOT_FOUND", "Inventory item not found");
+
+    const location = requiredText(args.location, "Location", 100);
+    const note = optionalText(args.note, 400);
+    const now = Date.now();
+    const name = actorName(actor.profile);
+    if (item.currentLocation === location && item.status === args.status && !note) {
+      return { success: true, updatedAt: item.updatedAt };
+    }
+
+    await ctx.db.patch(item._id, {
+      currentLocation: location,
+      status: args.status,
+      updatedBy: actor.userId,
+      updatedByName: name,
+      updatedAt: now,
+    });
+    await ctx.db.insert("inventoryMovements", {
+      itemId: item._id,
+      assetCode: item.assetCode,
+      fromLocation: item.currentLocation,
+      toLocation: location,
+      fromStatus: item.status,
+      toStatus: args.status,
+      actorUserId: actor.userId,
+      actorName: name,
+      actorRole: actor.profile.role,
+      note,
+      createdAt: now,
+    });
+    return { success: true, updatedAt: now };
+  },
+});
+
+export const createLoan = mutation({
+  args: {
+    token: v.optional(v.string()),
+    itemId: v.id("inventoryItems"),
+    requesterTeam: v.string(),
+    startAt: v.number(),
+    dueAt: v.number(),
+    purpose: v.string(),
+  },
+  returns: v.object({ requestId: v.id("inventoryLoanRequests") }),
+  handler: async (ctx, args) => {
+    const actor = await requireApprovedProfile(ctx, args.token);
+    const item = await ctx.db.get(args.itemId);
+    if (!item || !item.active) fail("NOT_FOUND", "Inventory item not found");
+    if (item.status === "retired" || item.status === "maintenance") {
+      fail("ITEM_UNAVAILABLE", "This item is not available for loan requests");
+    }
+    if (!Number.isFinite(args.startAt) || !Number.isFinite(args.dueAt) || args.dueAt <= args.startAt) {
+      fail("INVALID_LOAN_WINDOW", "Return time must be after the start time");
+    }
+
+    const existing = await ctx.db
+      .query("inventoryLoanRequests")
+      .withIndex("by_requester_item_status", (q) =>
+        q.eq("requesterUserId", actor.userId).eq("itemId", item._id).eq("status", "pending")
+      )
+      .first();
+    if (existing) return { requestId: existing._id };
+
+    const now = Date.now();
+    const requestId = await ctx.db.insert("inventoryLoanRequests", {
+      itemId: item._id,
+      assetCode: item.assetCode,
+      itemName: item.name,
+      requesterUserId: actor.userId,
+      requesterName: actorName(actor.profile),
+      requesterEmail: actor.profile.email,
+      requesterTeam: requiredText(args.requesterTeam, "Team", 80),
+      startAt: args.startAt,
+      dueAt: args.dueAt,
+      purpose: requiredText(args.purpose, "Purpose", 600),
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { requestId };
+  },
+});
+
+export const decideLoan = mutation({
+  args: {
+    token: v.optional(v.string()),
+    requestId: v.id("inventoryLoanRequests"),
+    decision: v.union(v.literal("approved"), v.literal("denied")),
+    note: v.optional(v.string()),
+  },
+  returns: v.object({ success: v.boolean() }),
+  handler: async (ctx, args) => {
+    const actor = await requireApprover(ctx, args.token);
+    const request = await ctx.db.get(args.requestId);
+    if (!request) fail("NOT_FOUND", "Loan request not found");
+    if (request.status !== "pending") {
+      if (request.status === args.decision) return { success: true };
+      fail("ALREADY_DECIDED", "This loan request already has a decision");
+    }
+
+    const now = Date.now();
+    const name = actorName(actor.profile);
+    await ctx.db.patch(request._id, {
+      status: args.decision,
+      decisionById: actor.userId,
+      decisionByName: name,
+      decisionAt: now,
+      decisionNote: optionalText(args.note, 400),
+      updatedAt: now,
+    });
+
+    if (args.decision === "approved") {
+      const item = await ctx.db.get(request.itemId);
+      if (item && item.active && item.status === "available") {
+        await ctx.db.patch(item._id, {
+          status: "reserved",
+          updatedBy: actor.userId,
+          updatedByName: name,
+          updatedAt: now,
+        });
+        await ctx.db.insert("inventoryMovements", {
+          itemId: item._id,
+          assetCode: item.assetCode,
+          fromLocation: item.currentLocation,
+          toLocation: item.currentLocation,
+          fromStatus: item.status,
+          toStatus: "reserved",
+          actorUserId: actor.userId,
+          actorName: name,
+          actorRole: actor.profile.role,
+          note: `Reserved for loan ${request._id}`,
+          createdAt: now,
+        });
+      }
+    }
+    return { success: true };
+  },
+});
+
+export const cancelLoan = mutation({
+  args: { token: v.optional(v.string()), requestId: v.id("inventoryLoanRequests") },
+  returns: v.object({ success: v.boolean() }),
+  handler: async (ctx, args) => {
+    const actor = await requireApprovedProfile(ctx, args.token);
+    const request = await ctx.db.get(args.requestId);
+    if (!request) fail("NOT_FOUND", "Loan request not found");
+    if (request.requesterUserId !== actor.userId) fail("UNAUTHORIZED", "You can only cancel your own request");
+    if (request.status === "cancelled") return { success: true };
+    if (request.status !== "pending") fail("INVALID_STATE", "Only pending requests can be cancelled");
+    await ctx.db.patch(request._id, { status: "cancelled", updatedAt: Date.now() });
+    return { success: true };
+  },
+});
+
+export const markLoanReturned = mutation({
+  args: { token: v.optional(v.string()), requestId: v.id("inventoryLoanRequests") },
+  returns: v.object({ success: v.boolean() }),
+  handler: async (ctx, args) => {
+    const actor = await requireApprover(ctx, args.token);
+    const request = await ctx.db.get(args.requestId);
+    if (!request) fail("NOT_FOUND", "Loan request not found");
+    if (request.status === "returned") return { success: true };
+    if (request.status !== "approved") fail("INVALID_STATE", "Only approved loans can be returned");
+
+    const now = Date.now();
+    const name = actorName(actor.profile);
+    await ctx.db.patch(request._id, { status: "returned", updatedAt: now });
+    const item = await ctx.db.get(request.itemId);
+    if (item?.active) {
+      await ctx.db.patch(item._id, {
+        status: "available",
+        updatedBy: actor.userId,
+        updatedByName: name,
+        updatedAt: now,
+      });
+      await ctx.db.insert("inventoryMovements", {
+        itemId: item._id,
+        assetCode: item.assetCode,
+        fromLocation: item.currentLocation,
+        toLocation: item.currentLocation,
+        fromStatus: item.status,
+        toStatus: "available",
+        actorUserId: actor.userId,
+        actorName: name,
+        actorRole: actor.profile.role,
+        note: `Returned from loan ${request._id}`,
+        createdAt: now,
+      });
+    }
+    return { success: true };
+  },
+});

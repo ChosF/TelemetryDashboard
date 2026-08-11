@@ -12,6 +12,14 @@
       "destination": "/driver.html"
     },
     {
+      "source": "/inventory",
+      "destination": "/inventory.html"
+    },
+    {
+      "source": "/inventory/",
+      "destination": "/inventory.html"
+    },
+    {
       "source": "/dashboard",
       "destination": "/dashboard.html"
     },
