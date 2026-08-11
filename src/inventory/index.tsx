@@ -14,6 +14,8 @@ async function boot(): Promise<void> {
   if (!convexUrl) throw new Error('Inventory configuration is unavailable');
   if (!await initConvex(convexUrl)) throw new Error('Could not connect to inventory data');
   await authStore.initAuth(getClient());
+  root!.replaceChildren();
+  window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   render(() => <InventoryPrototype />, root!);
 }
 
