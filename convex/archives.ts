@@ -52,6 +52,13 @@ const archiveManifestValidator = v.object({
   parts: v.array(archivePartValidator),
 });
 
+const archiveAvailabilityValidator = v.object({
+  complete: v.boolean(),
+  status: archiveStatusValidator,
+  recordCount: v.number(),
+  archivedRecordCount: v.number(),
+});
+
 const sessionOverviewValidator = v.object({
   available: v.boolean(),
   complete: v.boolean(),
@@ -74,6 +81,48 @@ const sessionPreviewPlanValidator = v.object({
     url: v.union(v.string(), v.null()),
   })),
   tailRecords: v.array(v.any()),
+});
+
+/** Lightweight status probe used to unlock full-resolution exports. */
+export const getSessionArchiveStatus = query({
+  args: {
+    sessionId: v.string(),
+    token: v.optional(v.string()),
+  },
+  returns: archiveAvailabilityValidator,
+  handler: async (ctx, args) => {
+    const access = await getHistoricalAccess(ctx, args.token);
+    const allowed = await canAccessHistoricalSession(ctx, args.sessionId, access);
+    if (!allowed) {
+      return {
+        complete: false,
+        status: "restricted" as const,
+        recordCount: 0,
+        archivedRecordCount: 0,
+      };
+    }
+
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_session_id", (q) => q.eq("session_id", args.sessionId))
+      .first();
+    if (!session) {
+      return {
+        complete: false,
+        status: "missing" as const,
+        recordCount: 0,
+        archivedRecordCount: 0,
+      };
+    }
+
+    const status: ArchiveStatus = session.archive_status ?? "none";
+    return {
+      complete: status === "complete",
+      status,
+      recordCount: session.record_count,
+      archivedRecordCount: session.archived_record_count ?? 0,
+    };
+  },
 });
 
 /**

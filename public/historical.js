@@ -11,6 +11,7 @@
         sessions: [], activeSessionId: null, activeSessionMeta: null,
         data: [], compareData: [], map: null, stats: null, compareStats: null,
         isPreview: false, statsExact: false, fullDataPromise: null,
+        archiveStatus: 'none',
     };
     let historicalLimit = Infinity;
     let canAccessCustomAnalysis = true;
@@ -89,6 +90,83 @@
     };
 
     function toast(msg) { let el = document.querySelector('.ha-toast'); if (!el) { el = document.createElement('div'); el.className = 'ha-toast'; document.body.appendChild(el) } el.textContent = msg; el.classList.add('show'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 2500) }
+
+    const ARCHIVE_STATUS_POLL_MS = 5000;
+    const ARCHIVE_PENDING_POLL_MS = 30000;
+    const ARCHIVE_RECOVERY_POLL_MS = 60000;
+    let archiveStatusPollTimer = null;
+
+    function fullExportNeedsArchive() {
+        return S.isPreview
+            && !Number.isFinite(externalDataPointLimit)
+            && S.archiveStatus !== 'complete';
+    }
+
+    function clearArchiveStatusPoll() {
+        if (archiveStatusPollTimer !== null) {
+            clearTimeout(archiveStatusPollTimer);
+            archiveStatusPollTimer = null;
+        }
+    }
+
+    async function refreshSessionArchiveStatus(sessionId) {
+        if (!sessionId || typeof ConvexBridge.getSessionArchiveStatus !== 'function') return null;
+        const availability = await ConvexBridge.getSessionArchiveStatus(sessionId);
+        if (S.activeSessionId !== sessionId) return null;
+        S.archiveStatus = availability?.status || S.archiveStatus;
+        return availability;
+    }
+
+    function updateFullExportAvailability() {
+        const blocked = fullExportNeedsArchive();
+        const controls = [
+            $('h-btn-export-quick'),
+            $('h-table-csv'),
+            ...$$('.ha-export-btn'),
+        ].filter(Boolean);
+        controls.forEach(control => {
+            control.disabled = blocked;
+            control.setAttribute('aria-disabled', String(blocked));
+        });
+
+        const status = $('h-export-status');
+        if (status) {
+            status.textContent = blocked
+                ? (S.archiveStatus === 'error'
+                    ? 'Archive recovery pending · preview remains available'
+                    : 'Preparing full-resolution archive · preview remains available')
+                : 'Download in multiple formats';
+        }
+        const quick = $('h-btn-export-quick');
+        if (quick) {
+            quick.title = blocked
+                ? 'Full-resolution export unlocks when archiving completes'
+                : 'Quick export CSV';
+        }
+
+        if (!blocked || S.archiveStatus === 'restricted' || S.archiveStatus === 'missing') {
+            clearArchiveStatusPoll();
+            return;
+        }
+        if (archiveStatusPollTimer !== null) return;
+
+        const sessionId = S.activeSessionId;
+        const pollDelay = S.archiveStatus === 'archiving'
+            ? ARCHIVE_STATUS_POLL_MS
+            : (S.archiveStatus === 'pending' ? ARCHIVE_PENDING_POLL_MS : ARCHIVE_RECOVERY_POLL_MS);
+        archiveStatusPollTimer = setTimeout(async () => {
+            archiveStatusPollTimer = null;
+            try {
+                const availability = await refreshSessionArchiveStatus(sessionId);
+                if (availability?.complete) {
+                    toast('Full-resolution export is ready.');
+                }
+            } catch (error) {
+                console.warn('[historical] Archive status refresh failed:', error);
+            }
+            if (S.activeSessionId === sessionId) updateFullExportAvailability();
+        }, pollDelay);
+    }
 
     const sessionLoadControllers = new Map();
     const MAX_SESSION_LOAD_CACHE = 2;
@@ -193,6 +271,7 @@
                 statsExact: !!sessionPayload?.statsExact || !sessionPayload?.isPreview,
                 isPreview: !!sessionPayload?.isPreview,
                 totalRecords: sessionPayload?.totalRecords || rawRecords.length,
+                archiveStatus: sessionPayload?.archiveStatus || 'none',
             };
         })().catch((error) => {
             controller.status = 'error';
@@ -381,6 +460,10 @@
 
         S.activeSessionId = sid;
         S.activeSessionMeta = S.sessions.find(s => s.session_id === sid);
+        clearArchiveStatusPoll();
+        S.archiveStatus = 'none';
+        S.isPreview = false;
+        updateFullExportAvailability();
         const label = $('h-active-session-label');
         if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
         showAnalysisView();
@@ -412,7 +495,7 @@
 
 
         try {
-            const { normalized, stats, statsExact, isPreview } = await controller.promise;
+            const { normalized, stats, statsExact, isPreview, archiveStatus } = await controller.promise;
             if (S.activeSessionId !== sid) return;
 
             const cappedData = applyExternalDataCap(normalized);
@@ -420,7 +503,9 @@
             S.stats = stats;
             S.statsExact = !!statsExact;
             S.isPreview = isPreview;
+            S.archiveStatus = archiveStatus;
             S.fullDataPromise = null;
+            updateFullExportAvailability();
 
             // Restore label after load
             if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
@@ -476,7 +561,8 @@
         showAnalysisActions(false);
         disposeCharts();
         if (S.map) { try { S.map.remove() } catch (e) { } } S.map = null;
-        S.data = []; S.stats = null; S.isPreview = false; S.statsExact = false; S.fullDataPromise = null;
+        clearArchiveStatusPoll();
+        S.data = []; S.stats = null; S.isPreview = false; S.statsExact = false; S.fullDataPromise = null; S.archiveStatus = 'none';
         S.activeSessionId = null;
         if (!options.skipHistory) {
             updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, !!options.replaceHistory);
@@ -534,6 +620,22 @@
         const sessionId = S.activeSessionId;
         if (!sessionId) return [];
 
+        if (S.archiveStatus !== 'complete') {
+            try {
+                await refreshSessionArchiveStatus(sessionId);
+            } finally {
+                updateFullExportAvailability();
+            }
+            if (S.archiveStatus !== 'complete') {
+                const message = S.archiveStatus === 'error'
+                    ? 'The session archive needs recovery before full-resolution export is available.'
+                    : 'The session archive is still processing. Full-resolution export will unlock automatically.';
+                const error = new Error(message);
+                error.code = 'ARCHIVE_NOT_READY';
+                throw error;
+            }
+        }
+
         S.fullDataPromise = (async () => {
             toast(`Loading full data for ${reason}…`);
             const raw = await ConvexBridge.getSessionRecords(sessionId);
@@ -548,6 +650,8 @@
             S.stats = stats;
             S.isPreview = false;
             S.statsExact = true;
+            S.archiveStatus = 'complete';
+            updateFullExportAvailability();
             renderSummary(S.data);
             renderQualityBadge(S.data);
 
@@ -568,6 +672,18 @@
             return await S.fullDataPromise;
         } finally {
             S.fullDataPromise = null;
+        }
+    }
+
+    async function prepareFullSessionData(reason) {
+        try {
+            await ensureFullSessionData(reason);
+            return true;
+        } catch (error) {
+            console.warn(`[historical] ${reason} unavailable:`, error);
+            toast(error?.message || 'Full-resolution session data is not available yet.');
+            updateFullExportAvailability();
+            return false;
         }
     }
 
@@ -1670,7 +1786,7 @@
 
     $$('.ha-export-btn').forEach(btn => btn.addEventListener('click', async () => {
         if (!S.data.length) { toast('⚠️ No session data loaded'); return; }
-        await ensureFullSessionData('export');
+        if (!await prepareFullSessionData('export')) return;
         const f = btn.dataset.format;
         if (f === 'csv') exportCSV();
         else if (f === 'json') exportJSON();
@@ -1683,7 +1799,7 @@
     // Quick CSV from header
     $('h-btn-export-quick')?.addEventListener('click', async () => {
         if (!S.data.length) { toast('No data loaded'); return; }
-        await ensureFullSessionData('CSV export');
+        if (!await prepareFullSessionData('CSV export')) return;
         exportCSV();
     });
 
@@ -1841,7 +1957,7 @@
     // ── Table CSV Download ──
     $('h-table-csv')?.addEventListener('click', async () => {
         if (!S.data.length) { toast('No data'); return }
-        await ensureFullSessionData('table export');
+        if (!await prepareFullSessionData('table export')) return;
         const filter = ($('h-table-filter')?.value || '').toLowerCase();
         const cols = ['timestamp', 'speed_kmh', 'power_w', 'voltage_v', 'current_a', 'vesc_voltage_v', 'vesc_current_a', 'motor_rpm', 'motor_temp_c', 'vehicle_heading', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'instEfficiency', 'accEfficiency', 'throttle_pct', 'brake_pct', 'brake2_pct', 'g_force', 'lat', 'lon', 'alt', 'motionState'];
         const filtered = filter ? S.data.filter(r => cols.some(c => { const v = r[c]; return v != null && String(v).toLowerCase().includes(filter) })) : S.data;

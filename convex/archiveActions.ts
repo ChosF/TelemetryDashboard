@@ -14,6 +14,7 @@ const OVERVIEW_MAX_POINTS = 1500;
 const MAX_PARTS_PER_RUN = 8;
 const MAX_SESSIONS_PER_RUN = 2;
 const INACTIVE_AFTER_MS = 30 * 60 * 1000;
+const ARCHIVE_CONTINUATION_DELAY_MS = 1_000;
 
 const archiveResultValidator = v.object({
   sessionId: v.string(),
@@ -471,5 +472,21 @@ export const archiveInactiveSessions = internalAction({
 export const archiveSessionNow = internalAction({
   args: { sessionId: v.string() },
   returns: archiveResultValidator,
-  handler: async (ctx, args) => archiveSession(ctx, args.sessionId),
+  handler: async (ctx, args): Promise<ArchiveResult> => {
+    const result = await archiveSession(ctx, args.sessionId);
+
+    // One action is intentionally bounded to MAX_PARTS_PER_RUN. Continue large
+    // successfully progressing sessions promptly instead of waiting for the
+    // hourly recovery cron. Failed actions are left to that cron because
+    // scheduled actions are at-most-once and should not form a hot retry loop.
+    if (!result.complete && !result.error && result.createdParts > 0) {
+      await ctx.scheduler.runAfter(
+        ARCHIVE_CONTINUATION_DELAY_MS,
+        internal.archiveActions.archiveSessionNow,
+        { sessionId: args.sessionId },
+      );
+    }
+
+    return result;
+  },
 });

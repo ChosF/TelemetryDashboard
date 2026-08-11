@@ -32,10 +32,12 @@ interface SessionsResult {
     scanned_rows: number;
 }
 
+export type SessionArchiveStatus = 'none' | 'pending' | 'archiving' | 'complete' | 'error' | 'restricted' | 'missing';
+
 interface SessionArchiveManifest {
     available: boolean;
     complete: boolean;
-    status: 'none' | 'pending' | 'archiving' | 'complete' | 'error' | 'restricted' | 'missing';
+    status: SessionArchiveStatus;
     recordCount: number;
     archivedRecordCount: number;
     parts: Array<{
@@ -94,6 +96,26 @@ export interface HistoricalSessionPreview {
     statsExact: boolean;
     isPreview: boolean;
     totalRecords: number;
+    archiveStatus: SessionArchiveStatus;
+}
+
+export interface SessionArchiveAvailability {
+    complete: boolean;
+    status: SessionArchiveStatus;
+    recordCount: number;
+    archivedRecordCount: number;
+}
+
+export class SessionArchiveNotReadyError extends Error {
+    readonly code = 'ARCHIVE_NOT_READY';
+
+    constructor(readonly archiveStatus: SessionArchiveStatus) {
+        const detail = archiveStatus === 'error'
+            ? 'The session archive needs to be retried before full-resolution export is available.'
+            : 'The session archive is still processing. Full-resolution export will unlock automatically.';
+        super(detail);
+        this.name = 'SessionArchiveNotReadyError';
+    }
 }
 
 /** Subscription cleanup function */
@@ -294,6 +316,7 @@ export async function getSessionPreview(
                     statsExact: !!(payload.stats ?? previewPlan.stats),
                     isPreview: records.length < previewPlan.recordCount,
                     totalRecords: previewPlan.recordCount || records.length,
+                    archiveStatus: previewPlan.status,
                 };
             }
 
@@ -324,16 +347,35 @@ export async function getSessionPreview(
                 statsExact: !!previewPlan.stats,
                 isPreview: records.length < previewPlan.recordCount,
                 totalRecords: previewPlan.recordCount || records.length,
+                archiveStatus: previewPlan.status,
             };
         } catch (error) {
-            console.warn('[Convex] Optimized preview failed; loading the complete session:', error);
-            const records = await getSessionRecords(sessionId, onProgress);
+            console.warn('[Convex] Optimized preview failed; using a bounded database tail:', error);
+            if (previewPlan.complete) {
+                const records = await getSessionRecords(sessionId, onProgress);
+                return {
+                    records,
+                    stats: previewPlan.stats,
+                    statsExact: !!previewPlan.stats,
+                    isPreview: false,
+                    totalRecords: previewPlan.recordCount || records.length,
+                    archiveStatus: previewPlan.status,
+                };
+            }
+            const preview = await client.query('telemetry:getSessionPreviewTail', {
+                sessionId,
+                limit: 1500,
+                token,
+            }) as { records: TelemetryRecord[]; totalRecords: number };
+            const records = preview.records;
+            onProgress?.(records.length, preview.totalRecords || records.length);
             return {
                 records,
                 stats: previewPlan.stats,
                 statsExact: !!previewPlan.stats,
-                isPreview: false,
-                totalRecords: previewPlan.recordCount || records.length,
+                isPreview: preview.totalRecords > records.length,
+                totalRecords: preview.totalRecords || previewPlan.recordCount || records.length,
+                archiveStatus: previewPlan.status,
             };
         }
     }
@@ -363,8 +405,9 @@ export async function getSessionPreview(
             records,
             stats: payload.stats ?? overview.stats,
             statsExact: !!(payload.stats ?? overview.stats),
-            isPreview: true,
+            isPreview: records.length < overview.recordCount,
             totalRecords: overview.recordCount,
+            archiveStatus: overview.status,
         };
     }
 
@@ -373,7 +416,14 @@ export async function getSessionPreview(
     // backfills it, even though this compatibility case requires one full load.
     if (overview?.complete) {
         const records = await getSessionRecords(sessionId, onProgress);
-        return { records, stats: null, statsExact: false, isPreview: false, totalRecords: records.length };
+        return {
+            records,
+            stats: overview.stats,
+            statsExact: !!overview.stats,
+            isPreview: false,
+            totalRecords: overview.recordCount || records.length,
+            archiveStatus: overview.status,
+        };
     }
 
     let archivedPreview: TelemetryRecord[] = [];
@@ -413,33 +463,31 @@ export async function getSessionPreview(
             statsExact: false,
             isPreview: overview?.status === 'archiving' || preview.totalRecords > records.length,
             totalRecords: preview.totalRecords || records.length,
+            archiveStatus: overview?.status ?? 'none',
         };
     } catch (error) {
-        console.warn('[Convex] Bounded session preview unavailable; using compatibility fallback:', error);
-        const records = await getSessionRecords(sessionId, onProgress);
-        return { records, stats: null, statsExact: false, isPreview: false, totalRecords: records.length };
+        console.warn('[Convex] Bounded session preview unavailable:', error);
+        throw error;
     }
 }
 
-async function tryGetOptimizedSessionRecords(
+async function getArchivedSessionRecords(
     sessionId: string,
     token: string | undefined,
-    onProgress?: (loaded: number, estimated: number) => void,
-    archiveAttempt = 0
-): Promise<TelemetryRecord[] | null> {
+    onProgress?: (loaded: number, estimated: number) => void
+): Promise<TelemetryRecord[]> {
     if (!client) throw new Error('Convex not initialized');
 
-    let manifest: SessionArchiveManifest;
-    try {
-        manifest = await client.query('archives:getSessionArchiveManifest', {
-            sessionId,
-            token,
-        }) as SessionArchiveManifest;
-    } catch {
-        // Allows a separately deployed frontend to keep working briefly against
-        // an older Convex deployment. The legacy loader below remains temporary
-        // compatibility code and is not used once the archive API is available.
-        return null;
+    const manifest = await client.query('archives:getSessionArchiveManifest', {
+        sessionId,
+        token,
+    }) as SessionArchiveManifest;
+
+    if (manifest.status === 'restricted' || manifest.status === 'missing') {
+        return [];
+    }
+    if (!manifest.complete) {
+        throw new SessionArchiveNotReadyError(manifest.status);
     }
 
     const archivedRecords: TelemetryRecord[] = [];
@@ -460,60 +508,15 @@ async function tryGetOptimizedSessionRecords(
         onProgress?.(archivedRecords.length, estimated || archivedRecords.length);
     }
 
-    if (manifest.complete) {
-        return archivedRecords;
-    }
+    return archivedRecords;
+}
 
-    // During an archive run (or for an active session), only the unarchived tail
-    // remains in the database. Cursor pagination reads each remaining row once.
-    const tailRecords: TelemetryRecord[] = [];
-    let cursor: string | null = null;
-    while (true) {
-        const result = await client.query('telemetry:getSessionRecordsPage', {
-            sessionId,
-            paginationOpts: { numItems: 3000, cursor },
-            token,
-        }) as {
-            page: TelemetryRecord[];
-            isDone: boolean;
-            continueCursor: string;
-        };
-        tailRecords.push(...result.page);
-        onProgress?.(
-            archivedRecords.length + tailRecords.length,
-            estimated || archivedRecords.length + tailRecords.length
-        );
-        if (result.isDone) break;
-        if (!result.continueCursor) {
-            throw new Error('Convex pagination stopped without a continuation cursor');
-        }
-        cursor = result.continueCursor;
-    }
-
-    if (manifest.status === 'archiving') {
-        const refreshed = await client.query('archives:getSessionArchiveManifest', {
-            sessionId,
-            token,
-        }) as SessionArchiveManifest;
-        const archiveChanged = refreshed.archivedRecordCount !== manifest.archivedRecordCount
-            || refreshed.parts.length !== manifest.parts.length
-            || refreshed.complete !== manifest.complete;
-        if (archiveChanged) {
-            if (archiveAttempt >= 3) {
-                throw new Error('Telemetry archive is changing; retry the session load');
-            }
-            return await tryGetOptimizedSessionRecords(
-                sessionId,
-                token,
-                onProgress,
-                archiveAttempt + 1
-            );
-        }
-    }
-
-    const records = archivedRecords.concat(tailRecords);
-    records.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-    return records;
+export async function getSessionArchiveStatus(sessionId: string): Promise<SessionArchiveAvailability> {
+    if (!client) throw new Error('Convex not initialized');
+    return await client.query('archives:getSessionArchiveStatus', {
+        sessionId,
+        token: getAuthToken(),
+    }) as SessionArchiveAvailability;
 }
 
 /**
@@ -526,196 +529,12 @@ export async function getSessionRecords(
     if (!client) throw new Error('Convex not initialized');
 
     const token = getAuthToken();
-    const optimizedRecords = await tryGetOptimizedSessionRecords(sessionId, token, onProgress);
-    if (optimizedRecords !== null) {
-        debugRewind('convex.getSessionRecords.return.archiveOptimized', {
-            sessionId,
-            count: optimizedRecords.length,
-        });
-        return optimizedRecords;
-    }
-
-    const COLLECT_CAP = 16000;
-    const primaryArgs = { sessionId, token };
-    let singleResult: TelemetryRecord[] | null = null;
-    let latestInfo: { timestamp: string | null; recordCount: number; latestMessageId: number | null } | null = null;
-    debugRewind('convex.getSessionRecords.start', {
+    const records = await getArchivedSessionRecords(sessionId, token, onProgress);
+    debugRewind('convex.getSessionRecords.return.archive', {
         sessionId,
-        hasToken: Boolean(token),
+        count: records.length,
     });
-
-    try {
-        latestInfo = await getLatestSessionTimestamp(sessionId);
-        debugRewind('convex.getSessionRecords.latestInfo', {
-            sessionId,
-            recordCount: latestInfo.recordCount,
-            latestTimestamp: latestInfo.timestamp,
-            latestMessageId: latestInfo.latestMessageId ?? null,
-        });
-    } catch (error) {
-        debugRewind('convex.getSessionRecords.latestInfo.error', {
-            sessionId,
-            error: String(error instanceof Error ? error.message : error),
-        });
-        console.warn('[Convex] getLatestSessionTimestamp fallback probe failed:', error);
-    }
-
-    try {
-        const records = await client.query('telemetry:getSessionRecords', {
-            sessionId,
-            token,
-        });
-        singleResult = records as TelemetryRecord[];
-        debugRewind('convex.getSessionRecords.singleResult', {
-            sessionId,
-            count: singleResult.length,
-        });
-    } catch (error) {
-        try {
-            const records = await client.query('telemetry:getSessionRecords', { sessionId });
-            singleResult = records as TelemetryRecord[];
-            debugRewind('convex.getSessionRecords.singleResult.compat', {
-                sessionId,
-                count: singleResult.length,
-            });
-        } catch {
-            if (token && shouldRetryWithoutToken(error)) {
-                console.warn('[Convex] getSessionRecords compatibility retry failed');
-            }
-            debugRewind('convex.getSessionRecords.singleResult.error', {
-                sessionId,
-                error: String(error instanceof Error ? error.message : error),
-            });
-            singleResult = null;
-        }
-    }
-
-    if (singleResult && singleResult.length < COLLECT_CAP) {
-        if (singleResult.length === 0 && (latestInfo?.recordCount ?? 0) > 0) {
-            debugRewind('convex.getSessionRecords.singleResult.emptyButLatestInfoPresent', {
-                sessionId,
-                latestRecordCount: latestInfo?.recordCount ?? null,
-                latestTimestamp: latestInfo?.timestamp ?? null,
-            });
-        } else {
-            debugRewind('convex.getSessionRecords.return.singleResult', {
-                sessionId,
-                count: singleResult.length,
-            });
-            return singleResult;
-        }
-    }
-
-    if ((!singleResult || singleResult.length === 0) && (latestInfo?.recordCount ?? 0) > 0) {
-        try {
-            const fallbackLimit = Math.min(
-                COLLECT_CAP,
-                Math.max(1000, latestInfo?.recordCount ?? 0)
-            );
-            const recentRecords = await getRecentRecords(sessionId, undefined, fallbackLimit);
-            if (recentRecords.length > 0) {
-                debugRewind('convex.getSessionRecords.return.recentFallback', {
-                    sessionId,
-                    count: recentRecords.length,
-                    fallbackLimit,
-                    latestRecordCount: latestInfo?.recordCount ?? null,
-                });
-                console.warn('[Convex] Falling back to recent-records backfill for active session');
-                onProgress?.(recentRecords.length, latestInfo?.recordCount ?? recentRecords.length);
-                return recentRecords;
-            }
-        } catch (error) {
-            debugRewind('convex.getSessionRecords.recentFallback.error', {
-                sessionId,
-                error: String(error instanceof Error ? error.message : error),
-            });
-            console.warn('[Convex] recent-records fallback failed:', error);
-        }
-    }
-
-    const allRecords: TelemetryRecord[] = [];
-    let afterTimestamp: string | undefined;
-    let hasMore = true;
-    const estimated = singleResult?.length ?? latestInfo?.recordCount ?? 0;
-
-    while (hasMore) {
-        const args: Record<string, unknown> = { ...primaryArgs };
-        if (afterTimestamp) args.afterTimestamp = afterTimestamp;
-
-        let result: {
-            page: TelemetryRecord[];
-            hasMore: boolean;
-            lastTimestamp?: string | null;
-        };
-
-        try {
-            result = await client.query('telemetry:getSessionRecordsBatch', args) as typeof result;
-        } catch (error) {
-            const legacyArgs: Record<string, unknown> = { sessionId };
-            if (afterTimestamp) legacyArgs.afterTimestamp = afterTimestamp;
-            try {
-                result = await client.query('telemetry:getSessionRecordsBatch', legacyArgs) as typeof result;
-            } catch {
-                if (token && shouldRetryWithoutToken(error)) {
-                    console.warn('[Convex] getSessionRecordsBatch compatibility retry failed');
-                }
-                if (singleResult) return singleResult;
-                if ((latestInfo?.recordCount ?? 0) > 0) {
-                    try {
-                        const fallbackLimit = Math.min(
-                            COLLECT_CAP,
-                            Math.max(1000, latestInfo?.recordCount ?? 0)
-                        );
-                        const recentRecords = await getRecentRecords(sessionId, undefined, fallbackLimit);
-                        if (recentRecords.length > 0) {
-                            debugRewind('convex.getSessionRecords.return.batchFallback', {
-                                sessionId,
-                                count: recentRecords.length,
-                                fallbackLimit,
-                            });
-                            console.warn('[Convex] Batch fetch denied, using recent-records fallback');
-                            onProgress?.(recentRecords.length, latestInfo?.recordCount ?? recentRecords.length);
-                            return recentRecords;
-                        }
-                    } catch (fallbackError) {
-                        debugRewind('convex.getSessionRecords.batchFallback.error', {
-                            sessionId,
-                            error: String(fallbackError instanceof Error ? fallbackError.message : fallbackError),
-                        });
-                        console.warn('[Convex] Batch fallback failed:', fallbackError);
-                    }
-                }
-                throw error;
-            }
-        }
-
-        if (!result || !Array.isArray(result.page)) break;
-
-        allRecords.push(...result.page);
-        debugRewind('convex.getSessionRecords.batchPage', {
-            sessionId,
-            pageSize: result.page.length,
-            loaded: allRecords.length,
-            estimated,
-            hasMore: result.hasMore,
-            lastTimestamp: result.lastTimestamp ?? null,
-        });
-        onProgress?.(allRecords.length, estimated || allRecords.length);
-        hasMore = Boolean(result.hasMore);
-        afterTimestamp = result.lastTimestamp ?? undefined;
-
-        if (hasMore && !afterTimestamp) {
-            console.warn('[Convex] Missing batch cursor, stopping to avoid loop');
-            break;
-        }
-    }
-
-    const finalResult = allRecords.length > 0 ? allRecords : (singleResult ?? []);
-    debugRewind('convex.getSessionRecords.return.final', {
-        sessionId,
-        count: finalResult.length,
-    });
-    return finalResult;
+    return records;
 }
 
 /**
@@ -1064,6 +883,7 @@ export const convexClient = {
     kickstartSessions,
     listSessions,
     getSessionPreview,
+    getSessionArchiveStatus,
     getSessionRecords,
     getRecentRecords,
     getLatestRecord,

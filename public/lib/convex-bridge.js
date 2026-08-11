@@ -223,6 +223,7 @@ const ConvexBridge = (function () {
                         statsExact: !!(payload.stats || previewPlan.stats),
                         isPreview: payload.records.length < previewPlan.recordCount,
                         totalRecords: previewPlan.recordCount || payload.records.length,
+                        archiveStatus: previewPlan.status,
                     };
                 }
 
@@ -259,16 +260,35 @@ const ConvexBridge = (function () {
                     statsExact: !!previewPlan.stats,
                     isPreview: records.length < previewPlan.recordCount,
                     totalRecords: previewPlan.recordCount || records.length,
+                    archiveStatus: previewPlan.status,
                 };
             } catch (error) {
-                console.warn('[ConvexBridge] Optimized preview failed; loading the complete session:', error);
-                const records = await getSessionRecords(sessionId, onProgress);
+                console.warn('[ConvexBridge] Optimized preview failed; using a bounded database tail:', error);
+                if (previewPlan.complete) {
+                    const records = await getSessionRecords(sessionId, onProgress);
+                    return {
+                        records,
+                        stats: previewPlan.stats || null,
+                        statsExact: !!previewPlan.stats,
+                        isPreview: false,
+                        totalRecords: previewPlan.recordCount || records.length,
+                        archiveStatus: previewPlan.status,
+                    };
+                }
+                const preview = await client.query('telemetry:getSessionPreviewTail', {
+                    sessionId,
+                    limit: 1500,
+                    token: token || undefined,
+                });
+                const records = Array.isArray(preview?.records) ? preview.records : [];
+                if (onProgress) onProgress(records.length, preview?.totalRecords || records.length);
                 return {
                     records,
                     stats: previewPlan.stats || null,
                     statsExact: !!previewPlan.stats,
-                    isPreview: false,
-                    totalRecords: previewPlan.recordCount || records.length,
+                    isPreview: (preview?.totalRecords || 0) > records.length,
+                    totalRecords: preview?.totalRecords || previewPlan.recordCount || records.length,
+                    archiveStatus: previewPlan.status,
                 };
             }
         }
@@ -294,14 +314,22 @@ const ConvexBridge = (function () {
                 records: payload.records,
                 stats: payload.stats || overview.stats || null,
                 statsExact: !!(payload.stats || overview.stats),
-                isPreview: true,
+                isPreview: payload.records.length < overview.recordCount,
                 totalRecords: overview.recordCount || payload.records.length,
+                archiveStatus: overview.status,
             };
         }
 
         if (overview?.complete) {
             const records = await getSessionRecords(sessionId, onProgress);
-            return { records, stats: null, statsExact: false, isPreview: false, totalRecords: records.length };
+            return {
+                records,
+                stats: overview.stats || null,
+                statsExact: !!overview.stats,
+                isPreview: false,
+                totalRecords: overview.recordCount || records.length,
+                archiveStatus: overview.status,
+            };
         }
 
         let archivedPreview = [];
@@ -342,25 +370,36 @@ const ConvexBridge = (function () {
                 statsExact: false,
                 isPreview: overview?.status === 'archiving' || (preview?.totalRecords || 0) > records.length,
                 totalRecords: preview?.totalRecords || records.length,
+                archiveStatus: overview?.status || 'none',
             };
         } catch (error) {
-            console.warn('[ConvexBridge] Bounded session preview unavailable; using compatibility fallback:', error);
-            const records = await getSessionRecords(sessionId, onProgress);
-            return { records, stats: null, statsExact: false, isPreview: false, totalRecords: records.length };
+            console.warn('[ConvexBridge] Bounded session preview unavailable:', error);
+            throw error;
         }
     }
 
-    async function tryGetOptimizedSessionRecords(sessionId, token, onProgress, archiveAttempt = 0) {
-        let manifest;
-        try {
-            manifest = await client.query('archives:getSessionArchiveManifest', {
-                sessionId,
-                token: token || undefined,
-            });
-        } catch (_) {
-            // Temporary compatibility with a frontend deployed before the new
-            // Convex archive functions. Once deployed, this path is not used.
-            return null;
+    function createArchiveNotReadyError(status) {
+        const detail = status === 'error'
+            ? 'The session archive needs to be retried before full-resolution export is available.'
+            : 'The session archive is still processing. Full-resolution export will unlock automatically.';
+        const error = new Error(detail);
+        error.name = 'SessionArchiveNotReadyError';
+        error.code = 'ARCHIVE_NOT_READY';
+        error.archiveStatus = status;
+        return error;
+    }
+
+    async function getArchivedSessionRecords(sessionId, token, onProgress) {
+        const manifest = await client.query('archives:getSessionArchiveManifest', {
+            sessionId,
+            token: token || undefined,
+        });
+
+        if (manifest.status === 'restricted' || manifest.status === 'missing') {
+            return [];
+        }
+        if (!manifest.complete) {
+            throw createArchiveNotReadyError(manifest.status);
         }
 
         const archivedRecords = [];
@@ -381,67 +420,23 @@ const ConvexBridge = (function () {
             if (onProgress) onProgress(archivedRecords.length, estimated || archivedRecords.length);
         }
 
-        if (manifest.complete) return archivedRecords;
+        return archivedRecords;
+    }
 
-        // Active sessions and in-progress migrations retain only a database tail.
-        const tailRecords = [];
-        let cursor = null;
-        while (true) {
-            const result = await client.query('telemetry:getSessionRecordsPage', {
-                sessionId,
-                paginationOpts: { numItems: 3000, cursor },
-                token: token || undefined,
-            });
-            if (!result || !Array.isArray(result.page)) {
-                throw new Error('Convex returned an invalid paginated telemetry response');
-            }
-            tailRecords.push(...result.page);
-            if (onProgress) {
-                onProgress(
-                    archivedRecords.length + tailRecords.length,
-                    estimated || archivedRecords.length + tailRecords.length
-                );
-            }
-            if (result.isDone) break;
-            if (!result.continueCursor) {
-                throw new Error('Convex pagination stopped without a continuation cursor');
-            }
-            cursor = result.continueCursor;
-        }
-
-        if (manifest.status === 'archiving') {
-            const refreshed = await client.query('archives:getSessionArchiveManifest', {
-                sessionId,
-                token: token || undefined,
-            });
-            const archiveChanged = refreshed.archivedRecordCount !== manifest.archivedRecordCount
-                || refreshed.parts.length !== manifest.parts.length
-                || refreshed.complete !== manifest.complete;
-            if (archiveChanged) {
-                if (archiveAttempt >= 3) {
-                    throw new Error('Telemetry archive is changing; retry the session load');
-                }
-                return await tryGetOptimizedSessionRecords(
-                    sessionId,
-                    token,
-                    onProgress,
-                    archiveAttempt + 1
-                );
-            }
-        }
-
-        const records = archivedRecords.concat(tailRecords);
-        records.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
-        return records;
+    async function getSessionArchiveStatus(sessionId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        return await client.query('archives:getSessionArchiveStatus', {
+            sessionId,
+            token: getAuthToken() || undefined,
+        });
     }
 
     /**
      * Get ALL records for a session.
      *
-     * Strategy:
-     *   1. Load authorized gzip archive parts from Convex File Storage.
-     *   2. Cursor-paginate only the active/unarchived database tail.
-     *   3. Retain the old collect/batch path only for staggered deployments.
+     * Full-resolution reads are served only from completed immutable archive
+     * parts. Active and archiving sessions remain available through the bounded
+     * preview API without rereading their complete database tails.
      *
      * Callers receive a flat sorted array and never need to know which path was taken.
      *
@@ -452,169 +447,7 @@ const ConvexBridge = (function () {
     async function getSessionRecords(sessionId, onProgress = null) {
         if (!client) throw new Error('ConvexBridge not initialized');
         const token = getAuthToken();
-
-        const optimizedRecords = await tryGetOptimizedSessionRecords(sessionId, token, onProgress);
-        if (optimizedRecords !== null) return optimizedRecords;
-
-        const BATCH_SIZE = 3000;   // must match server BATCH_SIZE
-        const COLLECT_CAP = 16000; // if collect() returns ≥ this, assume it was capped
-        const LARGE_SESSION_THRESHOLD = 8000;
-
-        let latestInfo = null;
-        try {
-            latestInfo = await getLatestSessionTimestamp(sessionId);
-        } catch (error) {
-            console.warn('[ConvexBridge] getLatestSessionTimestamp failed before historical load:', error);
-        }
-        const expectedTotal = Number.isFinite(latestInfo?.recordCount) ? latestInfo.recordCount : null;
-        const preferPaginated = expectedTotal !== null && expectedTotal >= LARGE_SESSION_THRESHOLD;
-
-        if (onProgress && expectedTotal && expectedTotal > 0) {
-            onProgress(0, expectedTotal);
-        }
-
-        // ── Fast path: single collect() ──────────────────────────────────────
-        let singleResult = null;
-        if (!preferPaginated) {
-            try {
-                singleResult = await client.query('telemetry:getSessionRecords', {
-                    sessionId,
-                    token: token || undefined,
-                });
-            } catch (error) {
-                try {
-                    singleResult = await client.query('telemetry:getSessionRecords', { sessionId });
-                } catch (legacyError) {
-                    if (token && shouldRetryWithoutToken(error)) {
-                        console.warn('[ConvexBridge] getSessionRecords compatibility retry failed:', legacyError);
-                    }
-                    // collect() hard cap exceeded OR incompatible signature — fall through to paginated path
-                    singleResult = null;
-                }
-            }
-        }
-
-        if (singleResult !== null && singleResult.length < COLLECT_CAP) {
-            if (singleResult.length === 0 && (expectedTotal ?? 0) > 0) {
-                console.warn('[ConvexBridge] Fast path returned 0 rows but metadata reports records. Falling back.');
-            } else {
-                if (onProgress) onProgress(singleResult.length, expectedTotal ?? singleResult.length);
-                return singleResult;
-            }
-        }
-
-        // ── Primary fallback: Convex pagination cursor ───────────────────────
-        const paginatedRecords = [];
-        let cursor = null;
-        let pageNum = 0;
-        let usedPaginatedPath = false;
-
-        try {
-            while (true) {
-                const args = {
-                    sessionId,
-                    paginationOpts: { numItems: BATCH_SIZE, cursor },
-                    token: token || undefined,
-                };
-
-                let result;
-                try {
-                    result = await client.query('telemetry:getSessionRecordsPage', args);
-                } catch (error) {
-                    const legacyArgs = {
-                        sessionId,
-                        paginationOpts: { numItems: BATCH_SIZE, cursor },
-                    };
-                    try {
-                        result = await client.query('telemetry:getSessionRecordsPage', legacyArgs);
-                    } catch (legacyError) {
-                        if (token && shouldRetryWithoutToken(error)) {
-                            console.warn('[ConvexBridge] getSessionRecordsPage compatibility retry failed:', legacyError);
-                        }
-                        throw error;
-                    }
-                }
-
-                usedPaginatedPath = true;
-                if (!result || !Array.isArray(result.page)) {
-                    console.error('[ConvexBridge] ⚠️ Unexpected paginated response:', result);
-                    break;
-                }
-
-                paginatedRecords.push(...result.page);
-                pageNum++;
-                if (onProgress) onProgress(paginatedRecords.length, expectedTotal ?? paginatedRecords.length);
-
-                if (result.isDone) {
-                    console.log(`[ConvexBridge] ✅ Paginated fetch complete: ${paginatedRecords.length} records in ${pageNum} pages`);
-                    return paginatedRecords;
-                }
-
-                cursor = result.continueCursor ?? null;
-                if (!cursor) {
-                    console.warn('[ConvexBridge] ⚠️ continueCursor missing — stopping paginated fetch');
-                    break;
-                }
-            }
-        } catch (paginationError) {
-            console.warn('[ConvexBridge] Paginated session fetch unavailable, falling back to legacy batch path:', paginationError);
-        }
-
-        // ── Legacy batch path: timestamp-cursor loop ─────────────────────────
-        const approxTotal = expectedTotal ?? (singleResult ? singleResult.length : null);
-        console.log(`[ConvexBridge] 📄 Session needs batch fetch (collect returned ${singleResult?.length ?? 'error'}).`);
-
-        const allRecords = [];
-        let afterTimestamp = undefined; // first call: no filter
-        let batchNum = 0;
-        let hasMore = true;
-
-        while (hasMore) {
-            const args = { sessionId, token: token || undefined };
-            if (afterTimestamp !== undefined) args.afterTimestamp = afterTimestamp;
-
-            let result;
-            try {
-                result = await client.query('telemetry:getSessionRecordsBatch', args);
-            } catch (error) {
-                const legacyArgs = { sessionId };
-                if (afterTimestamp !== undefined) legacyArgs.afterTimestamp = afterTimestamp;
-                try {
-                    result = await client.query('telemetry:getSessionRecordsBatch', legacyArgs);
-                } catch (legacyError) {
-                    if (token && shouldRetryWithoutToken(error)) {
-                        console.warn('[ConvexBridge] getSessionRecordsBatch compatibility retry failed:', legacyError);
-                    }
-                    throw error;
-                }
-            }
-
-            if (!result || !Array.isArray(result.page)) {
-                console.error('[ConvexBridge] ⚠️ Unexpected batch response:', result);
-                break;
-            }
-
-            allRecords.push(...result.page);
-            hasMore = result.hasMore;
-            afterTimestamp = result.lastTimestamp ?? undefined;
-            batchNum++;
-
-            console.log(`[ConvexBridge]   batch ${batchNum}: +${result.page.length} records (total: ${allRecords.length}, hasMore: ${hasMore})`);
-
-            if (onProgress) onProgress(allRecords.length, approxTotal ?? allRecords.length);
-
-            // Safety guard: if lastTimestamp didn't advance, stop to avoid infinite loop
-            if (hasMore && !result.lastTimestamp) {
-                console.warn('[ConvexBridge] ⚠️ lastTimestamp missing — stopping to avoid loop');
-                break;
-            }
-        }
-
-        console.log(`[ConvexBridge] ✅ Batch fetch complete: ${allRecords.length} records in ${batchNum} batches`);
-        if (allRecords.length > 0 || usedPaginatedPath) {
-            return allRecords;
-        }
-        return singleResult ?? [];
+        return await getArchivedSessionRecords(sessionId, token, onProgress);
     }
 
 
@@ -870,6 +703,7 @@ const ConvexBridge = (function () {
         listSessions,
         kickstartSessions,
         getSessionPreview,
+        getSessionArchiveStatus,
         getSessionRecords,
         getRecentRecords,
         getLatestRecord,

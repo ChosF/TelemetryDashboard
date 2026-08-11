@@ -1874,6 +1874,21 @@ body.hist-page {
     transform: translateY(0) scale(0.98);
 }
 
+.ha-export-btn:disabled,
+.ha-export-btn:disabled:hover,
+#h-btn-export-quick:disabled,
+#h-table-csv:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+    transform: none;
+    box-shadow: none;
+}
+
+.ha-export-btn:disabled::before,
+.ha-export-btn:disabled:hover::before {
+    opacity: 0;
+}
+
 .ha-export-icon-wrap {
     position: relative;
     display: flex;

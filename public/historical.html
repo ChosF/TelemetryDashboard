@@ -14,7 +14,7 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="/historical.css?v=20260719.3" />
+    <link rel="stylesheet" href="/historical.css?v=20260810.1" />
     <script>
         window.CONFIG = window.CONFIG || { CONVEX_URL: "https://wonderful-kookabura-432.convex.cloud" };
     </script>
@@ -636,7 +636,7 @@
                     <div class="ha-sec-header-left">
                         <button class="ha-collapse-btn" data-target="export-body" title="Collapse">▾</button>
                         <h2 class="ha-section-title"><span class="ha-section-icon">💾</span> Export</h2>
-                        <span class="ha-sec-hint">Download in multiple formats</span>
+                        <span class="ha-sec-hint" id="h-export-status">Download in multiple formats</span>
                     </div>
                 </div>
                 <div class="ha-sec-body" id="export-body">
@@ -1227,13 +1227,13 @@
 
     <!-- Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/convex@1.17.4/dist/browser.bundle.js"></script>
-    <script src="/lib/convex-bridge.js?v=20260719.3"></script>
+    <script src="/lib/convex-bridge.js?v=20260810.1"></script>
     <script src="/auth.js"></script>
     <script src="/auth-ui.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
     <script src="/historical-engine.js?v=20260808.1"></script>
-    <script src="/historical.js?v=20260808.1"></script>
+    <script src="/historical.js?v=20260810.1"></script>
     <script>
         (() => {
             let dashboardPrewarmPromise = null;

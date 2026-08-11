@@ -80,6 +80,13 @@ export const reportLiveSessionState = mutation({
             return publicLiveSessionState(existing);
         }
 
+        // Only the first accepted transition to "ended" schedules archive work.
+        // The bridge retries this mutation on ambiguous network failures, so
+        // scheduling every repeated end report would create duplicate actions.
+        const shouldScheduleArchive = args.status === "ended"
+            && existing?.session_id === args.session_id
+            && existing.status === "active";
+
         // Once a session is ended, a delayed startup retry for that same run must
         // not resurrect it. A new session id is always allowed to become active.
         if (
@@ -108,6 +115,17 @@ export const reportLiveSessionState = mutation({
             await ctx.db.patch(existing._id, next);
         } else {
             await ctx.db.insert("liveSessionState", next);
+        }
+
+        // Scheduling from this mutation is atomic with the lifecycle update:
+        // the archive action cannot run unless the accepted end state commits.
+        // The hourly archive cron remains the recovery path for action failures.
+        if (shouldScheduleArchive) {
+            await ctx.scheduler.runAfter(
+                0,
+                internal.archiveActions.archiveSessionNow,
+                { sessionId: args.session_id },
+            );
         }
 
         return publicLiveSessionState(next);

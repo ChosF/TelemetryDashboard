@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
-import { v } from "convex/values";
-import { paginationOptsValidator } from "convex/server";
+import { ConvexError, v } from "convex/values";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import {
     canAccessHistoricalSession,
     getHistoricalAccess,
@@ -46,6 +46,23 @@ async function canAccessSessionRecords(
     return canAccessLiveBackfillSession(ctx, sessionId);
 }
 
+async function requireCompletedArchiveForFullRead(ctx: any, sessionId: string): Promise<void> {
+    const session = await ctx.db
+        .query("sessions")
+        .withIndex("by_session_id", (q: any) => q.eq("session_id", sessionId))
+        .first();
+    const status = session?.archive_status ?? "none";
+
+    if (status !== "complete") {
+        throw new ConvexError({
+            code: "ARCHIVE_NOT_READY",
+            message: "Full-resolution telemetry is available after session archiving completes.",
+            sessionId,
+            status,
+        });
+    }
+}
+
 /**
  * Get all records for a specific session.
  * Works for sessions up to ~14k records (Convex .collect() hard cap is 16,384).
@@ -53,10 +70,12 @@ async function canAccessSessionRecords(
  */
 export const getSessionRecords = query({
     args: { sessionId: v.string(), token: v.optional(v.string()) },
+    returns: v.array(v.any()),
     handler: async (ctx, args) => {
         const access = await getHistoricalAccess(ctx, args.token);
         const allowed = await canAccessSessionRecords(ctx, args.sessionId, access);
         if (!allowed) return [];
+        await requireCompletedArchiveForFullRead(ctx, args.sessionId);
 
         const records = await ctx.db
             .query("telemetry")
@@ -89,10 +108,16 @@ export const getSessionRecordsBatch = query({
         afterTimestamp: v.optional(v.string()),
         token: v.optional(v.string()),
     },
+    returns: v.object({
+        page: v.array(v.any()),
+        hasMore: v.boolean(),
+        lastTimestamp: v.union(v.string(), v.null()),
+    }),
     handler: async (ctx, args) => {
         const access = await getHistoricalAccess(ctx, args.token);
         const allowed = await canAccessSessionRecords(ctx, args.sessionId, access);
         if (!allowed) return { page: [], hasMore: false, lastTimestamp: null };
+        await requireCompletedArchiveForFullRead(ctx, args.sessionId);
 
         const records = await ctx.db
             .query("telemetry")
@@ -123,12 +148,14 @@ export const getSessionRecordsPage = query({
         paginationOpts: paginationOptsValidator,
         token: v.optional(v.string()),
     },
+    returns: paginationResultValidator(v.any()),
     handler: async (ctx, args) => {
         const access = await getHistoricalAccess(ctx, args.token);
         const allowed = await canAccessSessionRecords(ctx, args.sessionId, access);
         if (!allowed) {
             return { page: [], isDone: true, continueCursor: args.paginationOpts.cursor ?? "" };
         }
+        await requireCompletedArchiveForFullRead(ctx, args.sessionId);
 
         return await ctx.db
             .query("telemetry")
