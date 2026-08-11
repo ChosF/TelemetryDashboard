@@ -39,7 +39,8 @@ import {
 
 type Section = 'overview' | 'items' | 'loans';
 type Modal = 'auth' | 'account' | 'add' | 'scan' | 'item' | 'movement' | 'loan' | 'qr' | 'history' | 'notifications' | 'deleteItem' | 'deleteLoan' | null;
-type IconName = 'home' | 'items' | 'loan' | 'scan' | 'search' | 'plus' | 'user' | 'close' | 'arrow' | 'pin' | 'clock' | 'check' | 'qr' | 'shield' | 'trash' | 'bell' | 'alert' | 'flash';
+type Theme = 'light' | 'dark';
+type IconName = 'home' | 'items' | 'loan' | 'scan' | 'search' | 'plus' | 'user' | 'close' | 'arrow' | 'pin' | 'clock' | 'check' | 'qr' | 'shield' | 'trash' | 'bell' | 'alert' | 'flash' | 'sun' | 'moon';
 
 const statusLabels: Record<InventoryItemStatus, string> = {
   available: 'Available',
@@ -79,6 +80,8 @@ const Icon: Component<{ name: IconName }> = (props) => (
       <Match when={props.name === 'bell'}><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></Match>
       <Match when={props.name === 'alert'}><path d="M12 3 2.5 20h19zM12 9v5M12 17h.01" /></Match>
       <Match when={props.name === 'flash'}><path d="m13 2-8 12h6l-1 8 9-13h-6z" /></Match>
+      <Match when={props.name === 'sun'}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" /></Match>
+      <Match when={props.name === 'moon'}><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z" /></Match>
     </Switch>
   </svg>
 );
@@ -116,6 +119,16 @@ function userInitials(): string {
   return value.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 }
 
+function initialTheme(): Theme {
+  try {
+    const saved = window.localStorage.getItem('ecovolt-inventory-theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch {
+    // Storage can be unavailable in restrictive private browsing contexts.
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 const Brand: Component = () => (
   <a class="iv-brand" href="/" aria-label="EcoVolt home">
     <img src="/images/logo.png" alt="" width="756" height="706" />
@@ -144,6 +157,7 @@ const QrMark: Component<{ assetCode: string; printable?: boolean }> = (props) =>
 
 const InventoryPrototype: Component = () => {
   const [section, setSection] = createSignal<Section>('overview');
+  const [theme, setTheme] = createSignal<Theme>(initialTheme());
   const [modal, setModal] = createSignal<Modal>(null);
   const [items, setItems] = createSignal<InventoryItem[]>([]);
   const [publicItems, setPublicItems] = createSignal<PublicInventoryItem[]>([]);
@@ -171,6 +185,13 @@ const InventoryPrototype: Component = () => {
     return publicItems().filter((item) => `${item.name} ${item.assetCode} ${item.category} ${item.stewardTeam ?? ''}`.toLowerCase().includes(query));
   });
   const visibleItemCount = createMemo(() => isApproved() ? items().length : publicItems().length);
+
+  createEffect(() => {
+    const current = theme();
+    try { window.localStorage.setItem('ecovolt-inventory-theme', current); } catch { /* keep the in-memory preference */ }
+    document.documentElement.dataset.inventoryTheme = current;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', current === 'dark' ? '#111311' : '#f2efe9');
+  });
 
   createEffect(() => {
     setLoaded(false);
@@ -271,7 +292,7 @@ const InventoryPrototype: Component = () => {
   };
 
   return (
-    <div class="inventory-app">
+    <div class="inventory-app" data-theme={theme()}>
       <header class="iv-header">
         <Brand />
         <nav class="iv-desktop-nav" aria-label="Inventory sections">
@@ -280,8 +301,9 @@ const InventoryPrototype: Component = () => {
           <SectionButton value="loans" current={section()} onSelect={setSection} label="Loans" count={isApproved() ? pendingLoans() : undefined} />
         </nav>
         <div class="iv-header-actions">
-          <button class="iv-icon-button" aria-label="Search items" onClick={() => setSection('items')}><Icon name="search" /></button>
+          <button class="iv-icon-button iv-header-search" aria-label="Search items" onClick={() => setSection('items')}><Icon name="search" /></button>
           <Show when={canManage()}><button class="iv-icon-button iv-notification-button" aria-label={`${alerts().length} inventory alerts`} onClick={() => setModal('notifications')}><Icon name="bell" /><Show when={alerts().length > 0}><b>{alerts().length > 99 ? '99+' : alerts().length}</b></Show></button></Show>
+          <button class="iv-icon-button" aria-label={`Use ${theme() === 'dark' ? 'light' : 'dark'} mode`} title={`Use ${theme() === 'dark' ? 'light' : 'dark'} mode`} onClick={() => setTheme(theme() === 'dark' ? 'light' : 'dark')}><Icon name={theme() === 'dark' ? 'sun' : 'moon'} /></button>
           <button class="iv-account-button" aria-label="Open account" onClick={() => setModal(authStore.isAuthenticated() ? 'account' : 'auth')}>
             <Show when={authStore.isAuthenticated()} fallback={<Icon name="user" />}><span>{userInitials()}</span></Show>
           </button>
