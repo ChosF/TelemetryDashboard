@@ -7,6 +7,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
+  onMount,
   type Component,
   type JSX,
 } from 'solid-js';
@@ -579,6 +580,10 @@ const ScannerModal: Component<{ onClose: () => void; onCode: (value: string) => 
       setCameraMessage(cameraFailureMessage(cause));
     }
   };
+
+  onMount(() => {
+    void start();
+  });
 
   const toggleFlash = async () => {
     if (!scanner || !hasFlash()) return;

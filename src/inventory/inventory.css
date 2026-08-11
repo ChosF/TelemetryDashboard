@@ -365,6 +365,68 @@
   .iv-header-search { display: none; }
 }
 
+@media (max-width: 767px) {
+  .iv-brand strong { font-size: 15px; }
+  .iv-brand small { font-size: 8px; }
+  .iv-eyebrow { font-size: 10px; }
+  .iv-hero p { font-size: 13px; }
+  .iv-primary, .iv-secondary, .iv-danger { font-size: 10px; line-height: 1.25; letter-spacing: .04em; }
+  .iv-stat-strip span { font-size: 10px; }
+  .iv-public-summary p { font-size: 12px; }
+  .iv-search input { font-size: 12px; }
+
+  .iv-item-card > header > span, .iv-loan-card > header > span { font-size: 9px; }
+  .iv-item-card h3 { font-size: 22px; }
+  .iv-item-card-main p, .iv-public-item-main p { font-size: 11px; }
+  .iv-item-card dt, .iv-loan-card dt, .iv-item-detail dt, .iv-qr-sheet dt { font-size: 9px; }
+  .iv-item-card dd, .iv-loan-card dd, .iv-item-detail dd, .iv-qr-sheet dd { font-size: 12px; line-height: 1.45; }
+  .iv-item-card > button, .iv-loan-card footer button { font-size: 10px; line-height: 1.25; }
+  .iv-public-privacy strong, .iv-public-privacy span { font-size: 10px; }
+  .iv-status { font-size: 9px; }
+  .iv-empty-state p, .iv-access-state p { font-size: 12px; }
+
+  .iv-loan-card h3 { font-size: 21px; }
+  .iv-loan-card > p { font-size: 11px; }
+  .iv-loan-overdue strong, .iv-loan-overdue span { font-size: 9px; }
+  .iv-card-error { font-size: 10px; }
+  .iv-mobile-nav button { min-height: 72px; font-size: 9px; line-height: 1.2; }
+
+  .iv-modal > header p { font-size: 11px; }
+  .iv-form label > span, .iv-scanner form label > span { font-size: 10px; }
+  .iv-form input, .iv-form select, .iv-form textarea, .iv-scanner input { font-size: 12px; }
+  .iv-form-note, .iv-form-error { font-size: 11px; }
+  .iv-form-switch { font-size: 10px; }
+  .iv-account-identity strong, .iv-recorded-by strong { font-size: 12px; }
+  .iv-account-identity small, .iv-recorded-by small { font-size: 10px; }
+  .iv-account-sheet > a { font-size: 10px; }
+
+  .iv-camera-state, .iv-camera-ready, .iv-flash-button { font-size: 10px; }
+  .iv-scanned-item strong { font-size: 13px; }
+  .iv-scanned-item small { font-size: 10px; }
+  .iv-approval-line b { font-size: 9px; }
+  .iv-approval-line span { font-size: 10px; }
+  .iv-modal-empty { font-size: 11px; }
+
+  .iv-notification-summary small { font-size: 10px; }
+  .iv-notification-list header strong { font-size: 12px; }
+  .iv-notification-list header b, .iv-notification-list small { font-size: 9px; }
+  .iv-notification-list p { font-size: 10px; }
+  .iv-notification-clear p { font-size: 11px; }
+
+  .iv-history-summary span:not(.iv-status), .iv-history-heading small { font-size: 9px; }
+  .iv-history-summary strong { font-size: 12px; }
+  .iv-history-loading { font-size: 10px; }
+  .iv-history-marker span { font-size: 9px; }
+  .iv-history-timeline article > header time { font-size: 10px; }
+  .iv-history-timeline article > header span { font-size: 10px; }
+  .iv-history-route small, .iv-history-status { font-size: 9px; }
+  .iv-history-route strong { font-size: 12px; }
+  .iv-history-timeline article > p { font-size: 11px; }
+  .iv-delete-warning strong { font-size: 12px; }
+  .iv-delete-warning span { font-size: 11px; }
+  .iv-toast { font-size: 11px; }
+}
+
 @media (min-width: 640px) {
   .iv-field-grid { @apply grid-cols-2; }
   .iv-public-summary { @apply grid-cols-2; }
