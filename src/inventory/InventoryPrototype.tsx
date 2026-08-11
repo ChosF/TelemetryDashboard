@@ -41,7 +41,7 @@ import {
 type Section = 'overview' | 'items' | 'loans';
 type Modal = 'auth' | 'account' | 'add' | 'scan' | 'item' | 'movement' | 'loan' | 'qr' | 'history' | 'notifications' | 'deleteItem' | 'deleteLoan' | null;
 type Theme = 'light' | 'dark';
-type IconName = 'home' | 'items' | 'loan' | 'scan' | 'search' | 'plus' | 'user' | 'close' | 'arrow' | 'pin' | 'clock' | 'check' | 'qr' | 'shield' | 'trash' | 'bell' | 'alert' | 'flash' | 'sun' | 'moon';
+type IconName = 'home' | 'items' | 'loan' | 'scan' | 'search' | 'plus' | 'user' | 'close' | 'arrow' | 'pin' | 'clock' | 'check' | 'qr' | 'shield' | 'trash' | 'bell' | 'alert' | 'flash' | 'sun' | 'moon' | 'print';
 
 const statusLabels: Record<InventoryItemStatus, string> = {
   available: 'Available',
@@ -83,12 +83,23 @@ const Icon: Component<{ name: IconName }> = (props) => (
       <Match when={props.name === 'flash'}><path d="m13 2-8 12h6l-1 8 9-13h-6z" /></Match>
       <Match when={props.name === 'sun'}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" /></Match>
       <Match when={props.name === 'moon'}><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z" /></Match>
+      <Match when={props.name === 'print'}><path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7zM17 11h.01" /></Match>
     </Switch>
   </svg>
 );
 
 function compactQrPayload(assetCode: string): string {
   return `EV:${assetCode}`;
+}
+
+async function createQrDataUrl(assetCode: string, width: number): Promise<string> {
+  return await QRCode.toDataURL(compactQrPayload(assetCode), {
+    version: 1,
+    errorCorrectionLevel: 'H',
+    margin: 1,
+    width,
+    color: { dark: '#000000', light: '#ffffff' },
+  });
 }
 
 const QR_NOT_RECOGNIZED = 'QR not recognized. Try again, choose another photo, or enter the item code below.';
@@ -147,17 +158,23 @@ const Status: Component<{ value: InventoryItemStatus | InventoryLoanStatus }> = 
 const QrMark: Component<{ assetCode: string; printable?: boolean }> = (props) => {
   const [src, setSrc] = createSignal('');
   createEffect(() => {
-    const payload = compactQrPayload(props.assetCode);
-    void QRCode.toDataURL(payload, {
-      version: 1,
-      errorCorrectionLevel: 'H',
-      margin: 1,
-      width: props.printable ? 504 : 168,
-      color: { dark: '#000000', light: '#ffffff' },
-    }).then(setSrc);
+    void createQrDataUrl(props.assetCode, props.printable ? 504 : 168).then(setSrc);
   });
   return <div class="iv-real-qr" classList={{ printable: props.printable }}><Show when={src()}><img src={src()} alt={`QR label for ${props.assetCode}`} /></Show></div>;
 };
+
+type PrintableLabel = { item: InventoryItem; qrSrc: string };
+
+const PrintLabel: Component<PrintableLabel> = (props) => (
+  <article class="iv-print-label">
+    <div class="iv-real-qr printable"><img src={props.qrSrc} alt={`QR label for ${props.item.assetCode}`} /></div>
+    <div><strong>{props.item.assetCode}</strong><span>{props.item.name}</span><small>Home · {props.item.homeLocation}</small></div>
+  </article>
+);
+
+const PrintSheet: Component<{ labels: PrintableLabel[] }> = (props) => (
+  <section class="iv-print-sheet"><For each={props.labels}>{(label) => <PrintLabel {...label} />}</For></section>
+);
 
 const InventoryPrototype: Component = () => {
   const [section, setSection] = createSignal<Section>('overview');
@@ -171,6 +188,8 @@ const InventoryPrototype: Component = () => {
   const [search, setSearch] = createSignal('');
   const [selectedItem, setSelectedItem] = createSignal<InventoryItem | null>(null);
   const [selectedLoan, setSelectedLoan] = createSignal<InventoryLoan | null>(null);
+  const [printQueue, setPrintQueue] = createSignal<PrintableLabel[]>([]);
+  const [preparingPrint, setPreparingPrint] = createSignal(false);
   const [toast, setToast] = createSignal('');
 
   const isApproved = createMemo(() => authStore.isAuthenticated() && authStore.user()?.approval_status === 'approved' && authStore.userRole() !== 'guest');
@@ -258,6 +277,26 @@ const InventoryPrototype: Component = () => {
   const notify = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(''), 2600);
+  };
+
+  const printItemLabels = async (labelItems: InventoryItem[]) => {
+    if (preparingPrint() || labelItems.length === 0) return;
+    setPreparingPrint(true);
+    try {
+      const labels = await Promise.all(labelItems.map(async (item) => ({
+        item,
+        qrSrc: await createQrDataUrl(item.assetCode, 504),
+      })));
+      setPrintQueue(labels);
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+      const images = Array.from(document.querySelectorAll<HTMLImageElement>('.iv-print-sheet img'));
+      await Promise.all(images.map(async (image) => { try { await image.decode(); } catch { /* the loaded data URL can still print */ } }));
+      window.print();
+    } catch {
+      notify('Could not prepare the QR labels. Please try again.');
+    } finally {
+      setPreparingPrint(false);
+    }
   };
 
   const openAsset = async (raw: string) => {
@@ -348,7 +387,7 @@ const InventoryPrototype: Component = () => {
 
           <Match when={section() === 'items'}>
             <section class="iv-page">
-              <SectionHeading eyebrow={isApproved() ? 'Tool register' : 'Public catalog'} title={isApproved() ? 'Items' : 'Available items'} action={isAdmin() ? 'Add item' : undefined} onAction={() => setModal('add')} />
+              <SectionHeading eyebrow={isApproved() ? 'Tool register' : 'Public catalog'} title={isApproved() ? 'Items' : 'Available items'} action={isAdmin() ? 'Add item' : undefined} onAction={() => setModal('add')} onPrint={isAdmin() ? () => void printItemLabels(items()) : undefined} printDisabled={items().length === 0 || preparingPrint()} />
               <div class="iv-search"><Icon name="search" /><input type="search" value={search()} onInput={(event) => setSearch(event.currentTarget.value)} placeholder={isApproved() ? 'Search name, code, category, or place' : 'Search available items'} /></div>
               <Show when={isApproved()} fallback={<Show when={loaded() && filteredPublicItems().length > 0} fallback={<EmptyPublicItems filtered={publicItems().length > 0} />}><div class="iv-item-grid"><For each={filteredPublicItems()}>{(item) => <PublicItemCard item={item} onRequest={() => setModal('auth')} />}</For></div></Show>}>
                 <Show when={loaded() && filteredItems().length > 0} fallback={<EmptyItems admin={isAdmin()} onAdd={() => setModal('add')} filtered={items().length > 0} />}><div class="iv-item-grid"><For each={filteredItems()}>{(item) => <ItemCard item={item} onOpen={() => chooseItem(item)} />}</For></div></Show>
@@ -383,11 +422,12 @@ const InventoryPrototype: Component = () => {
       <Show when={modal() === 'item' && selectedItem()}>{(item) => <ItemModal item={item()} canManage={canManage()} isAdmin={isAdmin()} onClose={() => setModal(null)} onMove={() => setModal('movement')} onLoan={() => openLoan(item())} onQr={() => setModal('qr')} onHistory={() => setModal('history')} onDelete={() => setModal('deleteItem')} />}</Show>
       <Show when={modal() === 'movement' && selectedItem()}>{(item) => <MovementModal item={item()} onClose={() => setModal(null)} onSaved={() => { setModal(null); notify(`${item().assetCode} movement recorded`); }} />}</Show>
       <Show when={modal() === 'loan'}><LoanModal items={items()} selected={selectedItem()} onClose={() => setModal(null)} onSaved={() => { setModal(null); setSection('loans'); notify('Loan sent for approval'); }} /></Show>
-      <Show when={modal() === 'qr' && selectedItem()}>{(item) => <QrModal item={item()} onClose={() => setModal(null)} />}</Show>
+      <Show when={modal() === 'qr' && selectedItem()}>{(item) => <QrModal item={item()} onClose={() => setModal(null)} onPrint={() => void printItemLabels([item()])} />}</Show>
       <Show when={modal() === 'history' && selectedItem()}>{(item) => <ItemHistoryModal item={item()} onClose={() => setModal('item')} />}</Show>
       <Show when={modal() === 'deleteItem' && selectedItem()}>{(item) => <DeleteConfirmModal eyebrow="Admin / permanent deletion" title={`Delete ${item().assetCode}?`} description="This permanently removes the item, every loan tied to it, and its complete movement history. This cannot be undone." confirmLabel="Delete item and history" onClose={() => setModal('item')} onConfirm={async () => { const assetCode = item().assetCode; await deleteInventoryItem(item()._id); setSelectedItem(null); setModal(null); notify(`${assetCode} permanently deleted`); }} />}</Show>
       <Show when={modal() === 'deleteLoan' && selectedLoan()}>{(loan) => <DeleteConfirmModal eyebrow="Admin / permanent deletion" title="Delete this loan?" description={`This permanently removes ${loan().requesterName}'s ${loan().assetCode} loan record. An active linked item will be restored to available.`} confirmLabel="Delete loan" onClose={() => { setSelectedLoan(null); setModal(null); }} onConfirm={async () => { await deleteInventoryLoan(loan()._id); setSelectedLoan(null); setModal(null); notify('Loan permanently deleted'); }} />}</Show>
       <Show when={toast()}><div class="iv-toast" role="status"><Icon name="check" />{toast()}</div></Show>
+      <PrintSheet labels={printQueue()} />
     </div>
   );
 };
@@ -398,8 +438,8 @@ const SectionButton: Component<{ value: Section; current: Section; onSelect: (va
   </button>
 );
 
-const SectionHeading: Component<{ eyebrow: string; title: string; action?: string; onAction: () => void }> = (props) => (
-  <header class="iv-section-heading"><div><span class="iv-eyebrow">{props.eyebrow}</span><h2>{props.title}</h2></div><Show when={props.action}><button class="iv-secondary" onClick={props.onAction}><Icon name="plus" />{props.action}</button></Show></header>
+const SectionHeading: Component<{ eyebrow: string; title: string; action?: string; onAction: () => void; onPrint?: () => void; printDisabled?: boolean }> = (props) => (
+  <header class="iv-section-heading"><div><span class="iv-eyebrow">{props.eyebrow}</span><h2>{props.title}</h2></div><div class="iv-section-actions"><Show when={props.onPrint}><button class="iv-icon-button iv-section-print" disabled={props.printDisabled} aria-label="Print all QR labels" title="Print all QR labels" onClick={props.onPrint}><Icon name="print" /></button></Show><Show when={props.action}><button class="iv-secondary" onClick={props.onAction}><Icon name="plus" />{props.action}</button></Show></div></header>
 );
 
 const AccessState: Component<{ onSignIn: () => void }> = (props) => (
@@ -674,8 +714,8 @@ const LoanModal: Component<{ items: InventoryItem[]; selected: InventoryItem | n
   return <ModalShell label="Request a loan" eyebrow="Cross-team access" title="Request a loan" description="An internal lead or inventory admin will review it." onClose={props.onClose}><Show when={props.items.length > 0} fallback={<div class="iv-modal-empty">No items are available to request.</div>}><form class="iv-form" onSubmit={(event) => void submit(event)}><label><span>Item</span><select required value={itemId()} onChange={(event) => setItemId(event.currentTarget.value)}><For each={props.items.filter((item) => item.status !== 'retired' && item.status !== 'maintenance')}>{(item) => <option value={item._id}>{item.name} · {item.assetCode}</option>}</For></select></label><label><span>Your team</span><input required placeholder="Aerodynamics" value={team()} onInput={(event) => setTeam(event.currentTarget.value)} /></label><div class="iv-field-grid"><label><span>Start</span><input required type="datetime-local" value={start()} onInput={(event) => setStart(event.currentTarget.value)} /></label><label><span>Return by</span><input required type="datetime-local" value={due()} onInput={(event) => setDue(event.currentTarget.value)} /></label></div><label><span>What is it for?</span><textarea required rows="3" value={purpose()} onInput={(event) => setPurpose(event.currentTarget.value)} /></label><div class="iv-approval-line"><b>01</b><span>Internal lead</span><i /><b>02</b><span>Inventory record</span></div><Show when={error()}><div class="iv-form-error">{error()}</div></Show><button class="iv-primary" disabled={busy()}>{busy() ? 'Sending…' : 'Send for approval'}</button></form></Show></ModalShell>;
 };
 
-const QrModal: Component<{ item: InventoryItem; onClose: () => void }> = (props) => (
-  <ModalShell label={`QR label for ${props.item.assetCode}`} eyebrow="Print item label" title={props.item.assetCode} description="Print this label and stick it securely to the item." onClose={props.onClose}><div class="iv-qr-sheet"><div class="iv-print-label"><QrMark assetCode={props.item.assetCode} printable /><div><strong>{props.item.assetCode}</strong><span>{props.item.name}</span><small>Home · {props.item.homeLocation}</small></div></div><dl><div><dt>Recommended size</dt><dd>3 cm × 3 cm</dd></div><div><dt>Item code</dt><dd>{props.item.assetCode}</dd></div><div><dt>Home</dt><dd>{props.item.homeLocation}</dd></div></dl><button class="iv-primary" onClick={() => window.print()}><Icon name="qr" />Print label</button></div></ModalShell>
+const QrModal: Component<{ item: InventoryItem; onClose: () => void; onPrint: () => void }> = (props) => (
+  <ModalShell label={`QR label for ${props.item.assetCode}`} eyebrow="Print item label" title={props.item.assetCode} description="Print this label and stick it securely to the item." onClose={props.onClose}><div class="iv-qr-sheet"><div class="iv-print-label"><QrMark assetCode={props.item.assetCode} printable /><div><strong>{props.item.assetCode}</strong><span>{props.item.name}</span><small>Home · {props.item.homeLocation}</small></div></div><dl><div><dt>Recommended size</dt><dd>3 cm × 3 cm</dd></div><div><dt>Item code</dt><dd>{props.item.assetCode}</dd></div><div><dt>Home</dt><dd>{props.item.homeLocation}</dd></div></dl><button class="iv-primary" onClick={props.onPrint}><Icon name="qr" />Print label</button></div></ModalShell>
 );
 
 export default InventoryPrototype;
