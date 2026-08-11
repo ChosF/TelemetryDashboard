@@ -49,6 +49,7 @@ class OptimalSpeedOptimizerTests(unittest.TestCase):
                 power,
                 timestamp=index * self.SAMPLE_INTERVAL,
                 road_grade=grade,
+                acceleration_ms2=acceleration,
             )
             result = optimizer.optimize()
             previous_speed = speed
@@ -91,7 +92,7 @@ class OptimalSpeedOptimizerTests(unittest.TestCase):
         self.assertFalse(optimizer.add_sample(1.0, 250.0, timestamp=1.0))
         self.assertEqual(optimizer.count, 1)
 
-    def test_does_not_recommend_from_repeated_single_speed(self):
+    def test_stable_single_speed_produces_supported_empirical_target(self):
         optimizer = OptimalSpeedOptimizer(update_interval=1)
         for index in range(250):
             speed = 8.0
@@ -103,8 +104,62 @@ class OptimalSpeedOptimizerTests(unittest.TestCase):
 
         result = optimizer.optimize()
         self.assertEqual(result["optimal_speed_data_points"], 250)
+        self.assertAlmostEqual(result["optimal_speed_ms"], 8.0, delta=0.05)
+        self.assertAlmostEqual(result["optimal_speed_kmh"], 28.8, delta=0.1)
+        self.assertGreaterEqual(result["optimal_speed_confidence"], 0.5)
+        self.assertLessEqual(result["optimal_speed_confidence"], 0.65)
+        self.assertEqual(
+            result["optimal_speed_range"],
+            {
+                "min_kmh": 28.8,
+                "max_kmh": 29.7,
+                "efficiency_km_kwh": round(
+                    8.0 * 3600.0 / self._power_for(8.0), 2
+                ),
+            },
+        )
+
+    def test_short_single_speed_run_does_not_recommend(self):
+        optimizer = OptimalSpeedOptimizer(update_interval=1)
+        for index in range(25):
+            optimizer.add_sample(
+                8.0,
+                self._power_for(8.0),
+                timestamp=index * self.SAMPLE_INTERVAL,
+            )
+
+        result = optimizer.optimize()
         self.assertIsNone(result["optimal_speed_ms"])
         self.assertEqual(result["optimal_speed_confidence"], 0.0)
+
+    def test_quantized_real_run_shape_produces_cruise_recommendation(self):
+        optimizer = OptimalSpeedOptimizer(update_interval=5)
+        result = optimizer.optimize()
+
+        for index in range(1200):
+            if index < 100:
+                speed = round((2.0 + index * 0.04) * 20.0) / 20.0
+            elif index < 1000:
+                speed = 6.0 + (index % 6) * 0.04
+            else:
+                speed = round((6.2 - (index - 1000) * 0.021) * 20.0) / 20.0
+                speed = max(2.0, speed)
+            power = 114.0 + 9.0 * math.sin(index * 0.19)
+            optimizer.add_sample(
+                speed,
+                power,
+                timestamp=index * self.SAMPLE_INTERVAL,
+                g_lat=0.0,
+                gyro_z=0.0,
+            )
+            result = optimizer.optimize()
+
+        self.assertGreater(result["optimal_speed_data_points"], 1000)
+        self.assertIsNotNone(result["optimal_speed_ms"])
+        self.assertGreaterEqual(result["optimal_speed_kmh"], 21.6)
+        self.assertLessEqual(result["optimal_speed_kmh"], 22.5)
+        self.assertAlmostEqual(result["optimal_efficiency_km_kwh"], 193.0, delta=10.0)
+        self.assertGreaterEqual(result["optimal_speed_confidence"], 0.5)
 
     def test_poor_fit_cannot_be_overridden_by_large_sample_count(self):
         optimizer = OptimalSpeedOptimizer(update_interval=1)
@@ -219,6 +274,7 @@ class OptimalSpeedOptimizerTests(unittest.TestCase):
                 speed,
                 power,
                 timestamp=index * self.SAMPLE_INTERVAL,
+                acceleration_ms2=acceleration,
             )
             optimizer.optimize()
             previous_speed = speed

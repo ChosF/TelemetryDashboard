@@ -915,9 +915,9 @@ class TelemetryCalculator:
             except (TypeError, ValueError):
                 road_grade = None
         
-        # Feed contextual data to the online estimator. Acceleration is derived
-        # from timestamped speed changes inside the optimizer so it follows the
-        # same speed source used by the power model.
+        # Feed contextual data to the online estimator. Prefer the vehicle-frame
+        # longitudinal acceleration for the physical model; a filtered speed
+        # derivative remains the fallback and identifies stable cruise bands.
         self._optimal_speed_optimizer.add_sample(
             speed,
             power,
@@ -926,6 +926,7 @@ class TelemetryCalculator:
             g_lat=g_lat,
             gyro_z=gyro_z,
             road_grade=road_grade,
+            acceleration_ms2=g_long * 9.80665,
         )
         
         # Get optimized result
@@ -935,6 +936,8 @@ class TelemetryCalculator:
         result["optimal_efficiency_km_kwh"] = optimal_result.get("optimal_efficiency_km_kwh")
         result["optimal_speed_confidence"] = optimal_result.get("optimal_speed_confidence", 0)
         result["optimal_speed_data_points"] = optimal_result.get("optimal_speed_data_points", 0)
+        if optimal_result.get("optimal_speed_range") is not None:
+            result["optimal_speed_range"] = optimal_result["optimal_speed_range"]
         
         # --- Motion State and Acceleration ---
         self.accel_magnitude_window.push(accel_mag)
@@ -1049,9 +1052,10 @@ class OptimalSpeedOptimizer:
     The terms are linear in their unknown coefficients, so recursive least
     squares (RLS) updates the model in constant memory without periodically
     refitting a sample buffer. Robust residual clipping limits sensor spikes,
-    while braking and hard-cornering samples are rejected. The recommendation
-    is evaluated at zero acceleration and zero grade and is constrained to the
-    speed range actually observed in the current session.
+    while braking and hard-cornering samples are rejected. When a session does
+    not span enough speeds to identify that model, a narrow-band distance and
+    energy estimate provides a conservative recommendation at a speed actually
+    sustained by the car. Both paths remain constrained to observed evidence.
     """
     MIN_DATA_POINTS = 60
     OPTIMAL_DATA_POINTS = 600
@@ -1063,6 +1067,12 @@ class OptimalSpeedOptimizer:
     OPTIMAL_COVERED_BINS = 8
     SPEED_RESOLUTION = 0.25
     SPEED_BIN_WIDTH = 1.0
+    EMPIRICAL_BIN_WIDTH = 0.25
+    EMPIRICAL_MIN_SECONDS = 15.0
+    EMPIRICAL_MIN_DISTANCE_M = 75.0
+    EMPIRICAL_MIN_POINTS = 30
+    EMPIRICAL_MAX_COST_CV = 0.35
+    SPEED_FILTER_TAU_SECONDS = 1.0
     CONFIDENCE_THRESHOLD = 0.3
     FEATURE_COUNT = 5
 
@@ -1095,13 +1105,24 @@ class OptimalSpeedOptimizer:
         self.optimal_speed_ms: Optional[float] = None
         self.optimal_speed_kmh: Optional[float] = None
         self.optimal_efficiency: Optional[float] = None
+        self.optimal_speed_range: Optional[Dict[str, float]] = None
         self.confidence = 0.0
-        self._last_speed_ms: Optional[float] = None
+        self._recommendation_method: Optional[str] = None
+        self._filtered_speed_ms: Optional[float] = None
         self._last_timestamp_s: Optional[float] = None
         self._min_speed_seen = math.inf
         self._max_speed_seen = -math.inf
         bin_count = int(math.ceil((self.max_speed - self.min_speed) / self.SPEED_BIN_WIDTH))
         self._speed_bin_counts = np.zeros(bin_count, dtype=np.int64)
+        empirical_bin_count = int(
+            math.ceil((self.max_speed - self.min_speed) / self.EMPIRICAL_BIN_WIDTH)
+        )
+        self._empirical_counts = np.zeros(empirical_bin_count, dtype=np.int64)
+        self._empirical_seconds = np.zeros(empirical_bin_count, dtype=np.float64)
+        self._empirical_distance_m = np.zeros(empirical_bin_count, dtype=np.float64)
+        self._empirical_energy_j = np.zeros(empirical_bin_count, dtype=np.float64)
+        self._empirical_cost_mean = np.zeros(empirical_bin_count, dtype=np.float64)
+        self._empirical_cost_m2 = np.zeros(empirical_bin_count, dtype=np.float64)
         self._power_mean = 0.0
         self._power_variance = 0.0
         self._residual_variance = 10000.0
@@ -1155,10 +1176,14 @@ class OptimalSpeedOptimizer:
                 dt = measured_dt
 
         acceleration = 0.0
-        if self._last_speed_ms is not None and dt > 0:
-            acceleration = (speed_ms - self._last_speed_ms) / dt
+        if self._filtered_speed_ms is None:
+            self._filtered_speed_ms = speed_ms
+        else:
+            previous_filtered_speed = self._filtered_speed_ms
+            smoothing = dt / (self.SPEED_FILTER_TAU_SECONDS + dt)
+            self._filtered_speed_ms += smoothing * (speed_ms - self._filtered_speed_ms)
+            acceleration = (self._filtered_speed_ms - previous_filtered_speed) / dt
 
-        self._last_speed_ms = speed_ms
         if timestamp_s is not None:
             self._last_timestamp_s = timestamp_s
         return dt, acceleration
@@ -1173,6 +1198,7 @@ class OptimalSpeedOptimizer:
         g_lat: Optional[float] = None,
         gyro_z: float = 0.0,
         road_grade: Optional[float] = None,
+        acceleration_ms2: Optional[float] = None,
     ) -> bool:
         """Update the RLS model with one clean telemetry sample.
 
@@ -1183,7 +1209,7 @@ class OptimalSpeedOptimizer:
         if speed is None or power is None:
             return False
 
-        dt, acceleration = self._sample_timing(speed, timestamp)
+        dt, filtered_speed_acceleration = self._sample_timing(speed, timestamp)
         if speed < self.min_speed or speed > self.max_speed:
             return False
         if power <= 0 or power > 10000:
@@ -1196,14 +1222,19 @@ class OptimalSpeedOptimizer:
             return False
         if lateral_g is not None and abs(lateral_g) > 0.35:
             return False
-        if abs(acceleration) > 6.0:
+        measured_acceleration = self._finite_float(acceleration_ms2)
+        if measured_acceleration is not None and abs(measured_acceleration) <= 6.0:
+            model_acceleration = measured_acceleration
+        else:
+            model_acceleration = filtered_speed_acceleration
+        if abs(model_acceleration) > 6.0:
             return False
 
         grade = self._finite_float(road_grade)
         if grade is None or abs(grade) > 0.30:
             grade = 0.0
 
-        features = self._features(speed, acceleration, grade)
+        features = self._features(speed, model_acceleration, grade)
         predicted_power = float(features @ self.coefficients)
         residual = power - predicted_power
         residual_scale = math.sqrt(max(self._residual_variance, 1.0))
@@ -1252,6 +1283,28 @@ class OptimalSpeedOptimizer:
             max(0, int((speed - self.min_speed) / self.SPEED_BIN_WIDTH)),
         )
         self._speed_bin_counts[bin_index] += 1
+
+        # Direct distance/energy evidence is more reliable than an instantaneous
+        # derivative when the wheel-speed signal is quantized. Keep a parallel
+        # empirical cruise map as a supported-speed fallback for real runs that
+        # spend most of their time at one stable pace.
+        if abs(filtered_speed_acceleration) <= 0.5:
+            empirical_index = min(
+                len(self._empirical_counts) - 1,
+                max(0, int((speed - self.min_speed) / self.EMPIRICAL_BIN_WIDTH)),
+            )
+            self._empirical_counts[empirical_index] += 1
+            self._empirical_seconds[empirical_index] += dt
+            self._empirical_distance_m[empirical_index] += speed * dt
+            self._empirical_energy_j[empirical_index] += power * dt
+            cost_j_m = power / speed
+            cost_delta = cost_j_m - self._empirical_cost_mean[empirical_index]
+            self._empirical_cost_mean[empirical_index] += (
+                cost_delta / self._empirical_counts[empirical_index]
+            )
+            self._empirical_cost_m2[empirical_index] += cost_delta * (
+                cost_j_m - self._empirical_cost_mean[empirical_index]
+            )
         return True
 
     def _confidence_for(self, speed_ms: float, predicted_power: float) -> float:
@@ -1299,8 +1352,121 @@ class OptimalSpeedOptimizer:
         # requiring residual quality for a publishable recommendation.
         return evidence_confidence * (0.25 + 0.75 * fit_confidence)
 
+    def _empirical_candidate(self) -> Optional[Dict[str, Any]]:
+        """Return the best directly observed, stable cruise-speed band.
+
+        Integrating energy and distance over a narrow speed band avoids using
+        noisy wheel-speed derivatives. A single supported band can therefore
+        produce a useful recommendation, but its confidence is capped because
+        the session did not compare it with several alternative speeds.
+        """
+        total_distance = float(np.sum(self._empirical_distance_m))
+        if total_distance <= 0:
+            return None
+
+        candidates = []
+        for index, count_value in enumerate(self._empirical_counts):
+            count = int(count_value)
+            seconds = float(self._empirical_seconds[index])
+            distance_m = float(self._empirical_distance_m[index])
+            energy_j = float(self._empirical_energy_j[index])
+            if (
+                count < self.EMPIRICAL_MIN_POINTS
+                or seconds < self.EMPIRICAL_MIN_SECONDS
+                or distance_m < self.EMPIRICAL_MIN_DISTANCE_M
+                or energy_j <= 0
+            ):
+                continue
+
+            mean_cost = energy_j / distance_m
+            if count > 1:
+                cost_variance = max(
+                    0.0, float(self._empirical_cost_m2[index]) / (count - 1)
+                )
+                cost_cv = math.sqrt(cost_variance) / max(
+                    float(self._empirical_cost_mean[index]), 1e-9
+                )
+            else:
+                cost_cv = math.inf
+            if not math.isfinite(cost_cv) or cost_cv > self.EMPIRICAL_MAX_COST_CV:
+                continue
+
+            efficiency = 3600.0 / mean_cost
+            if not (0 < efficiency < 500):
+                continue
+
+            speed_ms = distance_m / seconds
+            stability_confidence = max(
+                0.0, 1.0 - cost_cv / self.EMPIRICAL_MAX_COST_CV
+            )
+            confidence = (
+                0.20
+                + 0.15 * min(1.0, seconds / self.OPTIMAL_EVIDENCE_SECONDS)
+                + 0.15 * min(1.0, distance_m / 500.0)
+                + 0.10 * min(1.0, count / self.OPTIMAL_DATA_POINTS)
+                + 0.20 * stability_confidence
+                + 0.20 * min(1.0, distance_m / total_distance)
+            )
+            candidates.append(
+                {
+                    "index": index,
+                    "speed_ms": speed_ms,
+                    "efficiency": efficiency,
+                    "confidence": confidence,
+                    # Penalize unstable bands when choosing among otherwise
+                    # similar observed energy costs.
+                    "selection_cost": mean_cost * (1.0 + 0.15 * cost_cv),
+                }
+            )
+
+        if not candidates:
+            return None
+
+        candidate = min(candidates, key=lambda item: item["selection_cost"])
+        confidence_cap = 0.65 if len(candidates) == 1 else 0.85
+        candidate["confidence"] = min(confidence_cap, candidate["confidence"])
+
+        # With several tested bands, an edge winner still may improve beyond
+        # the observed range. Keep it visible, but lower its certainty.
+        candidate_indices = sorted(item["index"] for item in candidates)
+        if len(candidate_indices) >= 3 and candidate["index"] in (
+            candidate_indices[0],
+            candidate_indices[-1],
+        ):
+            candidate["confidence"] *= 0.65
+
+        band_min = self.min_speed + candidate["index"] * self.EMPIRICAL_BIN_WIDTH
+        band_max = band_min + self.EMPIRICAL_BIN_WIDTH
+        candidate["range"] = {
+            "min_kmh": round(band_min * 3.6, 1),
+            "max_kmh": round(band_max * 3.6, 1),
+            "efficiency_km_kwh": round(candidate["efficiency"], 2),
+        }
+        return candidate
+
+    def _set_recommendation(
+        self,
+        *,
+        speed_ms: float,
+        efficiency: float,
+        confidence: float,
+        supported_range: Dict[str, float],
+        method: str,
+    ) -> None:
+        self.optimal_speed_ms = round(speed_ms, 2)
+        self.optimal_speed_kmh = round(speed_ms * 3.6, 1)
+        self.optimal_efficiency = round(efficiency, 1) if 0 < efficiency < 500 else None
+        self.optimal_speed_range = supported_range
+        self.confidence = round(max(0.0, min(1.0, confidence)), 2)
+        self._recommendation_method = method
+
     def optimize(self) -> Dict[str, Any]:
         """Return the best supported flat-road cruising speed."""
+        if self.samples_since_update < self.update_interval:
+            return self._get_result()
+        self.samples_since_update = 0
+
+        empirical_candidate = self._empirical_candidate()
         speed_span = self._max_speed_seen - self._min_speed_seen
         samples_per_bin = max(2, int(round(1.0 / self.sample_interval)))
         covered_bins = int(np.count_nonzero(self._speed_bin_counts >= samples_per_bin))
@@ -1311,11 +1477,15 @@ class OptimalSpeedOptimizer:
             and covered_bins >= self.MIN_COVERED_BINS
         )
         if not enough_evidence:
+            if empirical_candidate is not None:
+                self._set_recommendation(
+                    speed_ms=empirical_candidate["speed_ms"],
+                    efficiency=empirical_candidate["efficiency"],
+                    confidence=empirical_candidate["confidence"],
+                    supported_range=empirical_candidate["range"],
+                    method="empirical",
+                )
             return self._get_result()
-        if self.samples_since_update < self.update_interval and self.optimal_speed_ms is not None:
-            return self._get_result()
-
-        self.samples_since_update = 0
         try:
             lower = max(self.min_speed, self._min_speed_seen)
             upper = min(self.max_speed, self._max_speed_seen)
@@ -1360,7 +1530,7 @@ class OptimalSpeedOptimizer:
             confidence = self._confidence_for(optimal_speed, optimal_power)
             confidence *= boundary_confidence
 
-            if self.optimal_speed_ms is not None:
+            if self.optimal_speed_ms is not None and self._recommendation_method == "rls":
                 optimal_speed = 0.25 * optimal_speed + 0.75 * self.optimal_speed_ms
                 flat_at_smoothed = self._features(optimal_speed, 0.0, 0.0)
                 optimal_power = float(flat_at_smoothed @ self.coefficients)
@@ -1368,14 +1538,30 @@ class OptimalSpeedOptimizer:
             efficiency_km_kwh = (
                 optimal_speed * 3600.0 / optimal_power if optimal_power > 0 else 0.0
             )
-            self.optimal_speed_ms = round(optimal_speed, 2)
-            self.optimal_speed_kmh = round(optimal_speed * 3.6, 1)
-            self.optimal_efficiency = (
-                round(efficiency_km_kwh, 1)
-                if 0 < efficiency_km_kwh < 500
-                else None
-            )
-            self.confidence = round(confidence, 2)
+            if (
+                empirical_candidate is not None
+                and empirical_candidate["confidence"] > confidence
+            ):
+                self._set_recommendation(
+                    speed_ms=empirical_candidate["speed_ms"],
+                    efficiency=empirical_candidate["efficiency"],
+                    confidence=empirical_candidate["confidence"],
+                    supported_range=empirical_candidate["range"],
+                    method="empirical",
+                )
+            else:
+                supported_range = {
+                    "min_kmh": round(max(lower, optimal_speed - 0.5) * 3.6, 1),
+                    "max_kmh": round(min(upper, optimal_speed + 0.5) * 3.6, 1),
+                    "efficiency_km_kwh": round(efficiency_km_kwh, 2),
+                }
+                self._set_recommendation(
+                    speed_ms=optimal_speed,
+                    efficiency=efficiency_km_kwh,
+                    confidence=confidence,
+                    supported_range=supported_range,
+                    method="rls",
+                )
         except Exception as exc:
             logger.debug(f"Optimal speed RLS optimization error: {exc}")
 
@@ -1389,7 +1575,8 @@ class OptimalSpeedOptimizer:
                 "optimal_speed_kmh": None,
                 "optimal_efficiency_km_kwh": None,
                 "optimal_speed_confidence": round(self.confidence, 2),
-                "optimal_speed_data_points": self.count
+                "optimal_speed_data_points": self.count,
+                "optimal_speed_range": None,
             }
         
         return {
@@ -1397,7 +1584,8 @@ class OptimalSpeedOptimizer:
             "optimal_speed_kmh": self.optimal_speed_kmh,
             "optimal_efficiency_km_kwh": self.optimal_efficiency,
             "optimal_speed_confidence": self.confidence,
-            "optimal_speed_data_points": self.count
+            "optimal_speed_data_points": self.count,
+            "optimal_speed_range": self.optimal_speed_range,
         }
 
 
