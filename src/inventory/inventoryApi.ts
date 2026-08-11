@@ -47,6 +47,22 @@ export interface InventoryLoan {
   updatedAt: number;
 }
 
+export interface InventoryMovement {
+  _id: string;
+  _creationTime: number;
+  itemId: string;
+  assetCode: string;
+  fromLocation: string;
+  toLocation: string;
+  fromStatus: string;
+  toStatus: string;
+  actorUserId: string;
+  actorName: string;
+  actorRole: string;
+  note?: string;
+  createdAt: number;
+}
+
 interface InventoryClient {
   query: (name: string, args: Record<string, unknown>) => Promise<unknown>;
   mutation: (name: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -92,6 +108,17 @@ export async function getItemByAssetCode(assetCode: string): Promise<InventoryIt
   }) as InventoryItem | null;
 }
 
+export async function getInventoryItemHistory(itemId: string): Promise<InventoryMovement[]> {
+  try {
+    return await client().query('inventory:listItemHistory', {
+      token: token(),
+      itemId,
+    }) as InventoryMovement[];
+  } catch (error) {
+    throw new Error(messageFromError(error));
+  }
+}
+
 export async function createInventoryItem(input: {
   assetCode: string;
   name: string;
@@ -119,6 +146,14 @@ export async function recordInventoryMovement(input: {
 }): Promise<void> {
   try {
     await client().mutation('inventory:recordMovement', { token: token(), ...input });
+  } catch (error) {
+    throw new Error(messageFromError(error));
+  }
+}
+
+export async function deleteInventoryItem(itemId: string): Promise<void> {
+  try {
+    await client().mutation('inventory:deleteItem', { token: token(), itemId });
   } catch (error) {
     throw new Error(messageFromError(error));
   }
@@ -161,6 +196,14 @@ export async function cancelInventoryLoan(requestId: string): Promise<void> {
 export async function markInventoryLoanReturned(requestId: string): Promise<void> {
   try {
     await client().mutation('inventory:markLoanReturned', { token: token(), requestId });
+  } catch (error) {
+    throw new Error(messageFromError(error));
+  }
+}
+
+export async function deleteInventoryLoan(requestId: string): Promise<void> {
+  try {
+    await client().mutation('inventory:deleteLoan', { token: token(), requestId });
   } catch (error) {
     throw new Error(messageFromError(error));
   }

@@ -380,6 +380,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_created_at", ["createdAt"])
+    .index("by_item_created_at", ["itemId", "createdAt"])
     .index("by_status_created_at", ["status", "createdAt"])
     .index("by_requester_created_at", ["requesterUserId", "createdAt"])
     .index("by_requester_item_status", ["requesterUserId", "itemId", "status"]),

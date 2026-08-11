@@ -62,6 +62,22 @@ const loanValidator = v.object({
   updatedAt: v.number(),
 });
 
+const movementValidator = v.object({
+  _id: v.id("inventoryMovements"),
+  _creationTime: v.number(),
+  itemId: v.id("inventoryItems"),
+  assetCode: v.string(),
+  fromLocation: v.string(),
+  toLocation: v.string(),
+  fromStatus: v.string(),
+  toStatus: v.string(),
+  actorUserId: v.id("authUsers"),
+  actorName: v.string(),
+  actorRole: v.string(),
+  note: v.optional(v.string()),
+  createdAt: v.number(),
+});
+
 type InventoryCtx = QueryCtx | MutationCtx;
 type ApprovedProfile = {
   userId: Id<"authUsers">;
@@ -156,6 +172,19 @@ export const getItemByAssetCode = query({
       .query("inventoryItems")
       .withIndex("by_asset_code", (q) => q.eq("assetCode", normalizedAssetCode(args.assetCode)))
       .unique();
+  },
+});
+
+export const listItemHistory = query({
+  args: { token: v.optional(v.string()), itemId: v.id("inventoryItems") },
+  returns: v.array(movementValidator),
+  handler: async (ctx, args) => {
+    await requireApprovedProfile(ctx, args.token);
+    return await ctx.db
+      .query("inventoryMovements")
+      .withIndex("by_item_created_at", (q) => q.eq("itemId", args.itemId))
+      .order("desc")
+      .take(200);
   },
 });
 
@@ -268,6 +297,44 @@ export const recordMovement = mutation({
       createdAt: now,
     });
     return { success: true, updatedAt: now };
+  },
+});
+
+export const deleteItem = mutation({
+  args: { token: v.optional(v.string()), itemId: v.id("inventoryItems") },
+  returns: v.object({
+    success: v.boolean(),
+    deletedMovements: v.number(),
+    deletedLoans: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const item = await ctx.db.get(args.itemId);
+    if (!item) {
+      return { success: true, deletedMovements: 0, deletedLoans: 0 };
+    }
+
+    const [movements, loans] = await Promise.all([
+      ctx.db
+        .query("inventoryMovements")
+        .withIndex("by_item_created_at", (q) => q.eq("itemId", item._id))
+        .collect(),
+      ctx.db
+        .query("inventoryLoanRequests")
+        .withIndex("by_item_created_at", (q) => q.eq("itemId", item._id))
+        .collect(),
+    ]);
+
+    await Promise.all([
+      ...movements.map((movement) => ctx.db.delete(movement._id)),
+      ...loans.map((loan) => ctx.db.delete(loan._id)),
+    ]);
+    await ctx.db.delete(item._id);
+    return {
+      success: true,
+      deletedMovements: movements.length,
+      deletedLoans: loans.length,
+    };
   },
 });
 
@@ -427,5 +494,60 @@ export const markLoanReturned = mutation({
       });
     }
     return { success: true };
+  },
+});
+
+export const deleteLoan = mutation({
+  args: { token: v.optional(v.string()), requestId: v.id("inventoryLoanRequests") },
+  returns: v.object({ success: v.boolean(), itemRestored: v.boolean() }),
+  handler: async (ctx, args) => {
+    const actor = await requireAdmin(ctx, args.token);
+    const request = await ctx.db.get(args.requestId);
+    if (!request) return { success: true, itemRestored: false };
+
+    let itemRestored = false;
+    if (request.status === "approved") {
+      const [item, itemLoans] = await Promise.all([
+        ctx.db.get(request.itemId),
+        ctx.db
+          .query("inventoryLoanRequests")
+          .withIndex("by_item_created_at", (q) => q.eq("itemId", request.itemId))
+          .collect(),
+      ]);
+      const hasAnotherApprovedLoan = itemLoans.some(
+        (loan) => loan._id !== request._id && loan.status === "approved",
+      );
+      if (
+        item?.active &&
+        !hasAnotherApprovedLoan &&
+        (item.status === "reserved" || item.status === "on_loan")
+      ) {
+        const now = Date.now();
+        const name = actorName(actor.profile);
+        await ctx.db.patch(item._id, {
+          status: "available",
+          updatedBy: actor.userId,
+          updatedByName: name,
+          updatedAt: now,
+        });
+        await ctx.db.insert("inventoryMovements", {
+          itemId: item._id,
+          assetCode: item.assetCode,
+          fromLocation: item.currentLocation,
+          toLocation: item.currentLocation,
+          fromStatus: item.status,
+          toStatus: "available",
+          actorUserId: actor.userId,
+          actorName: name,
+          actorRole: actor.profile.role,
+          note: "Active loan record deleted by an administrator",
+          createdAt: now,
+        });
+        itemRestored = true;
+      }
+    }
+
+    await ctx.db.delete(request._id);
+    return { success: true, itemRestored };
   },
 });

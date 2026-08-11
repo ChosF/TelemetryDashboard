@@ -11,13 +11,17 @@ import {
   type JSX,
 } from 'solid-js';
 import QRCode from 'qrcode';
+import jsQR from 'jsqr';
 import { authStore } from '@/stores/auth';
 import {
   cancelInventoryLoan,
   createInventoryItem,
   createInventoryLoan,
+  deleteInventoryItem,
+  deleteInventoryLoan,
   decideInventoryLoan,
   getItemByAssetCode,
+  getInventoryItemHistory,
   markInventoryLoanReturned,
   recordInventoryMovement,
   watchInventoryItems,
@@ -26,11 +30,12 @@ import {
   type InventoryItemStatus,
   type InventoryLoan,
   type InventoryLoanStatus,
+  type InventoryMovement,
 } from './inventoryApi';
 
 type Section = 'overview' | 'items' | 'loans';
-type Modal = 'auth' | 'account' | 'add' | 'scan' | 'item' | 'movement' | 'loan' | 'qr' | null;
-type IconName = 'home' | 'items' | 'loan' | 'scan' | 'search' | 'plus' | 'user' | 'close' | 'arrow' | 'pin' | 'clock' | 'check' | 'qr' | 'shield';
+type Modal = 'auth' | 'account' | 'add' | 'scan' | 'item' | 'movement' | 'loan' | 'qr' | 'history' | 'deleteItem' | 'deleteLoan' | null;
+type IconName = 'home' | 'items' | 'loan' | 'scan' | 'search' | 'plus' | 'user' | 'close' | 'arrow' | 'pin' | 'clock' | 'check' | 'qr' | 'shield' | 'trash';
 
 const statusLabels: Record<InventoryItemStatus, string> = {
   available: 'Available',
@@ -65,6 +70,7 @@ const Icon: Component<{ name: IconName }> = (props) => (
       <Match when={props.name === 'check'}><path d="m5 12 4 4L19 6" /></Match>
       <Match when={props.name === 'qr'}><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM15 15h2v2h-2zM18 14h2v3h-2zM14 19h3M19 19h1" /></Match>
       <Match when={props.name === 'shield'}><path d="M12 3 5 6v5c0 4.6 2.7 8.3 7 10 4.3-1.7 7-5.4 7-10V6z" /><path d="m9 12 2 2 4-5" /></Match>
+      <Match when={props.name === 'trash'}><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6" /></Match>
     </Switch>
   </svg>
 );
@@ -129,6 +135,7 @@ const InventoryPrototype: Component = () => {
   const [loaded, setLoaded] = createSignal(false);
   const [search, setSearch] = createSignal('');
   const [selectedItem, setSelectedItem] = createSignal<InventoryItem | null>(null);
+  const [selectedLoan, setSelectedLoan] = createSignal<InventoryLoan | null>(null);
   const [toast, setToast] = createSignal('');
 
   const isApproved = createMemo(() => authStore.isAuthenticated() && authStore.user()?.approval_status === 'approved' && authStore.userRole() !== 'guest');
@@ -266,7 +273,7 @@ const InventoryPrototype: Component = () => {
               <section class="iv-page">
                 <SectionHeading eyebrow={canManage() ? 'Approval workspace' : 'Your requests'} title="Loans" action={items().length > 0 ? 'New loan' : undefined} onAction={() => openLoan()} />
                 <Show when={loans().length > 0} fallback={<EmptyLoans hasItems={items().length > 0} onCreate={() => openLoan()} />}>
-                  <div class="iv-loan-grid"><For each={loans()}>{(loan) => <LoanCard loan={loan} canManage={canManage()} currentUserId={authStore.user()?.userId ?? ''} onNotify={notify} />}</For></div>
+                  <div class="iv-loan-grid"><For each={loans()}>{(loan) => <LoanCard loan={loan} canManage={canManage()} isAdmin={isAdmin()} currentUserId={authStore.user()?.userId ?? ''} onNotify={notify} onDelete={() => { setSelectedLoan(loan); setModal('deleteLoan'); }} />}</For></div>
                 </Show>
               </section>
             </Match>
@@ -286,10 +293,13 @@ const InventoryPrototype: Component = () => {
       <Show when={modal() === 'account'}><AccountModal onClose={() => setModal(null)} onAdd={() => setModal('add')} /></Show>
       <Show when={modal() === 'add'}><AddItemModal onClose={() => setModal(null)} onCreated={async (code) => { const item = await getItemByAssetCode(code); setSelectedItem(item); setModal('qr'); notify(`${code} added to inventory`); }} /></Show>
       <Show when={modal() === 'scan'}><ScannerModal onClose={() => setModal(null)} onCode={openAsset} /></Show>
-      <Show when={modal() === 'item' && selectedItem()}>{(item) => <ItemModal item={item()} canManage={canManage()} onClose={() => setModal(null)} onMove={() => setModal('movement')} onLoan={() => openLoan(item())} onQr={() => setModal('qr')} />}</Show>
+      <Show when={modal() === 'item' && selectedItem()}>{(item) => <ItemModal item={item()} canManage={canManage()} isAdmin={isAdmin()} onClose={() => setModal(null)} onMove={() => setModal('movement')} onLoan={() => openLoan(item())} onQr={() => setModal('qr')} onHistory={() => setModal('history')} onDelete={() => setModal('deleteItem')} />}</Show>
       <Show when={modal() === 'movement' && selectedItem()}>{(item) => <MovementModal item={item()} onClose={() => setModal(null)} onSaved={() => { setModal(null); notify(`${item().assetCode} movement recorded`); }} />}</Show>
       <Show when={modal() === 'loan'}><LoanModal items={items()} selected={selectedItem()} onClose={() => setModal(null)} onSaved={() => { setModal(null); setSection('loans'); notify('Loan sent for approval'); }} /></Show>
       <Show when={modal() === 'qr' && selectedItem()}>{(item) => <QrModal item={item()} onClose={() => setModal(null)} />}</Show>
+      <Show when={modal() === 'history' && selectedItem()}>{(item) => <ItemHistoryModal item={item()} onClose={() => setModal('item')} />}</Show>
+      <Show when={modal() === 'deleteItem' && selectedItem()}>{(item) => <DeleteConfirmModal eyebrow="Admin / permanent deletion" title={`Delete ${item().assetCode}?`} description="This permanently removes the item, every loan tied to it, and its complete movement history. This cannot be undone." confirmLabel="Delete item and history" onClose={() => setModal('item')} onConfirm={async () => { const assetCode = item().assetCode; await deleteInventoryItem(item()._id); setSelectedItem(null); setModal(null); notify(`${assetCode} permanently deleted`); }} />}</Show>
+      <Show when={modal() === 'deleteLoan' && selectedLoan()}>{(loan) => <DeleteConfirmModal eyebrow="Admin / permanent deletion" title="Delete this loan?" description={`This permanently removes ${loan().requesterName}'s ${loan().assetCode} loan record. An active linked item will be restored to available.`} confirmLabel="Delete loan" onClose={() => { setSelectedLoan(null); setModal(null); }} onConfirm={async () => { await deleteInventoryLoan(loan()._id); setSelectedLoan(null); setModal(null); notify('Loan permanently deleted'); }} />}</Show>
       <Show when={toast()}><div class="iv-toast" role="status"><Icon name="check" />{toast()}</div></Show>
     </div>
   );
@@ -332,13 +342,15 @@ const ItemCard: Component<{ item: InventoryItem; onOpen: () => void }> = (props)
   </article>
 );
 
-const LoanCard: Component<{ loan: InventoryLoan; canManage: boolean; currentUserId: string; onNotify: (message: string) => void }> = (props) => {
+const LoanCard: Component<{ loan: InventoryLoan; canManage: boolean; isAdmin: boolean; currentUserId: string; onNotify: (message: string) => void; onDelete: () => void }> = (props) => {
   const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal('');
   const act = async (action: () => Promise<void>, message: string) => {
     setBusy(true);
-    try { await action(); props.onNotify(message); } finally { setBusy(false); }
+    setError('');
+    try { await action(); props.onNotify(message); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update loan'); } finally { setBusy(false); }
   };
-  return <article class="iv-loan-card"><header><span>{props.loan.assetCode}</span><Status value={props.loan.status} /></header><h3>{props.loan.itemName}</h3><p>{props.loan.purpose}</p><dl><div><dt>Requested by</dt><dd>{props.loan.requesterName} · {props.loan.requesterTeam}</dd></div><div><dt>Loan window</dt><dd>{formatDate(props.loan.startAt)} — {formatDate(props.loan.dueAt)}</dd></div></dl><footer><Show when={props.canManage && props.loan.status === 'pending'}><button disabled={busy()} class="approve" onClick={() => void act(() => decideInventoryLoan(props.loan._id, 'approved'), 'Loan approved')}>Approve</button><button disabled={busy()} onClick={() => void act(() => decideInventoryLoan(props.loan._id, 'denied'), 'Loan denied')}>Deny</button></Show><Show when={props.canManage && props.loan.status === 'approved'}><button disabled={busy()} class="approve" onClick={() => void act(() => markInventoryLoanReturned(props.loan._id), 'Item marked returned')}>Mark returned</button></Show><Show when={props.loan.requesterUserId === props.currentUserId && props.loan.status === 'pending'}><button disabled={busy()} onClick={() => void act(() => cancelInventoryLoan(props.loan._id), 'Loan cancelled')}>Cancel request</button></Show></footer></article>;
+  return <article class="iv-loan-card"><header><span>{props.loan.assetCode}</span><Status value={props.loan.status} /></header><h3>{props.loan.itemName}</h3><p>{props.loan.purpose}</p><dl><div><dt>Requested by</dt><dd>{props.loan.requesterName} · {props.loan.requesterTeam}</dd></div><div><dt>Loan window</dt><dd>{formatDate(props.loan.startAt)} — {formatDate(props.loan.dueAt)}</dd></div></dl><Show when={error()}><div class="iv-card-error" role="alert">{error()}</div></Show><footer><Show when={props.canManage && props.loan.status === 'pending'}><button disabled={busy()} class="approve" onClick={() => void act(() => decideInventoryLoan(props.loan._id, 'approved'), 'Loan approved')}>Approve</button><button disabled={busy()} onClick={() => void act(() => decideInventoryLoan(props.loan._id, 'denied'), 'Loan denied')}>Deny</button></Show><Show when={props.canManage && props.loan.status === 'approved'}><button disabled={busy()} class="approve" onClick={() => void act(() => markInventoryLoanReturned(props.loan._id), 'Item marked returned')}>Mark returned</button></Show><Show when={props.loan.requesterUserId === props.currentUserId && props.loan.status === 'pending'}><button disabled={busy()} onClick={() => void act(() => cancelInventoryLoan(props.loan._id), 'Loan cancelled')}>Cancel request</button></Show><Show when={props.isAdmin}><button disabled={busy()} class="delete" onClick={props.onDelete}><Icon name="trash" />Delete</button></Show></footer></article>;
 };
 
 const ModalShell: Component<{ label: string; eyebrow: string; title: string; description?: string; onClose: () => void; children: JSX.Element }> = (props) => (
@@ -373,19 +385,190 @@ const AddItemModal: Component<{ onClose: () => void; onCreated: (code: string) =
 
 interface BarcodeDetectorLike { detect(source: HTMLVideoElement): Promise<Array<{ rawValue: string }>>; }
 type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorLike;
+type CameraState = 'idle' | 'requesting' | 'running' | 'unavailable';
+
+function cameraFailureMessage(cause: unknown): string {
+  if (!window.isSecureContext) return 'Camera access requires a secure HTTPS connection.';
+  if (cause instanceof DOMException) {
+    if (cause.name === 'NotAllowedError') return 'Camera access was blocked. Allow camera permission in your browser settings and try again.';
+    if (cause.name === 'NotFoundError') return 'No camera was found on this device.';
+    if (cause.name === 'NotReadableError') return 'The camera is already in use by another app.';
+  }
+  return 'The live camera could not start. Use the phone camera option below instead.';
+}
 
 const ScannerModal: Component<{ onClose: () => void; onCode: (value: string) => Promise<void> }> = (props) => {
-  const [manual, setManual] = createSignal(''); const [error, setError] = createSignal(''); const [camera, setCamera] = createSignal<'idle' | 'running' | 'unavailable'>('idle'); let video!: HTMLVideoElement; let stream: MediaStream | null = null; let frame = 0;
-  const stop = () => { window.cancelAnimationFrame(frame); stream?.getTracks().forEach((track) => track.stop()); stream = null; };
+  const [manual, setManual] = createSignal('');
+  const [error, setError] = createSignal('');
+  const [cameraMessage, setCameraMessage] = createSignal('');
+  const [camera, setCamera] = createSignal<CameraState>('idle');
+  let video!: HTMLVideoElement;
+  let stream: MediaStream | null = null;
+  let frame = 0;
+  let lastScanAt = 0;
+  let decoding = false;
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  let detector: BarcodeDetectorLike | null = null;
+
+  const stop = () => {
+    window.cancelAnimationFrame(frame);
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+    detector = null;
+    if (video) video.srcObject = null;
+  };
   onCleanup(stop);
-  const resolve = async (value: string) => { setError(''); try { stop(); await props.onCode(value); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Item not found'); } };
-  const start = async () => { const Detector = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector; if (!Detector || !navigator.mediaDevices?.getUserMedia) { setCamera('unavailable'); return; } try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); video.srcObject = stream; await video.play(); setCamera('running'); const detector = new Detector({ formats: ['qr_code'] }); const scan = async () => { if (!stream) return; const results = await detector.detect(video); if (results[0]?.rawValue) { await resolve(results[0].rawValue); return; } frame = window.requestAnimationFrame(() => void scan()); }; void scan(); } catch { setCamera('unavailable'); } };
-  return <ModalShell label="Scan item QR" eyebrow="Compact QR scanner" title="Scan item" description="Designed for small, high-contrast EcoVolt labels." onClose={() => { stop(); props.onClose(); }}><div class="iv-scanner"><div class="iv-camera"><video ref={video} muted playsinline /><div class="iv-scan-frame"><i /><i /><i /><i /><span /></div><Show when={camera() !== 'running'}><Icon name="scan" /></Show></div><Show when={camera() === 'idle'}><button class="iv-primary" onClick={() => void start()}>Start camera</button></Show><Show when={camera() === 'unavailable'}><div class="iv-form-note">Camera QR detection is unavailable here. Enter the printed asset code below.</div></Show><form onSubmit={(event) => { event.preventDefault(); void resolve(manual()); }}><label><span>Asset code or QR value</span><input required placeholder="EV:TQ-017" value={manual()} onInput={(event) => setManual(event.currentTarget.value)} /></label><button class="iv-secondary">Open item</button></form><Show when={error()}><div class="iv-form-error">{error()}</div></Show></div></ModalShell>;
+
+  const resolve = async (value: string) => {
+    setError('');
+    try {
+      stop();
+      await props.onCode(value);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Item not found');
+      setCamera('idle');
+    }
+  };
+
+  const decodeCanvas = (): string | null => {
+    if (!context || canvas.width === 0 || canvas.height === 0) return null;
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    return jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'attemptBoth' })?.data ?? null;
+  };
+
+  const scan = async (timestamp: number) => {
+    if (!stream) return;
+    frame = window.requestAnimationFrame((nextTimestamp) => void scan(nextTimestamp));
+    if (decoding || timestamp - lastScanAt < 160 || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    lastScanAt = timestamp;
+    decoding = true;
+    try {
+      if (detector) {
+        try {
+          const result = await detector.detect(video);
+          if (result[0]?.rawValue) {
+            await resolve(result[0].rawValue);
+            return;
+          }
+        } catch {
+          detector = null;
+        }
+      }
+
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      if (!width || !height || !context) return;
+      const scale = Math.min(1, 1280 / width);
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const value = decodeCanvas();
+      if (value) await resolve(value);
+    } finally {
+      decoding = false;
+    }
+  };
+
+  const start = async () => {
+    if (camera() === 'requesting' || camera() === 'running') return;
+    setError('');
+    setCameraMessage('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCamera('unavailable');
+      setCameraMessage(cameraFailureMessage(new Error('MediaDevices unavailable')));
+      return;
+    }
+    setCamera('requesting');
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      await video.play();
+      const Detector = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+      try {
+        detector = Detector ? new Detector({ formats: ['qr_code'] }) : null;
+      } catch {
+        detector = null;
+      }
+      setCamera('running');
+      frame = window.requestAnimationFrame((timestamp) => void scan(timestamp));
+    } catch (cause) {
+      stop();
+      setCamera('unavailable');
+      setCameraMessage(cameraFailureMessage(cause));
+    }
+  };
+
+  const decodePhoto = async (file: File | undefined) => {
+    if (!file || !context) return;
+    setError('');
+    const imageUrl = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      await new Promise<void>((resolveImage, rejectImage) => {
+        image.onload = () => resolveImage();
+        image.onerror = () => rejectImage(new Error('The selected photo could not be opened'));
+        image.src = imageUrl;
+      });
+      const scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const value = decodeCanvas();
+      if (!value) throw new Error('No QR code was found in that image. Move closer and try again.');
+      await resolve(value);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not read that image');
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  };
+
+  return <ModalShell label="Scan item QR" eyebrow="Compact QR scanner" title="Scan item" description="Designed for small, high-contrast EcoVolt labels." onClose={() => { stop(); props.onClose(); }}><div class="iv-scanner"><div class="iv-camera"><video ref={video} autoplay muted playsinline /><div class="iv-scan-frame"><i /><i /><i /><i /><span /></div><Show when={camera() !== 'running'}><Icon name="scan" /></Show><Show when={camera() === 'requesting'}><span class="iv-camera-state">Waiting for camera permission…</span></Show></div><Show when={camera() === 'idle'}><button class="iv-primary" onClick={() => void start()}><Icon name="scan" />Start rear camera</button></Show><Show when={camera() === 'requesting'}><button class="iv-primary" disabled>Opening camera…</button></Show><Show when={camera() === 'running'}><div class="iv-camera-ready"><i />Camera ready · hold the QR inside the frame</div></Show><Show when={camera() === 'unavailable'}><div class="iv-form-note" role="status">{cameraMessage()}</div><label class="iv-secondary iv-capture-button"><Icon name="scan" />Use phone camera or photo<input type="file" accept="image/*" capture="environment" onChange={(event) => void decodePhoto(event.currentTarget.files?.[0])} /></label><button class="iv-secondary" onClick={() => void start()}>Try live camera again</button></Show><form onSubmit={(event) => { event.preventDefault(); void resolve(manual()); }}><label><span>Asset code or QR value</span><input required placeholder="EV:TQ-017" value={manual()} onInput={(event) => setManual(event.currentTarget.value)} /></label><button class="iv-secondary">Open item</button></form><Show when={error()}><div class="iv-form-error" role="alert">{error()}</div></Show></div></ModalShell>;
 };
 
-const ItemModal: Component<{ item: InventoryItem; canManage: boolean; onClose: () => void; onMove: () => void; onLoan: () => void; onQr: () => void }> = (props) => (
-  <ModalShell label={`Item ${props.item.assetCode}`} eyebrow={`${props.item.category} / ${props.item.assetCode}`} title={props.item.name} description={props.item.description} onClose={props.onClose}><div class="iv-item-detail"><div class="iv-item-detail-top"><QrMark assetCode={props.item.assetCode} /><Status value={props.item.status} /></div><dl><div><dt>Current place</dt><dd>{props.item.currentLocation}</dd></div><div><dt>Home</dt><dd>{props.item.homeLocation}</dd></div><div><dt>Updated by</dt><dd>{props.item.updatedByName}</dd></div><div><dt>Updated</dt><dd>{formatDate(props.item.updatedAt)}</dd></div></dl><div class="iv-detail-actions"><Show when={props.canManage}><button class="iv-primary" onClick={props.onMove}><Icon name="scan" />Record movement</button></Show><button class="iv-secondary" onClick={props.onLoan}>Request loan</button><button class="iv-secondary" onClick={props.onQr}><Icon name="qr" />QR label</button></div></div></ModalShell>
+const ItemModal: Component<{ item: InventoryItem; canManage: boolean; isAdmin: boolean; onClose: () => void; onMove: () => void; onLoan: () => void; onQr: () => void; onHistory: () => void; onDelete: () => void }> = (props) => (
+  <ModalShell label={`Item ${props.item.assetCode}`} eyebrow={`${props.item.category} / ${props.item.assetCode}`} title={props.item.name} description={props.item.description} onClose={props.onClose}><div class="iv-item-detail"><div class="iv-item-detail-top"><QrMark assetCode={props.item.assetCode} /><Status value={props.item.status} /></div><dl><div><dt>Current place</dt><dd>{props.item.currentLocation}</dd></div><div><dt>Home</dt><dd>{props.item.homeLocation}</dd></div><div><dt>Updated by</dt><dd>{props.item.updatedByName}</dd></div><div><dt>Updated</dt><dd>{formatDate(props.item.updatedAt)}</dd></div></dl><div class="iv-detail-actions"><Show when={props.canManage}><button class="iv-primary" onClick={props.onMove}><Icon name="scan" />Record movement</button></Show><button class="iv-secondary" onClick={props.onHistory}><Icon name="clock" />View history</button><button class="iv-secondary" onClick={props.onLoan}>Request loan</button><button class="iv-secondary" onClick={props.onQr}><Icon name="qr" />QR label</button><Show when={props.isAdmin}><button class="iv-danger iv-delete-item" onClick={props.onDelete}><Icon name="trash" />Delete item permanently</button></Show></div></div></ModalShell>
 );
+
+const ItemHistoryModal: Component<{ item: InventoryItem; onClose: () => void }> = (props) => {
+  const [movements, setMovements] = createSignal<InventoryMovement[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [error, setError] = createSignal('');
+  let active = true;
+  onCleanup(() => { active = false; });
+  createEffect(() => {
+    const itemId = props.item._id;
+    setLoading(true);
+    setError('');
+    void getInventoryItemHistory(itemId)
+      .then((entries) => { if (active) setMovements(entries); })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Could not load item history'); })
+      .finally(() => { if (active) setLoading(false); });
+  });
+
+  return <ModalShell label={`History for ${props.item.assetCode}`} eyebrow={`${props.item.category} / ${props.item.assetCode}`} title="Item history" description="A newest-first record of every place, status, and handoff." onClose={props.onClose}><div class="iv-history"><div class="iv-history-summary"><div><span>Current place</span><strong>{props.item.currentLocation}</strong></div><div><span>Current status</span><Status value={props.item.status} /></div><div><span>Recorded moves</span><strong>{movements().length.toString().padStart(2, '0')}</strong></div></div><div class="iv-history-heading"><span class="iv-eyebrow">Movement log</span><small>Newest first</small></div><Show when={!loading()} fallback={<div class="iv-history-loading"><Icon name="clock" />Loading history…</div>}><Show when={!error()} fallback={<div class="iv-form-error" role="alert">{error()}</div>}><ol class="iv-history-timeline"><For each={movements()}>{(entry, index) => <li><div class="iv-history-marker"><i /><span>{(movements().length - index()).toString().padStart(2, '0')}</span></div><article><header><time>{formatDate(entry.createdAt)}</time><span>{entry.actorName} · {entry.actorRole}</span></header><div class="iv-history-route"><Icon name="pin" /><div><Show when={entry.fromLocation !== entry.toLocation} fallback={<><small>Confirmed at</small><strong>{entry.toLocation}</strong></>}><small>{entry.fromLocation}</small><i /><strong>{entry.toLocation}</strong></Show></div></div><Show when={entry.fromStatus !== entry.toStatus}><div class="iv-history-status"><span>{statusLabels[entry.fromStatus as InventoryItemStatus] ?? entry.fromStatus}</span><Icon name="arrow" /><span>{statusLabels[entry.toStatus as InventoryItemStatus] ?? entry.toStatus}</span></div></Show><Show when={entry.note}><p>{entry.note}</p></Show></article></li>}</For><li class="registered"><div class="iv-history-marker"><i /><span>00</span></div><article><header><time>{formatDate(props.item.createdAt)}</time><span>{props.item.createdByName}</span></header><div class="iv-history-route"><Icon name="items" /><div><small>Item registered at</small><strong>{props.item.homeLocation}</strong></div></div></article></li></ol></Show></Show></div></ModalShell>;
+};
+
+const DeleteConfirmModal: Component<{ eyebrow: string; title: string; description: string; confirmLabel: string; onClose: () => void; onConfirm: () => Promise<void> }> = (props) => {
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal('');
+  const confirm = async () => {
+    setBusy(true);
+    setError('');
+    try { await props.onConfirm(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not delete this record'); setBusy(false); }
+  };
+  return <ModalShell label={props.title} eyebrow={props.eyebrow} title={props.title} description={props.description} onClose={busy() ? () => undefined : props.onClose}><div class="iv-delete-confirm"><div class="iv-delete-warning"><Icon name="trash" /><p><strong>Permanent action</strong><span>The deleted data cannot be recovered from the inventory.</span></p></div><Show when={error()}><div class="iv-form-error" role="alert">{error()}</div></Show><div><button class="iv-secondary" disabled={busy()} onClick={props.onClose}>Keep record</button><button class="iv-danger" disabled={busy()} onClick={() => void confirm()}><Icon name="trash" />{busy() ? 'Deleting…' : props.confirmLabel}</button></div></div></ModalShell>;
+};
 
 const MovementModal: Component<{ item: InventoryItem; onClose: () => void; onSaved: () => void }> = (props) => {
   const [location, setLocation] = createSignal(props.item.currentLocation); const [status, setStatus] = createSignal<InventoryItemStatus>(props.item.status); const [note, setNote] = createSignal(''); const [busy, setBusy] = createSignal(false); const [error, setError] = createSignal('');

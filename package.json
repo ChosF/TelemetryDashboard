@@ -21,6 +21,7 @@
     "@tanstack/solid-table": "^8.17.3",
     "ably": "^1.2.48",
     "convex": "^1.31.5",
+    "jsqr": "^1.4.0",
     "maplibre-gl": "^4.1.2",
     "pdf-parse": "^2.4.5",
     "qrcode": "^1.5.4",

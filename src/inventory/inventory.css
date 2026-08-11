@@ -141,6 +141,9 @@
   .iv-loan-card footer:empty { display: none; }
   .iv-loan-card footer button { @apply min-h-10 flex-1 border bg-transparent px-3; border-color: var(--iv-line-strong); color: var(--iv-muted); font-size: 8px; font-weight: 800; text-transform: uppercase; }
   .iv-loan-card footer button.approve { border-color: var(--iv-green); color: var(--iv-green); }
+  .iv-loan-card footer button.delete { @apply inline-flex items-center justify-center gap-1.5; border-color: color-mix(in srgb, var(--iv-red) 45%, var(--iv-line)); color: var(--iv-red); }
+  .iv-loan-card footer button.delete .iv-icon { @apply size-3.5; }
+  .iv-card-error { @apply mb-4 border border-red-700/30 bg-red-700/5 p-3 text-red-700; font-size: 8px; line-height: 1.5; }
 
   .iv-mobile-nav { @apply fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t; border-color: var(--iv-line-strong); background: rgba(255,253,250,.98); }
   .iv-mobile-nav button { @apply relative flex min-h-[68px] min-w-0 flex-col items-center justify-center gap-1 border-0 bg-transparent px-1; color: var(--iv-muted); font-size: 7px; font-weight: 800; }
@@ -175,12 +178,17 @@
   .iv-account-identity strong { @apply truncate; font-size: 10px; }
   .iv-account-identity small { color: var(--iv-quiet); font-size: 8px; }
   .iv-account-sheet > a { @apply flex min-h-12 items-center justify-between border px-4 no-underline; border-color: var(--iv-line-strong); color: var(--iv-text); font-size: 9px; font-weight: 800; }
-  .iv-danger { @apply min-h-12 border border-red-700/40 bg-transparent px-4 text-red-700; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+  .iv-danger { @apply inline-flex min-h-12 items-center justify-center gap-2 border border-red-700/40 bg-transparent px-4 text-red-700; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+  .iv-danger:hover { @apply border-red-700 bg-red-700 text-white; }
+  .iv-danger:disabled { @apply cursor-not-allowed opacity-45; }
 
   .iv-scanner { @apply grid gap-4 p-5; }
   .iv-camera { @apply relative grid min-h-[300px] place-items-center overflow-hidden border bg-[#111]; border-color: var(--iv-line-strong); color: var(--iv-orange); }
   .iv-camera video { @apply absolute inset-0 size-full object-cover; }
   .iv-camera > .iv-icon { @apply size-14 opacity-30; }
+  .iv-camera-state { @apply absolute bottom-5 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap border border-white/20 bg-black/70 px-3 py-2 text-white; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+  .iv-camera-ready { @apply flex items-center justify-center gap-2 border px-3 py-2 text-center; border-color: color-mix(in srgb, var(--iv-green) 35%, var(--iv-line)); color: var(--iv-green); font-size: 8px; font-weight: 800; text-transform: uppercase; }
+  .iv-camera-ready i { @apply size-1.5 rounded-full; background: currentColor; }
   .iv-scan-frame { @apply absolute left-1/2 top-1/2 z-10 size-44 -translate-x-1/2 -translate-y-1/2; }
   .iv-scan-frame i { @apply absolute size-10 border-[3px]; border-color: #ff6b35; }
   .iv-scan-frame i:nth-child(1) { @apply left-0 top-0 border-b-0 border-r-0; }
@@ -189,14 +197,17 @@
   .iv-scan-frame i:nth-child(4) { @apply bottom-0 right-0 border-l-0 border-t-0; }
   .iv-scan-frame span { @apply absolute inset-x-3 top-1/2 h-0.5 bg-[#ff6b35]; box-shadow: 0 0 12px #ff6b35; animation: iv-scanline 2s ease-in-out infinite; }
   .iv-scanner form { @apply grid grid-cols-[1fr_auto] items-end gap-2; }
+  .iv-capture-button { @apply cursor-pointer; }
+  .iv-capture-button input { @apply sr-only; }
 
   .iv-item-detail-top { @apply flex items-start justify-between gap-4 border p-4; border-color: var(--iv-line); background: #f8f5ef; }
   .iv-item-detail dl { @apply grid grid-cols-2 gap-px border; border-color: var(--iv-line); background: var(--iv-line); }
   .iv-item-detail dl div { @apply min-w-0 p-4; background: var(--iv-panel); }
   .iv-item-detail dt, .iv-qr-sheet dt { color: var(--iv-quiet); font: 700 7px/1 var(--font-mono); text-transform: uppercase; }
   .iv-item-detail dd, .iv-qr-sheet dd { @apply mt-2 ml-0 break-words; font-size: 9px; font-weight: 700; }
-  .iv-detail-actions { @apply grid gap-2 sm:grid-cols-2; }
-  .iv-detail-actions .iv-primary { @apply sm:col-span-2; }
+  .iv-detail-actions { @apply grid gap-2 sm:grid-cols-3; }
+  .iv-detail-actions .iv-primary { @apply sm:col-span-3; }
+  .iv-detail-actions .iv-delete-item { @apply mt-2 sm:col-span-3; }
   .iv-scanned-item { @apply grid grid-cols-[74px_minmax(0,1fr)] items-center gap-3 border p-4; border-color: var(--iv-line); background: #f8f5ef; }
   .iv-scanned-item > div { @apply flex min-w-0 flex-col gap-1; }
   .iv-scanned-item strong { @apply truncate; font-size: 11px; }
@@ -212,6 +223,44 @@
   .iv-approval-line span { font-size: 8px; font-weight: 800; }
   .iv-approval-line i { @apply h-px; background: var(--iv-line-strong); }
   .iv-modal-empty { @apply grid min-h-48 place-items-center p-6 text-center; color: var(--iv-muted); font-size: 10px; }
+  .iv-history { @apply grid gap-5 p-5; }
+  .iv-history-summary { @apply grid grid-cols-2 gap-px border; border-color: var(--iv-line); background: var(--iv-line); }
+  .iv-history-summary > div { @apply grid min-w-0 gap-2 p-4; background: var(--iv-panel); }
+  .iv-history-summary > div:first-child { @apply col-span-2; }
+  .iv-history-summary span:not(.iv-status) { color: var(--iv-quiet); font: 700 7px/1 var(--font-mono); text-transform: uppercase; }
+  .iv-history-summary strong { @apply truncate; font-size: 11px; }
+  .iv-history-heading { @apply flex items-end justify-between border-b pb-3; border-color: var(--iv-line-strong); }
+  .iv-history-heading small { color: var(--iv-quiet); font: 700 7px/1 var(--font-mono); text-transform: uppercase; }
+  .iv-history-loading { @apply flex min-h-32 items-center justify-center gap-3 border; border-color: var(--iv-line); color: var(--iv-muted); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+  .iv-history-loading .iv-icon { @apply size-4; color: var(--iv-orange); }
+  .iv-history-timeline { @apply m-0 grid list-none gap-0 p-0; }
+  .iv-history-timeline > li { @apply grid grid-cols-[34px_minmax(0,1fr)] gap-3; }
+  .iv-history-marker { @apply relative grid justify-items-center; }
+  .iv-history-marker::after { content: ""; @apply absolute bottom-0 top-5 w-px; background: var(--iv-line-strong); }
+  .iv-history-marker i { @apply relative z-10 mt-1 size-3 border-[3px] border-white; background: var(--iv-orange); box-shadow: 0 0 0 1px var(--iv-orange); }
+  .iv-history-marker span { @apply relative z-10 mt-2 h-fit bg-white px-1; color: var(--iv-quiet); font: 700 7px/1 var(--font-mono); }
+  .iv-history-timeline article { @apply mb-3 border p-4; border-color: var(--iv-line-strong); background: #f8f5ef; }
+  .iv-history-timeline article > header { @apply flex flex-wrap items-center justify-between gap-2 border-b pb-3; border-color: var(--iv-line); }
+  .iv-history-timeline article > header time { color: var(--iv-text); font: 700 8px/1.3 var(--font-mono); }
+  .iv-history-timeline article > header span { color: var(--iv-muted); font-size: 8px; }
+  .iv-history-route { @apply mt-4 flex items-start gap-3; }
+  .iv-history-route > .iv-icon { @apply mt-0.5 size-4 shrink-0; color: var(--iv-orange); }
+  .iv-history-route > div { @apply flex min-w-0 flex-1 flex-wrap items-center gap-2; }
+  .iv-history-route small { color: var(--iv-muted); font-size: 8px; }
+  .iv-history-route strong { font-size: 10px; }
+  .iv-history-route > div > i { @apply h-px min-w-5 flex-1; background: var(--iv-line-strong); }
+  .iv-history-status { @apply mt-3 flex items-center gap-2 border-t pt-3; border-color: var(--iv-line); color: var(--iv-muted); font: 700 7px/1 var(--font-mono); text-transform: uppercase; }
+  .iv-history-status .iv-icon { @apply size-3; color: var(--iv-orange); }
+  .iv-history-timeline article > p { @apply mt-3 border-l-2 pl-3; border-color: var(--iv-orange); color: var(--iv-muted); font-size: 9px; line-height: 1.55; }
+  .iv-history-timeline > li.registered .iv-history-marker::after { display: none; }
+  .iv-history-timeline > li.registered .iv-history-marker i { background: var(--iv-text); box-shadow: 0 0 0 1px var(--iv-text); }
+  .iv-delete-confirm { @apply grid gap-5 p-5; }
+  .iv-delete-warning { @apply flex items-start gap-4 border border-red-700/30 bg-red-700/5 p-4 text-red-700; }
+  .iv-delete-warning > .iv-icon { @apply mt-0.5 size-5 shrink-0; }
+  .iv-delete-warning p { @apply grid gap-1; }
+  .iv-delete-warning strong { font-size: 10px; }
+  .iv-delete-warning span { font-size: 9px; line-height: 1.55; }
+  .iv-delete-confirm > div:last-child { @apply grid gap-2 sm:grid-cols-2; }
 
   .iv-print-label { @apply mx-auto grid w-full max-w-sm place-items-center gap-4 border-2 border-black bg-white p-5 text-center; }
   .iv-print-label > div:last-child { @apply flex max-w-full flex-col items-center gap-1; }
@@ -232,6 +281,8 @@
   .iv-field-grid { @apply grid-cols-2; }
   .iv-scanned-item { grid-template-columns: 74px minmax(0,1fr) auto; }
   .iv-scanned-item .iv-status { @apply col-span-1; }
+  .iv-history-summary { @apply grid-cols-3; }
+  .iv-history-summary > div:first-child { @apply col-span-1; }
 }
 
 @media (min-width: 768px) {
