@@ -297,10 +297,10 @@ listed because both efficiency values now come exclusively from the ESP32.
 | `avg_power` | `power_w` | Rolling average power |
 | `max_power_w` | `power_w` | Session maximum power |
 | `max_current_a` | `current_a` | Session maximum current |
-| `optimal_speed_kmh` | `speed_ms`, `power_w` | Calculated optimal cruising speed |
-| `optimal_speed_ms` | `speed_ms`, `power_w` | Optimal speed in m/s |
-| `optimal_efficiency_km_kwh` | `speed_ms`, `power_w` | Efficiency at optimal speed |
-| `optimal_speed_confidence` | - | Confidence in optimal speed calculation |
+| `optimal_speed_kmh` | `speed_ms`, `power_w`, `timestamp`; motion/brake context | Physics-informed RLS estimate of the best supported flat-road cruising speed |
+| `optimal_speed_ms` | same as above | Optimal speed in m/s, constrained to observed speed coverage |
+| `optimal_efficiency_km_kwh` | same as above | Predicted efficiency at the supported optimal speed |
+| `optimal_speed_confidence` | evidence duration, speed coverage, residuals, model uncertainty | Confidence in the current optimal-speed estimate |
 | `motion_state` | `speed_ms`, `accel_*`, `gyro_z` | Current motion: `stationary`, `cruising`, `accelerating`, `braking`, `turning` |
 | `driver_mode` | `throttle_pct`, `brake_pct`, `speed_ms` | Driver style: `eco`, `normal`, `aggressive`, `coasting`, `braking` |
 | `throttle_intensity` | `throttle_pct` | Classification: `idle`, `light`, `moderate`, `heavy` |

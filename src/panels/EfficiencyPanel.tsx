@@ -300,7 +300,7 @@ export function EfficiencyPanel(props: EfficiencyPanelProps): JSX.Element {
                         {(recommendation) => (
                             <div>
                                 <p>
-                                    Based on <strong>{recommendation().dataPoints}</strong> data points and polynomial optimization,
+                                    Based on <strong>{recommendation().dataPoints}</strong> accepted points and physics-informed online estimation,
                                     the optimal cruising speed for maximum efficiency is:
                                 </p>
                                 <div

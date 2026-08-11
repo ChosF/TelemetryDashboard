@@ -162,6 +162,7 @@ export const OptimalSpeedWidget: Component<WidgetRenderProps> = (props) => {
     });
     const guidance = createMemo(() => {
         if (!finiteNumber(target()) || confidence() < 0.3) return 'Collecting enough clean operating points for a recommendation.';
+        if (!finiteNumber(current()) || current()! < 1) return 'Target is inactive while the vehicle is stationary.';
         const delta = (current() ?? target()!) - target()!;
         if (Math.abs(delta) <= 1.5) return 'Current pace is inside the recommended operating band.';
         return delta > 0 ? `Ease pace by ${delta.toFixed(1)} km/h.` : `Increase pace by ${Math.abs(delta).toFixed(1)} km/h.`;

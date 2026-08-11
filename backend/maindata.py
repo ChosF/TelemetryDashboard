@@ -865,6 +865,16 @@ class TelemetryCalculator:
         # --- Cumulative Energy ---
         result["cumulative_energy_kwh"] = round(self.cumulative_energy_kwh, 6)
         
+        # Calculate motion inputs before optimal-speed analysis so transient and
+        # cornering samples can be handled explicitly by the estimator.
+        accel_x = data.get("accel_x", 0.0)
+        accel_y = data.get("accel_y", 0.0)
+        accel_z = data.get("accel_z", 9.81)
+        gyro_z = data.get("gyro_z", 0.0)
+        g_lat, g_long, accel_mag, g_force = self._planar_g_from_data(
+            data, accel_x, accel_y, accel_z
+        )
+
         # --- Speed Bucket Tracking for Optimal Speed ---
         bucket = self._get_speed_bucket(speed)
         if bucket and dist_delta_km > 0:
@@ -883,20 +893,40 @@ class TelemetryCalculator:
         
         if optimal_bucket:
             result["optimal_speed_range"] = {
-                "min_kmh": optimal_bucket[0],
-                "max_kmh": optimal_bucket[1],
+                "min_kmh": round(optimal_bucket[0] * 3.6, 1),
+                "max_kmh": round(optimal_bucket[1] * 3.6, 1),
                 "efficiency_km_kwh": round(best_efficiency, 2)
             }
         else:
             result["optimal_speed_range"] = None
         
-        # --- NumPy-Optimized Optimal Speed Calculation ---
+        # --- Physics-Informed Optimal Speed Calculation ---
         # Lazy initialization of optimizer (defined after this class)
         if self._optimal_speed_optimizer is None:
-            self._optimal_speed_optimizer = OptimalSpeedOptimizer()
+            self._optimal_speed_optimizer = OptimalSpeedOptimizer(
+                sample_interval=self.sample_interval
+            )
+
+        road_grade = data.get("road_grade")
+        if road_grade is None:
+            grade_pct = data.get("road_grade_pct", data.get("grade_pct"))
+            try:
+                road_grade = float(grade_pct) / 100.0 if grade_pct is not None else None
+            except (TypeError, ValueError):
+                road_grade = None
         
-        # Feed data to optimizer
-        self._optimal_speed_optimizer.add_sample(speed, power)
+        # Feed contextual data to the online estimator. Acceleration is derived
+        # from timestamped speed changes inside the optimizer so it follows the
+        # same speed source used by the power model.
+        self._optimal_speed_optimizer.add_sample(
+            speed,
+            power,
+            timestamp=timestamp,
+            brake_pct=data.get("brake_pct", 0.0),
+            g_lat=g_lat,
+            gyro_z=gyro_z,
+            road_grade=road_grade,
+        )
         
         # Get optimized result
         optimal_result = self._optimal_speed_optimizer.optimize()
@@ -907,14 +937,6 @@ class TelemetryCalculator:
         result["optimal_speed_data_points"] = optimal_result.get("optimal_speed_data_points", 0)
         
         # --- Motion State and Acceleration ---
-        accel_x = data.get("accel_x", 0.0)
-        accel_y = data.get("accel_y", 0.0)
-        accel_z = data.get("accel_z", 9.81)
-        gyro_z = data.get("gyro_z", 0.0)
-
-        g_lat, g_long, accel_mag, g_force = self._planar_g_from_data(
-            data, accel_x, accel_y, accel_z
-        )
         self.accel_magnitude_window.push(accel_mag)
         self.max_g_force = max(self.max_g_force, g_force)
 
@@ -1012,184 +1034,356 @@ class TelemetryCalculator:
 
 # ============================================================
 # MODULE: OPTIMAL SPEED OPTIMIZER
-# NumPy-based optimization to find the speed that maximizes efficiency
-# Uses polynomial regression on power vs speed data
+# Online physics-informed recursive least squares estimator
 # ============================================================
 
 class OptimalSpeedOptimizer:
     """
-    Finds optimal cruising speed for maximum efficiency (km/kWh).
-    
-    Strategy:
-    1. Collect (speed, power) data pairs
-    2. Fit a polynomial curve: power = f(speed)
-    3. Efficiency = speed / power, so we minimize power/speed
-    4. Use numpy to find the speed that minimizes energy per km
-    
-    The power-speed relationship for EVs typically follows:
-    P = a*v^3 + b*v^2 + c*v + d (aerodynamic + rolling resistance)
-    """
-    
-    MIN_DATA_POINTS = 28  # Minimum samples before optimization
-    OPTIMAL_DATA_POINTS = 96  # Points for high confidence
-    POLY_DEGREE = 2  # Quadratic — faster polyfit than degree 3, still tracks EV power curve
-    SPEED_RESOLUTION = 1.0  # m/s — fewer grid points than 0.5 for faster argmin scan
+    Estimate the flat-road cruising speed that maximizes km/kWh.
 
-    def __init__(self, buffer_size: int = 320):
-        self.buffer_size = buffer_size
-        self.speeds = np.zeros(buffer_size, dtype=np.float64)
-        self.powers = np.zeros(buffer_size, dtype=np.float64)
+    Battery power is modeled online as::
+
+        P = auxiliary + rolling*v + aerodynamic*v^3
+            + inertia*v*acceleration + grade_force*v
+
+    The terms are linear in their unknown coefficients, so recursive least
+    squares (RLS) updates the model in constant memory without periodically
+    refitting a sample buffer. Robust residual clipping limits sensor spikes,
+    while braking and hard-cornering samples are rejected. The recommendation
+    is evaluated at zero acceleration and zero grade and is constrained to the
+    speed range actually observed in the current session.
+    """
+    MIN_DATA_POINTS = 60
+    OPTIMAL_DATA_POINTS = 600
+    MIN_EVIDENCE_SECONDS = 10.0
+    OPTIMAL_EVIDENCE_SECONDS = 120.0
+    MIN_SPEED_SPAN_MS = 2.0
+    OPTIMAL_SPEED_SPAN_MS = 8.0
+    MIN_COVERED_BINS = 3
+    OPTIMAL_COVERED_BINS = 8
+    SPEED_RESOLUTION = 0.25
+    SPEED_BIN_WIDTH = 1.0
+    CONFIDENCE_THRESHOLD = 0.3
+    FEATURE_COUNT = 5
+
+    # Coefficients correspond to normalized [auxiliary, rolling, aerodynamic,
+    # acceleration, grade] features and are kept physically non-negative.
+    INITIAL_COEFFICIENTS = np.array([60.0, 100.0, 60.0, 1500.0, 200.0])
+    COEFFICIENT_MIN = np.array([1.0, 0.0, 0.01, 0.0, 0.0])
+    COEFFICIENT_MAX = np.array([2500.0, 5000.0, 5000.0, 15000.0, 8000.0])
+
+    def __init__(
+        self,
+        sample_interval: float = 0.2,
+        forgetting_factor: float = 0.999,
+        update_interval: int = 5,
+    ):
+        self.sample_interval = max(0.02, float(sample_interval))
+        self.forgetting_factor = min(0.99999, max(0.95, float(forgetting_factor)))
+        self.update_interval = max(1, int(update_interval))
+        self.min_speed = 2.0
+        self.max_speed = 30.0
+        self.reset()
+
+    def reset(self) -> None:
+        """Reset all estimator and evidence state for a new session."""
+        self.coefficients = self.INITIAL_COEFFICIENTS.copy()
+        self.covariance = np.eye(self.FEATURE_COUNT, dtype=np.float64) * 500.0
         self.count = 0
-        self.index = 0
-        
-        # Cached optimal values
+        self.accepted_seconds = 0.0
+        self.samples_since_update = 0
         self.optimal_speed_ms: Optional[float] = None
         self.optimal_speed_kmh: Optional[float] = None
         self.optimal_efficiency: Optional[float] = None
-        self.confidence: float = 0.0
-        
-        # Update frequency (polyfit + grid scan — keep this high for low CPU)
-        self.update_interval = 72
-        self.samples_since_update = 0
-        
-        # Speed range for optimization (m/s)
-        self.min_speed = 2.0  # Ignore very low speeds
-        self.max_speed = 30.0  # Max realistic speed
-    
-    def reset(self) -> None:
-        """Reset optimizer state for new session"""
-        self.speeds = np.zeros(self.buffer_size, dtype=np.float64)
-        self.powers = np.zeros(self.buffer_size, dtype=np.float64)
-        self.count = 0
-        self.index = 0
-        self.optimal_speed_ms = None
-        self.optimal_speed_kmh = None
-        self.optimal_efficiency = None
         self.confidence = 0.0
-        self.samples_since_update = 0
-    
-    def add_sample(self, speed_ms: float, power_w: float) -> None:
-        """Add a speed/power sample to the buffer"""
-        # Filter out invalid data
-        if speed_ms < self.min_speed or speed_ms > self.max_speed:
-            return
-        if power_w <= 0 or power_w > 10000:  # Sanity check power
-            return
-        
-        self.speeds[self.index] = speed_ms
-        self.powers[self.index] = power_w
-        self.index = (self.index + 1) % self.buffer_size
-        self.count = min(self.count + 1, self.buffer_size)
-        self.samples_since_update += 1
-    
-    def _get_data(self) -> tuple:
-        """Get valid speed/power data pairs"""
-        if self.count < self.MIN_DATA_POINTS:
-            return None, None
-        
-        n = min(self.count, self.buffer_size)
-        if self.count >= self.buffer_size:
-            # Buffer is full, use all data
-            speeds = self.speeds.copy()
-            powers = self.powers.copy()
+        self._last_speed_ms: Optional[float] = None
+        self._last_timestamp_s: Optional[float] = None
+        self._min_speed_seen = math.inf
+        self._max_speed_seen = -math.inf
+        bin_count = int(math.ceil((self.max_speed - self.min_speed) / self.SPEED_BIN_WIDTH))
+        self._speed_bin_counts = np.zeros(bin_count, dtype=np.int64)
+        self._power_mean = 0.0
+        self._power_variance = 0.0
+        self._residual_variance = 10000.0
+
+    @staticmethod
+    def _finite_float(value: Any) -> Optional[float]:
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+        return result if math.isfinite(result) else None
+
+    @staticmethod
+    def _timestamp_seconds(value: Any) -> Optional[float]:
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            result = float(value)
+            return result if math.isfinite(result) else None
+        if isinstance(value, str):
+            try:
+                dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.timestamp()
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _features(speed_ms: float, acceleration_ms2: float, road_grade: float) -> np.ndarray:
+        scaled_speed = speed_ms / 10.0
+        return np.array(
+            [
+                1.0,
+                scaled_speed,
+                scaled_speed ** 3,
+                (speed_ms * acceleration_ms2) / 20.0,
+                (speed_ms * road_grade) / 0.2,
+            ],
+            dtype=np.float64,
+        )
+
+    def _sample_timing(self, speed_ms: float, timestamp: Any) -> tuple:
+        timestamp_s = self._timestamp_seconds(timestamp)
+        dt = self.sample_interval
+        if timestamp_s is not None and self._last_timestamp_s is not None:
+            measured_dt = timestamp_s - self._last_timestamp_s
+            if 0.02 <= measured_dt <= 2.0:
+                dt = measured_dt
+
+        acceleration = 0.0
+        if self._last_speed_ms is not None and dt > 0:
+            acceleration = (speed_ms - self._last_speed_ms) / dt
+
+        self._last_speed_ms = speed_ms
+        if timestamp_s is not None:
+            self._last_timestamp_s = timestamp_s
+        return dt, acceleration
+
+    def add_sample(
+        self,
+        speed_ms: float,
+        power_w: float,
+        *,
+        timestamp: Any = None,
+        brake_pct: float = 0.0,
+        g_lat: Optional[float] = None,
+        gyro_z: float = 0.0,
+        road_grade: Optional[float] = None,
+    ) -> bool:
+        """Update the RLS model with one clean telemetry sample.
+
+        Returns True only when the sample contributes to model evidence.
+        """
+        speed = self._finite_float(speed_ms)
+        power = self._finite_float(power_w)
+        if speed is None or power is None:
+            return False
+
+        dt, acceleration = self._sample_timing(speed, timestamp)
+        if speed < self.min_speed or speed > self.max_speed:
+            return False
+        if power <= 0 or power > 10000:
+            return False
+
+        brake = self._finite_float(brake_pct) or 0.0
+        lateral_g = self._finite_float(g_lat)
+        yaw_rate = self._finite_float(gyro_z) or 0.0
+        if brake > 5.0 or abs(yaw_rate) > 20.0:
+            return False
+        if lateral_g is not None and abs(lateral_g) > 0.35:
+            return False
+        if abs(acceleration) > 6.0:
+            return False
+
+        grade = self._finite_float(road_grade)
+        if grade is None or abs(grade) > 0.30:
+            grade = 0.0
+
+        features = self._features(speed, acceleration, grade)
+        predicted_power = float(features @ self.coefficients)
+        residual = power - predicted_power
+        residual_scale = math.sqrt(max(self._residual_variance, 1.0))
+        huber_limit = min(1000.0, max(75.0, 3.0 * residual_scale))
+        robust_residual = max(-huber_limit, min(huber_limit, residual))
+
+        time_ratio = max(0.25, min(10.0, dt / self.sample_interval))
+        forgetting = self.forgetting_factor ** time_ratio
+        covariance_features = self.covariance @ features
+        denominator = forgetting + float(features @ covariance_features)
+        if denominator <= 1e-12 or not math.isfinite(denominator):
+            return False
+
+        gain = covariance_features / denominator
+        self.coefficients += gain * robust_residual
+        features_covariance = features @ self.covariance
+        self.covariance = (
+            self.covariance - np.outer(gain, features_covariance)
+        ) / forgetting
+        self.covariance = (self.covariance + self.covariance.T) * 0.5
+        self.coefficients = np.clip(
+            self.coefficients, self.COEFFICIENT_MIN, self.COEFFICIENT_MAX
+        )
+
+        alpha = 0.01
+        if self.count == 0:
+            self._power_mean = power
+            self._power_variance = 0.0
         else:
-            # Buffer not yet full
-            speeds = self.speeds[:n]
-            powers = self.powers[:n]
-        
-        return speeds, powers
-    
+            power_delta = power - self._power_mean
+            self._power_mean += alpha * power_delta
+            self._power_variance = (1.0 - alpha) * (
+                self._power_variance + alpha * power_delta * power_delta
+            )
+        self._residual_variance = (
+            (1.0 - alpha) * self._residual_variance + alpha * residual * residual
+        )
+
+        self.count += 1
+        self.accepted_seconds += min(dt, 1.0)
+        self.samples_since_update += 1
+        self._min_speed_seen = min(self._min_speed_seen, speed)
+        self._max_speed_seen = max(self._max_speed_seen, speed)
+        bin_index = min(
+            len(self._speed_bin_counts) - 1,
+            max(0, int((speed - self.min_speed) / self.SPEED_BIN_WIDTH)),
+        )
+        self._speed_bin_counts[bin_index] += 1
+        return True
+
+    def _confidence_for(self, speed_ms: float, predicted_power: float) -> float:
+        data_confidence = min(
+            1.0,
+            min(
+                self.count / self.OPTIMAL_DATA_POINTS,
+                self.accepted_seconds / self.OPTIMAL_EVIDENCE_SECONDS,
+            ),
+        )
+        speed_span = max(0.0, self._max_speed_seen - self._min_speed_seen)
+        span_confidence = min(1.0, speed_span / self.OPTIMAL_SPEED_SPAN_MS)
+        samples_per_bin = max(2, int(round(1.0 / self.sample_interval)))
+        covered_bins = int(np.count_nonzero(self._speed_bin_counts >= samples_per_bin))
+        coverage_confidence = min(1.0, covered_bins / self.OPTIMAL_COVERED_BINS)
+
+        if self._power_variance <= 1.0:
+            fit_confidence = 0.0
+        else:
+            fit_confidence = max(
+                0.0,
+                min(1.0, 1.0 - self._residual_variance / self._power_variance),
+            )
+
+        flat_features = self._features(speed_ms, 0.0, 0.0)
+        prediction_variance = max(
+            0.0, float(flat_features @ self.covariance @ flat_features)
+        ) * max(self._residual_variance, 1.0)
+        relative_uncertainty = math.sqrt(prediction_variance) / max(predicted_power, 1.0)
+        uncertainty_confidence = 1.0 / (1.0 + 4.0 * relative_uncertainty)
+
+        evidence_confidence = max(
+            0.0,
+            min(
+                1.0,
+                0.25 * data_confidence
+                + 0.20 * coverage_confidence
+                + 0.20 * span_confidence
+                + 0.25 * fit_confidence
+                + 0.10 * uncertainty_confidence,
+            ),
+        )
+        # Large row counts and broad speed coverage cannot make a poorly fitting
+        # physical model trustworthy. Retain a small evidence contribution while
+        # requiring residual quality for a publishable recommendation.
+        return evidence_confidence * (0.25 + 0.75 * fit_confidence)
+
     def optimize(self) -> Dict[str, Any]:
-        """
-        Calculate optimal speed using polynomial regression.
-        
-        Returns dict with optimal speed, efficiency, and confidence.
-        """
-        # Check if we should recalculate
+        """Return the best supported flat-road cruising speed."""
+        speed_span = self._max_speed_seen - self._min_speed_seen
+        samples_per_bin = max(2, int(round(1.0 / self.sample_interval)))
+        covered_bins = int(np.count_nonzero(self._speed_bin_counts >= samples_per_bin))
+        enough_evidence = (
+            self.count >= self.MIN_DATA_POINTS
+            and self.accepted_seconds >= self.MIN_EVIDENCE_SECONDS
+            and speed_span >= self.MIN_SPEED_SPAN_MS
+            and covered_bins >= self.MIN_COVERED_BINS
+        )
+        if not enough_evidence:
+            return self._get_result()
         if self.samples_since_update < self.update_interval and self.optimal_speed_ms is not None:
             return self._get_result()
-        
+
         self.samples_since_update = 0
-        speeds, powers = self._get_data()
-        
-        if speeds is None:
-            return self._get_result()
-        
         try:
-            # Fit polynomial: power = f(speed)
-            # Using degree 3 to capture aerodynamic drag (v^3) and rolling resistance
-            coeffs = np.polyfit(speeds, powers, self.POLY_DEGREE)
-            poly = np.poly1d(coeffs)
-            
-            # Generate candidate speeds
+            lower = max(self.min_speed, self._min_speed_seen)
+            upper = min(self.max_speed, self._max_speed_seen)
             speed_range = np.arange(
-                max(self.min_speed, speeds.min()),
-                min(self.max_speed, speeds.max()),
-                self.SPEED_RESOLUTION
+                lower,
+                upper + self.SPEED_RESOLUTION * 0.5,
+                self.SPEED_RESOLUTION,
             )
-            
             if len(speed_range) < 5:
                 return self._get_result()
-            
-            # Calculate power for each speed
-            predicted_powers = poly(speed_range)
-            
-            # Efficiency = distance / energy = speed / power (km/kWh scaling)
-            # We want to maximize speed/power, or minimize power/speed
-            # power/speed = energy per distance
-            with np.errstate(divide='ignore', invalid='ignore'):
-                energy_per_km = predicted_powers / speed_range  # W / (m/s) = J/m
-            
-            # Find minimum energy per km (maximum efficiency)
-            valid_mask = (energy_per_km > 0) & np.isfinite(energy_per_km)
+
+            flat_features = np.column_stack(
+                (
+                    np.ones_like(speed_range),
+                    speed_range / 10.0,
+                    (speed_range / 10.0) ** 3,
+                    np.zeros_like(speed_range),
+                    np.zeros_like(speed_range),
+                )
+            )
+            predicted_powers = flat_features @ self.coefficients
+            energy_per_distance = predicted_powers / speed_range
+            valid_mask = (
+                (predicted_powers > 0)
+                & (predicted_powers <= 10000)
+                & np.isfinite(energy_per_distance)
+                & (energy_per_distance > 0)
+            )
             if not valid_mask.any():
                 return self._get_result()
-            
-            valid_energy = energy_per_km[valid_mask]
+
             valid_speeds = speed_range[valid_mask]
-            
-            min_idx = np.argmin(valid_energy)
-            optimal_speed = valid_speeds[min_idx]
-            optimal_power = poly(optimal_speed)
-            
-            # Calculate efficiency in km/kWh
-            # efficiency = (speed_ms * 3600) / (power_w) = km/h / W * 1000 = km/kWh
-            # Actually: efficiency = distance_km / energy_kWh
-            # = (speed_ms * 1 sec / 1000) / (power_w * 1 sec / 3600000)
-            # = speed_ms * 3600 / power_w km/kWh
-            efficiency_km_kwh = (optimal_speed * 3600) / optimal_power if optimal_power > 0 else 0
-            
-            # Calculate confidence based on data quantity and fit quality
-            r_squared = self._calculate_r_squared(speeds, powers, poly)
-            data_confidence = min(1.0, self.count / self.OPTIMAL_DATA_POINTS)
-            fit_confidence = max(0, r_squared) if r_squared > 0.5 else 0
-            self.confidence = round(data_confidence * 0.5 + fit_confidence * 0.5, 2)
-            
-            # Store results
+            valid_powers = predicted_powers[valid_mask]
+            minimum_index = int(np.argmin(energy_per_distance[valid_mask]))
+            optimal_speed = float(valid_speeds[minimum_index])
+            optimal_power = float(valid_powers[minimum_index])
+
+            # A boundary optimum implies that the true optimum may be outside
+            # the observed support. Reduce confidence instead of extrapolating.
+            boundary_distance = min(optimal_speed - lower, upper - optimal_speed)
+            boundary_confidence = max(0.0, min(1.0, boundary_distance / 1.0))
+            confidence = self._confidence_for(optimal_speed, optimal_power)
+            confidence *= boundary_confidence
+
+            if self.optimal_speed_ms is not None:
+                optimal_speed = 0.25 * optimal_speed + 0.75 * self.optimal_speed_ms
+                flat_at_smoothed = self._features(optimal_speed, 0.0, 0.0)
+                optimal_power = float(flat_at_smoothed @ self.coefficients)
+
+            efficiency_km_kwh = (
+                optimal_speed * 3600.0 / optimal_power if optimal_power > 0 else 0.0
+            )
             self.optimal_speed_ms = round(optimal_speed, 2)
             self.optimal_speed_kmh = round(optimal_speed * 3.6, 1)
-            self.optimal_efficiency = round(efficiency_km_kwh, 1) if efficiency_km_kwh < 500 else None
-            
-        except Exception as e:
-            logger.debug(f"Optimal speed optimization error: {e}")
-        
+            self.optimal_efficiency = (
+                round(efficiency_km_kwh, 1)
+                if 0 < efficiency_km_kwh < 500
+                else None
+            )
+            self.confidence = round(confidence, 2)
+        except Exception as exc:
+            logger.debug(f"Optimal speed RLS optimization error: {exc}")
+
         return self._get_result()
-    
-    def _calculate_r_squared(self, speeds: np.ndarray, powers: np.ndarray, poly: np.poly1d) -> float:
-        """Calculate R-squared value for polynomial fit"""
-        try:
-            predictions = poly(speeds)
-            ss_res = np.sum((powers - predictions) ** 2)
-            ss_tot = np.sum((powers - np.mean(powers)) ** 2)
-            if ss_tot == 0:
-                return 0
-            return 1 - (ss_res / ss_tot)
-        except:
-            return 0
-    
+
     def _get_result(self) -> Dict[str, Any]:
         """Get current optimization result"""
-        if self.optimal_speed_ms is None or self.confidence < 0.3:
+        if self.optimal_speed_ms is None or self.confidence < self.CONFIDENCE_THRESHOLD:
             return {
                 "optimal_speed_ms": None,
                 "optimal_speed_kmh": None,

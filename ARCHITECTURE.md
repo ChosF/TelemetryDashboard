@@ -153,7 +153,7 @@ graph TD
 
 **Backend Modules:**
 *   **Ingestion:** The Bridge listens to the raw ESP32 data entering via **Ably** (`EcoTele` channel). 
-*   **Real-time Calculations (`TelemetryCalculator`):** Rather than forcing mobile browsers to run math, the Python bridge offloads the work. It takes raw speeds and currents and actively computes the motion state (cruising, braking), active G-force estimates, cumulative energy, and optimal speed efficiencies in rolling arrays.
+*   **Real-time Calculations (`TelemetryCalculator`):** Rather than forcing mobile browsers to run math, the Python bridge offloads the work. It takes raw speeds and currents and actively computes motion state (cruising, braking), active G-force estimates, cumulative energy, and a physics-informed optimal-speed estimate. The speed estimator uses robust online recursive least squares with constant memory, rejects braking and hard-cornering samples, and constrains recommendations to observed speed coverage.
 *   **Anomaly Detection (`OutlierDetector`):** It runs NumPy-based statistical analysis across rolling windows, checking for erratic jumps, impossible GPS positions, and explicitly marks `outliers` with severity keys before transmitting.
 *   **Separation of Duties:** 
     *   **Live Path:** The mutated JSON data is instantly republished to a *different* **Ably** channel meant for consumption by the UI instances (e.g. General Dashboard).
