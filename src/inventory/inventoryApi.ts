@@ -81,6 +81,10 @@ export interface InventoryMovement {
   actorUserId: string;
   actorName: string;
   actorRole: string;
+  loanRequestId?: string;
+  borrowerUserId?: string;
+  borrowerName?: string;
+  borrowerTeam?: string;
   note?: string;
   createdAt: number;
 }

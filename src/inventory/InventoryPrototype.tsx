@@ -423,7 +423,7 @@ const InventoryPrototype: Component = () => {
       <Show when={modal() === 'movement' && selectedItem()}>{(item) => <MovementModal item={item()} onClose={() => setModal(null)} onSaved={() => { setModal(null); notify(`${item().assetCode} movement recorded`); }} />}</Show>
       <Show when={modal() === 'loan'}><LoanModal items={items()} selected={selectedItem()} onClose={() => setModal(null)} onSaved={() => { setModal(null); setSection('loans'); notify('Loan sent for approval'); }} /></Show>
       <Show when={modal() === 'qr' && selectedItem()}>{(item) => <QrModal item={item()} onClose={() => setModal(null)} onPrint={() => void printItemLabels([item()])} />}</Show>
-      <Show when={modal() === 'history' && selectedItem()}>{(item) => <ItemHistoryModal item={item()} onClose={() => setModal('item')} />}</Show>
+      <Show when={modal() === 'history' && selectedItem()}>{(item) => <ItemHistoryModal item={item()} loans={loans().filter((loan) => loan.itemId === item()._id)} onClose={() => setModal('item')} />}</Show>
       <Show when={modal() === 'deleteItem' && selectedItem()}>{(item) => <DeleteConfirmModal eyebrow="Admin / permanent deletion" title={`Delete ${item().assetCode}?`} description="This permanently removes the item, every loan tied to it, and its complete movement history. This cannot be undone." confirmLabel="Delete item and history" onClose={() => setModal('item')} onConfirm={async () => { const assetCode = item().assetCode; await deleteInventoryItem(item()._id); setSelectedItem(null); setModal(null); notify(`${assetCode} permanently deleted`); }} />}</Show>
       <Show when={modal() === 'deleteLoan' && selectedLoan()}>{(loan) => <DeleteConfirmModal eyebrow="Admin / permanent deletion" title="Delete this loan?" description={`This permanently removes ${loan().requesterName}'s ${loan().assetCode} loan record. An active linked item will be restored to available.`} confirmLabel="Delete loan" onClose={() => { setSelectedLoan(null); setModal(null); }} onConfirm={async () => { await deleteInventoryLoan(loan()._id); setSelectedLoan(null); setModal(null); notify('Loan permanently deleted'); }} />}</Show>
       <Show when={toast()}><div class="iv-toast" role="status"><Icon name="check" />{toast()}</div></Show>
@@ -672,10 +672,18 @@ const ItemModal: Component<{ item: InventoryItem; canManage: boolean; isAdmin: b
   <ModalShell label={`Item ${props.item.assetCode}`} eyebrow={`${props.item.category} / ${props.item.assetCode}`} title={props.item.name} description={props.item.description} onClose={props.onClose}><div class="iv-item-detail"><div class="iv-item-detail-top"><QrMark assetCode={props.item.assetCode} /><Status value={props.item.status} /></div><dl><div><dt>Current place</dt><dd>{props.item.currentLocation}</dd></div><div><dt>Home</dt><dd>{props.item.homeLocation}</dd></div><div><dt>Updated by</dt><dd>{props.item.updatedByName}</dd></div><div><dt>Updated</dt><dd>{formatDate(props.item.updatedAt)}</dd></div></dl><div class="iv-detail-actions"><Show when={props.canManage}><button class="iv-primary" onClick={props.onMove}><Icon name="scan" />Record movement</button></Show><button class="iv-secondary" onClick={props.onHistory}><Icon name="clock" />View history</button><button class="iv-secondary" onClick={props.onLoan}>Request loan</button><button class="iv-secondary" onClick={props.onQr}><Icon name="qr" />Print QR label</button><Show when={props.isAdmin}><button class="iv-danger iv-delete-item" onClick={props.onDelete}><Icon name="trash" />Delete item permanently</button></Show></div></div></ModalShell>
 );
 
-const ItemHistoryModal: Component<{ item: InventoryItem; onClose: () => void }> = (props) => {
+const ItemHistoryModal: Component<{ item: InventoryItem; loans: InventoryLoan[]; onClose: () => void }> = (props) => {
   const [movements, setMovements] = createSignal<InventoryMovement[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal('');
+  const currentBorrower = createMemo(() => {
+    const loan = props.loans.find((candidate) => candidate.status === 'approved');
+    if (loan) return { name: loan.requesterName, team: loan.requesterTeam, dueAt: loan.dueAt };
+    if (props.item.status === 'available') return undefined;
+    const movement = movements().find((entry) => entry.borrowerName && entry.toStatus !== 'available');
+    return movement?.borrowerName ? { name: movement.borrowerName, team: movement.borrowerTeam ?? 'Team not recorded' } : undefined;
+  });
+  const visibleNote = (entry: InventoryMovement) => entry.note && !/^(Reserved for loan|Returned from loan) /.test(entry.note) ? entry.note : undefined;
   let active = true;
   onCleanup(() => { active = false; });
   createEffect(() => {
@@ -688,7 +696,25 @@ const ItemHistoryModal: Component<{ item: InventoryItem; onClose: () => void }> 
       .finally(() => { if (active) setLoading(false); });
   });
 
-  return <ModalShell label={`History for ${props.item.assetCode}`} eyebrow={`${props.item.category} / ${props.item.assetCode}`} title="Item history" description="A newest-first record of every place, status, and handoff." onClose={props.onClose}><div class="iv-history"><div class="iv-history-summary"><div><span>Current place</span><strong>{props.item.currentLocation}</strong></div><div><span>Current status</span><Status value={props.item.status} /></div><div><span>Recorded moves</span><strong>{movements().length.toString().padStart(2, '0')}</strong></div></div><div class="iv-history-heading"><span class="iv-eyebrow">Movement log</span><small>Newest first</small></div><Show when={!loading()} fallback={<div class="iv-history-loading"><Icon name="clock" />Loading history…</div>}><Show when={!error()} fallback={<div class="iv-form-error" role="alert">{error()}</div>}><ol class="iv-history-timeline"><For each={movements()}>{(entry, index) => <li><div class="iv-history-marker"><i /><span>{(movements().length - index()).toString().padStart(2, '0')}</span></div><article><header><time>{formatDate(entry.createdAt)}</time><span>{entry.actorName} · {entry.actorRole}</span></header><div class="iv-history-route"><Icon name="pin" /><div><Show when={entry.fromLocation !== entry.toLocation} fallback={<><small>Confirmed at</small><strong>{entry.toLocation}</strong></>}><small>{entry.fromLocation}</small><i /><strong>{entry.toLocation}</strong></Show></div></div><Show when={entry.fromStatus !== entry.toStatus}><div class="iv-history-status"><span>{statusLabels[entry.fromStatus as InventoryItemStatus] ?? entry.fromStatus}</span><Icon name="arrow" /><span>{statusLabels[entry.toStatus as InventoryItemStatus] ?? entry.toStatus}</span></div></Show><Show when={entry.note}><p>{entry.note}</p></Show></article></li>}</For><li class="registered"><div class="iv-history-marker"><i /><span>00</span></div><article><header><time>{formatDate(props.item.createdAt)}</time><span>{props.item.createdByName}</span></header><div class="iv-history-route"><Icon name="items" /><div><small>Item registered at</small><strong>{props.item.homeLocation}</strong></div></div></article></li></ol></Show></Show></div></ModalShell>;
+  return (
+    <ModalShell label={`History for ${props.item.assetCode}`} eyebrow={`${props.item.category} / ${props.item.assetCode}`} title="Item history" description="A newest-first record of every place, status, and handoff." onClose={props.onClose}>
+      <div class="iv-history">
+        <div class="iv-history-summary"><div><span>Current place</span><strong>{props.item.currentLocation}</strong></div><div><span>Current status</span><Status value={props.item.status} /></div><div><span>Recorded moves</span><strong>{movements().length.toString().padStart(2, '0')}</strong></div></div>
+        <Show when={currentBorrower()} fallback={<div class="iv-history-holder is-home"><span><Icon name="items" /></span><div><small>Current holder</small><strong>No active borrower</strong><p>Stored at {props.item.currentLocation}</p></div></div>}>
+          {(borrower) => <div class="iv-history-holder"><span><Icon name="user" /></span><div><small>Currently borrowed by</small><strong>{borrower().name}</strong><p>{borrower().team}</p></div><Show when={borrower().dueAt}><div class="iv-history-due"><small>Return by</small><strong>{formatDate(borrower().dueAt!)}</strong></div></Show></div>}
+        </Show>
+        <div class="iv-history-heading"><span class="iv-eyebrow">Movement log</span><small>Newest first</small></div>
+        <Show when={!loading()} fallback={<div class="iv-history-loading"><Icon name="clock" />Loading history…</div>}>
+          <Show when={!error()} fallback={<div class="iv-form-error" role="alert">{error()}</div>}>
+            <ol class="iv-history-timeline">
+              <For each={movements()}>{(entry, index) => <li><div class="iv-history-marker"><i /><span>{(movements().length - index()).toString().padStart(2, '0')}</span></div><article><header><time>{formatDate(entry.createdAt)}</time><span>{entry.actorName} · {entry.actorRole}</span></header><div class="iv-history-route"><Icon name="pin" /><div><Show when={entry.fromLocation !== entry.toLocation} fallback={<><small>Confirmed at</small><strong>{entry.toLocation}</strong></>}><small>{entry.fromLocation}</small><i /><strong>{entry.toLocation}</strong></Show></div></div><Show when={entry.borrowerName}><div class="iv-history-borrower"><Icon name="user" /><div><small>Loan holder</small><strong>{entry.borrowerName}</strong><span>{entry.borrowerTeam}</span></div></div></Show><Show when={entry.fromStatus !== entry.toStatus}><div class="iv-history-status"><span>{statusLabels[entry.fromStatus as InventoryItemStatus] ?? entry.fromStatus}</span><Icon name="arrow" /><span>{statusLabels[entry.toStatus as InventoryItemStatus] ?? entry.toStatus}</span></div></Show><Show when={visibleNote(entry)}>{(note) => <p>{note()}</p>}</Show></article></li>}</For>
+              <li class="registered"><div class="iv-history-marker"><i /><span>00</span></div><article><header><time>{formatDate(props.item.createdAt)}</time><span>{props.item.createdByName}</span></header><div class="iv-history-route"><Icon name="items" /><div><small>Item registered at</small><strong>{props.item.homeLocation}</strong></div></div></article></li>
+            </ol>
+          </Show>
+        </Show>
+      </div>
+    </ModalShell>
+  );
 };
 
 const DeleteConfirmModal: Component<{ eyebrow: string; title: string; description: string; confirmLabel: string; onClose: () => void; onConfirm: () => Promise<void> }> = (props) => {

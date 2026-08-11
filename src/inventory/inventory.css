@@ -316,6 +316,17 @@
   .iv-history-summary > div:first-child { @apply col-span-2; }
   .iv-history-summary span:not(.iv-status) { color: var(--iv-quiet); font: 700 7px/1 var(--font-mono); text-transform: uppercase; }
   .iv-history-summary strong { @apply truncate; font-size: 11px; }
+  .iv-history-holder { @apply grid grid-cols-[44px_minmax(0,1fr)] items-center gap-3 border p-4; border-color: color-mix(in srgb, var(--iv-orange) 45%, var(--iv-line)); background: color-mix(in srgb, var(--iv-orange) 5%, var(--iv-panel)); }
+  .iv-history-holder > span { @apply grid size-11 place-items-center border; border-color: var(--iv-orange); color: var(--iv-orange); }
+  .iv-history-holder > span .iv-icon { @apply size-5; }
+  .iv-history-holder > div { @apply min-w-0; }
+  .iv-history-holder small, .iv-history-borrower small { color: var(--iv-quiet); font: 700 7px/1 var(--font-mono); text-transform: uppercase; }
+  .iv-history-holder strong { @apply mt-1.5 block truncate; font-size: 12px; }
+  .iv-history-holder p { @apply mt-1 truncate; color: var(--iv-muted); font-size: 9px; }
+  .iv-history-holder.is-home { border-color: var(--iv-line-strong); background: var(--iv-soft); }
+  .iv-history-holder.is-home > span { border-color: var(--iv-line-strong); color: var(--iv-muted); }
+  .iv-history-due { @apply col-span-2 border-t pt-3; border-color: var(--iv-line); }
+  .iv-history-due strong { font-size: 10px; }
   .iv-history-heading { @apply flex items-end justify-between border-b pb-3; border-color: var(--iv-line-strong); }
   .iv-history-heading small { color: var(--iv-quiet); font: 700 7px/1 var(--font-mono); text-transform: uppercase; }
   .iv-history-loading { @apply flex min-h-32 items-center justify-center gap-3 border; border-color: var(--iv-line); color: var(--iv-muted); font-size: 9px; font-weight: 800; text-transform: uppercase; }
@@ -336,6 +347,12 @@
   .iv-history-route small { color: var(--iv-muted); font-size: 8px; }
   .iv-history-route strong { font-size: 10px; }
   .iv-history-route > div > i { @apply h-px min-w-5 flex-1; background: var(--iv-line-strong); }
+  .iv-history-borrower { @apply mt-3 flex items-center gap-3 border-t pt-3; border-color: var(--iv-line); }
+  .iv-history-borrower > .iv-icon { @apply size-4 shrink-0; color: var(--iv-orange); }
+  .iv-history-borrower > div { @apply grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1; }
+  .iv-history-borrower small { @apply col-span-2; }
+  .iv-history-borrower strong { @apply truncate; font-size: 10px; }
+  .iv-history-borrower span { @apply truncate; color: var(--iv-muted); font-size: 8px; }
   .iv-history-status { @apply mt-3 flex items-center gap-2 border-t pt-3; border-color: var(--iv-line); color: var(--iv-muted); font: 700 7px/1 var(--font-mono); text-transform: uppercase; }
   .iv-history-status .iv-icon { @apply size-3; color: var(--iv-orange); }
   .iv-history-timeline article > p { @apply mt-3 border-l-2 pl-3; border-color: var(--iv-orange); color: var(--iv-muted); font-size: 9px; line-height: 1.55; }
@@ -419,12 +436,18 @@
 
   .iv-history-summary span:not(.iv-status), .iv-history-heading small { font-size: 9px; }
   .iv-history-summary strong { font-size: 12px; }
+  .iv-history-holder small, .iv-history-borrower small { font-size: 9px; }
+  .iv-history-holder strong { font-size: 14px; }
+  .iv-history-holder p { font-size: 11px; }
+  .iv-history-due strong { font-size: 12px; }
   .iv-history-loading { font-size: 10px; }
   .iv-history-marker span { font-size: 9px; }
   .iv-history-timeline article > header time { font-size: 10px; }
   .iv-history-timeline article > header span { font-size: 10px; }
   .iv-history-route small, .iv-history-status { font-size: 9px; }
   .iv-history-route strong { font-size: 12px; }
+  .iv-history-borrower strong { font-size: 12px; }
+  .iv-history-borrower span { font-size: 10px; }
   .iv-history-timeline article > p { font-size: 11px; }
   .iv-delete-warning strong { font-size: 12px; }
   .iv-delete-warning span { font-size: 11px; }
@@ -438,6 +461,8 @@
   .iv-scanned-item .iv-status { @apply col-span-1; }
   .iv-history-summary { @apply grid-cols-3; }
   .iv-history-summary > div:first-child { @apply col-span-1; }
+  .iv-history-holder { grid-template-columns: 44px minmax(0, 1fr) auto; }
+  .iv-history-due { @apply col-span-1 border-l border-t-0 pl-4 pt-0; }
 }
 
 @media (min-width: 768px) {

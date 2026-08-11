@@ -350,6 +350,10 @@ export default defineSchema({
     actorUserId: v.id("authUsers"),
     actorName: v.string(),
     actorRole: v.string(),
+    loanRequestId: v.optional(v.id("inventoryLoanRequests")),
+    borrowerUserId: v.optional(v.id("authUsers")),
+    borrowerName: v.optional(v.string()),
+    borrowerTeam: v.optional(v.string()),
     note: v.optional(v.string()),
     createdAt: v.number(),
   })
@@ -385,6 +389,7 @@ export default defineSchema({
     .index("by_item_created_at", ["itemId", "createdAt"])
     .index("by_status_created_at", ["status", "createdAt"])
     .index("by_status_due_at", ["status", "dueAt"])
+    .index("by_item_status_updated_at", ["itemId", "status", "updatedAt"])
     .index("by_requester_created_at", ["requesterUserId", "createdAt"])
     .index("by_requester_item_status", ["requesterUserId", "itemId", "status"]),
 

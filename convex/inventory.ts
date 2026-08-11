@@ -75,6 +75,10 @@ const movementValidator = v.object({
   actorUserId: v.id("authUsers"),
   actorName: v.string(),
   actorRole: v.string(),
+  loanRequestId: v.optional(v.id("inventoryLoanRequests")),
+  borrowerUserId: v.optional(v.id("authUsers")),
+  borrowerName: v.optional(v.string()),
+  borrowerTeam: v.optional(v.string()),
   note: v.optional(v.string()),
   createdAt: v.number(),
 });
@@ -225,11 +229,37 @@ export const listItemHistory = query({
   returns: v.array(movementValidator),
   handler: async (ctx, args) => {
     await requireApprovedProfile(ctx, args.token);
-    return await ctx.db
-      .query("inventoryMovements")
-      .withIndex("by_item_created_at", (q) => q.eq("itemId", args.itemId))
-      .order("desc")
-      .take(200);
+    const [movements, loans] = await Promise.all([
+      ctx.db
+        .query("inventoryMovements")
+        .withIndex("by_item_created_at", (q) => q.eq("itemId", args.itemId))
+        .order("desc")
+        .take(200),
+      ctx.db
+        .query("inventoryLoanRequests")
+        .withIndex("by_item_created_at", (q) => q.eq("itemId", args.itemId))
+        .order("desc")
+        .take(200),
+    ]);
+
+    return movements.map((movement) => {
+      if (movement.borrowerName && movement.borrowerTeam) return movement;
+      const referencedLoan = loans.find((loan) => movement.note?.includes(loan._id));
+      const timedLoan = movement.toStatus === "reserved"
+        ? loans.find((loan) => loan.decisionAt !== undefined && Math.abs(loan.decisionAt - movement.createdAt) < 2_000)
+        : movement.toStatus === "available"
+          ? loans.find((loan) => loan.status === "returned" && Math.abs(loan.updatedAt - movement.createdAt) < 2_000)
+          : undefined;
+      const loan = referencedLoan ?? timedLoan;
+      if (!loan) return movement;
+      return {
+        ...movement,
+        loanRequestId: loan._id,
+        borrowerUserId: loan.requesterUserId,
+        borrowerName: loan.requesterName,
+        borrowerTeam: loan.requesterTeam,
+      };
+    });
   },
 });
 
@@ -365,12 +395,23 @@ export const recordMovement = mutation({
 
     const location = requiredText(args.location, "Location", 100);
     const note = optionalText(args.note, 400);
+    const activeLoans = await ctx.db
+      .query("inventoryLoanRequests")
+      .withIndex("by_item_status_updated_at", (q) =>
+        q.eq("itemId", item._id).eq("status", "approved")
+      )
+      .order("desc")
+      .take(20);
+    const activeLoan = activeLoans[0];
     const now = Date.now();
     const name = actorName(actor.profile);
-    if (item.currentLocation === location && item.status === args.status && !note) {
+    if (item.currentLocation === location && item.status === args.status && !note && !(args.status === "available" && activeLoan)) {
       return { success: true, updatedAt: item.updatedAt };
     }
 
+    if (args.status === "available" && activeLoans.length > 0) {
+      await Promise.all(activeLoans.map((loan) => ctx.db.patch(loan._id, { status: "returned", updatedAt: now })));
+    }
     await ctx.db.patch(item._id, {
       currentLocation: location,
       status: args.status,
@@ -388,6 +429,10 @@ export const recordMovement = mutation({
       actorUserId: actor.userId,
       actorName: name,
       actorRole: actor.profile.role,
+      loanRequestId: activeLoan?._id,
+      borrowerUserId: activeLoan?.requesterUserId,
+      borrowerName: activeLoan?.requesterName,
+      borrowerTeam: activeLoan?.requesterTeam,
       note,
       createdAt: now,
     });
@@ -499,6 +544,21 @@ export const decideLoan = mutation({
       fail("ALREADY_DECIDED", "This loan request already has a decision");
     }
 
+    let itemForApproval: Doc<"inventoryItems"> | null = null;
+    if (args.decision === "approved") {
+      itemForApproval = await ctx.db.get(request.itemId);
+      if (!itemForApproval?.active || itemForApproval.status !== "available") {
+        fail("ITEM_UNAVAILABLE", "This item is no longer available for this loan");
+      }
+      const activeLoan = await ctx.db
+        .query("inventoryLoanRequests")
+        .withIndex("by_item_status_updated_at", (q) =>
+          q.eq("itemId", request.itemId).eq("status", "approved")
+        )
+        .first();
+      if (activeLoan) fail("ITEM_UNAVAILABLE", "This item already has an active loan");
+    }
+
     const now = Date.now();
     const name = actorName(actor.profile);
     await ctx.db.patch(request._id, {
@@ -510,29 +570,31 @@ export const decideLoan = mutation({
       updatedAt: now,
     });
 
-    if (args.decision === "approved") {
-      const item = await ctx.db.get(request.itemId);
-      if (item && item.active && item.status === "available") {
-        await ctx.db.patch(item._id, {
-          status: "reserved",
-          updatedBy: actor.userId,
-          updatedByName: name,
-          updatedAt: now,
-        });
-        await ctx.db.insert("inventoryMovements", {
-          itemId: item._id,
-          assetCode: item.assetCode,
-          fromLocation: item.currentLocation,
-          toLocation: item.currentLocation,
-          fromStatus: item.status,
-          toStatus: "reserved",
-          actorUserId: actor.userId,
-          actorName: name,
-          actorRole: actor.profile.role,
-          note: `Reserved for loan ${request._id}`,
-          createdAt: now,
-        });
-      }
+    if (args.decision === "approved" && itemForApproval) {
+      const item = itemForApproval;
+      await ctx.db.patch(item._id, {
+        status: "reserved",
+        updatedBy: actor.userId,
+        updatedByName: name,
+        updatedAt: now,
+      });
+      await ctx.db.insert("inventoryMovements", {
+        itemId: item._id,
+        assetCode: item.assetCode,
+        fromLocation: item.currentLocation,
+        toLocation: item.currentLocation,
+        fromStatus: item.status,
+        toStatus: "reserved",
+        actorUserId: actor.userId,
+        actorName: name,
+        actorRole: actor.profile.role,
+        loanRequestId: request._id,
+        borrowerUserId: request.requesterUserId,
+        borrowerName: request.requesterName,
+        borrowerTeam: request.requesterTeam,
+        note: `Reserved for loan ${request._id}`,
+        createdAt: now,
+      });
     }
     return { success: true };
   },
@@ -584,6 +646,10 @@ export const markLoanReturned = mutation({
         actorUserId: actor.userId,
         actorName: name,
         actorRole: actor.profile.role,
+        loanRequestId: request._id,
+        borrowerUserId: request.requesterUserId,
+        borrowerName: request.requesterName,
+        borrowerTeam: request.requesterTeam,
         note: `Returned from loan ${request._id}`,
         createdAt: now,
       });
