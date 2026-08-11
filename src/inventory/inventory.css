@@ -350,7 +350,7 @@
   .iv-print-label > div:last-child { @apply flex max-w-full flex-col items-center gap-1; }
   .iv-print-label strong { color: #000; font: 800 22px/1 var(--font-mono); letter-spacing: .08em; }
   .iv-print-label span { @apply max-w-full truncate; color: #000; font-size: 10px; font-weight: 800; }
-  .iv-print-label small { color: #000; font: 700 8px/1 var(--font-mono); }
+  .iv-print-label small { @apply max-w-full truncate; color: #000; font: 700 8px/1 var(--font-mono); }
   .iv-qr-sheet dl { @apply grid grid-cols-3 gap-px border; border-color: var(--iv-line); background: var(--iv-line); }
   .iv-qr-sheet dl div { @apply min-w-0 p-3; background: var(--iv-panel); }
   .iv-qr-sheet dd { @apply break-all; }
@@ -494,12 +494,12 @@
 @media print {
   body * { visibility: hidden !important; }
   .iv-print-label, .iv-print-label * { visibility: visible !important; }
-  .iv-print-label { position: fixed; inset: 0 auto auto 0; width: 30mm; height: 38mm; padding: 1.5mm; border: 0; gap: 1mm; box-shadow: none; }
-  .iv-real-qr.printable { width: 24mm; height: 24mm; }
+  .iv-print-label { position: fixed; inset: 0 auto auto 0; width: 36mm; height: 44mm; padding: 1.5mm; border: 0; gap: 1mm; box-shadow: none; }
+  .iv-real-qr.printable { width: 30mm; height: 30mm; }
   .iv-print-label strong { font-size: 8pt; }
-  .iv-print-label span { max-width: 27mm; font-size: 5pt; }
+  .iv-print-label span { max-width: 33mm; font-size: 5pt; }
   .iv-print-label small { font-size: 4.5pt; }
-  @page { size: 30mm 38mm; margin: 0; }
+  @page { size: 36mm 44mm; margin: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
