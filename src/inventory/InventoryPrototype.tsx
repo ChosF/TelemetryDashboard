@@ -11,7 +11,7 @@ import {
   type JSX,
 } from 'solid-js';
 import QRCode from 'qrcode';
-import jsQR from 'jsqr';
+import QrScanner from 'qr-scanner';
 import { authStore } from '@/stores/auth';
 import {
   cancelInventoryLoan,
@@ -24,24 +24,29 @@ import {
   getInventoryItemHistory,
   markInventoryLoanReturned,
   recordInventoryMovement,
+  watchInventoryAlerts,
   watchInventoryItems,
   watchInventoryLoans,
+  watchPublicInventoryItems,
+  type InventoryAlert,
   type InventoryItem,
   type InventoryItemStatus,
   type InventoryLoan,
   type InventoryLoanStatus,
   type InventoryMovement,
+  type PublicInventoryItem,
 } from './inventoryApi';
 
 type Section = 'overview' | 'items' | 'loans';
-type Modal = 'auth' | 'account' | 'add' | 'scan' | 'item' | 'movement' | 'loan' | 'qr' | 'history' | 'deleteItem' | 'deleteLoan' | null;
-type IconName = 'home' | 'items' | 'loan' | 'scan' | 'search' | 'plus' | 'user' | 'close' | 'arrow' | 'pin' | 'clock' | 'check' | 'qr' | 'shield' | 'trash';
+type Modal = 'auth' | 'account' | 'add' | 'scan' | 'item' | 'movement' | 'loan' | 'qr' | 'history' | 'notifications' | 'deleteItem' | 'deleteLoan' | null;
+type IconName = 'home' | 'items' | 'loan' | 'scan' | 'search' | 'plus' | 'user' | 'close' | 'arrow' | 'pin' | 'clock' | 'check' | 'qr' | 'shield' | 'trash' | 'bell' | 'alert' | 'flash';
 
 const statusLabels: Record<InventoryItemStatus, string> = {
   available: 'Available',
   on_loan: 'On loan',
   reserved: 'Reserved',
   maintenance: 'Maintenance',
+  missing: 'Missing',
   retired: 'Retired',
 };
 
@@ -71,6 +76,9 @@ const Icon: Component<{ name: IconName }> = (props) => (
       <Match when={props.name === 'qr'}><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM15 15h2v2h-2zM18 14h2v3h-2zM14 19h3M19 19h1" /></Match>
       <Match when={props.name === 'shield'}><path d="M12 3 5 6v5c0 4.6 2.7 8.3 7 10 4.3-1.7 7-5.4 7-10V6z" /><path d="m9 12 2 2 4-5" /></Match>
       <Match when={props.name === 'trash'}><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6" /></Match>
+      <Match when={props.name === 'bell'}><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></Match>
+      <Match when={props.name === 'alert'}><path d="M12 3 2.5 20h19zM12 9v5M12 17h.01" /></Match>
+      <Match when={props.name === 'flash'}><path d="m13 2-8 12h6l-1 8 9-13h-6z" /></Match>
     </Switch>
   </svg>
 );
@@ -88,6 +96,13 @@ function extractAssetCode(raw: string): string {
 
 function formatDate(value: number): string {
   return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(value);
+}
+
+function formatOverdue(dueAt: number): string {
+  const hours = Math.max(1, Math.floor((Date.now() - dueAt) / 3_600_000));
+  if (hours < 24) return `${hours}h overdue`;
+  const days = Math.floor(hours / 24);
+  return `${days}d overdue`;
 }
 
 function localDateTime(offsetHours: number): string {
@@ -131,7 +146,9 @@ const InventoryPrototype: Component = () => {
   const [section, setSection] = createSignal<Section>('overview');
   const [modal, setModal] = createSignal<Modal>(null);
   const [items, setItems] = createSignal<InventoryItem[]>([]);
+  const [publicItems, setPublicItems] = createSignal<PublicInventoryItem[]>([]);
   const [loans, setLoans] = createSignal<InventoryLoan[]>([]);
+  const [alerts, setAlerts] = createSignal<InventoryAlert[]>([]);
   const [loaded, setLoaded] = createSignal(false);
   const [search, setSearch] = createSignal('');
   const [selectedItem, setSelectedItem] = createSignal<InventoryItem | null>(null);
@@ -148,15 +165,26 @@ const InventoryPrototype: Component = () => {
     if (!query) return items();
     return items().filter((item) => `${item.name} ${item.assetCode} ${item.category} ${item.currentLocation}`.toLowerCase().includes(query));
   });
+  const filteredPublicItems = createMemo(() => {
+    const query = search().trim().toLowerCase();
+    if (!query) return publicItems();
+    return publicItems().filter((item) => `${item.name} ${item.assetCode} ${item.category} ${item.stewardTeam ?? ''}`.toLowerCase().includes(query));
+  });
+  const visibleItemCount = createMemo(() => isApproved() ? items().length : publicItems().length);
 
   createEffect(() => {
+    setLoaded(false);
     if (!isApproved()) {
       setItems([]);
       setLoans([]);
-      setLoaded(true);
+      const stopPublicItems = watchPublicInventoryItems((value) => {
+        setPublicItems(value);
+        setLoaded(true);
+      });
+      onCleanup(stopPublicItems);
       return;
     }
-    setLoaded(false);
+    setPublicItems([]);
     const stopItems = watchInventoryItems((value) => {
       setItems(value);
       setLoaded(true);
@@ -165,6 +193,24 @@ const InventoryPrototype: Component = () => {
     onCleanup(() => {
       stopItems();
       stopLoans();
+    });
+  });
+
+  createEffect(() => {
+    if (!canManage()) {
+      setAlerts([]);
+      return;
+    }
+    let stopAlerts: () => void = () => undefined;
+    const refreshAlerts = () => {
+      stopAlerts();
+      stopAlerts = watchInventoryAlerts(Date.now(), setAlerts);
+    };
+    refreshAlerts();
+    const timer = window.setInterval(refreshAlerts, 60_000);
+    onCleanup(() => {
+      window.clearInterval(timer);
+      stopAlerts();
     });
   });
 
@@ -212,17 +258,30 @@ const InventoryPrototype: Component = () => {
     setModal('loan');
   };
 
+  const openAlert = (alert: InventoryAlert) => {
+    if (alert.kind === 'missing') {
+      const item = items().find((candidate) => candidate._id === alert.itemId);
+      if (item) {
+        chooseItem(item);
+        return;
+      }
+    }
+    setModal(null);
+    setSection('loans');
+  };
+
   return (
     <div class="inventory-app">
       <header class="iv-header">
         <Brand />
         <nav class="iv-desktop-nav" aria-label="Inventory sections">
           <SectionButton value="overview" current={section()} onSelect={setSection} label="Overview" />
-          <SectionButton value="items" current={section()} onSelect={setSection} label="Items" count={items().length} />
-          <SectionButton value="loans" current={section()} onSelect={setSection} label="Loans" count={pendingLoans()} />
+          <SectionButton value="items" current={section()} onSelect={setSection} label="Items" count={visibleItemCount()} />
+          <SectionButton value="loans" current={section()} onSelect={setSection} label="Loans" count={isApproved() ? pendingLoans() : undefined} />
         </nav>
         <div class="iv-header-actions">
-          <Show when={isApproved()}><button class="iv-icon-button" aria-label="Search items" onClick={() => setSection('items')}><Icon name="search" /></button></Show>
+          <button class="iv-icon-button" aria-label="Search items" onClick={() => setSection('items')}><Icon name="search" /></button>
+          <Show when={canManage()}><button class="iv-icon-button iv-notification-button" aria-label={`${alerts().length} inventory alerts`} onClick={() => setModal('notifications')}><Icon name="bell" /><Show when={alerts().length > 0}><b>{alerts().length > 99 ? '99+' : alerts().length}</b></Show></button></Show>
           <button class="iv-account-button" aria-label="Open account" onClick={() => setModal(authStore.isAuthenticated() ? 'account' : 'auth')}>
             <Show when={authStore.isAuthenticated()} fallback={<Icon name="user" />}><span>{userInitials()}</span></Show>
           </button>
@@ -240,45 +299,45 @@ const InventoryPrototype: Component = () => {
           </div>
         </section>
 
-        <Show when={isApproved()} fallback={<AccessState onSignIn={() => setModal('auth')} />}>
-          <Switch>
-            <Match when={section() === 'overview'}>
-              <section class="iv-overview">
+        <Switch>
+          <Match when={section() === 'overview'}>
+            <section class="iv-overview">
+              <Show when={isApproved()} fallback={<div class="iv-public-summary"><div><span class="iv-eyebrow">Public equipment catalog</span><strong>{publicItems().length.toString().padStart(2, '0')}</strong><p>items available now</p></div><div><Icon name="shield" /><p>Sign in only when you are ready to request a loan or view operational details.</p><button class="iv-secondary" onClick={() => setModal('auth')}>Sign in to request</button></div></div>}>
                 <div class="iv-stat-strip">
                   <article><span>Total items</span><strong>{items().length.toString().padStart(2, '0')}</strong></article>
                   <article><span>Available</span><strong>{availableItems().toString().padStart(2, '0')}</strong></article>
                   <article><span>On loan</span><strong>{items().filter((item) => item.status === 'on_loan').length.toString().padStart(2, '0')}</strong></article>
                   <article><span>Pending loans</span><strong>{pendingLoans().toString().padStart(2, '0')}</strong></article>
                 </div>
-                <section class="iv-section-block">
-                  <SectionHeading eyebrow="Live register" title="Recently updated" action={isAdmin() ? 'Add first item' : undefined} onAction={() => setModal('add')} />
-                  <Show when={loaded() && items().length > 0} fallback={<EmptyItems admin={isAdmin()} onAdd={() => setModal('add')} />}>
-                    <div class="iv-item-grid"><For each={items().slice(0, 6)}>{(item) => <ItemCard item={item} onOpen={() => chooseItem(item)} />}</For></div>
-                  </Show>
-                </section>
-              </section>
-            </Match>
-
-            <Match when={section() === 'items'}>
-              <section class="iv-page">
-                <SectionHeading eyebrow="Tool register" title="Items" action={isAdmin() ? 'Add item' : undefined} onAction={() => setModal('add')} />
-                <div class="iv-search"><Icon name="search" /><input type="search" value={search()} onInput={(event) => setSearch(event.currentTarget.value)} placeholder="Search name, code, category, or place" /></div>
-                <Show when={loaded() && filteredItems().length > 0} fallback={<EmptyItems admin={isAdmin()} onAdd={() => setModal('add')} filtered={items().length > 0} />}>
-                  <div class="iv-item-grid"><For each={filteredItems()}>{(item) => <ItemCard item={item} onOpen={() => chooseItem(item)} />}</For></div>
+              </Show>
+              <section class="iv-section-block">
+                <SectionHeading eyebrow={isApproved() ? 'Live register' : 'Public catalog'} title={isApproved() ? 'Recently updated' : 'Available now'} action={isAdmin() ? 'Add first item' : undefined} onAction={() => setModal('add')} />
+                <Show when={isApproved()} fallback={<Show when={loaded() && publicItems().length > 0} fallback={<EmptyPublicItems />}><div class="iv-item-grid"><For each={publicItems().slice(0, 6)}>{(item) => <PublicItemCard item={item} onRequest={() => setModal('auth')} />}</For></div></Show>}>
+                  <Show when={loaded() && items().length > 0} fallback={<EmptyItems admin={isAdmin()} onAdd={() => setModal('add')} />}><div class="iv-item-grid"><For each={items().slice(0, 6)}>{(item) => <ItemCard item={item} onOpen={() => chooseItem(item)} />}</For></div></Show>
                 </Show>
               </section>
-            </Match>
+            </section>
+          </Match>
 
-            <Match when={section() === 'loans'}>
+          <Match when={section() === 'items'}>
+            <section class="iv-page">
+              <SectionHeading eyebrow={isApproved() ? 'Tool register' : 'Public catalog'} title={isApproved() ? 'Items' : 'Available items'} action={isAdmin() ? 'Add item' : undefined} onAction={() => setModal('add')} />
+              <div class="iv-search"><Icon name="search" /><input type="search" value={search()} onInput={(event) => setSearch(event.currentTarget.value)} placeholder={isApproved() ? 'Search name, code, category, or place' : 'Search available items'} /></div>
+              <Show when={isApproved()} fallback={<Show when={loaded() && filteredPublicItems().length > 0} fallback={<EmptyPublicItems filtered={publicItems().length > 0} />}><div class="iv-item-grid"><For each={filteredPublicItems()}>{(item) => <PublicItemCard item={item} onRequest={() => setModal('auth')} />}</For></div></Show>}>
+                <Show when={loaded() && filteredItems().length > 0} fallback={<EmptyItems admin={isAdmin()} onAdd={() => setModal('add')} filtered={items().length > 0} />}><div class="iv-item-grid"><For each={filteredItems()}>{(item) => <ItemCard item={item} onOpen={() => chooseItem(item)} />}</For></div></Show>
+              </Show>
+            </section>
+          </Match>
+
+          <Match when={section() === 'loans'}>
+            <Show when={isApproved()} fallback={<AccessState onSignIn={() => setModal('auth')} />}>
               <section class="iv-page">
                 <SectionHeading eyebrow={canManage() ? 'Approval workspace' : 'Your requests'} title="Loans" action={items().length > 0 ? 'New loan' : undefined} onAction={() => openLoan()} />
-                <Show when={loans().length > 0} fallback={<EmptyLoans hasItems={items().length > 0} onCreate={() => openLoan()} />}>
-                  <div class="iv-loan-grid"><For each={loans()}>{(loan) => <LoanCard loan={loan} canManage={canManage()} isAdmin={isAdmin()} currentUserId={authStore.user()?.userId ?? ''} onNotify={notify} onDelete={() => { setSelectedLoan(loan); setModal('deleteLoan'); }} />}</For></div>
-                </Show>
+                <Show when={loans().length > 0} fallback={<EmptyLoans hasItems={items().length > 0} onCreate={() => openLoan()} />}><div class="iv-loan-grid"><For each={loans()}>{(loan) => <LoanCard loan={loan} canManage={canManage()} isAdmin={isAdmin()} currentUserId={authStore.user()?.userId ?? ''} onNotify={notify} onDelete={() => { setSelectedLoan(loan); setModal('deleteLoan'); }} />}</For></div></Show>
               </section>
-            </Match>
-          </Switch>
-        </Show>
+            </Show>
+          </Match>
+        </Switch>
       </main>
 
       <nav class="iv-mobile-nav" aria-label="Inventory navigation">
@@ -293,6 +352,7 @@ const InventoryPrototype: Component = () => {
       <Show when={modal() === 'account'}><AccountModal onClose={() => setModal(null)} onAdd={() => setModal('add')} /></Show>
       <Show when={modal() === 'add'}><AddItemModal onClose={() => setModal(null)} onCreated={async (code) => { const item = await getItemByAssetCode(code); setSelectedItem(item); setModal('qr'); notify(`${code} added to inventory`); }} /></Show>
       <Show when={modal() === 'scan'}><ScannerModal onClose={() => setModal(null)} onCode={openAsset} /></Show>
+      <Show when={modal() === 'notifications'}><NotificationsModal alerts={alerts()} onClose={() => setModal(null)} onOpen={openAlert} /></Show>
       <Show when={modal() === 'item' && selectedItem()}>{(item) => <ItemModal item={item()} canManage={canManage()} isAdmin={isAdmin()} onClose={() => setModal(null)} onMove={() => setModal('movement')} onLoan={() => openLoan(item())} onQr={() => setModal('qr')} onHistory={() => setModal('history')} onDelete={() => setModal('deleteItem')} />}</Show>
       <Show when={modal() === 'movement' && selectedItem()}>{(item) => <MovementModal item={item()} onClose={() => setModal(null)} onSaved={() => { setModal(null); notify(`${item().assetCode} movement recorded`); }} />}</Show>
       <Show when={modal() === 'loan'}><LoanModal items={items()} selected={selectedItem()} onClose={() => setModal(null)} onSaved={() => { setModal(null); setSection('loans'); notify('Loan sent for approval'); }} /></Show>
@@ -329,6 +389,19 @@ const EmptyItems: Component<{ admin: boolean; onAdd: () => void; filtered?: bool
   <div class="iv-empty-state"><div><Icon name="items" /></div><span class="iv-eyebrow">{props.filtered ? 'No match' : 'Empty register'}</span><h3>{props.filtered ? 'Try another search.' : 'No items have been added yet.'}</h3><p>{props.filtered ? 'Search by asset code, item name, category, or current place.' : props.admin ? 'Add the first item to generate its compact printable QR label.' : 'An administrator can add the first inventory item.'}</p><Show when={props.admin && !props.filtered}><button class="iv-primary" onClick={props.onAdd}><Icon name="plus" />Add first item</button></Show></div>
 );
 
+const EmptyPublicItems: Component<{ filtered?: boolean }> = (props) => (
+  <div class="iv-empty-state"><div><Icon name="items" /></div><span class="iv-eyebrow">Public catalog</span><h3>{props.filtered ? 'No available item matches.' : 'No items are available right now.'}</h3><p>{props.filtered ? 'Try a broader name, category, or asset code.' : 'Check again later or sign in to review your existing requests.'}</p></div>
+);
+
+const PublicItemCard: Component<{ item: PublicInventoryItem; onRequest: () => void }> = (props) => (
+  <article class="iv-item-card iv-public-item-card">
+    <header><span>{props.item.category} / {props.item.assetCode}</span><Status value={props.item.status} /></header>
+    <div class="iv-public-item-main"><div><h3>{props.item.name}</h3><p>{props.item.stewardTeam ? `Stewarded by ${props.item.stewardTeam}` : 'EcoVolt shared equipment'}</p></div><span><Icon name="items" /></span></div>
+    <div class="iv-public-privacy"><Icon name="shield" /><p><strong>Public view</strong><span>Location, activity, and item history stay private.</span></p></div>
+    <button onClick={props.onRequest}>Sign in to request <Icon name="arrow" /></button>
+  </article>
+);
+
 const EmptyLoans: Component<{ hasItems: boolean; onCreate: () => void }> = (props) => (
   <div class="iv-empty-state"><div><Icon name="loan" /></div><span class="iv-eyebrow">Loan register</span><h3>No loan activity yet.</h3><p>{props.hasItems ? 'Request an item and its approval trail will appear here.' : 'Loans will become available after an administrator adds an item.'}</p><Show when={props.hasItems}><button class="iv-primary" onClick={props.onCreate}>Request a loan</button></Show></div>
 );
@@ -345,16 +418,21 @@ const ItemCard: Component<{ item: InventoryItem; onOpen: () => void }> = (props)
 const LoanCard: Component<{ loan: InventoryLoan; canManage: boolean; isAdmin: boolean; currentUserId: string; onNotify: (message: string) => void; onDelete: () => void }> = (props) => {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
+  const overdue = () => props.loan.status === 'approved' && props.loan.dueAt < Date.now();
   const act = async (action: () => Promise<void>, message: string) => {
     setBusy(true);
     setError('');
     try { await action(); props.onNotify(message); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update loan'); } finally { setBusy(false); }
   };
-  return <article class="iv-loan-card"><header><span>{props.loan.assetCode}</span><Status value={props.loan.status} /></header><h3>{props.loan.itemName}</h3><p>{props.loan.purpose}</p><dl><div><dt>Requested by</dt><dd>{props.loan.requesterName} · {props.loan.requesterTeam}</dd></div><div><dt>Loan window</dt><dd>{formatDate(props.loan.startAt)} — {formatDate(props.loan.dueAt)}</dd></div></dl><Show when={error()}><div class="iv-card-error" role="alert">{error()}</div></Show><footer><Show when={props.canManage && props.loan.status === 'pending'}><button disabled={busy()} class="approve" onClick={() => void act(() => decideInventoryLoan(props.loan._id, 'approved'), 'Loan approved')}>Approve</button><button disabled={busy()} onClick={() => void act(() => decideInventoryLoan(props.loan._id, 'denied'), 'Loan denied')}>Deny</button></Show><Show when={props.canManage && props.loan.status === 'approved'}><button disabled={busy()} class="approve" onClick={() => void act(() => markInventoryLoanReturned(props.loan._id), 'Item marked returned')}>Mark returned</button></Show><Show when={props.loan.requesterUserId === props.currentUserId && props.loan.status === 'pending'}><button disabled={busy()} onClick={() => void act(() => cancelInventoryLoan(props.loan._id), 'Loan cancelled')}>Cancel request</button></Show><Show when={props.isAdmin}><button disabled={busy()} class="delete" onClick={props.onDelete}><Icon name="trash" />Delete</button></Show></footer></article>;
+  return <article class="iv-loan-card" classList={{ overdue: overdue() }}><header><span>{props.loan.assetCode}</span><Status value={props.loan.status} /></header><h3>{props.loan.itemName}</h3><p>{props.loan.purpose}</p><dl><div><dt>Requested by</dt><dd>{props.loan.requesterName} · {props.loan.requesterTeam}</dd></div><div><dt>Loan window</dt><dd>{formatDate(props.loan.startAt)} — {formatDate(props.loan.dueAt)}</dd></div></dl><Show when={overdue()}><div class="iv-loan-overdue"><Icon name="alert" /><strong>Return overdue</strong><span>{formatOverdue(props.loan.dueAt)}</span></div></Show><Show when={error()}><div class="iv-card-error" role="alert">{error()}</div></Show><footer><Show when={props.canManage && props.loan.status === 'pending'}><button disabled={busy()} class="approve" onClick={() => void act(() => decideInventoryLoan(props.loan._id, 'approved'), 'Loan approved')}>Approve</button><button disabled={busy()} onClick={() => void act(() => decideInventoryLoan(props.loan._id, 'denied'), 'Loan denied')}>Deny</button></Show><Show when={props.canManage && props.loan.status === 'approved'}><button disabled={busy()} class="approve" onClick={() => void act(() => markInventoryLoanReturned(props.loan._id), 'Item marked returned')}>Mark returned</button></Show><Show when={props.loan.requesterUserId === props.currentUserId && props.loan.status === 'pending'}><button disabled={busy()} onClick={() => void act(() => cancelInventoryLoan(props.loan._id), 'Loan cancelled')}>Cancel request</button></Show><Show when={props.isAdmin}><button disabled={busy()} class="delete" onClick={props.onDelete}><Icon name="trash" />Delete</button></Show></footer></article>;
 };
 
 const ModalShell: Component<{ label: string; eyebrow: string; title: string; description?: string; onClose: () => void; children: JSX.Element }> = (props) => (
   <div class="iv-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}><section class="iv-modal" role="dialog" aria-modal="true" aria-label={props.label}><header><div><span class="iv-eyebrow">{props.eyebrow}</span><h2>{props.title}</h2><Show when={props.description}><p>{props.description}</p></Show></div><button aria-label="Close" onClick={props.onClose}><Icon name="close" /></button></header>{props.children}</section></div>
+);
+
+const NotificationsModal: Component<{ alerts: InventoryAlert[]; onClose: () => void; onOpen: (alert: InventoryAlert) => void }> = (props) => (
+  <ModalShell label="Inventory notifications" eyebrow="Internal / action queue" title="Notifications" description="Missing equipment and loans that have passed their return time." onClose={props.onClose}><div class="iv-notifications"><div class="iv-notification-summary"><span><Icon name="bell" /></span><div><strong>{props.alerts.length.toString().padStart(2, '0')}</strong><small>{props.alerts.length === 1 ? 'item needs attention' : 'items need attention'}</small></div></div><Show when={props.alerts.length > 0} fallback={<div class="iv-notification-clear"><Icon name="check" /><strong>All clear</strong><p>No missing equipment or overdue loans.</p></div>}><div class="iv-notification-list"><For each={props.alerts}>{(alert) => <button onClick={() => props.onOpen(alert)}><span class="iv-alert-icon" data-kind={alert.kind}><Icon name={alert.kind === 'missing' ? 'alert' : 'clock'} /></span><div><header><strong>{alert.itemName}</strong><b>{alert.assetCode}</b></header><Show when={alert.kind === 'overdue'} fallback={<p>Marked missing · last recorded at {alert.currentLocation}</p>}><p>{alert.requesterName} · due {alert.dueAt ? formatDate(alert.dueAt) : 'unknown'}</p></Show><small>{alert.kind === 'overdue' && alert.dueAt ? formatOverdue(alert.dueAt) : `Missing since ${formatDate(alert.occurredAt)}`}</small></div><Icon name="arrow" /></button>}</For></div></Show></div></ModalShell>
 );
 
 const AuthModal: Component<{ onClose: () => void; onReady: () => void }> = (props) => {
@@ -383,8 +461,6 @@ const AddItemModal: Component<{ onClose: () => void; onCreated: (code: string) =
   return <ModalShell label="Add inventory item" eyebrow="Admin / new item" title="Add an item" description="The short asset code becomes a Version 1 high-reliability QR label." onClose={props.onClose}><form class="iv-form" onSubmit={(event) => void submit(event)}><div class="iv-field-grid"><label><span>Asset code · max 7</span><input required maxlength="7" placeholder="TQ-017" value={code()} onInput={(event) => setCode(event.currentTarget.value.toUpperCase())} /></label><label><span>Category</span><input required placeholder="Mechanical" value={category()} onInput={(event) => setCategory(event.currentTarget.value)} /></label></div><label><span>Item name</span><input required placeholder="Digital torque wrench" value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label><label><span>Home location</span><input required placeholder="Workshop · Bay 02" value={location()} onInput={(event) => setLocation(event.currentTarget.value)} /></label><label><span>Steward team</span><input placeholder="Vehicle dynamics" value={team()} onInput={(event) => setTeam(event.currentTarget.value)} /></label><label><span>Description</span><textarea rows="3" value={description()} onInput={(event) => setDescription(event.currentTarget.value)} /></label><Show when={error()}><div class="iv-form-error">{error()}</div></Show><button class="iv-primary" disabled={busy()}>{busy() ? 'Adding…' : 'Add item and create QR'}</button></form></ModalShell>;
 };
 
-interface BarcodeDetectorLike { detect(source: HTMLVideoElement): Promise<Array<{ rawValue: string }>>; }
-type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorLike;
 type CameraState = 'idle' | 'requesting' | 'running' | 'unavailable';
 
 function cameraFailureMessage(cause: unknown): string {
@@ -402,25 +478,25 @@ const ScannerModal: Component<{ onClose: () => void; onCode: (value: string) => 
   const [error, setError] = createSignal('');
   const [cameraMessage, setCameraMessage] = createSignal('');
   const [camera, setCamera] = createSignal<CameraState>('idle');
+  const [hasFlash, setHasFlash] = createSignal(false);
+  const [flashOn, setFlashOn] = createSignal(false);
   let video!: HTMLVideoElement;
-  let stream: MediaStream | null = null;
-  let frame = 0;
-  let lastScanAt = 0;
-  let decoding = false;
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  let detector: BarcodeDetectorLike | null = null;
+  let scanner: QrScanner | null = null;
+  let resolving = false;
 
   const stop = () => {
-    window.cancelAnimationFrame(frame);
-    stream?.getTracks().forEach((track) => track.stop());
-    stream = null;
-    detector = null;
-    if (video) video.srcObject = null;
+    scanner?.stop();
+    setHasFlash(false);
+    setFlashOn(false);
   };
-  onCleanup(stop);
+  onCleanup(() => {
+    scanner?.destroy();
+    scanner = null;
+  });
 
   const resolve = async (value: string) => {
+    if (resolving) return;
+    resolving = true;
     setError('');
     try {
       stop();
@@ -428,79 +504,53 @@ const ScannerModal: Component<{ onClose: () => void; onCode: (value: string) => 
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Item not found');
       setCamera('idle');
-    }
-  };
-
-  const decodeCanvas = (): string | null => {
-    if (!context || canvas.width === 0 || canvas.height === 0) return null;
-    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-    return jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'attemptBoth' })?.data ?? null;
-  };
-
-  const scan = async (timestamp: number) => {
-    if (!stream) return;
-    frame = window.requestAnimationFrame((nextTimestamp) => void scan(nextTimestamp));
-    if (decoding || timestamp - lastScanAt < 160 || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
-    lastScanAt = timestamp;
-    decoding = true;
-    try {
-      if (detector) {
-        try {
-          const result = await detector.detect(video);
-          if (result[0]?.rawValue) {
-            await resolve(result[0].rawValue);
-            return;
-          }
-        } catch {
-          detector = null;
-        }
-      }
-
-      const width = video.videoWidth;
-      const height = video.videoHeight;
-      if (!width || !height || !context) return;
-      const scale = Math.min(1, 1280 / width);
-      canvas.width = Math.round(width * scale);
-      canvas.height = Math.round(height * scale);
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const value = decodeCanvas();
-      if (value) await resolve(value);
-    } finally {
-      decoding = false;
+      resolving = false;
     }
   };
 
   const start = async () => {
     if (camera() === 'requesting' || camera() === 'running') return;
+    resolving = false;
     setError('');
     setCameraMessage('');
-    if (!navigator.mediaDevices?.getUserMedia) {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       setCamera('unavailable');
       setCameraMessage(cameraFailureMessage(new Error('MediaDevices unavailable')));
       return;
     }
     setCamera('requesting');
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
-      video.srcObject = stream;
-      video.muted = true;
-      video.playsInline = true;
-      await video.play();
-      const Detector = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
-      try {
-        detector = Detector ? new Detector({ formats: ['qr_code'] }) : null;
-      } catch {
-        detector = null;
+      if (!scanner) {
+        scanner = new QrScanner(
+          video,
+          (result) => void resolve(result.data),
+          {
+            preferredCamera: 'environment',
+            maxScansPerSecond: 12,
+            returnDetailedScanResult: true,
+            highlightCodeOutline: true,
+            calculateScanRegion: (source) => {
+              const size = Math.round(Math.min(source.videoWidth, source.videoHeight) * 0.82);
+              return {
+                x: Math.round((source.videoWidth - size) / 2),
+                y: Math.round((source.videoHeight - size) / 2),
+                width: size,
+                height: size,
+                downScaledWidth: 800,
+                downScaledHeight: 800,
+              };
+            },
+          },
+        );
+        scanner.setInversionMode('both');
       }
+      await scanner.start();
       setCamera('running');
-      frame = window.requestAnimationFrame((timestamp) => void scan(timestamp));
+      try {
+        setHasFlash(await scanner.hasFlash());
+      } catch {
+        setHasFlash(false);
+      }
     } catch (cause) {
       stop();
       setCamera('unavailable');
@@ -508,32 +558,36 @@ const ScannerModal: Component<{ onClose: () => void; onCode: (value: string) => 
     }
   };
 
-  const decodePhoto = async (file: File | undefined) => {
-    if (!file || !context) return;
-    setError('');
-    const imageUrl = URL.createObjectURL(file);
+  const toggleFlash = async () => {
+    if (!scanner || !hasFlash()) return;
     try {
-      const image = new Image();
-      await new Promise<void>((resolveImage, rejectImage) => {
-        image.onload = () => resolveImage();
-        image.onerror = () => rejectImage(new Error('The selected photo could not be opened'));
-        image.src = imageUrl;
-      });
-      const scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      const value = decodeCanvas();
-      if (!value) throw new Error('No QR code was found in that image. Move closer and try again.');
-      await resolve(value);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not read that image');
-    } finally {
-      URL.revokeObjectURL(imageUrl);
+      await scanner.toggleFlash();
+      setFlashOn(scanner.isFlashOn());
+    } catch {
+      setHasFlash(false);
     }
   };
 
-  return <ModalShell label="Scan item QR" eyebrow="Compact QR scanner" title="Scan item" description="Designed for small, high-contrast EcoVolt labels." onClose={() => { stop(); props.onClose(); }}><div class="iv-scanner"><div class="iv-camera"><video ref={video} autoplay muted playsinline /><div class="iv-scan-frame"><i /><i /><i /><i /><span /></div><Show when={camera() !== 'running'}><Icon name="scan" /></Show><Show when={camera() === 'requesting'}><span class="iv-camera-state">Waiting for camera permission…</span></Show></div><Show when={camera() === 'idle'}><button class="iv-primary" onClick={() => void start()}><Icon name="scan" />Start rear camera</button></Show><Show when={camera() === 'requesting'}><button class="iv-primary" disabled>Opening camera…</button></Show><Show when={camera() === 'running'}><div class="iv-camera-ready"><i />Camera ready · hold the QR inside the frame</div></Show><Show when={camera() === 'unavailable'}><div class="iv-form-note" role="status">{cameraMessage()}</div><label class="iv-secondary iv-capture-button"><Icon name="scan" />Use phone camera or photo<input type="file" accept="image/*" capture="environment" onChange={(event) => void decodePhoto(event.currentTarget.files?.[0])} /></label><button class="iv-secondary" onClick={() => void start()}>Try live camera again</button></Show><form onSubmit={(event) => { event.preventDefault(); void resolve(manual()); }}><label><span>Asset code or QR value</span><input required placeholder="EV:TQ-017" value={manual()} onInput={(event) => setManual(event.currentTarget.value)} /></label><button class="iv-secondary">Open item</button></form><Show when={error()}><div class="iv-form-error" role="alert">{error()}</div></Show></div></ModalShell>;
+  const decodePhoto = async (file: File | undefined) => {
+    if (!file) return;
+    resolving = false;
+    stop();
+    setCamera('requesting');
+    setError('');
+    try {
+      const result = await QrScanner.scanImage(file, {
+        returnDetailedScanResult: true,
+        alsoTryWithoutScanRegion: true,
+      });
+      await resolve(result.data);
+    } catch (cause) {
+      const noCode = typeof cause === 'string' || cause instanceof Error;
+      setError(noCode ? 'No QR code was found. Fill the frame with the label, keep it sharp, and try again.' : 'Could not read that image');
+      setCamera('idle');
+    }
+  };
+
+  return <ModalShell label="Scan item QR" eyebrow="Fast QR scanner" title="Scan item" description="Rear-camera scanning tuned for compact, high-contrast EcoVolt labels." onClose={() => { stop(); props.onClose(); }}><div class="iv-scanner"><div class="iv-camera"><video ref={video} autoplay muted playsinline /><div class="iv-scan-frame"><i /><i /><i /><i /><span /></div><Show when={camera() !== 'running'}><Icon name="scan" /></Show><Show when={camera() === 'requesting'}><span class="iv-camera-state">Opening scanner…</span></Show><Show when={camera() === 'running' && hasFlash()}><button class="iv-flash-button" classList={{ active: flashOn() }} onClick={() => void toggleFlash()} aria-label={flashOn() ? 'Turn flashlight off' : 'Turn flashlight on'}><Icon name="flash" />{flashOn() ? 'Flash on' : 'Flash'}</button></Show></div><Show when={camera() === 'idle'}><button class="iv-primary" onClick={() => void start()}><Icon name="scan" />Start rear camera</button></Show><Show when={camera() === 'requesting'}><button class="iv-primary" disabled>Opening scanner…</button></Show><Show when={camera() === 'running'}><div class="iv-camera-ready"><i />Camera ready · move close and hold steady</div></Show><Show when={camera() === 'unavailable'}><div class="iv-form-note" role="status">{cameraMessage()}</div><button class="iv-secondary" onClick={() => void start()}>Try live camera again</button></Show><label class="iv-secondary iv-capture-button"><Icon name="scan" />Scan from camera or photo<input type="file" accept="image/*" capture="environment" onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; input.value = ''; void decodePhoto(file); }} /></label><form onSubmit={(event) => { event.preventDefault(); void resolve(manual()); }}><label><span>Asset code or QR value</span><input required placeholder="EV:TQ-017" value={manual()} onInput={(event) => setManual(event.currentTarget.value)} /></label><button class="iv-secondary">Open item</button></form><Show when={error()}><div class="iv-form-error" role="alert">{error()}</div></Show></div></ModalShell>;
 };
 
 const ItemModal: Component<{ item: InventoryItem; canManage: boolean; isAdmin: boolean; onClose: () => void; onMove: () => void; onLoan: () => void; onQr: () => void; onHistory: () => void; onDelete: () => void }> = (props) => (

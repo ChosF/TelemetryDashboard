@@ -1,7 +1,7 @@
 import { getStoredSessionToken } from '@/lib/authSession';
 import { getClient } from '@/lib/convex';
 
-export type InventoryItemStatus = 'available' | 'on_loan' | 'reserved' | 'maintenance' | 'retired';
+export type InventoryItemStatus = 'available' | 'on_loan' | 'reserved' | 'maintenance' | 'missing' | 'retired';
 export type InventoryLoanStatus = 'pending' | 'approved' | 'denied' | 'cancelled' | 'returned';
 
 export interface InventoryItem {
@@ -23,6 +23,28 @@ export interface InventoryItem {
   updatedBy: string;
   updatedByName: string;
   updatedAt: number;
+}
+
+export interface PublicInventoryItem {
+  _id: string;
+  assetCode: string;
+  name: string;
+  category: string;
+  stewardTeam?: string;
+  status: 'available';
+}
+
+export interface InventoryAlert {
+  key: string;
+  kind: 'missing' | 'overdue';
+  itemId: string;
+  requestId?: string;
+  assetCode: string;
+  itemName: string;
+  requesterName?: string;
+  currentLocation?: string;
+  dueAt?: number;
+  occurredAt: number;
 }
 
 export interface InventoryLoan {
@@ -92,6 +114,18 @@ function messageFromError(error: unknown): string {
 export function watchInventoryItems(onValue: (items: InventoryItem[]) => void): () => void {
   return client().onUpdate('inventory:listItems', { token: token() }, (result) => {
     onValue(result as InventoryItem[]);
+  });
+}
+
+export function watchPublicInventoryItems(onValue: (items: PublicInventoryItem[]) => void): () => void {
+  return client().onUpdate('inventory:listPublicAvailableItems', {}, (result) => {
+    onValue(result as PublicInventoryItem[]);
+  });
+}
+
+export function watchInventoryAlerts(now: number, onValue: (alerts: InventoryAlert[]) => void): () => void {
+  return client().onUpdate('inventory:listAlerts', { token: token(), now }, (result) => {
+    onValue(result as InventoryAlert[]);
   });
 }
 

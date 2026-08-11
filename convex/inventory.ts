@@ -8,6 +8,7 @@ const itemStatusValidator = v.union(
   v.literal("on_loan"),
   v.literal("reserved"),
   v.literal("maintenance"),
+  v.literal("missing"),
   v.literal("retired"),
 );
 
@@ -76,6 +77,28 @@ const movementValidator = v.object({
   actorRole: v.string(),
   note: v.optional(v.string()),
   createdAt: v.number(),
+});
+
+const publicItemValidator = v.object({
+  _id: v.id("inventoryItems"),
+  assetCode: v.string(),
+  name: v.string(),
+  category: v.string(),
+  stewardTeam: v.optional(v.string()),
+  status: v.literal("available"),
+});
+
+const inventoryAlertValidator = v.object({
+  key: v.string(),
+  kind: v.union(v.literal("missing"), v.literal("overdue")),
+  itemId: v.id("inventoryItems"),
+  requestId: v.optional(v.id("inventoryLoanRequests")),
+  assetCode: v.string(),
+  itemName: v.string(),
+  requesterName: v.optional(v.string()),
+  currentLocation: v.optional(v.string()),
+  dueAt: v.optional(v.number()),
+  occurredAt: v.number(),
 });
 
 type InventoryCtx = QueryCtx | MutationCtx;
@@ -163,6 +186,28 @@ export const listItems = query({
   },
 });
 
+export const listPublicAvailableItems = query({
+  args: {},
+  returns: v.array(publicItemValidator),
+  handler: async (ctx) => {
+    const items = await ctx.db
+      .query("inventoryItems")
+      .withIndex("by_active_status_updated_at", (q) =>
+        q.eq("active", true).eq("status", "available")
+      )
+      .order("desc")
+      .take(300);
+    return items.map((item) => ({
+      _id: item._id,
+      assetCode: item.assetCode,
+      name: item.name,
+      category: item.category,
+      stewardTeam: item.stewardTeam,
+      status: "available" as const,
+    }));
+  },
+});
+
 export const getItemByAssetCode = query({
   args: { token: v.optional(v.string()), assetCode: v.string() },
   returns: v.union(itemValidator, v.null()),
@@ -205,6 +250,56 @@ export const listLoans = query({
       .withIndex("by_requester_created_at", (q) => q.eq("requesterUserId", actor.userId))
       .order("desc")
       .take(100);
+  },
+});
+
+export const listAlerts = query({
+  args: { token: v.optional(v.string()), now: v.number() },
+  returns: v.array(inventoryAlertValidator),
+  handler: async (ctx, args) => {
+    await requireApprover(ctx, args.token);
+    if (!Number.isFinite(args.now) || args.now < 0) fail("INVALID_INPUT", "Invalid alert time");
+
+    const [missingItems, overdueLoans] = await Promise.all([
+      ctx.db
+        .query("inventoryItems")
+        .withIndex("by_active_status_updated_at", (q) =>
+          q.eq("active", true).eq("status", "missing")
+        )
+        .order("desc")
+        .take(100),
+      ctx.db
+        .query("inventoryLoanRequests")
+        .withIndex("by_status_due_at", (q) =>
+          q.eq("status", "approved").lt("dueAt", args.now)
+        )
+        .order("asc")
+        .take(100),
+    ]);
+
+    const missingItemIds = new Set(missingItems.map((item) => item._id));
+    return [
+      ...missingItems.map((item) => ({
+        key: `missing:${item._id}`,
+        kind: "missing" as const,
+        itemId: item._id,
+        assetCode: item.assetCode,
+        itemName: item.name,
+        currentLocation: item.currentLocation,
+        occurredAt: item.updatedAt,
+      })),
+      ...overdueLoans.filter((loan) => !missingItemIds.has(loan.itemId)).map((loan) => ({
+        key: `overdue:${loan._id}`,
+        kind: "overdue" as const,
+        itemId: loan.itemId,
+        requestId: loan._id,
+        assetCode: loan.assetCode,
+        itemName: loan.itemName,
+        requesterName: loan.requesterName,
+        dueAt: loan.dueAt,
+        occurredAt: loan.dueAt,
+      })),
+    ].sort((left, right) => left.occurredAt - right.occurredAt);
   },
 });
 

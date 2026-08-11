@@ -69,6 +69,8 @@
   .iv-icon-button, .iv-account-button { @apply grid size-10 place-items-center border bg-transparent; border-color: var(--iv-line-strong); color: var(--iv-text); }
   .iv-icon-button:hover, .iv-account-button:hover { border-color: var(--iv-orange); color: var(--iv-orange); }
   .iv-account-button span { color: var(--iv-orange); font: 700 9px/1 var(--font-mono); }
+  .iv-notification-button { @apply relative; }
+  .iv-notification-button b { @apply absolute -right-1.5 -top-1.5 grid min-h-4 min-w-4 place-items-center rounded-full border-2 border-white bg-red-700 px-1 text-white; font: 800 7px/1 var(--font-mono); }
 
   .iv-hero { @apply mx-auto flex min-h-[370px] max-w-[1500px] flex-col justify-center border-b px-4 py-12; border-color: var(--iv-line); }
   .iv-hero h1 { @apply mt-5 whitespace-nowrap; font-size: clamp(37px, 10.4vw, 78px); line-height: .92; letter-spacing: -.075em; }
@@ -86,6 +88,13 @@
   .iv-stat-strip article { @apply min-h-[110px] border-b border-r p-4; border-color: var(--iv-line); background: rgba(255,253,250,.72); }
   .iv-stat-strip span { color: var(--iv-muted); font-size: 8px; font-weight: 800; text-transform: uppercase; }
   .iv-stat-strip strong { @apply mt-6 block; font: 600 30px/1 var(--font-mono); letter-spacing: -.07em; }
+  .iv-public-summary { @apply grid border-l border-t; border-color: var(--iv-line); }
+  .iv-public-summary > div { @apply min-h-[150px] border-b border-r p-5; border-color: var(--iv-line); background: rgba(255,253,250,.72); }
+  .iv-public-summary > div:first-child { @apply flex flex-col justify-between; }
+  .iv-public-summary > div:first-child strong { font: 600 42px/1 var(--font-mono); letter-spacing: -.07em; }
+  .iv-public-summary p { color: var(--iv-muted); font-size: 10px; line-height: 1.65; }
+  .iv-public-summary > div:last-child { @apply flex flex-col items-start justify-center gap-3; }
+  .iv-public-summary > div:last-child > .iv-icon { @apply size-6; color: var(--iv-orange); }
   .iv-section-block { @apply mt-8; }
   .iv-section-heading { @apply mb-6 flex min-h-14 items-end justify-between gap-4; }
   .iv-section-heading h2 { @apply mt-3; font-size: clamp(29px, 8vw, 48px); line-height: .95; letter-spacing: -.065em; }
@@ -111,6 +120,16 @@
   .iv-item-card dt .iv-icon { @apply size-3; color: var(--iv-orange); }
   .iv-item-card dd { @apply mt-1.5 ml-0; font-size: 9px; font-weight: 700; }
   .iv-item-card > button { @apply flex min-h-10 items-center justify-between border-0 bg-transparent p-0 text-left; color: var(--iv-orange); font-size: 8px; font-weight: 800; text-transform: uppercase; }
+  .iv-public-item-main { @apply mt-8 flex min-w-0 items-start justify-between gap-4; }
+  .iv-public-item-main > div { @apply min-w-0; }
+  .iv-public-item-main p { @apply mt-2 truncate; color: var(--iv-muted); font-size: 8px; }
+  .iv-public-item-main > span { @apply grid size-[74px] shrink-0 place-items-center border; border-color: var(--iv-line); color: var(--iv-orange); background: #f8f5ef; }
+  .iv-public-item-main > span .iv-icon { @apply size-7; }
+  .iv-public-privacy { @apply my-6 flex items-start gap-3 border-y py-4; border-color: var(--iv-line); }
+  .iv-public-privacy > .iv-icon { @apply mt-0.5 size-4 shrink-0; color: var(--iv-green); }
+  .iv-public-privacy p { @apply grid gap-1; }
+  .iv-public-privacy strong { font-size: 8px; }
+  .iv-public-privacy span { color: var(--iv-muted); font-size: 8px; line-height: 1.5; }
 
   .iv-real-qr { @apply grid size-[74px] shrink-0 place-items-center border bg-white p-1.5; border-color: var(--iv-line-strong); }
   .iv-real-qr img { @apply block size-full; image-rendering: pixelated; }
@@ -120,7 +139,7 @@
   .iv-status[data-status="available"], .iv-status[data-status="approved"], .iv-status[data-status="returned"] { color: var(--iv-green); border-color: color-mix(in srgb, var(--iv-green) 38%, var(--iv-line)); }
   .iv-status[data-status="on_loan"] { color: var(--iv-cyan); border-color: color-mix(in srgb, var(--iv-cyan) 38%, var(--iv-line)); }
   .iv-status[data-status="reserved"], .iv-status[data-status="pending"] { color: var(--iv-amber); border-color: color-mix(in srgb, var(--iv-amber) 38%, var(--iv-line)); }
-  .iv-status[data-status="maintenance"], .iv-status[data-status="denied"] { color: var(--iv-red); border-color: color-mix(in srgb, var(--iv-red) 38%, var(--iv-line)); }
+  .iv-status[data-status="maintenance"], .iv-status[data-status="missing"], .iv-status[data-status="denied"] { color: var(--iv-red); border-color: color-mix(in srgb, var(--iv-red) 38%, var(--iv-line)); }
   .iv-status[data-status="retired"], .iv-status[data-status="cancelled"] { color: var(--iv-quiet); }
 
   .iv-empty-state, .iv-access-state { @apply grid min-h-[340px] place-items-center border px-6 py-12 text-center; border-color: var(--iv-line); background: rgba(255,253,250,.66); }
@@ -143,6 +162,11 @@
   .iv-loan-card footer button.approve { border-color: var(--iv-green); color: var(--iv-green); }
   .iv-loan-card footer button.delete { @apply inline-flex items-center justify-center gap-1.5; border-color: color-mix(in srgb, var(--iv-red) 45%, var(--iv-line)); color: var(--iv-red); }
   .iv-loan-card footer button.delete .iv-icon { @apply size-3.5; }
+  .iv-loan-card.overdue { border-color: color-mix(in srgb, var(--iv-red) 55%, var(--iv-line)); box-shadow: inset 3px 0 var(--iv-red); }
+  .iv-loan-overdue { @apply mb-4 grid grid-cols-[16px_1fr_auto] items-center gap-2 border border-red-700/30 bg-red-700/5 p-3 text-red-700; }
+  .iv-loan-overdue .iv-icon { @apply size-4; }
+  .iv-loan-overdue strong, .iv-loan-overdue span { font-size: 8px; text-transform: uppercase; }
+  .iv-loan-overdue span { font-family: var(--font-mono); }
   .iv-card-error { @apply mb-4 border border-red-700/30 bg-red-700/5 p-3 text-red-700; font-size: 8px; line-height: 1.5; }
 
   .iv-mobile-nav { @apply fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t; border-color: var(--iv-line-strong); background: rgba(255,253,250,.98); }
@@ -189,6 +213,9 @@
   .iv-camera-state { @apply absolute bottom-5 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap border border-white/20 bg-black/70 px-3 py-2 text-white; font-size: 8px; font-weight: 800; text-transform: uppercase; }
   .iv-camera-ready { @apply flex items-center justify-center gap-2 border px-3 py-2 text-center; border-color: color-mix(in srgb, var(--iv-green) 35%, var(--iv-line)); color: var(--iv-green); font-size: 8px; font-weight: 800; text-transform: uppercase; }
   .iv-camera-ready i { @apply size-1.5 rounded-full; background: currentColor; }
+  .iv-flash-button { @apply absolute right-3 top-3 z-30 inline-flex min-h-10 items-center gap-2 border border-white/30 bg-black/70 px-3 text-white; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+  .iv-flash-button.active { @apply border-amber-300 bg-amber-300 text-black; }
+  .iv-flash-button .iv-icon { @apply size-4; }
   .iv-scan-frame { @apply absolute left-1/2 top-1/2 z-10 size-44 -translate-x-1/2 -translate-y-1/2; }
   .iv-scan-frame i { @apply absolute size-10 border-[3px]; border-color: #ff6b35; }
   .iv-scan-frame i:nth-child(1) { @apply left-0 top-0 border-b-0 border-r-0; }
@@ -223,6 +250,30 @@
   .iv-approval-line span { font-size: 8px; font-weight: 800; }
   .iv-approval-line i { @apply h-px; background: var(--iv-line-strong); }
   .iv-modal-empty { @apply grid min-h-48 place-items-center p-6 text-center; color: var(--iv-muted); font-size: 10px; }
+  .iv-notifications { @apply grid gap-4 p-5; }
+  .iv-notification-summary { @apply flex items-center gap-4 border p-4; border-color: var(--iv-line-strong); background: #f8f5ef; }
+  .iv-notification-summary > span { @apply grid size-12 shrink-0 place-items-center border; border-color: var(--iv-red); color: var(--iv-red); }
+  .iv-notification-summary > span .iv-icon { @apply size-5; }
+  .iv-notification-summary > div { @apply flex flex-col gap-1; }
+  .iv-notification-summary strong { font: 700 24px/1 var(--font-mono); }
+  .iv-notification-summary small { color: var(--iv-muted); font-size: 8px; text-transform: uppercase; }
+  .iv-notification-list { @apply grid gap-2; }
+  .iv-notification-list > button { @apply grid min-h-24 grid-cols-[42px_minmax(0,1fr)_16px] items-center gap-3 border bg-transparent p-3 text-left; border-color: var(--iv-line-strong); color: var(--iv-text); }
+  .iv-notification-list > button:hover { border-color: var(--iv-orange); background: color-mix(in srgb, var(--iv-orange) 4%, transparent); }
+  .iv-alert-icon { @apply grid size-10 place-items-center border; color: var(--iv-red); border-color: color-mix(in srgb, var(--iv-red) 45%, var(--iv-line)); }
+  .iv-alert-icon[data-kind="overdue"] { color: var(--iv-amber); border-color: color-mix(in srgb, var(--iv-amber) 55%, var(--iv-line)); }
+  .iv-alert-icon .iv-icon { @apply size-4; }
+  .iv-notification-list > button > div { @apply min-w-0; }
+  .iv-notification-list header { @apply flex items-center justify-between gap-2; }
+  .iv-notification-list header strong { @apply truncate; font-size: 10px; }
+  .iv-notification-list header b { color: var(--iv-quiet); font: 700 7px/1 var(--font-mono); }
+  .iv-notification-list p { @apply mt-2 truncate; color: var(--iv-muted); font-size: 8px; }
+  .iv-notification-list small { @apply mt-2 block; color: var(--iv-red); font: 700 7px/1 var(--font-mono); text-transform: uppercase; }
+  .iv-notification-list > button > .iv-icon { @apply size-4; color: var(--iv-orange); }
+  .iv-notification-clear { @apply grid min-h-52 place-items-center content-center gap-3 border text-center; border-color: var(--iv-line); }
+  .iv-notification-clear .iv-icon { @apply size-7; color: var(--iv-green); }
+  .iv-notification-clear strong { font-size: 18px; }
+  .iv-notification-clear p { color: var(--iv-muted); font-size: 9px; }
   .iv-history { @apply grid gap-5 p-5; }
   .iv-history-summary { @apply grid grid-cols-2 gap-px border; border-color: var(--iv-line); background: var(--iv-line); }
   .iv-history-summary > div { @apply grid min-w-0 gap-2 p-4; background: var(--iv-panel); }
@@ -279,6 +330,7 @@
 
 @media (min-width: 640px) {
   .iv-field-grid { @apply grid-cols-2; }
+  .iv-public-summary { @apply grid-cols-2; }
   .iv-scanned-item { grid-template-columns: 74px minmax(0,1fr) auto; }
   .iv-scanned-item .iv-status { @apply col-span-1; }
   .iv-history-summary { @apply grid-cols-3; }
@@ -288,17 +340,45 @@
 @media (min-width: 768px) {
   .iv-header { @apply min-h-[74px] px-8; }
   .iv-desktop-nav { @apply flex; }
-  .iv-desktop-nav button { min-height: 74px; }
+  .iv-desktop-nav button { min-height: 74px; font-size: 11px; }
+  .iv-desktop-nav button b { font-size: 8px; }
+  .iv-eyebrow { font-size: 9px; }
   .iv-hero { @apply min-h-[480px] px-8 py-16; }
   .iv-hero h1 { font-size: clamp(64px, 7vw, 108px); }
-  .iv-hero p { font-size: 13px; }
+  .iv-hero p { font-size: 15px; }
   .iv-hero-actions { @apply flex; }
   .iv-hero-actions .iv-primary, .iv-hero-actions .iv-secondary { min-width: 210px; }
+  .iv-primary, .iv-secondary, .iv-danger { font-size: 10px; }
   .iv-overview, .iv-page { @apply px-8 py-12; }
   .iv-stat-strip { @apply grid-cols-4; }
   .iv-stat-strip article { min-height: 128px; }
+  .iv-stat-strip span { font-size: 10px; }
+  .iv-stat-strip strong { font-size: 34px; }
+  .iv-public-summary p { font-size: 12px; }
   .iv-item-grid { @apply grid-cols-2; }
   .iv-loan-grid { @apply grid-cols-2; }
+  .iv-item-card > header > span, .iv-loan-card > header > span { font-size: 9px; }
+  .iv-item-card h3, .iv-loan-card h3 { font-size: 23px; }
+  .iv-item-card-main p, .iv-public-item-main p, .iv-loan-card > p { font-size: 11px; }
+  .iv-item-card dt, .iv-loan-card dt, .iv-item-detail dt, .iv-qr-sheet dt { font-size: 9px; }
+  .iv-item-card dd, .iv-loan-card dd, .iv-item-detail dd, .iv-qr-sheet dd { font-size: 11px; }
+  .iv-item-card > button, .iv-loan-card footer button { font-size: 10px; }
+  .iv-status { font-size: 9px; }
+  .iv-public-privacy strong, .iv-public-privacy span { font-size: 10px; }
+  .iv-modal > header h2 { font-size: 34px; }
+  .iv-modal > header p { font-size: 12px; }
+  .iv-form label > span, .iv-scanner form label > span { font-size: 10px; }
+  .iv-form input, .iv-form select, .iv-form textarea, .iv-scanner input { font-size: 12px; }
+  .iv-form-note, .iv-form-error { font-size: 11px; }
+  .iv-account-identity strong, .iv-recorded-by strong { font-size: 12px; }
+  .iv-account-identity small, .iv-recorded-by small { font-size: 10px; }
+  .iv-notification-list header strong { font-size: 13px; }
+  .iv-notification-list p { font-size: 11px; }
+  .iv-notification-list small, .iv-notification-list header b { font-size: 9px; }
+  .iv-history-timeline article > header time, .iv-history-timeline article > header span { font-size: 10px; }
+  .iv-history-route small, .iv-history-status { font-size: 9px; }
+  .iv-history-route strong { font-size: 12px; }
+  .iv-history-timeline article > p { font-size: 11px; }
   .iv-mobile-nav { @apply hidden; }
   .inventory-app { padding-bottom: 0; }
   .iv-toast { @apply bottom-6; }

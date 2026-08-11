@@ -321,6 +321,7 @@ export default defineSchema({
       v.literal("on_loan"),
       v.literal("reserved"),
       v.literal("maintenance"),
+      v.literal("missing"),
       v.literal("retired"),
     ),
     stewardTeam: v.optional(v.string()),
@@ -336,6 +337,7 @@ export default defineSchema({
     .index("by_asset_code", ["assetCode"])
     .index("by_status", ["status"])
     .index("by_active_updated_at", ["active", "updatedAt"])
+    .index("by_active_status_updated_at", ["active", "status", "updatedAt"])
     .index("by_updated_at", ["updatedAt"]),
 
   inventoryMovements: defineTable({
@@ -382,6 +384,7 @@ export default defineSchema({
     .index("by_created_at", ["createdAt"])
     .index("by_item_created_at", ["itemId", "createdAt"])
     .index("by_status_created_at", ["status", "createdAt"])
+    .index("by_status_due_at", ["status", "dueAt"])
     .index("by_requester_created_at", ["requesterUserId", "createdAt"])
     .index("by_requester_item_status", ["requesterUserId", "itemId", "status"]),
 
