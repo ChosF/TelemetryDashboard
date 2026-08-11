@@ -91,6 +91,9 @@ function compactQrPayload(assetCode: string): string {
   return `EV:${assetCode}`;
 }
 
+const QR_NOT_RECOGNIZED = 'QR not recognized. Try again, choose another photo, or enter the item code below.';
+const QR_LOOKUP_FAILED = 'We could not check that QR code right now. Try again or enter the item code below.';
+
 function extractAssetCode(raw: string): string {
   const value = raw.trim().toUpperCase();
   if (value.startsWith('EV:')) return value.slice(3);
@@ -259,9 +262,10 @@ const InventoryPrototype: Component = () => {
 
   const openAsset = async (raw: string) => {
     const code = extractAssetCode(raw);
+    if (!/^[A-Z0-9-]{3,7}$/.test(code)) throw new Error(QR_NOT_RECOGNIZED);
     const local = items().find((item) => item.assetCode === code);
     const item = local ?? await getItemByAssetCode(code);
-    if (!item) throw new Error(`No item matches ${code}`);
+    if (!item) throw new Error(QR_NOT_RECOGNIZED);
     setSelectedItem(item);
     setModal(canManage() ? 'movement' : 'item');
   };
@@ -525,7 +529,7 @@ const ScannerModal: Component<{ onClose: () => void; onCode: (value: string) => 
       stop();
       await props.onCode(value);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Item not found');
+      setError(cause instanceof Error && cause.message === QR_NOT_RECOGNIZED ? QR_NOT_RECOGNIZED : QR_LOOKUP_FAILED);
       setCamera('idle');
       resolving = false;
     }
