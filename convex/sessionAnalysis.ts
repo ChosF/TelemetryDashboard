@@ -14,6 +14,7 @@ import {
 } from "./historicalAccess";
 import {
   SESSION_ANALYSIS_MODEL,
+  SESSION_ANALYSIS_MAX_AUTOMATIC_ATTEMPTS,
   SESSION_ANALYSIS_VERSION,
   sessionAnalysisInputValidator,
   sessionAnalysisResultValidator,
@@ -135,9 +136,9 @@ export const ensure = mutation({
       const lastAttemptMs = Date.parse(existing.started_at ?? existing.requested_at);
       const retryWindowElapsed = Number.isFinite(lastAttemptMs)
         && Date.now() - lastAttemptMs >= 5 * 60 * 1000;
-      const retryable = existing.attempts < 2
+      const retryable = existing.attempts < SESSION_ANALYSIS_MAX_AUTOMATIC_ATTEMPTS
         && retryWindowElapsed
-        && (existing.status === "error" || existing.status === "running");
+        && (existing.status === "error" || existing.status === "running" || existing.status === "pending");
       if (retryable) {
         await ctx.db.patch(existing._id, {
           status: "pending",
@@ -165,6 +166,65 @@ export const ensure = mutation({
       attempts: 0,
       requested_at: requestedAt,
     });
+    await ctx.scheduler.runAfter(0, internal.sessionAnalysisActions.generate, {
+      sessionId: args.sessionId,
+      version: SESSION_ANALYSIS_VERSION,
+    });
+    return { status: "pending" as const, scheduled: true };
+  },
+});
+
+export const reprocess = mutation({
+  args: {
+    sessionId: v.string(),
+    token: v.optional(v.string()),
+  },
+  returns: ensureResultValidator,
+  handler: async (ctx, args) => {
+    const access = await getHistoricalAccess(ctx, args.token);
+    if (access.role !== "admin") {
+      throw new ConvexError({ code: "FORBIDDEN", message: "Administrator access is required." });
+    }
+
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_session_id", (q) => q.eq("session_id", args.sessionId))
+      .unique();
+    if (!session || session.archive_status !== "complete" || !session.overview_storage_id) {
+      throw new ConvexError({ code: "ARCHIVE_NOT_READY", message: "The session overview is not ready yet." });
+    }
+
+    const existing = await ctx.db
+      .query("sessionAnalyses")
+      .withIndex("by_session_version", (q) =>
+        q.eq("session_id", args.sessionId).eq("version", SESSION_ANALYSIS_VERSION))
+      .unique();
+    if (existing?.status === "pending" || existing?.status === "running") {
+      throw new ConvexError({ code: "ANALYSIS_IN_PROGRESS", message: "The AI brief is already processing." });
+    }
+
+    const requestedAt = new Date().toISOString();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        model: SESSION_ANALYSIS_MODEL,
+        status: "pending",
+        attempts: 0,
+        requested_at: requestedAt,
+        started_at: undefined,
+        completed_at: undefined,
+        result: undefined,
+        error: undefined,
+      });
+    } else {
+      await ctx.db.insert("sessionAnalyses", {
+        session_id: args.sessionId,
+        version: SESSION_ANALYSIS_VERSION,
+        model: SESSION_ANALYSIS_MODEL,
+        status: "pending",
+        attempts: 0,
+        requested_at: requestedAt,
+      });
+    }
     await ctx.scheduler.runAfter(0, internal.sessionAnalysisActions.generate, {
       sessionId: args.sessionId,
       version: SESSION_ANALYSIS_VERSION,
@@ -266,6 +326,8 @@ export const complete = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.analysisId);
+    if (!row || row.status !== "running") return null;
     await ctx.db.patch(args.analysisId, {
       status: "complete",
       result: args.result,
@@ -284,11 +346,50 @@ export const fail = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.analysisId);
+    if (!row || row.status !== "running") return null;
     await ctx.db.patch(args.analysisId, {
       status: "error",
       error: args.message.slice(0, 240),
       completed_at: args.completedAt,
     });
+    return null;
+  },
+});
+
+export const handleTransientFailure = internalMutation({
+  args: {
+    analysisId: v.id("sessionAnalyses"),
+    sessionId: v.string(),
+    version: v.string(),
+    message: v.string(),
+    retryAfterMs: v.number(),
+    failedAt: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.analysisId);
+    if (!row || row.status !== "running" || row.version !== args.version) return null;
+    if (row.attempts >= SESSION_ANALYSIS_MAX_AUTOMATIC_ATTEMPTS) {
+      await ctx.db.patch(args.analysisId, {
+        status: "error",
+        error: args.message.slice(0, 240),
+        completed_at: args.failedAt,
+      });
+      return null;
+    }
+
+    await ctx.db.patch(args.analysisId, {
+      status: "pending",
+      requested_at: args.failedAt,
+      completed_at: undefined,
+      error: "AI capacity is temporarily limited; retrying automatically.",
+    });
+    await ctx.scheduler.runAfter(
+      Math.max(1_000, Math.min(args.retryAfterMs, 5 * 60 * 1_000)),
+      internal.sessionAnalysisActions.generate,
+      { sessionId: args.sessionId, version: args.version },
+    );
     return null;
   },
 });

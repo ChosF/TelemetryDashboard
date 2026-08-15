@@ -3273,6 +3273,13 @@ body.hist-page {
 }
 
 .hrb-kicker { color: var(--hrb-orange); }
+.hrb-ai-controls {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    min-width: 0;
+}
 .hrb-ai-state {
     display: inline-flex;
     align-items: center;
@@ -3289,6 +3296,25 @@ body.hist-page {
 .hrb-ai-state.is-running i { background: var(--hrb-orange); box-shadow: 0 0 0 5px rgba(255,107,53,.12); }
 .hrb-ai-state.is-complete i { background: var(--hrb-green); }
 .hrb-ai-state.is-error i { background: #db776e; }
+.hrb-ai-reprocess {
+    border: 1px solid var(--hrb-line);
+    border-radius: 999px;
+    padding: 7px 11px;
+    color: var(--hrb-ink);
+    background: transparent;
+    font: 700 9px/1 "Space Grotesk", sans-serif;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+.hrb-ai-reprocess:hover { border-color: var(--hrb-orange); color: var(--hrb-orange); }
+.hrb-ai-reprocess:disabled { cursor: wait; opacity: .5; }
+
+@media (max-width: 640px) {
+    .hrb-kicker-row { align-items: flex-start; gap: 14px; }
+    .hrb-ai-controls { flex-wrap: wrap; gap: 8px; }
+    .hrb-ai-state { text-align: right; }
+}
 
 .hrb-hero {
     display: grid;

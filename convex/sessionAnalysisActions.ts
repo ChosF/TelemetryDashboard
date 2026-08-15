@@ -142,6 +142,13 @@ function isTransientGeminiStatus(status: number): boolean {
   return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
 }
 
+function isTransientGeminiError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const statusMatch = message.match(/status (\d{3})/);
+  if (statusMatch) return isTransientGeminiStatus(Number(statusMatch[1]));
+  return /fetch failed|network|timeout|timed out|connection|socket|econnreset/i.test(message);
+}
+
 async function generateCompactBrief(
   apiKey: string,
   input: SessionAnalysisInput,
@@ -264,6 +271,19 @@ export const generate = internalAction({
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Post-run analysis failed";
+      if (isTransientGeminiError(error)) {
+        const retryDelaysMs = [15_000, 45_000, 120_000];
+        const retryAfterMs = retryDelaysMs[Math.min(context.attempts, retryDelaysMs.length - 1)];
+        await ctx.runMutation(internal.sessionAnalysis.handleTransientFailure, {
+          analysisId: context.analysisId,
+          sessionId: args.sessionId,
+          version: args.version,
+          message,
+          retryAfterMs,
+          failedAt: new Date().toISOString(),
+        });
+        return null;
+      }
       await ctx.runMutation(internal.sessionAnalysis.fail, {
         analysisId: context.analysisId,
         message,

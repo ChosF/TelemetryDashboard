@@ -14,7 +14,7 @@
         previewData: null, previewStats: null, previewStatsExact: false,
         fullData: null, fullStats: null,
         archiveStatus: 'none', coreMap: null, coreSectors: [],
-        analysis: null, analysisUnsubscribe: null, preparationToken: 0,
+        analysis: null, analysisUnsubscribe: null, analysisReprocessing: false, preparationToken: 0,
     };
     let historicalLimit = Infinity;
     let canAccessCustomAnalysis = true;
@@ -862,58 +862,6 @@
         return null;
     }
 
-    async function waitForSavedAnalysis(sessionId, token) {
-        let current = await ConvexBridge.getSessionAnalysis(sessionId);
-        if (!preparationIsCurrent(sessionId, token)) return null;
-        if (current?.available && current.result) return current;
-
-        if (current?.status === 'missing' || current?.status === 'error') {
-            const ensured = await ConvexBridge.ensureSessionAnalysis(sessionId);
-            if (ensured?.status === 'error' && !ensured?.scheduled) return current;
-        }
-        updatePreparationScreen({
-            stage: 'ai',
-            title: 'Building the AI brief',
-            detail: 'AI is turning deterministic run evidence into a concise decision brief.',
-            archiveMeta: 'Archive ready',
-            aiMeta: current?.status === 'running' ? 'Analyzing evidence' : 'Queued',
-        });
-
-        return await new Promise((resolve, reject) => {
-            let unsubscribe = null;
-            let settled = false;
-            const cancelCheck = setInterval(() => {
-                if (!preparationIsCurrent(sessionId, token)) finish(null);
-            }, 500);
-            const finish = (value, error = null) => {
-                if (settled) return;
-                settled = true;
-                clearInterval(cancelCheck);
-                if (unsubscribe) { try { unsubscribe() } catch (_) { } }
-                if (S.analysisUnsubscribe === unsubscribe) S.analysisUnsubscribe = null;
-                if (error) reject(error);
-                else resolve(value);
-            };
-            try {
-                unsubscribe = ConvexBridge.subscribeToSessionAnalysis(sessionId, analysis => {
-                    if (!preparationIsCurrent(sessionId, token)) return finish(null);
-                    const statusLabel = analysis?.status === 'running' ? 'Analyzing evidence' : 'Queued';
-                    $('h-prep-ai-meta').textContent = statusLabel;
-                    if (analysis?.available && analysis.result) finish(analysis);
-                    else if (analysis?.status === 'error') finish(analysis);
-                });
-                if (settled) {
-                    try { unsubscribe() } catch (_) { }
-                    unsubscribe = null;
-                } else {
-                    S.analysisUnsubscribe = unsubscribe;
-                }
-            } catch (error) {
-                finish(null, error);
-            }
-        });
-    }
-
     async function openSession(sid, options = {}) {
         if (!options.forceAllow && !isAllowedSessionId(sid)) {
             const fallback = getAllowedSessions()[0];
@@ -939,6 +887,8 @@
         S.activeSessionMeta = S.sessions.find(s => s.session_id === sid);
         clearArchiveStatusPoll();
         S.archiveStatus = S.activeSessionMeta?.archive_status || 'none';
+        S.analysis = null;
+        S.analysisReprocessing = false;
         S.isPreview = false;
         S.previewData = null;
         S.previewStats = null;
@@ -968,10 +918,7 @@
                     $('h-prep-archive-meta').textContent = `Archive ready · loading ${clampProgress(snapshot.progress)}%`;
                 }
             });
-            const [sessionPayload, analysis] = await Promise.all([
-                controller.promise,
-                waitForSavedAnalysis(sid, preparationToken),
-            ]);
+            const sessionPayload = await controller.promise;
             if (!preparationIsCurrent(sid, preparationToken)) return;
 
             const { normalized, stats, statsExact, isPreview, archiveStatus } = sessionPayload;
@@ -987,13 +934,11 @@
             S.previewStatsExact = isPreview ? !!statsExact : false;
             S.fullData = isPreview ? null : cappedData;
             S.fullStats = isPreview ? null : stats;
-            S.analysis = analysis;
             updateFullExportAvailability();
 
             if (!S.data.length) throw new Error('No telemetry data is available for this run.');
             showAnalysisView();
             renderInitialHistoricalView();
-            if (analysis) renderSavedCoreAnalysis(analysis);
             if (cappedData.length < normalized.length) {
                 toast(`External access limited to ${externalDataPointLimit.toLocaleString()} representative points.`);
             }
@@ -1381,6 +1326,7 @@
             $('h-core-caveat').textContent = result.caveat;
             renderCoreAttention(result.attention);
             renderCoreSectorList();
+            syncAnalysisReprocessControl();
             return;
         }
         if (analysis?.status === 'pending' || analysis?.status === 'running') {
@@ -1392,7 +1338,36 @@
         } else {
             state.innerHTML = '<i></i> Deterministic brief';
         }
+        syncAnalysisReprocessControl();
     }
+
+    function syncAnalysisReprocessControl() {
+        const button = $('h-core-ai-reprocess');
+        if (!button) return;
+        button.hidden = !isAdmin || !S.activeSessionId || S.archiveStatus !== 'complete';
+        const processing = S.analysis?.status === 'pending' || S.analysis?.status === 'running';
+        button.disabled = S.analysisReprocessing || processing;
+        button.textContent = S.analysisReprocessing ? 'Queuing…' : processing ? 'AI processing' : 'Reprocess AI';
+    }
+
+    $('h-core-ai-reprocess')?.addEventListener('click', async () => {
+        const sessionId = S.activeSessionId;
+        if (!isAdmin || !sessionId || S.archiveStatus !== 'complete' || S.analysisReprocessing) return;
+        S.analysisReprocessing = true;
+        syncAnalysisReprocessControl();
+        try {
+            await ConvexBridge.reprocessSessionAnalysis(sessionId);
+            if (S.activeSessionId !== sessionId) return;
+            renderSavedCoreAnalysis({ status: 'pending' });
+            toast('AI brief reprocessing queued.', 'success');
+        } catch (error) {
+            console.error('[historical] AI brief reprocessing failed:', error);
+            toast(error?.message || 'AI brief reprocessing could not be queued.', 'error');
+        } finally {
+            S.analysisReprocessing = false;
+            if (S.activeSessionId === sessionId) syncAnalysisReprocessControl();
+        }
+    });
 
     async function connectCoreSessionAnalysis() {
         const sessionId = S.activeSessionId;
@@ -1406,7 +1381,10 @@
             if (S.activeSessionId !== sessionId) return;
             renderSavedCoreAnalysis(current);
             if ((current.status === 'missing' || current.status === 'error') && S.archiveStatus === 'complete') {
-                await ConvexBridge.ensureSessionAnalysis(sessionId);
+                const ensured = await ConvexBridge.ensureSessionAnalysis(sessionId);
+                if (ensured?.scheduled && S.activeSessionId === sessionId) {
+                    renderSavedCoreAnalysis({ ...current, status: 'pending', available: false, result: null });
+                }
             } else if (current.status === 'missing') {
                 const state = $('h-core-ai-state');
                 state.className = 'hrb-ai-state is-running';

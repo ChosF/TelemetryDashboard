@@ -447,6 +447,16 @@ const ConvexBridge = (function () {
         });
     }
 
+    async function reprocessSessionAnalysis(sessionId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        const token = getAuthToken();
+        if (!token) throw new Error('Admin authentication is required');
+        return await client.mutation('sessionAnalysis:reprocess', {
+            sessionId,
+            token,
+        });
+    }
+
     async function listSessionChatThreads(sessionId) {
         if (!client) throw new Error('ConvexBridge not initialized');
         return await client.query('sessionChat:listThreads', {
@@ -821,6 +831,7 @@ const ConvexBridge = (function () {
         getSessionArchiveStatus,
         getSessionAnalysis,
         ensureSessionAnalysis,
+        reprocessSessionAnalysis,
         listSessionChatThreads,
         createSessionChatThread,
         listSessionChatMessages,
