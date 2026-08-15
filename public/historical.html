@@ -938,6 +938,7 @@
                     <label><input type="checkbox" data-panel-toggle="efficiency-summary" checked> Efficiency summary</label>
                     <label><input type="checkbox" data-panel-toggle="efficiency-trends" checked> Efficiency channels</label>
                     <label><input type="checkbox" data-panel-toggle="efficiency-map" checked> Operating efficiency map</label>
+                    <label><input type="checkbox" data-panel-toggle="efficiency-estimator" checked> Optimal-speed evidence</label>
                     <label><input type="checkbox" data-panel-toggle="power-summary" checked> Electrical summary</label>
                     <label><input type="checkbox" data-panel-toggle="power-trends" checked> Source electrical channels</label>
                     <label><input type="checkbox" data-panel-toggle="power-events" checked> Load events</label>
@@ -947,16 +948,21 @@
                     <label><input type="checkbox" data-panel-toggle="dynamics-summary" checked> Dynamics summary</label>
                     <label><input type="checkbox" data-panel-toggle="dynamics-trends" checked> IMU channels</label>
                     <label><input type="checkbox" data-panel-toggle="dynamics-events" checked> Motion events</label>
+                    <label><input type="checkbox" data-panel-toggle="dynamics-rotation" checked> Rotation channels</label>
+                    <label><input type="checkbox" data-panel-toggle="dynamics-steering" checked> Steering-wheel IMU</label>
                     <label><input type="checkbox" data-panel-toggle="driver-summary" checked> Driver summary</label>
                     <label><input type="checkbox" data-panel-toggle="driver-trends" checked> Driver inputs</label>
                     <label><input type="checkbox" data-panel-toggle="driver-response" checked> Control response</label>
+                    <label><input type="checkbox" data-panel-toggle="driver-behavior" checked> Saved behavior states</label>
                     <label><input type="checkbox" data-panel-toggle="track-summary" checked> Track summary</label>
                     <label><input type="checkbox" data-panel-toggle="track-map" checked> Sector route map</label>
                     <label><input type="checkbox" data-panel-toggle="track-sectors" checked> Sector analysis</label>
                     <label><input type="checkbox" data-panel-toggle="track-profile" checked> Route profile</label>
+                    <label><input type="checkbox" data-panel-toggle="track-navigation" checked> Navigation channels</label>
                     <label><input type="checkbox" data-panel-toggle="integrity-summary" checked> Integrity summary</label>
                     <label><input type="checkbox" data-panel-toggle="integrity-availability" checked> Field availability</label>
                     <label><input type="checkbox" data-panel-toggle="integrity-events" checked> Integrity event log</label>
+                    <label><input type="checkbox" data-panel-toggle="integrity-catalog" checked> Convex field catalog</label>
                     <button type="button" class="haw-layout-reset" id="h-ca-show-all">Show all for this tool</button>
                     <button type="button" class="haw-layout-reset" id="h-ca-layout-reset">Restore all default views</button>
                 </aside>
@@ -1197,6 +1203,11 @@
                         <header class="haw-panel-header"><div><span class="haw-panel-index">EFFICIENCY · 03</span><h3>Speed–power operating map</h3><p>Where the run spent energy, grouped by speed band with the efficient operating window highlighted.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
                         <div class="haw-chart-stage"><div class="ha-chart-box" id="hc-ca-efficiency-map"></div></div>
                     </article>
+                    <article class="haw-panel haw-panel-wide" data-workspace-panel="efficiency-estimator" data-workspace-modes="efficiency" draggable="true">
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">EFFICIENCY · 04</span><h3>Optimal-speed estimator evidence</h3><p>Saved target, supported range, confidence, and evidence-point growth—not a reconstructed estimate.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <div class="haw-inline-metrics" id="h-ca-efficiency-estimator-summary"></div>
+                        <div class="haw-chart-stage"><div class="ha-chart-box" id="hc-ca-efficiency-estimator"></div></div>
+                    </article>
 
                     <article class="haw-panel haw-panel-full" data-workspace-panel="power-summary" data-workspace-modes="power" draggable="false">
                         <header class="haw-panel-header"><div><span class="haw-panel-index">POWER · 01</span><h3>Source electrical envelope</h3><p>Battery-side power, voltage stability, current peaks, and energy throughput.</p></div></header>
@@ -1236,6 +1247,15 @@
                         <header class="haw-panel-header"><div><span class="haw-panel-index">DYNAMICS · 03</span><h3>Load-event ledger</h3><p>Largest force and rotational events with their speed and time context.</p></div></header>
                         <div class="haw-event-ledger" id="h-ca-dynamics-events"></div>
                     </article>
+                    <article class="haw-panel" data-workspace-panel="dynamics-rotation" data-workspace-modes="dynamics" draggable="true">
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">DYNAMICS · 04</span><h3>Vehicle rotation</h3><p>Saved body-frame gyro channels reveal yaw, pitch, and roll activity.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <div class="haw-chart-stage"><div class="ha-chart-box" id="hc-ca-dynamics-rotation"></div></div>
+                    </article>
+                    <article class="haw-panel haw-panel-wide" data-workspace-panel="dynamics-steering" data-workspace-modes="dynamics" draggable="true">
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">DYNAMICS · 05</span><h3>Steering-wheel IMU</h3><p>Independent wheel-mounted gyro and acceleration evidence for steering input and vibration.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <div class="haw-inline-metrics" id="h-ca-steering-summary"></div>
+                        <div class="haw-split-charts"><div class="ha-chart-box" id="hc-ca-steering-gyro"></div><div class="ha-chart-box" id="hc-ca-steering-accel"></div></div>
+                    </article>
 
                     <article class="haw-panel haw-panel-full" data-workspace-panel="driver-summary" data-workspace-modes="driver" draggable="false">
                         <header class="haw-panel-header"><div><span class="haw-panel-index">DRIVER · 01</span><h3>Driver demand envelope</h3><p>Throttle, braking, coasting, and response evidence from the complete run.</p></div></header>
@@ -1248,6 +1268,11 @@
                     <article class="haw-panel" data-workspace-panel="driver-response" data-workspace-modes="driver" draggable="true">
                         <header class="haw-panel-header"><div><span class="haw-panel-index">DRIVER · 03</span><h3>Control-state occupancy</h3><p>Time spent accelerating, coasting, braking, and in overlapping controls.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
                         <div class="haw-chart-stage"><div class="ha-chart-box" id="hc-ca-driver-response"></div></div>
+                    </article>
+                    <article class="haw-panel haw-panel-full" data-workspace-panel="driver-behavior" data-workspace-modes="driver" draggable="true">
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">DRIVER · 04</span><h3>Saved driving behavior</h3><p>Backend-classified motion, driving style, throttle intensity, and brake intensity—including cruising and aggressive operation.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <div class="haw-classification-grid" id="h-ca-driver-behavior-summary"></div>
+                        <div class="haw-chart-stage"><div class="ha-chart-box" id="hc-ca-driver-behavior"></div></div>
                     </article>
 
                     <article class="haw-panel haw-panel-full" data-workspace-panel="track-summary" data-workspace-modes="track" draggable="false">
@@ -1266,6 +1291,10 @@
                         <header class="haw-panel-header"><div><span class="haw-panel-index">TRACK · 04</span><h3>Route speed and altitude profile</h3><p>Distance-domain comparison of pace and elevation, colored by the same four sectors.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
                         <div class="haw-chart-stage"><div class="ha-chart-box" id="hc-ca-track-profile"></div></div>
                     </article>
+                    <article class="haw-panel haw-panel-full" data-workspace-panel="track-navigation" data-workspace-modes="track" draggable="true">
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">TRACK · 05</span><h3>Navigation and odometry channels</h3><p>Saved heading, route distance, sensor distance, altitude, and cumulative elevation gain.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <div class="haw-chart-stage"><div class="ha-chart-box" id="hc-ca-track-navigation"></div></div>
+                    </article>
 
                     <article class="haw-panel haw-panel-full" data-workspace-panel="integrity-summary" data-workspace-modes="integrity" draggable="false">
                         <header class="haw-panel-header"><div><span class="haw-panel-index">INTEGRITY · 01</span><h3>Telemetry integrity envelope</h3><p>Cadence, gaps, duplicate timestamps, outliers, and usable-channel coverage.</p></div></header>
@@ -1278,6 +1307,10 @@
                     <article class="haw-panel" data-workspace-panel="integrity-events" data-workspace-modes="integrity" draggable="false">
                         <header class="haw-panel-header"><div><span class="haw-panel-index">INTEGRITY · 03</span><h3>Gap and outlier ledger</h3><p>Largest timing discontinuities and records already flagged by the telemetry pipeline.</p></div></header>
                         <div class="haw-event-ledger" id="h-ca-integrity-events"></div>
+                    </article>
+                    <article class="haw-panel haw-panel-full" data-workspace-panel="integrity-catalog" data-workspace-modes="integrity" draggable="true">
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">INTEGRITY · 04</span><h3>Convex telemetry field catalog</h3><p>Every persisted telemetry property, grouped by system with loaded-session coverage and its latest saved value.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <div class="haw-field-catalog" id="h-ca-integrity-catalog"></div>
                     </article>
                         </div>
                     </div>

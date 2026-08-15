@@ -552,6 +552,12 @@ __global.HA = __global.HA || {};
         n.motor_rpm = r.motor_rpm ?? r.rpms ?? r.rpm ?? 0;
         n.motor_temp_c = r.motor_temp_c ?? r.motor_temperature_c ?? r.vesc_temp_c ?? null;
         n.vehicle_heading = r.vehicle_heading ?? null;
+        n.steering_gyro_x = r.steering_gyro_x ?? null;
+        n.steering_gyro_y = r.steering_gyro_y ?? null;
+        n.steering_gyro_z = r.steering_gyro_z ?? null;
+        n.steering_accel_x = r.steering_accel_x ?? null;
+        n.steering_accel_y = r.steering_accel_y ?? null;
+        n.steering_accel_z = r.steering_accel_z ?? null;
         n.motor_phase_1_current_a = r.motor_phase_1_current_a || r.phase_1_current_a || 0;
         n.motor_phase_2_current_a = r.motor_phase_2_current_a || r.phase_2_current_a || 0;
         n.motor_phase_3_current_a = r.motor_phase_3_current_a || r.phase_3_current_a || 0;
@@ -569,20 +575,27 @@ __global.HA = __global.HA || {};
         n.g_force = r.current_g_force || (Math.sqrt(n.accel_x ** 2 + n.accel_y ** 2 + n.accel_z ** 2) / 9.81);
         n.max_g_force = r.max_g_force || n.g_force;
         n.accel_magnitude = r.accel_magnitude || r.total_acceleration || 0;
+        n.total_acceleration = r.total_acceleration ?? n.accel_magnitude;
+        n.avg_acceleration = r.avg_acceleration ?? null;
         n.lat = r.latitude || 0; n.lon = r.longitude || 0; n.alt = r.altitude_m || 0;
         n.elevation_gain_m = r.elevation_gain_m || 0;
         n.instEfficiency = r.inst_eff_km_kwh ?? r.current_efficiency_km_kwh ?? null;
         n.accEfficiency = r.acc_eff_km_kwh ?? null;
         n.efficiency = n.accEfficiency ?? n.instEfficiency;
-        n.cumEnergy = r.cumulative_energy_kwh ?? null;
-        n.routeDist = r.route_distance_km ?? null;
+        n.cumEnergy = r.cumulative_energy_kwh ?? (r.energy_j != null ? r.energy_j / 3600000 : null);
+        n.routeDist = r.route_distance_km ?? (r.distance_m != null ? r.distance_m / 1000 : null);
         n.energy_j = r.energy_j || 0; n.distance_m = r.distance_m || 0;
         n.avg_speed_kmh = r.avg_speed_kmh || 0; n.max_speed_kmh = r.max_speed_kmh || 0;
         n.avg_power = r.avg_power || 0; n.avg_voltage = r.avg_voltage || 0; n.avg_current = r.avg_current || 0;
         n.max_power_w = r.max_power_w || 0; n.max_current_a = r.max_current_a || 0;
         n.optimalSpeed = r.optimal_speed_kmh ?? null;
+        n.optimalSpeedMs = r.optimal_speed_ms ?? (n.optimalSpeed != null ? n.optimalSpeed / 3.6 : null);
         n.optimalEfficiency = r.optimal_efficiency_km_kwh ?? null;
-        n.optimalConfidence = r.optimal_speed_confidence ?? null;
+        n.optimalConfidence = r.optimal_speed_confidence == null
+            ? null
+            : (r.optimal_speed_confidence <= 1 ? r.optimal_speed_confidence * 100 : r.optimal_speed_confidence);
+        n.optimalDataPoints = r.optimal_speed_data_points ?? null;
+        n.optimalRange = r.optimal_speed_range && typeof r.optimal_speed_range === 'object' ? r.optimal_speed_range : null;
         n.motionState = r.motion_state || null; n.driverMode = r.driver_mode || null;
         n.qualityScore = r.quality_score ?? null;
         // Outlier data: backend stores nested object { severity, flagged_fields, ... } OR flat outlier_severity
@@ -666,15 +679,45 @@ __global.HA = __global.HA || {};
         { key: 'accel_x', label: 'Accel X' },
         { key: 'accel_y', label: 'Accel Y' },
         { key: 'accel_z', label: 'Accel Z' },
+        { key: 'gyro_x', label: 'Gyro X (°/s)' },
+        { key: 'gyro_y', label: 'Gyro Y (°/s)' },
+        { key: 'gyro_z', label: 'Gyro Z (°/s)' },
+        { key: 'steering_gyro_x', label: 'Steering Gyro X (°/s)' },
+        { key: 'steering_gyro_y', label: 'Steering Gyro Y (°/s)' },
+        { key: 'steering_gyro_z', label: 'Steering Gyro Z (°/s)' },
+        { key: 'steering_accel_x', label: 'Steering Accel X (m/s²)' },
+        { key: 'steering_accel_y', label: 'Steering Accel Y (m/s²)' },
+        { key: 'steering_accel_z', label: 'Steering Accel Z (m/s²)' },
         { key: 'g_force', label: 'G-Force' },
+        { key: 'max_g_force', label: 'Running Max G-Force' },
+        { key: 'accel_magnitude', label: 'Acceleration Magnitude (m/s²)' },
+        { key: 'avg_acceleration', label: 'Rolling Average Acceleration (m/s²)' },
         { key: 'alt', label: 'Altitude (m)' },
+        { key: 'elevation_gain_m', label: 'Elevation Gain (m)' },
+        { key: 'distance_m', label: 'Sensor Distance (m)' },
+        { key: 'energy_j', label: 'Cumulative Energy (J)' },
 
         // Extended Database Variables
         { key: 'efficiency', label: 'Efficiency (km/kWh)' },
         { key: 'cumEnergy', label: 'Cumulative Energy (kWh)' },
         { key: 'routeDist', label: 'Distance Covered (km)' },
         { key: 'optimalSpeed', label: 'Optimal Speed (km/h)' },
+        { key: 'optimalSpeedMs', label: 'Optimal Speed (m/s)' },
         { key: 'optimalEfficiency', label: 'Optimal Efficiency (km/kWh)' },
+        { key: 'optimalConfidence', label: 'Optimal Speed Confidence (%)' },
+        { key: 'optimalDataPoints', label: 'Optimal Speed Evidence Points' },
+
+        // Persisted running aggregates and transport diagnostics
+        { key: 'avg_power_w', label: 'Rolling Average Power (W)' },
+        { key: 'avg_speed_kmh', label: 'Running Average Speed (km/h)' },
+        { key: 'max_speed_kmh', label: 'Running Maximum Speed (km/h)' },
+        { key: 'avg_power', label: 'Running Average Power (W)' },
+        { key: 'avg_voltage', label: 'Running Average Voltage (V)' },
+        { key: 'avg_current', label: 'Running Average Current (A)' },
+        { key: 'max_power_w', label: 'Running Maximum Power (W)' },
+        { key: 'max_current_a', label: 'Running Maximum Current (A)' },
+        { key: 'message_id', label: 'Message Sequence' },
+        { key: 'uptime_seconds', label: 'Bridge Uptime (s)' },
 
         // Server Health & Diagnostics
         { key: 'qualityScore', label: 'Server Quality Score (Health)' },

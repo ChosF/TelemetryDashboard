@@ -2948,17 +2948,18 @@
     const HCA_WORKSPACE_MODES = ['explore', 'rewind', 'transform', 'correlate', 'review', 'efficiency', 'power', 'motor', 'dynamics', 'driver', 'track', 'integrity'];
     const HCA_DEFAULT_ORDER = [
         'overview', 'signals', 'relationship', 'filters', 'rewind', 'transform', 'recipes', 'quality', 'matrix', 'notebook', 'pairwise', 'review-summary', 'distribution', 'statistics', 'preview',
-        'efficiency-summary', 'efficiency-trends', 'efficiency-map',
+        'efficiency-summary', 'efficiency-trends', 'efficiency-map', 'efficiency-estimator',
         'power-summary', 'power-trends', 'power-events',
         'motor-summary', 'motor-trends', 'motor-phases',
-        'dynamics-summary', 'dynamics-trends', 'dynamics-events',
-        'driver-summary', 'driver-trends', 'driver-response',
-        'track-summary', 'track-map', 'track-sectors', 'track-profile',
-        'integrity-summary', 'integrity-availability', 'integrity-events',
+        'dynamics-summary', 'dynamics-trends', 'dynamics-events', 'dynamics-rotation', 'dynamics-steering',
+        'driver-summary', 'driver-trends', 'driver-response', 'driver-behavior',
+        'track-summary', 'track-map', 'track-sectors', 'track-profile', 'track-navigation',
+        'integrity-summary', 'integrity-availability', 'integrity-events', 'integrity-catalog',
     ];
     const HCA_SIGNAL_DEFS = {
         speed_kmh: { label: 'Speed', unit: 'km/h', color: '#ff6b35' },
         power_w: { label: 'Power', unit: 'W', color: '#86b7a6' },
+        avg_power_w: { label: 'Rolling power', unit: 'W', color: '#c4a7e7' },
         voltage_v: { label: 'Voltage', unit: 'V', color: '#38bdf8' },
         current_a: { label: 'Current', unit: 'A', color: '#f1ab6c' },
         motor_rpm: { label: 'Motor RPM', unit: 'rpm', color: '#c4a7e7' },
@@ -2967,22 +2968,51 @@
         brake_pct: { label: 'Brake', unit: '%', color: '#ef6a6a' },
         brake2_pct: { label: 'Brake 2', unit: '%', color: '#db776e' },
         g_force: { label: 'G-force', unit: 'g', color: '#d19af0' },
-        instEfficiency: { label: 'Instant efficiency', unit: '%', color: '#8fcf86' },
-        accEfficiency: { label: 'Accumulated efficiency', unit: '%', color: '#86b7a6' },
+        instEfficiency: { label: 'Instant efficiency', unit: 'km/kWh', color: '#8fcf86' },
+        accEfficiency: { label: 'Accumulated efficiency', unit: 'km/kWh', color: '#86b7a6' },
         cumEnergy: { label: 'Cumulative energy', unit: 'kWh', color: '#f1ab6c' },
         vesc_voltage_v: { label: 'VESC voltage', unit: 'V', color: '#46b4c6' },
         vesc_current_a: { label: 'VESC current', unit: 'A', color: '#ef945e' },
         motor_phase_1_current_a: { label: 'Phase 1', unit: 'A', color: '#ff6b35' },
         motor_phase_2_current_a: { label: 'Phase 2', unit: 'A', color: '#86b7a6' },
         motor_phase_3_current_a: { label: 'Phase 3', unit: 'A', color: '#c4a7e7' },
+        motor_phase_current_a: { label: 'Phase average', unit: 'A', color: '#d19af0' },
         accel_x: { label: 'Accel X', unit: 'm/s²', color: '#38bdf8' },
         accel_y: { label: 'Accel Y', unit: 'm/s²', color: '#f1ab6c' },
         accel_z: { label: 'Accel Z', unit: 'm/s²', color: '#c4a7e7' },
         gyro_x: { label: 'Gyro X', unit: '°/s', color: '#38bdf8' },
         gyro_y: { label: 'Gyro Y', unit: '°/s', color: '#f1ab6c' },
         gyro_z: { label: 'Gyro Z', unit: '°/s', color: '#c4a7e7' },
+        steering_gyro_x: { label: 'Steering gyro X', unit: '°/s', color: '#38bdf8' },
+        steering_gyro_y: { label: 'Steering gyro Y', unit: '°/s', color: '#f1ab6c' },
+        steering_gyro_z: { label: 'Steering gyro Z', unit: '°/s', color: '#c4a7e7' },
+        steering_accel_x: { label: 'Steering accel X', unit: 'm/s²', color: '#38bdf8' },
+        steering_accel_y: { label: 'Steering accel Y', unit: 'm/s²', color: '#f1ab6c' },
+        steering_accel_z: { label: 'Steering accel Z', unit: 'm/s²', color: '#c4a7e7' },
+        accel_magnitude: { label: 'Acceleration magnitude', unit: 'm/s²', color: '#d19af0' },
+        avg_acceleration: { label: 'Rolling acceleration', unit: 'm/s²', color: '#86b7a6' },
+        optimalSpeed: { label: 'Optimal speed', unit: 'km/h', color: '#8fcf86' },
+        optimalConfidence: { label: 'Estimator confidence', unit: '%', color: '#f1ab6c' },
+        optimalDataPoints: { label: 'Evidence points', unit: 'points', color: '#c4a7e7' },
+        vehicle_heading: { label: 'Heading', unit: '°', color: '#38bdf8' },
+        routeDist: { label: 'Route distance', unit: 'km', color: '#ff6b35' },
+        distance_m: { label: 'Sensor distance', unit: 'm', color: '#86b7a6' },
+        elevation_gain_m: { label: 'Elevation gain', unit: 'm', color: '#f1ab6c' },
         alt: { label: 'Altitude', unit: 'm', color: '#c4a7e7' },
     };
+
+    const HCA_TELEMETRY_GROUPS = [
+        ['Identity', ['session_id', 'session_name', 'timestamp']],
+        ['Motion & source power', ['speed_ms', 'voltage_v', 'current_a', 'power_w', 'avg_power_w', 'energy_j', 'distance_m']],
+        ['GPS & navigation', ['latitude', 'longitude', 'altitude_m', 'vehicle_heading', 'route_distance_km', 'elevation_gain_m']],
+        ['Vehicle IMU', ['gyro_x', 'gyro_y', 'gyro_z', 'accel_x', 'accel_y', 'accel_z', 'total_acceleration', 'current_g_force', 'max_g_force', 'accel_magnitude', 'avg_acceleration']],
+        ['Steering-wheel IMU', ['steering_gyro_x', 'steering_gyro_y', 'steering_gyro_z', 'steering_accel_x', 'steering_accel_y', 'steering_accel_z']],
+        ['Driver controls & behavior', ['throttle_pct', 'brake_pct', 'brake2_pct', 'throttle', 'brake', 'brake2', 'motion_state', 'driver_mode', 'throttle_intensity', 'brake_intensity']],
+        ['Motor & controller', ['motor_voltage_v', 'motor_current_a', 'vesc_voltage_v', 'vesc_current_a', 'motor_rpm', 'motor_temp_c', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'motor_phase_current_a']],
+        ['Efficiency & running aggregates', ['inst_eff_km_kwh', 'acc_eff_km_kwh', 'current_efficiency_km_kwh', 'cumulative_energy_kwh', 'avg_speed_kmh', 'max_speed_kmh', 'avg_power', 'avg_voltage', 'avg_current', 'max_power_w', 'max_current_a']],
+        ['Optimal-speed estimator', ['optimal_speed_kmh', 'optimal_speed_ms', 'optimal_efficiency_km_kwh', 'optimal_speed_confidence', 'optimal_speed_data_points', 'optimal_speed_range']],
+        ['Transport & quality', ['message_id', 'uptime_seconds', 'data_source', 'quality_score', 'outlier_severity', 'outliers']],
+    ];
     let workspaceRewindMap = null;
     let workspaceTrackMap = null;
     let workspaceRewindMarker = null;
@@ -3009,8 +3039,9 @@
         disposeWorkspaceRewind();
         disposeWorkspaceTrackMap();
         ['hc-custom', 'hc-ca-correlation', 'hc-ca-rewind', 'hc-ca-overview', 'hc-ca-quality', 'hc-ca-pairwise', 'hc-ca-distribution',
-            'hc-ca-efficiency-trends', 'hc-ca-efficiency-map', 'hc-ca-power-trends', 'hc-ca-motor-trends', 'hc-ca-motor-phases',
-            'hc-ca-dynamics-trends', 'hc-ca-driver-trends', 'hc-ca-driver-response', 'hc-ca-track-profile', 'hc-ca-integrity-availability'].forEach(chartId => {
+            'hc-ca-efficiency-trends', 'hc-ca-efficiency-map', 'hc-ca-efficiency-estimator', 'hc-ca-power-trends', 'hc-ca-motor-trends', 'hc-ca-motor-phases',
+            'hc-ca-dynamics-trends', 'hc-ca-dynamics-rotation', 'hc-ca-steering-gyro', 'hc-ca-steering-accel', 'hc-ca-driver-trends', 'hc-ca-driver-response', 'hc-ca-driver-behavior',
+            'hc-ca-track-profile', 'hc-ca-track-navigation', 'hc-ca-integrity-availability'].forEach(chartId => {
             const chart = HA.charts[chartId];
             if (chart) {
                 try { chart.dispose() } catch (error) { console.warn(`[historical] Failed to dispose ${chartId}`, error) }
@@ -3195,6 +3226,75 @@
         </div>`).join('');
     }
 
+    function workspaceCategoryCounts(field) {
+        const counts = new Map();
+        (S.data || []).forEach(row => {
+            const value = row[field] == null || row[field] === '' ? 'unavailable' : String(row[field]).trim().toLowerCase();
+            counts.set(value, (counts.get(value) || 0) + 1);
+        });
+        return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    }
+
+    function renderWorkspaceClassificationChart(hostId, definitions) {
+        const colors = workspaceChartColors();
+        const palette = {
+            stationary: '#64748b', cruising: '#38bdf8', turning: '#c4a7e7', accelerating: '#ff6b35', braking: '#db776e',
+            coasting: '#86b7a6', eco: '#8fcf86', normal: '#f1ab6c', aggressive: '#ef4444', idle: '#64748b', none: '#64748b',
+            light: '#38bdf8', moderate: '#f1ab6c', heavy: '#db776e', mixed: '#c4a7e7', unavailable: 'rgba(148,163,184,.28)',
+        };
+        const rows = definitions.map(definition => ({ ...definition, counts: workspaceCategoryCounts(definition.field) }));
+        const categories = [...new Set(rows.flatMap(row => row.counts.map(([name]) => name)))];
+        HA.initChart(hostId, {
+            animationDuration: 320,
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: params => {
+                const visible = params.filter(item => Number(item.value) > 0);
+                return `${esc(params[0]?.axisValue || '')}<br>${visible.map(item => `${esc(item.seriesName)}: ${HA.fmt(item.value, 1)}%`).join('<br>')}`;
+            } },
+            legend: { top: 0, type: 'scroll', textStyle: { color: colors.text, fontSize: 8 } },
+            grid: { left: 112, right: 26, top: 54, bottom: 28 },
+            xAxis: { type: 'value', max: 100, axisLabel: { color: colors.text, fontSize: 8, formatter: '{value}%' }, splitLine: { lineStyle: { color: colors.line } } },
+            yAxis: { type: 'category', data: rows.map(row => row.label), axisLabel: { color: colors.text, fontSize: 9 } },
+            series: categories.map(category => ({
+                name: category.replace(/_/g, ' '), type: 'bar', stack: 'occupancy', barMaxWidth: 28,
+                data: rows.map(row => Number((((row.counts.find(([name]) => name === category)?.[1] || 0) / Math.max(1, S.data.length)) * 100).toFixed(2))),
+                itemStyle: { color: palette[category] || '#94a3b8' },
+                label: { show: true, position: 'inside', color: '#081018', fontSize: 8, formatter: params => Number(params.value) >= 7 ? `${params.seriesName} ${HA.fmt(params.value, 0)}%` : '' },
+            })),
+        });
+    }
+
+    function workspaceFieldValue(field) {
+        for (let index = (S.data?.length || 0) - 1; index >= 0; index--) {
+            const value = S.data[index]?.[field];
+            if (value !== undefined && value !== null && value !== '') return value;
+        }
+        return null;
+    }
+
+    function formatWorkspaceFieldValue(value) {
+        if (value == null) return '—';
+        if (typeof value === 'number') return Number.isInteger(value) ? value.toLocaleString() : HA.fmt(value, Math.abs(value) < 10 ? 3 : 1);
+        if (typeof value === 'object') {
+            try {
+                const text = JSON.stringify(value);
+                return text.length > 72 ? `${text.slice(0, 69)}…` : text;
+            } catch (_) { return 'object'; }
+        }
+        const text = String(value);
+        return text.length > 72 ? `${text.slice(0, 69)}…` : text;
+    }
+
+    function renderWorkspaceFieldCatalog() {
+        const host = $('h-ca-integrity-catalog');
+        if (!host || !S.data?.length) return;
+        host.innerHTML = HCA_TELEMETRY_GROUPS.map(([group, fields]) => `<section><header><strong>${esc(group)}</strong><span>${fields.length} fields</span></header><div>${fields.map(field => {
+            const count = S.data.reduce((total, row) => total + (row[field] !== undefined && row[field] !== null && row[field] !== '' ? 1 : 0), 0);
+            const coverage = count / S.data.length * 100;
+            const tone = coverage >= 98 ? 'is-complete' : coverage > 0 ? 'is-partial' : 'is-empty';
+            return `<article class="${tone}"><span><code>${esc(field)}</code><small>${count.toLocaleString()} records</small></span><b>${HA.fmt(coverage, coverage > 0 && coverage < 10 ? 1 : 0)}%</b><em title="${esc(formatWorkspaceFieldValue(workspaceFieldValue(field)))}">${esc(formatWorkspaceFieldValue(workspaceFieldValue(field)))}</em></article>`;
+        }).join('')}</div></section>`).join('');
+    }
+
     function renderWorkspaceEfficiency() {
         const host = $('h-ca-efficiency-summary');
         if (!host || !S.data?.length) return;
@@ -3231,6 +3331,21 @@
             yAxis: { type: 'value', name: 'Power · W', nameTextStyle: { color: colors.text, fontSize: 8 }, axisLabel: { color: colors.text, fontSize: 8 }, splitLine: { lineStyle: { color: colors.line } } },
             series: [{ type: 'scatter', data: sample, symbolSize: 5, large: sample.length > 900, itemStyle: { color: '#ff6b35', opacity: .54 }, markLine: optimalSpeed.length ? { silent: true, symbol: 'none', lineStyle: { color: '#8fcf86', width: 1.5, type: 'dashed' }, label: { color: colors.text, formatter: 'optimal speed' }, data: [{ xAxis: optimalSpeed[optimalSpeed.length - 1] }] } : undefined }],
         });
+
+        const estimatorRows = S.data.filter(row => row.optimalSpeed != null || row.optimalConfidence != null || row.optimalDataPoints != null || row.optimalRange);
+        const latestEstimator = estimatorRows[estimatorRows.length - 1] || null;
+        const range = latestEstimator?.optimalRange || null;
+        const rangeMin = Number(range?.min_kmh ?? range?.min);
+        const rangeMax = Number(range?.max_kmh ?? range?.max);
+        const rangeEfficiency = Number(range?.efficiency_km_kwh ?? range?.efficiency);
+        const estimatorSummary = $('h-ca-efficiency-estimator-summary');
+        if (estimatorSummary) estimatorSummary.innerHTML = [
+            workspaceMetric('Saved target', latestEstimator?.optimalSpeed != null ? HA.fmt(latestEstimator.optimalSpeed, 1) : '—', latestEstimator?.optimalSpeed != null ? 'km/h' : '', 'Latest estimator output', 'green'),
+            workspaceMetric('Confidence', latestEstimator?.optimalConfidence != null ? HA.fmt(latestEstimator.optimalConfidence, 0) : '—', latestEstimator?.optimalConfidence != null ? '%' : '', 'Saved confidence—not inferred', latestEstimator?.optimalConfidence >= 65 ? 'green' : 'amber'),
+            workspaceMetric('Evidence points', latestEstimator?.optimalDataPoints != null ? Number(latestEstimator.optimalDataPoints).toLocaleString() : '—', '', 'Estimator sample count', 'cyan'),
+            workspaceMetric('Supported range', Number.isFinite(rangeMin) && Number.isFinite(rangeMax) ? `${HA.fmt(rangeMin, 1)}–${HA.fmt(rangeMax, 1)}` : '—', Number.isFinite(rangeMin) && Number.isFinite(rangeMax) ? 'km/h' : '', Number.isFinite(rangeEfficiency) ? `${HA.fmt(rangeEfficiency, 1)} km/kWh reference` : 'Range unavailable', 'orange'),
+        ].join('');
+        renderWorkspaceSignalChart('hc-ca-efficiency-estimator', ['optimalSpeed', 'optimalConfidence', 'optimalDataPoints']);
     }
 
     function renderWorkspacePower() {
@@ -3256,7 +3371,7 @@
             workspaceMetric('VESC voltage', vescVoltages.length ? HA.fmt(HA.mean(vescVoltages), 2) : '—', vescVoltages.length ? 'V avg' : '', vescVoltages.length ? `Source delta ${HA.fmt(Math.abs(voltageMean - HA.mean(vescVoltages)), 2)} V` : 'Channel unavailable', 'teal'),
             workspaceMetric('Power variability', HA.fmt(HA.stddev(powers), 0), 'W σ', `P95 ${HA.fmt(workspacePercentile(powers, .95), 0)} W`, 'orange'),
         ].join('');
-        renderWorkspaceSignalChart('hc-ca-power-trends', ['voltage_v', 'current_a', 'power_w']);
+        renderWorkspaceSignalChart('hc-ca-power-trends', ['voltage_v', 'current_a', 'power_w', 'avg_power_w']);
         const events = S.data.map(row => ({ row, score: Math.abs(Number(row.current_a)) / Math.max(.1, currentP95) + Math.max(0, voltageMean - Number(row.voltage_v)) / Math.max(.1, voltageStd) }))
             .filter(item => Number.isFinite(item.score)).sort((a, b) => b.score - a.score).slice(0, 8)
             .map(item => ({ title: Number(item.row.voltage_v) < voltageMean - voltageStd * 2 ? 'Voltage sag under load' : 'Peak electrical demand', detail: `${HA.fmt(item.row.voltage_v, 2)} V · ${HA.fmt(item.row.power_w, 0)} W`, time: workspaceTimeLabel(item.row), value: `${HA.fmt(Math.abs(item.row.current_a), 1)} A`, tone: item.score > 4 ? 'is-alert' : 'is-watch' }));
@@ -3271,6 +3386,7 @@
         const controllerV = workspaceValues('vesc_voltage_v').filter(value => value !== 0);
         const controllerA = workspaceValues('vesc_current_a').map(Math.abs).filter(value => value !== 0);
         const phaseKeys = ['motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a'];
+        const phaseSignalKeys = [...phaseKeys, 'motor_phase_current_a'];
         const phaseMeans = phaseKeys.map(key => HA.mean(workspaceValues(key).map(Math.abs)));
         const phaseSpread = workspaceExtreme(phaseMeans) - workspaceExtreme(phaseMeans, 'min');
         const speedRpm = S.data.map(row => [Number(row.speed_kmh), Math.abs(Number(row.motor_rpm))]).filter(([speed, value]) => speed > 1 && value > 0);
@@ -3287,7 +3403,7 @@
             workspaceMetric('Motor coverage', `${Math.round(rpm.filter(value => value > 0).length / Math.max(1, S.data.length) * 100)}`, '%', 'Records with non-zero RPM', 'teal'),
         ].join('');
         renderWorkspaceSignalChart('hc-ca-motor-trends', ['motor_rpm', 'motor_temp_c', 'vesc_voltage_v', 'vesc_current_a']);
-        renderWorkspaceSignalChart('hc-ca-motor-phases', phaseKeys);
+        renderWorkspaceSignalChart('hc-ca-motor-phases', phaseSignalKeys);
     }
 
     function renderWorkspaceDynamics() {
@@ -3297,6 +3413,9 @@
         const ax = workspaceValues('accel_x'), ay = workspaceValues('accel_y'), az = workspaceValues('accel_z');
         const gyroKeys = ['gyro_x', 'gyro_y', 'gyro_z'];
         const gyro = gyroKeys.flatMap(workspaceValues).map(Math.abs);
+        const avgAcceleration = workspaceValues('avg_acceleration').map(Math.abs);
+        const accelMagnitude = workspaceValues('accel_magnitude').map(Math.abs);
+        const steeringGyro = ['steering_gyro_x', 'steering_gyro_y', 'steering_gyro_z'].flatMap(workspaceValues).map(Math.abs);
         const peakG = workspaceExtreme(g);
         const p95G = workspacePercentile(g, .95);
         const eventCount = g.filter(value => value >= p95G && p95G > 0).length;
@@ -3309,8 +3428,24 @@
             workspaceMetric('High-load samples', eventCount.toLocaleString(), '', 'At or above run P95 G-force', 'amber'),
             workspaceMetric('Motion variability', HA.fmt(HA.stddev(g), 3), 'g σ', 'Full-run G-force spread', 'cyan'),
             workspaceMetric('IMU coverage', `${Math.round(S.data.filter(row => ['accel_x', 'accel_y', 'accel_z'].some(key => Number(row[key]) !== 0)).length / S.data.length * 100)}`, '%', 'At least one acceleration axis', 'green'),
+            workspaceMetric('Acceleration magnitude', accelMagnitude.length ? HA.fmt(workspacePercentile(accelMagnitude, .95), 2) : '—', accelMagnitude.length ? 'm/s² P95' : '', 'Saved total acceleration channel', 'teal'),
+            workspaceMetric('Rolling vibration', avgAcceleration.length ? HA.fmt(HA.mean(avgAcceleration), 2) : '—', avgAcceleration.length ? 'm/s² avg' : '', 'Saved average acceleration', 'amber'),
+            workspaceMetric('Steering rotation', steeringGyro.length ? HA.fmt(workspaceExtreme(steeringGyro), 1) : '—', steeringGyro.length ? '°/s peak' : '', steeringGyro.length ? 'Wheel-mounted IMU' : 'Channel unavailable', 'orange'),
         ].join('');
         renderWorkspaceSignalChart('hc-ca-dynamics-trends', ['accel_x', 'accel_y', 'accel_z', 'g_force']);
+        renderWorkspaceSignalChart('hc-ca-dynamics-rotation', ['gyro_x', 'gyro_y', 'gyro_z']);
+        renderWorkspaceSignalChart('hc-ca-steering-gyro', ['steering_gyro_x', 'steering_gyro_y', 'steering_gyro_z']);
+        renderWorkspaceSignalChart('hc-ca-steering-accel', ['steering_accel_x', 'steering_accel_y', 'steering_accel_z']);
+        const steeringSummary = $('h-ca-steering-summary');
+        if (steeringSummary) {
+            const steeringAccel = ['steering_accel_x', 'steering_accel_y', 'steering_accel_z'].flatMap(workspaceValues).map(Math.abs);
+            const steeringCoverage = S.data.filter(row => ['steering_gyro_x', 'steering_gyro_y', 'steering_gyro_z', 'steering_accel_x', 'steering_accel_y', 'steering_accel_z'].some(key => row[key] != null)).length / S.data.length * 100;
+            steeringSummary.innerHTML = [
+                workspaceMetric('Steering gyro peak', steeringGyro.length ? HA.fmt(workspaceExtreme(steeringGyro), 2) : '—', steeringGyro.length ? '°/s' : '', 'Across X, Y, and Z', 'orange'),
+                workspaceMetric('Steering accel peak', steeringAccel.length ? HA.fmt(workspaceExtreme(steeringAccel), 2) : '—', steeringAccel.length ? 'm/s²' : '', 'Across X, Y, and Z', 'teal'),
+                workspaceMetric('Channel coverage', HA.fmt(steeringCoverage, 1), '%', 'Any steering-wheel IMU field', steeringCoverage >= 80 ? 'green' : 'amber'),
+            ].join('');
+        }
         const events = S.data.map(row => ({ row, score: Math.abs(Number(row.g_force)) })).filter(item => Number.isFinite(item.score)).sort((a, b) => b.score - a.score).slice(0, 8)
             .map(item => ({ title: 'Vehicle load peak', detail: `${HA.fmt(item.row.speed_kmh, 1)} km/h · Ax ${HA.fmt(item.row.accel_x, 2)} · Ay ${HA.fmt(item.row.accel_y, 2)}`, time: workspaceTimeLabel(item.row), value: `${HA.fmt(item.score, 3)} g`, tone: item.score > 1.5 ? 'is-alert' : 'is-watch' }));
         renderWorkspaceEventLedger('h-ca-dynamics-events', events);
@@ -3354,6 +3489,21 @@
             yAxis: { type: 'category', data: labels, axisLabel: { color: colors.text, fontSize: 9 } },
             series: [{ type: 'bar', data: values.map((value, index) => ({ value, itemStyle: { color: ['#ff6b35', '#86b7a6', '#db776e', '#f1ab6c'][index] } })), barMaxWidth: 24, label: { show: true, position: 'right', color: colors.text, formatter: '{c}%' } }],
         });
+
+        const classificationDefinitions = [
+            { field: 'motionState', label: 'Motion state' },
+            { field: 'driverMode', label: 'Driving style' },
+            { field: 'throttle_intensity', label: 'Throttle intensity' },
+            { field: 'brake_intensity', label: 'Brake intensity' },
+        ];
+        const behaviorSummary = $('h-ca-driver-behavior-summary');
+        if (behaviorSummary) behaviorSummary.innerHTML = classificationDefinitions.map(definition => {
+            const counts = workspaceCategoryCounts(definition.field);
+            const available = total - (counts.find(([name]) => name === 'unavailable')?.[1] || 0);
+            const leaders = counts.filter(([name]) => name !== 'unavailable').slice(0, 3);
+            return `<article><span>${esc(definition.label)}</span><strong>${leaders.length ? esc(leaders[0][0].replace(/_/g, ' ')) : 'Unavailable'}</strong><small>${available.toLocaleString()} classified records · ${HA.fmt(available / total * 100, 1)}% coverage</small><div>${leaders.map(([name, count]) => `<i><b>${esc(name.replace(/_/g, ' '))}</b><em>${HA.fmt(count / total * 100, 1)}%</em></i>`).join('')}</div></article>`;
+        }).join('');
+        renderWorkspaceClassificationChart('hc-ca-driver-behavior', classificationDefinitions);
     }
 
     function disposeWorkspaceTrackMap() {
@@ -3410,6 +3560,8 @@
         const host = $('h-ca-track-summary');
         const gpsFixes = sectors.reduce((sum, sector) => sum + sector.gps.length, 0);
         const altitudes = workspaceValues('alt').filter(value => value !== 0);
+        const headings = workspaceValues('vehicle_heading');
+        const elevationGain = workspaceValues('elevation_gain_m');
         const best = sectors.filter(sector => sector.distanceKm > .015).sort((a, b) => (a.energyWh / a.distanceKm) - (b.energyWh / b.distanceKm))[0];
         const variable = [...sectors].sort((a, b) => b.speedStd - a.speedStd)[0];
         if (host) host.innerHTML = [
@@ -3421,6 +3573,8 @@
             workspaceMetric('Most variable', variable ? `Sector ${variable.index}` : '—', '', variable ? `${HA.fmt(variable.speedStd, 1)} km/h σ` : '', 'amber'),
             workspaceMetric('Average pace', HA.fmt(S.stats?.avgSpeed, 1), 'km/h', `Peak ${HA.fmt(S.stats?.maxSpeed, 1)} km/h`, 'cyan'),
             workspaceMetric('Route energy', HA.fmt(S.stats?.energyWh, 1), 'Wh', `${HA.fmt(S.stats?.efficiency, 1)} km/kWh`, 'orange'),
+            workspaceMetric('Heading coverage', HA.fmt(headings.length / S.data.length * 100, 1), '%', headings.length ? `Latest ${HA.fmt(headings[headings.length - 1], 1)}°` : 'Channel unavailable', 'cyan'),
+            workspaceMetric('Elevation gain', elevationGain.length ? HA.fmt(workspaceExtreme(elevationGain), 1) : '—', elevationGain.length ? 'm' : '', 'Saved cumulative route climb', 'teal'),
         ].join('');
         const sectorHost = $('h-ca-track-sectors');
         if (sectorHost) {
@@ -3449,11 +3603,12 @@
             dataZoom: [{ type: 'inside' }],
             series: [{ name: 'Speed', type: 'line', data: sample.map(point => [point[0], point[1]]), showSymbol: false, lineStyle: { color: '#ff6b35', width: 1.8 }, areaStyle: { color: 'rgba(255,107,53,.08)' } }, { name: 'Altitude', type: 'line', yAxisIndex: 1, data: sample.map(point => [point[0], point[2]]), showSymbol: false, connectNulls: false, lineStyle: { color: '#c4a7e7', width: 1.2 } }],
         });
+        renderWorkspaceSignalChart('hc-ca-track-navigation', ['vehicle_heading', 'routeDist', 'alt', 'elevation_gain_m']);
     }
 
     function renderWorkspaceIntegrity() {
         if (!S.data?.length) return;
-        const fields = ['speed_kmh', 'power_w', 'voltage_v', 'current_a', 'vesc_voltage_v', 'vesc_current_a', 'motor_rpm', 'motor_temp_c', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'instEfficiency', 'accEfficiency', 'throttle_pct', 'brake_pct', 'brake2_pct', 'accel_x', 'accel_y', 'accel_z', 'g_force', 'lat', 'alt'];
+        const fields = ['speed_kmh', 'power_w', 'voltage_v', 'current_a', 'vesc_voltage_v', 'vesc_current_a', 'motor_rpm', 'motor_temp_c', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'instEfficiency', 'accEfficiency', 'optimalConfidence', 'throttle_pct', 'brake_pct', 'brake2_pct', 'accel_x', 'accel_y', 'accel_z', 'avg_acceleration', 'g_force', 'gyro_z', 'steering_gyro_z', 'steering_accel_z', 'vehicle_heading', 'lat', 'alt', 'message_id', 'uptime_seconds', 'qualityScore'];
         const optionalZeroMissing = new Set(['vesc_voltage_v', 'vesc_current_a', 'motor_rpm', 'motor_temp_c', 'motor_phase_1_current_a', 'motor_phase_2_current_a', 'motor_phase_3_current_a', 'instEfficiency', 'accEfficiency', 'lat', 'alt']);
         const coverage = fields.map(key => ({ key, value: S.data.filter(row => Number.isFinite(Number(row[key])) && (!optionalZeroMissing.has(key) || Number(row[key]) !== 0)).length / S.data.length * 100 }));
         const intervals = [];
@@ -3470,6 +3625,20 @@
         const outliers = S.data.filter(row => row.outlierSeverity).map(row => ({ row, severity: row.outlierSeverity }));
         const meanCoverage = HA.mean(coverage.map(item => item.value));
         const poorChannels = coverage.filter(item => item.value < 80).length;
+        const messageIds = workspaceValues('message_id');
+        let messageGaps = 0;
+        let messageResets = 0;
+        for (let index = 1; index < messageIds.length; index++) {
+            const delta = messageIds[index] - messageIds[index - 1];
+            if (delta > 1) messageGaps += delta - 1;
+            else if (delta <= 0) messageResets++;
+        }
+        const uptimes = workspaceValues('uptime_seconds');
+        let uptimeResets = 0;
+        for (let index = 1; index < uptimes.length; index++) if (uptimes[index] < uptimes[index - 1]) uptimeResets++;
+        const sources = new Map();
+        S.data.forEach(row => { if (row.data_source) sources.set(String(row.data_source), (sources.get(String(row.data_source)) || 0) + 1); });
+        const sourceSummary = [...sources.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name).slice(0, 2).join(', ');
         const host = $('h-ca-integrity-summary');
         if (host) host.innerHTML = [
             workspaceMetric('Quality score', HA.fmt(S.stats?.qualityScore ?? meanCoverage, 0), '/100', 'Session quality evidence', (S.stats?.qualityScore ?? meanCoverage) >= 85 ? 'green' : 'amber'),
@@ -3480,6 +3649,9 @@
             workspaceMetric('Mean field coverage', HA.fmt(meanCoverage, 1), '%', `${poorChannels} channels below 80%`, poorChannels ? 'amber' : 'green'),
             workspaceMetric('Loaded evidence', S.data.length.toLocaleString(), 'rows', S.isPreview ? 'Bounded archive overview' : 'Complete loaded session', 'teal'),
             workspaceMetric('GPS fixes', coverage.find(item => item.key === 'lat')?.value ? HA.fmt(coverage.find(item => item.key === 'lat').value, 1) : '0', '%', 'Valid non-zero latitude', 'cyan'),
+            workspaceMetric('Message sequence', messageIds.length ? messageGaps.toLocaleString() : '—', messageIds.length ? 'missing IDs' : '', messageIds.length ? `${messageResets} reset or duplicate transitions` : 'Channel unavailable', messageGaps || messageResets ? 'amber' : 'green'),
+            workspaceMetric('Runtime continuity', uptimes.length ? uptimeResets.toLocaleString() : '—', uptimes.length ? 'uptime resets' : '', uptimes.length ? `Latest ${HA.fmt(uptimes[uptimes.length - 1], 1)} s` : 'Channel unavailable', uptimeResets ? 'amber' : 'green'),
+            workspaceMetric('Data source', sources.size ? sourceSummary : '—', '', sources.size ? `${sources.size} source label${sources.size === 1 ? '' : 's'}` : 'Channel unavailable', sources.size > 1 ? 'amber' : 'teal'),
         ].join('');
         const colors = workspaceChartColors();
         const sorted = [...coverage].sort((a, b) => a.value - b.value);
@@ -3494,6 +3666,7 @@
             ...outliers.slice(0, 5).map(item => ({ title: `${String(item.severity).toUpperCase()} outlier`, detail: Array.isArray(item.row.outlierFields) && item.row.outlierFields.length ? item.row.outlierFields.join(', ') : 'Pipeline anomaly flag', time: workspaceTimeLabel(item.row), value: String(item.severity), tone: item.severity === 'severe' ? 'is-alert' : 'is-watch' })),
         ].sort((a, b) => String(a.time).localeCompare(String(b.time))).slice(0, 8);
         renderWorkspaceEventLedger('h-ca-integrity-events', ledger, 'No gaps or pipeline outlier flags were found.');
+        renderWorkspaceFieldCatalog();
     }
 
     function renderWorkspacePairwise() {

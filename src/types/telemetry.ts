@@ -13,10 +13,10 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type MotionState = 'stationary' | 'accelerating' | 'cruising' | 'braking' | 'turning';
 
 /** Driver mode classification */
-export type DriverMode = 'coasting' | 'accelerating' | 'braking' | 'mixed';
+export type DriverMode = 'coasting' | 'eco' | 'normal' | 'aggressive' | 'braking' | 'accelerating' | 'mixed';
 
 /** Throttle/brake intensity levels */
-export type Intensity = 'none' | 'light' | 'moderate' | 'heavy';
+export type Intensity = 'idle' | 'none' | 'light' | 'moderate' | 'heavy';
 
 /** Outlier severity levels */
 export type OutlierSeverity = 'low' | 'medium' | 'high' | 'critical';
