@@ -67,7 +67,7 @@ function publicResult(
     available: row.status === "complete" && !!row.result,
     status: row.status,
     version: SESSION_ANALYSIS_VERSION,
-    model: SESSION_ANALYSIS_MODEL,
+    model: row.model,
     input: row.input ?? null,
     result: row.result ?? null,
     error: row.error ?? null,
@@ -133,15 +133,18 @@ export const ensure = mutation({
         q.eq("session_id", args.sessionId).eq("version", SESSION_ANALYSIS_VERSION))
       .unique();
     if (existing) {
+      const modelChanged = existing.model !== SESSION_ANALYSIS_MODEL;
       const lastAttemptMs = Date.parse(existing.started_at ?? existing.requested_at);
-      const retryWindowElapsed = Number.isFinite(lastAttemptMs)
-        && Date.now() - lastAttemptMs >= 5 * 60 * 1000;
-      const retryable = existing.attempts < SESSION_ANALYSIS_MAX_AUTOMATIC_ATTEMPTS
+      const retryWindowElapsed = modelChanged || (Number.isFinite(lastAttemptMs)
+        && Date.now() - lastAttemptMs >= 5 * 60 * 1000);
+      const retryable = (modelChanged || existing.attempts < SESSION_ANALYSIS_MAX_AUTOMATIC_ATTEMPTS)
         && retryWindowElapsed
         && (existing.status === "error" || existing.status === "running" || existing.status === "pending");
       if (retryable) {
         await ctx.db.patch(existing._id, {
+          model: SESSION_ANALYSIS_MODEL,
           status: "pending",
+          attempts: modelChanged ? 0 : existing.attempts,
           requested_at: new Date().toISOString(),
           error: undefined,
         });
@@ -301,6 +304,7 @@ export const markRunning = internalMutation({
   args: {
     analysisId: v.id("sessionAnalyses"),
     input: sessionAnalysisInputValidator,
+    model: v.string(),
     startedAt: v.string(),
   },
   returns: v.boolean(),
@@ -310,6 +314,7 @@ export const markRunning = internalMutation({
     await ctx.db.patch(args.analysisId, {
       status: "running",
       input: args.input,
+      model: args.model,
       attempts: row.attempts + 1,
       started_at: args.startedAt,
       error: undefined,
@@ -321,6 +326,7 @@ export const markRunning = internalMutation({
 export const complete = internalMutation({
   args: {
     analysisId: v.id("sessionAnalyses"),
+    model: v.string(),
     result: sessionAnalysisResultValidator,
     completedAt: v.string(),
   },
@@ -330,6 +336,7 @@ export const complete = internalMutation({
     if (!row || row.status !== "running") return null;
     await ctx.db.patch(args.analysisId, {
       status: "complete",
+      model: args.model,
       result: args.result,
       completed_at: args.completedAt,
       error: undefined,

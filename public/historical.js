@@ -1331,7 +1331,8 @@
         }
         if (analysis?.status === 'pending' || analysis?.status === 'running') {
             state.classList.add('is-running');
-            state.innerHTML = `<i></i> ${analysis.status === 'running' ? 'AI analyzing' : 'AI queued'}`;
+            const retrying = analysis.status === 'pending' && /retrying automatically/i.test(analysis?.error || '');
+            state.innerHTML = `<i></i> ${analysis.status === 'running' ? 'AI analyzing' : retrying ? 'AI retrying' : 'AI queued'}`;
         } else if (analysis?.status === 'error') {
             state.classList.add('is-error');
             state.innerHTML = '<i></i> Deterministic brief · AI unavailable';

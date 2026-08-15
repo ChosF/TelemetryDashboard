@@ -8,6 +8,7 @@ import type { Id } from "./_generated/dataModel";
 import type { ArchiveStats } from "./archiveValidators";
 import { buildSessionAnalysisInput } from "./sessionAnalysisMath";
 import {
+  SESSION_ANALYSIS_FALLBACK_MODEL,
   SESSION_ANALYSIS_MODEL,
   SESSION_ANALYSIS_VERSION,
   type SessionAnalysisInput,
@@ -152,74 +153,87 @@ function isTransientGeminiError(error: unknown): boolean {
 async function generateCompactBrief(
   apiKey: string,
   input: SessionAnalysisInput,
-): Promise<SessionAnalysisResult> {
-  const maxAttempts = 3;
+): Promise<{ model: string; result: SessionAnalysisResult }> {
+  const models = [SESSION_ANALYSIS_MODEL, SESSION_ANALYSIS_FALLBACK_MODEL];
+  const maxAttemptsPerModel = 2;
   let lastError: Error | null = null;
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${SESSION_ANALYSIS_MODEL}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: [
-                "You are EcoVolt's post-run performance analyst.",
-                "Use only the supplied deterministic evidence. Never invent causes, comparisons, or measurements.",
-                "Prioritize the single decision that most improves energy efficiency without compromising run stability.",
-                "Write for an engineering team: concise, direct, professional, and explicit about uncertainty.",
-                "Every field must be immediately scannable. Use one sentence at most per field, never repeat a metric, and omit explanatory filler.",
-                "Sector numbers are chronological quarters of the run. No external tools, grounding, or hidden calculations are available.",
-              ].join(" ") }],
+  for (const model of models) {
+    for (let attempt = 0; attempt < maxAttemptsPerModel; attempt++) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey,
             },
-            contents: [{
-              role: "user",
-              parts: [{
-                text: `Create the saved post-run brief from this evidence:\n${JSON.stringify(input)}`,
+            body: JSON.stringify({
+              systemInstruction: {
+                parts: [{ text: [
+                  "You are EcoVolt's post-run performance analyst.",
+                  "Use only the supplied deterministic evidence. Never invent causes, comparisons, or measurements.",
+                  "Prioritize the single decision that most improves energy efficiency without compromising run stability.",
+                  "Write for an engineering team: concise, direct, professional, and explicit about uncertainty.",
+                  "Every field must be immediately scannable. Use one sentence at most per field, never repeat a metric, and omit explanatory filler.",
+                  "Sector numbers are chronological quarters of the run. No external tools, grounding, or hidden calculations are available.",
+                ].join(" ") }],
+              },
+              contents: [{
+                role: "user",
+                parts: [{
+                  text: `Create the saved post-run brief from this evidence:\n${JSON.stringify(input)}`,
+                }],
               }],
-            }],
-            generationConfig: {
-              // Gemini 3 uses the output budget for internal thinking as well as
-              // the final response, so leave enough room to close the JSON object.
-              // Brevity is enforced on the persisted result below.
-              maxOutputTokens: 4096,
-              responseMimeType: "application/json",
-              responseJsonSchema: RESPONSE_SCHEMA,
-            },
-          }),
-        },
-      );
-      if (!response.ok) {
-        const error = new Error(`Gemini request failed with status ${response.status}`);
-        if (!isTransientGeminiStatus(response.status)) throw error;
-        lastError = error;
-      } else {
-        const payload = await response.json() as {
-          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-        };
-        const jsonText = payload.candidates?.[0]?.content?.parts
-          ?.map((part) => part.text ?? "")
-          .join("")
-          .trim();
-        if (!jsonText) throw new Error("Gemini returned no analysis content");
-        try {
-          return validateResult(JSON.parse(jsonText));
-        } catch (error) {
-          lastError = error instanceof Error ? error : new Error("Gemini returned invalid JSON");
+              generationConfig: {
+                // Gemini 3 uses the output budget for internal thinking as well as
+                // the final response, so leave enough room to close the JSON object.
+                // Brevity is enforced on the persisted result below.
+                maxOutputTokens: 4096,
+                responseMimeType: "application/json",
+                responseJsonSchema: RESPONSE_SCHEMA,
+              },
+            }),
+          },
+        );
+        if (!response.ok) {
+          const responseBody = await response.text();
+          let detail = "";
+          try {
+            const payload = JSON.parse(responseBody) as { error?: { status?: string; message?: string } };
+            detail = text(payload.error?.status ?? payload.error?.message, 100);
+          } catch {
+            detail = text(responseBody, 100);
+          }
+          const error = new Error(
+            `Gemini ${model} request failed with status ${response.status}${detail ? ` (${detail})` : ""}`,
+          );
+          if (!isTransientGeminiStatus(response.status)) throw error;
+          lastError = error;
+        } else {
+          const payload = await response.json() as {
+            candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+          };
+          const jsonText = payload.candidates?.[0]?.content?.parts
+            ?.map((part) => part.text ?? "")
+            .join("")
+            .trim();
+          if (!jsonText) throw new Error(`Gemini ${model} returned no analysis content`);
+          try {
+            return { model, result: validateResult(JSON.parse(jsonText)) };
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(`Gemini ${model} returned invalid JSON`);
+          }
         }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("Gemini analysis failed");
+        const statusMatch = lastError.message.match(/status (\d{3})/);
+        if (statusMatch && !isTransientGeminiStatus(Number(statusMatch[1]))) throw lastError;
       }
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Gemini analysis failed");
-      const statusMatch = lastError.message.match(/status (\d{3})/);
-      if (statusMatch && !isTransientGeminiStatus(Number(statusMatch[1]))) throw lastError;
-    }
 
-    if (attempt < maxAttempts - 1) await retryDelay(attempt);
+      if (attempt < maxAttemptsPerModel - 1) await retryDelay(attempt);
+    }
   }
   throw lastError ?? new Error("Gemini analysis failed after retries");
 }
@@ -256,6 +270,7 @@ export const generate = internalAction({
       const claimed = await ctx.runMutation(internal.sessionAnalysis.markRunning, {
         analysisId: context.analysisId,
         input,
+        model: SESSION_ANALYSIS_MODEL,
         startedAt: new Date().toISOString(),
       });
       if (!claimed) return null;
@@ -263,16 +278,17 @@ export const generate = internalAction({
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("Gemini is not configured for this Convex deployment");
 
-      const result = await generateCompactBrief(apiKey, input);
+      const generated = await generateCompactBrief(apiKey, input);
       await ctx.runMutation(internal.sessionAnalysis.complete, {
         analysisId: context.analysisId,
-        result,
+        model: generated.model,
+        result: generated.result,
         completedAt: new Date().toISOString(),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Post-run analysis failed";
       if (isTransientGeminiError(error)) {
-        const retryDelaysMs = [15_000, 45_000, 120_000];
+        const retryDelaysMs = [5_000, 15_000, 45_000];
         const retryAfterMs = retryDelaysMs[Math.min(context.attempts, retryDelaysMs.length - 1)];
         await ctx.runMutation(internal.sessionAnalysis.handleTransientFailure, {
           analysisId: context.analysisId,
