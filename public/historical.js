@@ -560,7 +560,7 @@
         $('h-back-to-sessions').style.display = '';
         showTOC(false);
         showAnalysisActions(true);
-        $('h-btn-custom-analysis').style.display = 'none';
+        $('h-btn-custom-analysis').style.display = canAccessCustomAnalysis ? '' : 'none';
         $('h-btn-collapse-all').style.display = 'none';
         syncHistoricalMobileChrome();
     }
@@ -2579,7 +2579,10 @@
         const collapseBtn = $('h-btn-collapse-all');
         if (collapseBtn) collapseBtn.style.display = 'none';
         const customBtn = $('h-btn-custom-analysis');
-        if (customBtn) customBtn.style.display = 'none';
+        if (customBtn) {
+            const briefIsActive = $('h-view-analysis')?.classList.contains('active');
+            customBtn.style.display = show && briefIsActive && canAccessCustomAnalysis ? '' : 'none';
+        }
     }
 
     // ── Floating TOC ──
@@ -2683,9 +2686,19 @@
     // ── Custom Analysis Logic ──────────────────────────────────────────────
     let customAnalysisInitialized = false;
     let customAnalysisSessionId = null;
+    const HCA_LAYOUT_KEY = 'ecovolt_historical_workspace_v1';
+    const HCA_DEFAULT_ORDER = ['relationship', 'transform', 'matrix', 'filters', 'statistics', 'notebook', 'preview'];
+
+    function customFields() {
+        return [...HA.STAT_FIELDS, ...(Array.isArray(window.HCA_DerivedVars) ? window.HCA_DerivedVars : [])];
+    }
+
+    function customFieldLabel(key) {
+        return customFields().find(field => field.key === key)?.label || key;
+    }
 
     function resetCustomAnalysisSessionUi() {
-        ['hc-custom', 'hc-ml-engine'].forEach(chartId => {
+        ['hc-custom', 'hc-ca-correlation'].forEach(chartId => {
             const chart = HA.charts[chartId];
             if (chart) {
                 try { chart.dispose() } catch (error) { console.warn(`[historical] Failed to dispose ${chartId}`, error) }
@@ -2696,7 +2709,7 @@
         const status = $('h-ca-status');
         if (status) {
             status.className = 'ha-ca-status';
-            status.textContent = 'Ready';
+            status.textContent = 'Ready for a question';
         }
         const stats = $('h-ca-stats-grid');
         if (stats) stats.innerHTML = '<div class="ha-ca-stat-empty">Generate a chart to view statistics.</div>';
@@ -2705,14 +2718,15 @@
         const highlights = $('h-ca-highlights');
         if (highlights) highlights.innerHTML = '';
         const variables = $('h-ca-lab-active-vars');
-        if (variables) variables.innerHTML = '';
+        if (variables) variables.innerHTML = '<span class="haw-empty-inline">No transformations yet</span>';
         const statResults = $('h-ca-lab-stat-results');
-        if (statResults) statResults.innerHTML = '';
+        if (statResults) statResults.innerHTML = '<span class="haw-empty-inline">No pinned calculations</span>';
         const yAxes = $('h-ca-y-axes-container');
         if (yAxes) yAxes.innerHTML = '';
-        const mlText = $('h-ml-text-content');
-        if (mlText) mlText.textContent = '';
+        const preview = $('h-ca-data-preview');
+        if (preview) preview.innerHTML = '<div class="ha-ca-stat-empty">Run an analysis to inspect its output frame.</div>';
         window.HCA_DerivedVars = [];
+        updateWorkspaceKpis();
     }
 
     function updateCustomAnalysisScope() {
@@ -2723,6 +2737,151 @@
         scope.textContent = S.isPreview
             ? `Optimized mode: ${availablePoints.toLocaleString()} evenly distributed points represent ${totalRecords.toLocaleString()} records. Custom calculations stay on this preview and do not fetch the full session.`
             : `Full in-memory session: ${availablePoints.toLocaleString()} records available for custom calculations.`;
+        updateWorkspaceKpis();
+    }
+
+    function updateWorkspaceKpis(outputPoints = null) {
+        const fields = customFields();
+        if ($('h-ca-kpi-records')) $('h-ca-kpi-records').textContent = (S.data?.length || 0).toLocaleString();
+        if ($('h-ca-kpi-variables')) $('h-ca-kpi-variables').textContent = fields.length.toLocaleString();
+        if ($('h-ca-kpi-derived')) $('h-ca-kpi-derived').textContent = (window.HCA_DerivedVars?.length || 0).toLocaleString();
+        if ($('h-ca-kpi-output') && outputPoints != null) $('h-ca-kpi-output').textContent = Number(outputPoints).toLocaleString();
+    }
+
+    function getWorkspaceLayout() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(HCA_LAYOUT_KEY) || '{}');
+            return {
+                order: Array.isArray(parsed.order) ? parsed.order : HCA_DEFAULT_ORDER,
+                hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
+                sizes: parsed.sizes && typeof parsed.sizes === 'object' ? parsed.sizes : {},
+            };
+        } catch (_) {
+            return { order: HCA_DEFAULT_ORDER, hidden: [], sizes: {} };
+        }
+    }
+
+    function saveWorkspaceLayout() {
+        const grid = $('h-ca-workspace-grid');
+        if (!grid) return;
+        const panels = Array.from(grid.querySelectorAll('[data-workspace-panel]'));
+        const state = {
+            order: panels.map(panel => panel.dataset.workspacePanel),
+            hidden: panels.filter(panel => panel.hidden).map(panel => panel.dataset.workspacePanel),
+            sizes: Object.fromEntries(panels.map(panel => [panel.dataset.workspacePanel,
+                panel.classList.contains('haw-panel-full') ? 'full' : panel.classList.contains('haw-panel-wide') ? 'wide' : 'standard'])),
+        };
+        try { localStorage.setItem(HCA_LAYOUT_KEY, JSON.stringify(state)); } catch (_) { }
+    }
+
+    function applyWorkspaceLayout() {
+        const grid = $('h-ca-workspace-grid');
+        if (!grid) return;
+        const state = getWorkspaceLayout();
+        const panels = new Map(Array.from(grid.querySelectorAll('[data-workspace-panel]')).map(panel => [panel.dataset.workspacePanel, panel]));
+        [...state.order, ...HCA_DEFAULT_ORDER].forEach(key => {
+            const panel = panels.get(key);
+            if (panel) grid.appendChild(panel);
+        });
+        panels.forEach((panel, key) => {
+            panel.hidden = state.hidden.includes(key);
+            panel.classList.remove('haw-panel-wide', 'haw-panel-full');
+            const fallback = key === 'preview' ? 'full' : ['relationship', 'matrix', 'statistics'].includes(key) ? 'wide' : 'standard';
+            const size = state.sizes[key] || fallback;
+            if (size === 'wide') panel.classList.add('haw-panel-wide');
+            if (size === 'full') panel.classList.add('haw-panel-full');
+            const toggle = document.querySelector(`[data-panel-toggle="${key}"]`);
+            if (toggle) toggle.checked = !panel.hidden;
+        });
+        requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
+    }
+
+    function rankValues(values) {
+        const ranked = new Array(values.length);
+        const order = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
+        for (let i = 0; i < order.length;) {
+            let end = i + 1;
+            while (end < order.length && order[end].value === order[i].value) end++;
+            const rank = (i + end - 1) / 2 + 1;
+            for (let cursor = i; cursor < end; cursor++) ranked[order[cursor].index] = rank;
+            i = end;
+        }
+        return ranked;
+    }
+
+    function spearman(x, y) {
+        return HA.pearson(rankValues(x), rankValues(y));
+    }
+
+    function renderWorkspacePreview(xData, ySeriesObj, xKey) {
+        const host = $('h-ca-data-preview');
+        if (!host) return;
+        const keys = Object.keys(ySeriesObj);
+        if (!xData.length || !keys.length) {
+            host.innerHTML = '<div class="ha-ca-stat-empty">No valid rows matched the current frame.</div>';
+            return;
+        }
+        const rowCount = Math.min(16, xData.length);
+        const indexes = Array.from({ length: rowCount }, (_, index) => Math.min(xData.length - 1, Math.round(index * (xData.length - 1) / Math.max(1, rowCount - 1))));
+        const xLabel = xKey === '_ts' ? 'Timestamp' : customFieldLabel(xKey);
+        const header = [xLabel, ...keys.map(customFieldLabel)];
+        const formatCell = value => Number.isFinite(Number(value)) ? HA.fmt(Number(value), 4) : '—';
+        host.innerHTML = `<table><thead><tr>${header.map(label => `<th>${esc(label)}</th>`).join('')}</tr></thead><tbody>${indexes.map(index => {
+            const xValue = xKey === '_ts' ? new Date(xData[index]).toLocaleTimeString([], { hour12: false }) : formatCell(xData[index]);
+            return `<tr><td>${esc(xValue)}</td>${keys.map(key => `<td>${formatCell(ySeriesObj[key][index])}</td>`).join('')}</tr>`;
+        }).join('')}</tbody></table><footer>${xData.length.toLocaleString()} matched points · ${rowCount} representative rows shown</footer>`;
+    }
+
+    async function computeWorkspaceRelationships() {
+        const matrixSelect = $('h-ca-matrix-vars');
+        const insight = $('h-ca-matrix-insight');
+        if (!matrixSelect || !insight) return;
+        const keys = Array.from(matrixSelect.selectedOptions).map(option => option.value).slice(0, 8);
+        if (keys.length < 2) {
+            toast('Select at least two variables for the relationship matrix.');
+            return;
+        }
+        const leadKey = $('h-ca-lag-x')?.value || keys[0];
+        const responseKey = $('h-ca-lag-y')?.value || keys[1];
+        if (leadKey === responseKey) {
+            toast('Choose two different signals for lead and response.');
+            return;
+        }
+        insight.innerHTML = '<span>COMPUTING</span><p>Scanning paired coverage and temporal offsets in the background worker.</p>';
+        try {
+            const result = await runHistoricalWorkerTask('COMPUTE_RELATIONSHIP_MATRIX', {
+                data: S.data,
+                keys,
+                leadKey,
+                responseKey,
+                maxLag: parseInt($('h-ca-lag-max')?.value, 10) || 20,
+            });
+            const labels = keys.map(customFieldLabel);
+            const textColor = getComputedStyle(document.body).getPropertyValue('--ha-text2').trim() || '#aaa69f';
+            const lineColor = getComputedStyle(document.body).getPropertyValue('--ha-border').trim() || 'rgba(255,255,255,.1)';
+            const matrixData = result.matrix.map(item => [item.column, item.row, item.value == null ? 0 : Number(item.value.toFixed(3)), item.count]);
+            const lagData = result.lagCurve.filter(item => item.value != null).map(item => [item.lag, Number(item.value.toFixed(4))]);
+            HA.initChart('hc-ca-correlation', {
+                animationDuration: 350,
+                tooltip: { trigger: 'item', formatter: params => params.seriesIndex === 0
+                    ? `${labels[params.value[1]]} × ${labels[params.value[0]]}<br><b>r ${params.value[2]}</b> · n ${params.value[3].toLocaleString()}`
+                    : `Lag ${params.value[0]} points<br><b>r ${params.value[1]}</b>` },
+                grid: [{ left: 88, right: 30, top: 26, height: '53%' }, { left: 52, right: 30, top: '74%', height: '16%' }],
+                xAxis: [{ type: 'category', data: labels, axisLabel: { color: textColor, fontSize: 9, rotate: 24 }, axisLine: { lineStyle: { color: lineColor } }, gridIndex: 0 }, { type: 'value', name: 'Lag points', nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 9 }, splitLine: { lineStyle: { color: lineColor } }, gridIndex: 1 }],
+                yAxis: [{ type: 'category', data: labels, axisLabel: { color: textColor, fontSize: 9 }, axisLine: { lineStyle: { color: lineColor } }, gridIndex: 0 }, { type: 'value', min: -1, max: 1, axisLabel: { color: textColor, fontSize: 9 }, splitLine: { lineStyle: { color: lineColor } }, gridIndex: 1 }],
+                visualMap: { min: -1, max: 1, calculable: false, orient: 'horizontal', left: 'center', top: '64%', itemWidth: 12, itemHeight: 110, textStyle: { color: textColor, fontSize: 9 }, inRange: { color: ['#b85c55', '#252525', '#82b59f'] } },
+                series: [{ name: 'Correlation', type: 'heatmap', data: matrixData, xAxisIndex: 0, yAxisIndex: 0, label: { show: keys.length <= 6, color: '#f5f1e8', fontSize: 9 }, itemStyle: { borderColor: lineColor, borderWidth: 1 } }, { name: `${customFieldLabel(leadKey)} → ${customFieldLabel(responseKey)}`, type: 'line', data: lagData, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false, lineStyle: { color: '#ff6b35', width: 2 }, areaStyle: { color: 'rgba(255,107,53,.08)' }, markLine: { silent: true, symbol: 'none', lineStyle: { color: lineColor }, data: [{ xAxis: 0 }, { yAxis: 0 }] } }],
+            });
+            const strongest = result.strongest;
+            const bestLag = result.bestLag;
+            const lagMeaning = !bestLag || bestLag.lag === 0 ? 'The strongest response is synchronous.'
+                : bestLag.lag > 0 ? `${customFieldLabel(leadKey)} leads ${customFieldLabel(responseKey)} by ${bestLag.lag} points.`
+                    : `${customFieldLabel(responseKey)} leads ${customFieldLabel(leadKey)} by ${Math.abs(bestLag.lag)} points.`;
+            insight.innerHTML = `<span>STRONGEST PAIR</span><strong>${esc(customFieldLabel(strongest?.leftKey || keys[0]))} × ${esc(customFieldLabel(strongest?.rightKey || keys[1]))} · r ${HA.fmt(strongest?.value, 3)}</strong><p>${esc(lagMeaning)} Best lag |r| ${HA.fmt(Math.abs(bestLag?.value || 0), 3)} across ${(bestLag?.count || 0).toLocaleString()} paired records.</p>`;
+        } catch (error) {
+            console.error('[historical] Relationship matrix failed', error);
+            insight.innerHTML = `<span>PAUSED</span><p>${esc(error?.message || 'The relationship matrix could not be computed.')}</p>`;
+        }
     }
 
     function initCustomAnalysis() {
@@ -2738,7 +2897,7 @@
         updateCustomAnalysisScope();
 
         window.updateCaDropdowns = function () {
-            const fields = [...HA.STAT_FIELDS, ...window.HCA_DerivedVars];
+            const fields = customFields();
             const opts = fields.map(f => `<option value="${f.key}">${f.label}</option>`).join('');
 
             const xAxisSel = $('h-ca-x-axis');
@@ -2758,14 +2917,32 @@
                     sel.value = fields[0]?.key;
                 }
             });
+
+            const matrix = $('h-ca-matrix-vars');
+            if (matrix) {
+                const selected = new Set(Array.from(matrix.selectedOptions).map(option => option.value));
+                const defaults = new Set(['speed_kmh', 'power_w', 'current_a', 'voltage_v', 'throttle_pct', 'g_force']);
+                matrix.innerHTML = fields.map(field => `<option value="${field.key}">${field.label}</option>`).join('');
+                Array.from(matrix.options).forEach(option => {
+                    option.selected = selected.size ? selected.has(option.value) : defaults.has(option.value);
+                });
+                if (matrix.selectedOptions.length < 2) {
+                    Array.from(matrix.options).slice(0, Math.min(4, matrix.options.length)).forEach(option => { option.selected = true; });
+                }
+            }
+            updateWorkspaceKpis();
         };
 
         function addYAxisField(val = null) {
             const container = $('h-ca-y-axes-container');
             if (!container) return;
+            if (container.querySelectorAll('.ha-ca-y-axis-select').length >= 4) {
+                toast('Use up to four response variables to keep the canvas readable.');
+                return;
+            }
             const row = document.createElement('div');
             row.className = 'ha-ca-filter-row';
-            const fields = [...HA.STAT_FIELDS, ...window.HCA_DerivedVars];
+            const fields = customFields();
             const fOpts = fields.map(f => `<option value="${f.key}">${f.label}</option>`).join('');
 
             row.innerHTML = `
@@ -2789,10 +2966,14 @@
             addYAxisField(defaultY);
             updateCaDropdowns();
         }
+        applyWorkspaceLayout();
 
         // All controls below are stable DOM nodes. Bind them exactly once;
         // subsequent session opens only refresh their data-backed options.
-        if (customAnalysisInitialized) return;
+        if (customAnalysisInitialized) {
+            setTimeout(() => $('h-ca-preset')?.dispatchEvent(new Event('change')), 0);
+            return;
+        }
         customAnalysisInitialized = true;
 
         $('h-ca-add-y-axis')?.addEventListener('click', () => addYAxisField());
@@ -2817,7 +2998,7 @@
         // UI Wiring: Variable Builder Type Toggle
         $('h-ca-lab-var-type')?.addEventListener('change', (e) => {
             const val = e.target.value;
-            ['math', 'func', 'calculus', 'smooth'].forEach(id => {
+            ['math', 'normalize', 'lag', 'smooth', 'calculus', 'func'].forEach(id => {
                 const el = $('h-ca-lab-grp-' + id);
                 if (el) el.style.display = (id === val) ? 'flex' : 'none';
             });
@@ -2856,6 +3037,12 @@
             } else if (type === 'smooth') {
                 args = { a: $('h-ca-lab-var-smooth-a').value, op: $('h-ca-lab-var-smooth-op').value, w: parseInt($('h-ca-lab-var-smooth-w').value) || 10 };
                 if (!args.a) return;
+            } else if (type === 'normalize') {
+                args = { a: $('h-ca-lab-var-normalize-a').value, op: $('h-ca-lab-var-normalize-op').value };
+                if (!args.a) return;
+            } else if (type === 'lag') {
+                args = { a: $('h-ca-lab-var-lag-a').value, op: $('h-ca-lab-var-lag-op').value, w: parseInt($('h-ca-lab-var-lag-w').value) || 1 };
+                if (!args.a) return;
             }
 
             const btn = $('h-ca-lab-create-var');
@@ -2878,21 +3065,30 @@
 
                 // Add Pill
                 const pillArea = $('h-ca-lab-active-vars');
+                pillArea.querySelector('.haw-empty-inline')?.remove();
                 const pill = document.createElement('div');
                 pill.className = 'ha-ca-pill';
-                pill.innerHTML = `${name} <button class="ha-ca-pill-remove">×</button>`;
+                const pillLabel = document.createElement('span');
+                pillLabel.textContent = name;
+                const removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.className = 'ha-ca-pill-remove';
+                removeButton.textContent = '×';
+                pill.append(pillLabel, removeButton);
                 pill.querySelector('button').addEventListener('click', () => {
                     pill.remove();
                     window.HCA_DerivedVars = window.HCA_DerivedVars.filter(v => v.key !== newKey);
                     window.updateCaDropdowns();
+                    if (!pillArea.children.length) pillArea.innerHTML = '<span class="haw-empty-inline">No transformations yet</span>';
                 });
                 pillArea.appendChild(pill);
 
                 nameEl.value = ''; // clear input
-                toast('✅ Variable created: ' + name);
+                updateWorkspaceKpis();
+                toast('Variable created: ' + name);
             } catch (err) {
                 console.error(err);
-                toast('❌ Failed to compute variable');
+                toast('Failed to compute variable');
             } finally {
                 btn.textContent = 'Add Variable';
                 btn.disabled = false;
@@ -2915,8 +3111,8 @@
                 if (arr.length === 0) { toast('⚠️ No valid data found for metric'); return; }
 
                 const op = opEl.value;
-                if (op === 'max') res = Math.max(...arr);
-                else if (op === 'min') res = Math.min(...arr);
+                if (op === 'max') res = arr.reduce((best, value) => value > best ? value : best, -Infinity);
+                else if (op === 'min') res = arr.reduce((best, value) => value < best ? value : best, Infinity);
                 else if (op === 'mean') res = HA.mean(arr);
                 else if (op === 'median') {
                     arr.sort((a, b) => a - b);
@@ -2957,6 +3153,7 @@
 
                 const op = opEl.value;
                 if (op === 'pearson') res = HA.pearson(x, y);
+                else if (op === 'spearman') res = spearman(x, y);
                 else if (op === 'linreg') res = HA.linReg(x, y).r2;
 
                 const l1 = allFields.find(f => f.key === v1)?.label || v1;
@@ -2966,6 +3163,7 @@
 
             // Add Pill Results
             const pillArea = $('h-ca-lab-stat-results');
+            pillArea.querySelector('.haw-empty-inline')?.remove();
             const pill = document.createElement('div');
             pill.className = 'ha-ca-pill';
             pill.style.borderColor = 'rgba(255,255,255,0.1)';
@@ -2974,6 +3172,84 @@
             pill.innerHTML = `<span style="color:var(--ha-text3)">${labelStr}:</span> <strong style="color:var(--ha-accent)">${HA.fmt(res, 3)}</strong> <button class="ha-ca-pill-remove">×</button>`;
             pill.querySelector('button').addEventListener('click', () => pill.remove());
             pillArea.appendChild(pill);
+        });
+
+        $('h-ca-run-matrix')?.addEventListener('click', computeWorkspaceRelationships);
+
+        const layoutMenu = $('h-ca-layout-menu');
+        $('h-ca-customize')?.addEventListener('click', () => {
+            if (!layoutMenu) return;
+            layoutMenu.hidden = !layoutMenu.hidden;
+        });
+        $('h-ca-layout-close')?.addEventListener('click', () => { if (layoutMenu) layoutMenu.hidden = true; });
+        document.querySelectorAll('[data-panel-toggle]').forEach(toggle => {
+            toggle.addEventListener('change', () => {
+                const panel = document.querySelector(`[data-workspace-panel="${toggle.dataset.panelToggle}"]`);
+                if (panel) panel.hidden = !toggle.checked;
+                saveWorkspaceLayout();
+                requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
+            });
+        });
+        $('h-ca-layout-reset')?.addEventListener('click', () => {
+            try { localStorage.removeItem(HCA_LAYOUT_KEY); } catch (_) { }
+            applyWorkspaceLayout();
+            toast('Default workspace restored');
+        });
+        document.querySelectorAll('[data-workspace-panel] [data-panel-size]').forEach(button => {
+            button.addEventListener('click', () => {
+                const panel = button.closest('[data-workspace-panel]');
+                const current = panel.classList.contains('haw-panel-full') ? 'full' : panel.classList.contains('haw-panel-wide') ? 'wide' : 'standard';
+                panel.classList.remove('haw-panel-wide', 'haw-panel-full');
+                if (current === 'standard') panel.classList.add('haw-panel-wide');
+                else if (current === 'wide') panel.classList.add('haw-panel-full');
+                saveWorkspaceLayout();
+                requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
+            });
+        });
+        let draggedPanel = null;
+        document.querySelectorAll('[data-workspace-panel]').forEach(panel => {
+            panel.querySelector('.haw-drag-handle')?.addEventListener('pointerdown', () => { panel.dataset.dragArmed = 'true'; });
+            panel.addEventListener('dragstart', event => {
+                if (panel.dataset.dragArmed !== 'true') { event.preventDefault(); return; }
+                draggedPanel = panel;
+                panel.classList.add('is-dragging');
+                event.dataTransfer.effectAllowed = 'move';
+            });
+            panel.addEventListener('dragend', () => {
+                panel.dataset.dragArmed = '';
+                panel.classList.remove('is-dragging');
+                draggedPanel = null;
+                saveWorkspaceLayout();
+            });
+            panel.addEventListener('dragover', event => {
+                if (!draggedPanel || draggedPanel === panel) return;
+                event.preventDefault();
+                const rect = panel.getBoundingClientRect();
+                panel.parentElement.insertBefore(draggedPanel, event.clientY < rect.top + rect.height / 2 ? panel : panel.nextSibling);
+            });
+        });
+
+        $('h-ca-preset')?.addEventListener('change', event => {
+            const presets = {
+                efficiency: { type: 'scatter', x: 'speed_kmh', y: ['power_w', 'efficiency'], matrix: ['speed_kmh', 'power_w', 'current_a', 'efficiency'] },
+                driver: { type: 'scatter', x: 'throttle_pct', y: ['speed_kmh', 'power_w'], matrix: ['throttle_pct', 'brake_pct', 'speed_kmh', 'power_w', 'g_force'] },
+                electrical: { type: 'scatter', x: 'current_a', y: ['voltage_v', 'power_w'], matrix: ['voltage_v', 'current_a', 'power_w', 'vesc_voltage_v', 'vesc_current_a'] },
+                dynamics: { type: 'scatter', x: 'speed_kmh', y: ['g_force', 'accel_x'], matrix: ['speed_kmh', 'g_force', 'accel_x', 'accel_y', 'vehicle_heading'] },
+                blank: { type: 'line', x: '_ts', y: ['speed_kmh'], matrix: ['speed_kmh', 'power_w'] },
+            };
+            const preset = presets[event.target.value];
+            if (!preset) return;
+            $('h-ca-type').value = preset.type;
+            $('h-ca-x-axis').value = preset.x;
+            const yContainer = $('h-ca-y-axes-container');
+            yContainer.innerHTML = '';
+            preset.y.filter(key => customFields().some(field => field.key === key)).forEach(key => addYAxisField(key));
+            const matrix = $('h-ca-matrix-vars');
+            Array.from(matrix.options).forEach(option => { option.selected = preset.matrix.includes(option.value); });
+            if (preset.matrix[0]) $('h-ca-lag-x').value = preset.matrix[0];
+            if (preset.matrix[1]) $('h-ca-lag-y').value = preset.matrix[1];
+            generateCustomAnalysis();
+            computeWorkspaceRelationships();
         });
 
         // Attach Generate click handler
@@ -3014,6 +3290,7 @@
         $('h-ca-add-filter')?.addEventListener('click', () => {
             const container = $('h-ca-filters');
             if (!container) return;
+            container.querySelector('.haw-empty-inline')?.remove();
 
             const row = document.createElement('div');
             row.className = 'ha-ca-filter-row';
@@ -3037,7 +3314,10 @@
                 <button class="ha-ca-filter-remove">×</button>
             `;
 
-            row.querySelector('.ha-ca-filter-remove').addEventListener('click', () => row.remove());
+            row.querySelector('.ha-ca-filter-remove').addEventListener('click', () => {
+                row.remove();
+                if (!container.querySelector('.ha-ca-filter-row')) container.innerHTML = '<span class="haw-empty-inline">All valid records included</span>';
+            });
             container.appendChild(row);
         });
 
@@ -3045,6 +3325,7 @@
         $('h-ca-add-highlight')?.addEventListener('click', () => {
             const container = $('h-ca-highlights');
             if (!container) return;
+            container.querySelector('.haw-empty-inline')?.remove();
             const row = document.createElement('div');
             row.className = 'ha-ca-filter-row ha-ca-highlight-row';
             const fields = [...HA.STAT_FIELDS, ...window.HCA_DerivedVars];
@@ -3064,7 +3345,10 @@
                 <input type="color" class="ha-ca-color" value="#ff0055" title="Highlight Color" style="width:24px; padding:0; border:none; background:transparent;">
                 <button class="ha-ca-filter-remove">×</button>
             `;
-            row.querySelector('.ha-ca-filter-remove').addEventListener('click', () => row.remove());
+            row.querySelector('.ha-ca-filter-remove').addEventListener('click', () => {
+                row.remove();
+                if (!container.querySelector('.ha-ca-filter-row')) container.innerHTML = '<span class="haw-empty-inline">No highlighted condition</span>';
+            });
             container.appendChild(row);
         });
 
@@ -3077,13 +3361,13 @@
             $('h-ca-status').textContent = 'Ready';
             $('h-ca-stats-grid').innerHTML = '<div class="ha-ca-stat-empty">Generate a chart to view statistics.</div>';
             const filters = $('h-ca-filters');
-            if (filters) filters.innerHTML = '';
+            if (filters) filters.innerHTML = '<span class="haw-empty-inline">All valid records included</span>';
             const highlights = $('h-ca-highlights');
-            if (highlights) highlights.innerHTML = '';
+            if (highlights) highlights.innerHTML = '<span class="haw-empty-inline">No highlighted condition</span>';
 
             // Reset Lab
-            $('h-ca-lab-active-vars').innerHTML = '';
-            $('h-ca-lab-stat-results').innerHTML = '';
+            $('h-ca-lab-active-vars').innerHTML = '<span class="haw-empty-inline">No transformations yet</span>';
+            $('h-ca-lab-stat-results').innerHTML = '<span class="haw-empty-inline">No pinned calculations</span>';
             window.HCA_DerivedVars = [];
             window.updateCaDropdowns();
 
@@ -3093,11 +3377,13 @@
                 const axes = yContainer.querySelectorAll('.ha-ca-filter-row');
                 for (let i = 1; i < axes.length; i++) axes[i].remove();
             }
+            updateWorkspaceKpis();
         });
 
         // Attach Export Handlers
         $('h-ca-export-png')?.addEventListener('click', customExportPNG);
         $('h-ca-export-csv')?.addEventListener('click', customExportCSV);
+        setTimeout(() => $('h-ca-preset')?.dispatchEvent(new Event('change')), 0);
     }
 
     async function generateCustomAnalysis() {
@@ -3155,10 +3441,12 @@
 
             // Calculate & Render Stats
             renderCustomStats(xData, ySeriesObj, xKey, !!algoStr);
+            renderWorkspacePreview(xData, ySeriesObj, xKey);
+            updateWorkspaceKpis(validPoints);
 
             // Success
             statusEl.className = 'ha-ca-status active';
-            statusEl.textContent = `Plotted ${validPoints.toLocaleString()} points successfully.`;
+            statusEl.textContent = `${validPoints.toLocaleString()} points · ${Object.keys(ySeriesObj).length} response variable${Object.keys(ySeriesObj).length === 1 ? '' : 's'}`;
 
         } catch (e) {
             console.error("Custom Analysis Error:", e);
@@ -3192,7 +3480,7 @@
                 }
             }
 
-            const yLabel = isAlgo ? key : (HA.STAT_FIELDS.find(f => f.key === key)?.label || key);
+            const yLabel = isAlgo ? key : customFieldLabel(key);
 
             // Add Y Axis configuration
             yAxes.push({
@@ -3262,15 +3550,15 @@
         const mkStat = (lbl, val) => `<div class="ha-ca-stat-item"><div class="ha-ca-stat-label">${lbl}</div><div class="ha-ca-stat-value">${val}</div></div>`;
 
         for (const [key, yData] of Object.entries(ySeriesObj)) {
-            const yLabel = isAlgo ? key : (HA.STAT_FIELDS.find(f => f.key === key)?.label || key);
+            const yLabel = isAlgo ? key : customFieldLabel(key);
 
             const meanY = HA.mean(yData);
-            const yMax = Math.max(...yData);
-            const yMin = Math.min(...yData);
+            const yMax = yData.reduce((best, value) => value > best ? value : best, -Infinity);
+            const yMin = yData.reduce((best, value) => value < best ? value : best, Infinity);
             const stdDevY = HA.stddev(yData);
             const skewY = HA.skewness(yData);
 
-            html.push(`<div style="grid-column: 1 / -1; margin-top: 10px; font-weight: 800; color: var(--ha-accent); font-size: 13px;">${yLabel} Data</div>`);
+            html.push(`<div class="haw-stat-section-title">${esc(yLabel)} data</div>`);
 
             html.push(mkStat(`Mean`, HA.fmt(meanY, 3)));
             html.push(mkStat(`Max`, HA.fmt(yMax, 3)));

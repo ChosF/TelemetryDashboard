@@ -128,11 +128,64 @@ self.onmessage = function (e) {
                 const mapped = resData.map(r => r[a] != null ? r[a] : 0);
                 let smoothed = [];
                 if (op === 'sma') smoothed = self.HA.sma(mapped, w);
+                else if (op === 'ema') {
+                    const alpha = 2 / (Math.max(2, w) + 1);
+                    let previous = mapped[0] || 0;
+                    smoothed = mapped.map((value, index) => {
+                        previous = index === 0 ? value : (alpha * value) + ((1 - alpha) * previous);
+                        return previous;
+                    });
+                } else if (op === 'rollingstd') {
+                    const window = Math.max(2, w);
+                    let sum = 0, sumSq = 0;
+                    smoothed = mapped.map((value, index) => {
+                        sum += value;
+                        sumSq += value * value;
+                        if (index >= window) {
+                            const removed = mapped[index - window];
+                            sum -= removed;
+                            sumSq -= removed * removed;
+                        }
+                        const count = Math.min(index + 1, window);
+                        const mean = sum / count;
+                        return Math.sqrt(Math.max(0, (sumSq / count) - (mean * mean)));
+                    });
+                }
 
                 for (let i = 0; i < resData.length; i++) {
                     if (resData[i][a] != null && smoothed[i] !== undefined) {
                         resData[i][newKey] = smoothed[i];
                     }
+                }
+            } else if (opType === 'normalize') {
+                const { a, op } = args;
+                const values = resData.map(row => Number(row[a])).filter(Number.isFinite);
+                const mean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+                const variance = values.length ? values.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / values.length : 0;
+                const std = Math.sqrt(variance);
+                let min = Infinity, max = -Infinity;
+                for (const value of values) {
+                    if (value < min) min = value;
+                    if (value > max) max = value;
+                }
+                if (!values.length) { min = 0; max = 0; }
+                for (const row of resData) {
+                    const value = Number(row[a]);
+                    if (!Number.isFinite(value)) continue;
+                    if (op === 'zscore') row[newKey] = std > 0 ? (value - mean) / std : 0;
+                    else if (op === 'minmax') row[newKey] = max > min ? (value - min) / (max - min) : 0;
+                    else row[newKey] = value - mean;
+                }
+            } else if (opType === 'lag') {
+                const { a, op, w } = args;
+                const lag = Math.max(1, Math.floor(w || 1));
+                for (let i = lag; i < resData.length; i++) {
+                    const current = Number(resData[i][a]);
+                    const previous = Number(resData[i - lag][a]);
+                    if (!Number.isFinite(current) || !Number.isFinite(previous)) continue;
+                    if (op === 'lag') resData[i][newKey] = previous;
+                    else if (op === 'diff') resData[i][newKey] = current - previous;
+                    else resData[i][newKey] = previous !== 0 ? ((current - previous) / Math.abs(previous)) * 100 : 0;
                 }
             }
             // Web workers naturally help memory GC as well.
@@ -141,6 +194,57 @@ self.onmessage = function (e) {
                 id,
                 type: 'SUCCESS',
                 payload: { processedData: resData }
+            });
+        }
+        else if (type === 'COMPUTE_RELATIONSHIP_MATRIX') {
+            const { data, keys, leadKey, responseKey, maxLag } = payload;
+            const paired = (leftKey, rightKey, lag = 0) => {
+                const x = [], y = [];
+                const start = Math.max(0, -lag);
+                const end = Math.min(data.length, data.length - lag);
+                for (let i = start; i < end; i++) {
+                    const left = Number(data[i][leftKey]);
+                    const right = Number(data[i + lag][rightKey]);
+                    if (Number.isFinite(left) && Number.isFinite(right)) {
+                        x.push(left);
+                        y.push(right);
+                    }
+                }
+                return { x, y };
+            };
+            const safePearson = (x, y) => {
+                if (x.length < 3 || y.length < 3) return null;
+                const value = self.HA.pearson(x, y);
+                return Number.isFinite(value) ? value : null;
+            };
+            const matrix = [];
+            let strongest = null;
+            for (let row = 0; row < keys.length; row++) {
+                for (let column = 0; column < keys.length; column++) {
+                    const pair = paired(keys[column], keys[row]);
+                    const value = column === row ? 1 : safePearson(pair.x, pair.y);
+                    const entry = { column, row, value, count: pair.x.length };
+                    matrix.push(entry);
+                    if (column < row && value != null && (!strongest || Math.abs(value) > Math.abs(strongest.value))) {
+                        strongest = { leftKey: keys[column], rightKey: keys[row], value, count: pair.x.length };
+                    }
+                }
+            }
+            const boundedLag = Math.max(1, Math.min(120, Math.floor(maxLag || 20)));
+            const lagCurve = [];
+            let bestLag = null;
+            for (let lag = -boundedLag; lag <= boundedLag; lag++) {
+                const pair = paired(leadKey, responseKey, lag);
+                const value = safePearson(pair.x, pair.y);
+                lagCurve.push({ lag, value, count: pair.x.length });
+                if (value != null && (!bestLag || Math.abs(value) > Math.abs(bestLag.value))) {
+                    bestLag = { lag, value, count: pair.x.length };
+                }
+            }
+            self.postMessage({
+                id,
+                type: 'SUCCESS',
+                payload: { matrix, strongest, lagCurve, bestLag }
             });
         }
         else if (type === 'PROCESS_ML_SIMULATION') {
