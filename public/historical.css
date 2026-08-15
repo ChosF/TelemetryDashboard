@@ -5840,3 +5840,21 @@ html[data-theme="light"] .haw-track-map-state { background: radial-gradient(circ
     .haw-field-catalog article { grid-template-columns: minmax(120px, 1fr) 44px; }
     .haw-field-catalog article > em { grid-column: 1 / -1; text-align: left; }
 }
+
+/* Balance variable-length metric bands without leaving an empty grid tail. */
+#h-ca-dynamics-summary,
+#h-ca-integrity-summary,
+#h-ca-track-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+}
+
+#h-ca-dynamics-summary > .haw-overview-metric,
+#h-ca-integrity-summary > .haw-overview-metric {
+    flex: 1 1 205px;
+}
+
+#h-ca-track-summary > .haw-overview-metric {
+    flex: 1 1 235px;
+}
