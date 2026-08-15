@@ -11,6 +11,8 @@
         sessions: [], activeSessionId: null, activeSessionMeta: null,
         data: [], compareData: [], map: null, stats: null, compareStats: null,
         isPreview: false, statsExact: false, fullDataPromise: null,
+        previewData: null, previewStats: null, previewStatsExact: false,
+        fullData: null, fullStats: null,
         archiveStatus: 'none', coreMap: null, coreSectors: [],
         analysis: null, analysisUnsubscribe: null, preparationToken: 0,
     };
@@ -287,6 +289,7 @@
 
         if (!blocked || S.archiveStatus === 'restricted' || S.archiveStatus === 'missing') {
             clearArchiveStatusPoll();
+            updateAnalyzeDataScopeControl();
             return;
         }
         if (archiveStatusPollTimer !== null) return;
@@ -307,6 +310,41 @@
             }
             if (S.activeSessionId === sessionId) updateFullExportAvailability();
         }, pollDelay);
+        updateAnalyzeDataScopeControl();
+    }
+
+    function updateAnalyzeDataScopeControl({ loading = false, loaded = 0, estimated = 0 } = {}) {
+        const control = $('h-ca-full-data-control');
+        const toggle = $('h-ca-full-data-toggle');
+        const label = $('h-ca-full-data-label');
+        const detail = $('h-ca-full-data-detail');
+        if (!control || !toggle || !label || !detail) return;
+
+        const hasSession = !!S.activeSessionId && !!S.data?.length;
+        const restricted = Number.isFinite(externalDataPointLimit);
+        const fullActive = hasSession && !restricted && !S.isPreview;
+        const total = Number(S.stats?.recordCount || S.activeSessionMeta?.record_count || estimated || S.data?.length || 0);
+        const archiveReady = S.archiveStatus === 'complete' || fullActive;
+
+        toggle.checked = fullActive;
+        toggle.disabled = !hasSession || restricted || loading || (!S.previewData && fullActive) || (!archiveReady && S.isPreview);
+        control.dataset.state = loading ? 'loading' : (restricted ? 'restricted' : (fullActive ? 'full' : 'overview'));
+        control.setAttribute('aria-busy', String(loading));
+
+        if (loading) {
+            const progress = estimated > 0 ? Math.min(100, Math.round((loaded / estimated) * 100)) : null;
+            label.textContent = 'Loading full session';
+            detail.textContent = progress == null
+                ? 'Reading optimized archive parts'
+                : `${progress}% · ${Number(loaded).toLocaleString()} of ${Number(estimated).toLocaleString()} points`;
+            return;
+        }
+        label.textContent = 'Full session';
+        if (!hasSession) detail.textContent = 'Overview dataset active';
+        else if (restricted) detail.textContent = 'Overview only for this access level';
+        else if (fullActive) detail.textContent = `${S.data.length.toLocaleString()} archived points loaded`;
+        else if (!archiveReady) detail.textContent = 'Available when the archive is ready';
+        else detail.textContent = `${S.data.length.toLocaleString()} of ${total.toLocaleString()} points active`;
     }
 
     const sessionLoadControllers = new Map();
@@ -849,6 +887,11 @@
         clearArchiveStatusPoll();
         S.archiveStatus = S.activeSessionMeta?.archive_status || 'none';
         S.isPreview = false;
+        S.previewData = null;
+        S.previewStats = null;
+        S.previewStatsExact = false;
+        S.fullData = null;
+        S.fullStats = null;
         updateFullExportAvailability();
         const label = $('h-active-session-label');
         if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
@@ -887,6 +930,11 @@
             S.isPreview = isPreview;
             S.archiveStatus = archiveStatus;
             S.fullDataPromise = null;
+            S.previewData = isPreview ? cappedData : null;
+            S.previewStats = isPreview ? stats : null;
+            S.previewStatsExact = isPreview ? !!statsExact : false;
+            S.fullData = isPreview ? null : cappedData;
+            S.fullStats = isPreview ? null : stats;
             S.analysis = analysis;
             updateFullExportAvailability();
 
@@ -945,6 +993,7 @@
         if (S.analysisUnsubscribe) { try { S.analysisUnsubscribe() } catch (e) { } } S.analysisUnsubscribe = null;
         clearArchiveStatusPoll();
         S.data = []; S.stats = null; S.isPreview = false; S.statsExact = false; S.fullDataPromise = null; S.archiveStatus = 'none';
+        S.previewData = null; S.previewStats = null; S.previewStatsExact = false; S.fullData = null; S.fullStats = null;
         S.analysis = null; S.coreSectors = [];
         S.activeSessionId = null;
         S.activeSessionMeta = null;
@@ -1291,9 +1340,34 @@
         }
     }
 
-    async function ensureFullSessionData(reason = 'full-resolution analysis') {
+    function refreshHistoricalDataConsumers() {
+        renderSummary(S.data);
+        renderQualityBadge(S.data);
+        for (const bodyId of [...renderedHistoricalSections]) {
+            if (bodyId === 'ts-body') renderSyncedCharts(S.data);
+            else if (bodyId === 'energy-body') renderEnergy(S.data);
+            else if (bodyId === 'efficiency-body') renderEfficiencyAnalytics(S.data);
+            else if (bodyId === 'driver-body') renderDriverAnalysis(S.data);
+            else if (bodyId === 'map-body') renderMap(S.data);
+        }
+        if (customAnalysisSessionId === S.activeSessionId) {
+            resetCustomAnalysisSessionUi();
+            initCustomAnalysis();
+        }
+    }
+
+    async function ensureFullSessionData(reason = 'full-resolution analysis', onProgress = null) {
         if (!S.isPreview) return S.data;
         if (Number.isFinite(externalDataPointLimit)) return S.data;
+        if (Array.isArray(S.fullData) && S.fullData.length) {
+            S.data = S.fullData;
+            S.stats = S.fullStats || HA.computeSessionStats(S.fullData);
+            S.isPreview = false;
+            S.statsExact = true;
+            updateFullExportAvailability();
+            refreshHistoricalDataConsumers();
+            return S.data;
+        }
         if (S.fullDataPromise) return await S.fullDataPromise;
         const sessionId = S.activeSessionId;
         if (!sessionId) return [];
@@ -1316,7 +1390,7 @@
 
         S.fullDataPromise = (async () => {
             toast(`Loading full data for ${reason}…`);
-            const raw = await ConvexBridge.getSessionRecords(sessionId);
+            const raw = await ConvexBridge.getSessionRecords(sessionId, onProgress);
             const rawRecords = Array.isArray(raw) ? raw : [];
             const { normalized, stats } = await runHistoricalWorkerTask(
                 'NORMALIZE_RECORDS',
@@ -1324,24 +1398,15 @@
             );
             if (S.activeSessionId !== sessionId) return [];
 
-            S.data = applyExternalDataCap(normalized);
+            S.fullData = applyExternalDataCap(normalized);
+            S.fullStats = stats;
+            S.data = S.fullData;
             S.stats = stats;
             S.isPreview = false;
             S.statsExact = true;
             S.archiveStatus = 'complete';
             updateFullExportAvailability();
-            renderSummary(S.data);
-            renderQualityBadge(S.data);
-
-            // Refresh any visual sections that were already rendered from the
-            // overview so they transparently gain full fidelity.
-            for (const bodyId of [...renderedHistoricalSections]) {
-                if (bodyId === 'ts-body') renderSyncedCharts(S.data);
-                else if (bodyId === 'energy-body') renderEnergy(S.data);
-                else if (bodyId === 'efficiency-body') renderEfficiencyAnalytics(S.data);
-                else if (bodyId === 'driver-body') renderDriverAnalysis(S.data);
-                else if (bodyId === 'map-body') renderMap(S.data);
-            }
+            refreshHistoricalDataConsumers();
             toast(`Full session loaded · ${S.data.length.toLocaleString()} records`);
             return S.data;
         })();
@@ -1364,6 +1429,43 @@
             return false;
         }
     }
+
+    function restoreAnalyzeOverview() {
+        if (!Array.isArray(S.previewData) || !S.previewData.length) {
+            updateAnalyzeDataScopeControl();
+            return;
+        }
+        S.data = S.previewData;
+        S.stats = S.previewStats || HA.computeSessionStats(S.previewData);
+        S.statsExact = S.previewStatsExact;
+        S.isPreview = true;
+        updateFullExportAvailability();
+        refreshHistoricalDataConsumers();
+        toast(`Overview restored · ${S.data.length.toLocaleString()} representative points`);
+    }
+
+    $('h-ca-full-data-toggle')?.addEventListener('change', async event => {
+        const toggle = event.currentTarget;
+        if (!toggle.checked) {
+            restoreAnalyzeOverview();
+            return;
+        }
+
+        const sessionId = S.activeSessionId;
+        updateAnalyzeDataScopeControl({ loading: true });
+        try {
+            await ensureFullSessionData('Analyze workspace', (loaded, estimated) => {
+                if (S.activeSessionId === sessionId) {
+                    updateAnalyzeDataScopeControl({ loading: true, loaded, estimated });
+                }
+            });
+        } catch (error) {
+            console.warn('[historical] Full Analyze dataset unavailable:', error);
+            toast(error?.message || 'Full session data is not available yet.');
+        } finally {
+            if (S.activeSessionId === sessionId) updateAnalyzeDataScopeControl();
+        }
+    });
 
     async function renderHistoricalSection(bodyId) {
         if (!bodyId || renderedHistoricalSections.has(bodyId) || !S.data.length) return;
