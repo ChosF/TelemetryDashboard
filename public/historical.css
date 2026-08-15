@@ -5270,8 +5270,7 @@ html[data-theme="light"] .hchat-composer-box button:disabled { color: var(--hc-f
     .hchat-welcome h2 { font-size: clamp(38px, 12vw, 55px); }
     .hchat-prompts { grid-template-columns: 1fr; }
     .hchat-composer-wrap { padding: 12px 12px max(13px, env(safe-area-inset-bottom)); }
-    .hchat-composer-meta span:first-child { display: none; }
-    .hchat-composer-meta { justify-content: flex-end; }
+    .hchat-composer-meta { display: none; }
 }
 
 @media (max-width: 430px) {
