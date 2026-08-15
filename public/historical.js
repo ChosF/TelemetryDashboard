@@ -52,7 +52,7 @@
         window.history[method](state, '', next);
     }
 
-    /** Mobile bottom nav + main padding (CSS hooks on body.ha-session-open) */
+    /** Keep the application chrome aware of whether a run-level tool is open. */
     function syncHistoricalMobileChrome() {
         const analysisOn = $('h-view-analysis')?.classList.contains('active');
         const customOn = $('h-view-custom-analysis')?.classList.contains('active');
@@ -245,7 +245,47 @@
         toast('❌ Background Worker Crashed. Try refreshing.');
     };
 
-    function toast(msg) { let el = document.querySelector('.ha-toast'); if (!el) { el = document.createElement('div'); el.className = 'ha-toast'; document.body.appendChild(el) } el.textContent = msg; el.classList.add('show'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 2500) }
+    function toast(message, requestedTone = 'auto') {
+        let element = document.querySelector('.ha-toast');
+        if (!element) {
+            element = document.createElement('div');
+            element.className = 'ha-toast';
+            element.setAttribute('role', 'status');
+            element.setAttribute('aria-live', 'polite');
+            element.setAttribute('aria-atomic', 'true');
+            element.innerHTML = `
+                <span class="ha-toast-signal" aria-hidden="true"></span>
+                <span class="ha-toast-copy"><strong></strong><span></span></span>
+                <button type="button" class="ha-toast-dismiss" aria-label="Dismiss notification">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13" /></svg>
+                </button>`;
+            element.querySelector('.ha-toast-dismiss').addEventListener('click', () => {
+                element.classList.remove('show');
+            });
+            document.body.appendChild(element);
+        }
+
+        const text = String(message ?? '').replace(/^\s*(?:✅|❌|⚠️|📋)\s*/u, '');
+        const normalized = text.toLowerCase();
+        let tone = requestedTone;
+        if (tone === 'auto') {
+            if (/failed|crashed|cannot|could not|denied|unavailable|no data|no session/.test(normalized)) tone = 'error';
+            else if (/limited|attention|processing|loading|select|choose|up to four|not connected/.test(normalized)) tone = 'warning';
+            else if (/ready|loaded|restored|downloaded|copied|created|refreshed|exported|deleted|complete/.test(normalized)) tone = 'success';
+            else tone = 'info';
+        }
+
+        const labels = { info: 'STATUS', success: 'COMPLETE', warning: 'ATTENTION', error: 'ERROR' };
+        element.dataset.tone = tone;
+        element.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+        element.querySelector('.ha-toast-copy strong').textContent = labels[tone] || labels.info;
+        element.querySelector('.ha-toast-copy > span').textContent = text;
+        element.classList.remove('show');
+        void element.offsetWidth;
+        element.classList.add('show');
+        clearTimeout(element._t);
+        element._t = setTimeout(() => element.classList.remove('show'), 3200);
+    }
 
     const ARCHIVE_STATUS_POLL_MS = 5000;
     const ARCHIVE_PENDING_POLL_MS = 30000;
@@ -718,9 +758,7 @@
         $('h-view-ai')?.classList.remove('active');
         $('h-view-preparing').classList.remove('active');
         $('h-view-analysis').classList.add('active');
-        showTOC(false);
         showAnalysisActions(true);
-        $('h-btn-collapse-all').style.display = 'none';
         syncHistoricalMobileChrome();
     }
 
@@ -729,8 +767,6 @@
         $('h-view-ai')?.classList.remove('active');
         $('h-view-preparing').classList.remove('active');
         $('h-view-custom-analysis').classList.add('active');
-        $('h-btn-collapse-all').style.display = 'none';
-        showTOC(false);
         syncHistoricalMobileChrome();
         window.SessionChatUI?.close?.();
     }
@@ -741,7 +777,6 @@
         $('h-view-custom-analysis').classList.remove('active');
         $('h-view-ai')?.classList.remove('active');
         $('h-view-preparing').classList.add('active');
-        showTOC(false);
         showAnalysisActions(false);
         syncHistoricalMobileChrome();
     }
@@ -914,7 +949,6 @@
         const label = $('h-active-session-label');
         if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
         showPreparationView();
-        applyHistoricalSectionsCollapsed(true);
         if (!options.skipHistory) {
             updateRoute(
                 `${HIST_ROUTE_BASE}/${encodeURIComponent(sid)}`,
@@ -1004,7 +1038,6 @@
         $('h-view-explorer').classList.add('active');
         $('h-active-session-label').textContent = '';
         $('h-quality-badge').style.display = 'none';
-        showTOC(false);
         showAnalysisActions(false);
         disposeCharts();
         if (S.map) { try { S.map.remove() } catch (e) { } } S.map = null;
@@ -1052,8 +1085,6 @@
         $('h-view-ai')?.classList.remove('active');
         $('h-view-analysis').classList.add('active');
         window.SessionChatUI?.close?.();
-        $('h-btn-collapse-all').style.display = '';
-        showTOC(true);
         syncHistoricalMobileChrome();
         if (S.activeSessionId) {
             updateRoute(`${HIST_ROUTE_BASE}/${encodeURIComponent(S.activeSessionId)}`, { view: 'analysis', sessionId: S.activeSessionId }, false);
@@ -1070,8 +1101,6 @@
         $('h-view-custom-analysis').classList.remove('active');
         $('h-view-preparing').classList.remove('active');
         $('h-view-ai')?.classList.add('active');
-        $('h-btn-collapse-all').style.display = 'none';
-        showTOC(false);
         showAnalysisActions(false);
         syncHistoricalMobileChrome();
         await window.SessionChatUI?.open?.({
@@ -1092,13 +1121,9 @@
     $('h-tool-ai')?.addEventListener('click', () => void showSessionChat());
 
     // ── Render All Analysis ──
-    const renderedHistoricalSections = new Set();
-
     function renderInitialHistoricalView() {
-        renderedHistoricalSections.clear();
         if (!S.data.length) return;
         renderCoreHistoricalView(S.data);
-        renderSummary(S.data);
         renderQualityBadge(S.data);
         connectCoreSessionAnalysis();
     }
@@ -1394,15 +1419,8 @@
     }
 
     function refreshHistoricalDataConsumers() {
-        renderSummary(S.data);
+        if ($('h-view-analysis')?.classList.contains('active')) renderCoreHistoricalView(S.data);
         renderQualityBadge(S.data);
-        for (const bodyId of [...renderedHistoricalSections]) {
-            if (bodyId === 'ts-body') renderSyncedCharts(S.data);
-            else if (bodyId === 'energy-body') renderEnergy(S.data);
-            else if (bodyId === 'efficiency-body') renderEfficiencyAnalytics(S.data);
-            else if (bodyId === 'driver-body') renderDriverAnalysis(S.data);
-            else if (bodyId === 'map-body') renderMap(S.data);
-        }
         if (customAnalysisSessionId === S.activeSessionId) {
             resetCustomAnalysisSessionUi();
             initCustomAnalysis();
@@ -1519,44 +1537,6 @@
             if (S.activeSessionId === sessionId) updateAnalyzeDataScopeControl();
         }
     });
-
-    async function renderHistoricalSection(bodyId) {
-        if (!bodyId || renderedHistoricalSections.has(bodyId) || !S.data.length) return;
-        const sessionId = S.activeSessionId;
-        const body = document.getElementById(bodyId);
-        if (body) body.setAttribute('aria-busy', 'true');
-        try {
-            if (S.activeSessionId !== sessionId) return;
-            if (bodyId === 'ts-body') renderSyncedCharts(S.data);
-            else if (bodyId === 'energy-body') renderEnergy(S.data);
-            else if (bodyId === 'efficiency-body') renderEfficiencyAnalytics(S.data);
-            else if (bodyId === 'driver-body') renderDriverAnalysis(S.data);
-            else if (bodyId === 'stats-body') renderDescriptiveStats(S.data);
-            else if (bodyId === 'anomaly-body') renderAnomalies(S.data);
-            else if (bodyId === 'seg-body') renderSegments(S.data);
-            else if (bodyId === 'map-body') renderMap(S.data);
-            else if (bodyId === 'table-body') renderDataTable(S.data);
-            renderedHistoricalSections.add(bodyId);
-        } catch (error) {
-            console.error(`Failed to render historical section ${bodyId}:`, error);
-            toast('Could not load this analysis section');
-        } finally {
-            if (body) body.removeAttribute('aria-busy');
-        }
-    }
-
-    function renderAll() {
-        const d = S.data; if (!d.length) return;
-        renderSummary(d); renderSyncedCharts(d); renderEnergy(d); renderEfficiencyAnalytics(d); renderDriverAnalysis(d);
-        renderDescriptiveStats(d); renderAnomalies(d); renderSegments(d);
-        renderMap(d); renderDataTable(d); renderQualityBadge(d);
-        // Inject chart image overlay menus after charts have had time to initialise
-        setTimeout(() => initChartImageMenus(), 800);
-        ['ts-body', 'energy-body', 'efficiency-body', 'driver-body', 'stats-body',
-            'anomaly-body', 'seg-body', 'map-body', 'table-body']
-            .forEach(id => renderedHistoricalSections.add(id));
-    }
-
 
     // ── Summary KPIs ──
     function renderSummary(d) {
@@ -2637,75 +2617,6 @@
     });
 
 
-    // ── Collapsible Sections ──
-    /** Tracks whether "Collapse all" is active (shared with per-section toggles via applyHistoricalSectionsCollapsed). */
-    let historicalAllSectionsCollapsed = false;
-
-    function applyHistoricalSectionsCollapsed(collapsed) {
-        historicalAllSectionsCollapsed = !!collapsed;
-        const globalBtn = $('h-btn-collapse-all');
-        if (globalBtn) {
-            globalBtn.textContent = collapsed ? '⇱ Expand All' : '⇲ Collapse All';
-            globalBtn.title = collapsed ? 'Expand all sections' : 'Collapse all sections';
-        }
-        $$('.ha-collapse-btn').forEach(btn => {
-            const bodyId = btn.dataset.target;
-            const body = document.getElementById(bodyId);
-            if (!body) return;
-            body.classList.toggle('collapsed', collapsed);
-            btn.classList.toggle('collapsed', collapsed);
-            btn.title = collapsed ? 'Expand' : 'Collapse';
-        });
-    }
-
-    function initCollapsibles() {
-        $$('.ha-collapse-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const bodyId = btn.dataset.target;
-                const body = document.getElementById(bodyId);
-                if (!body) return;
-                const collapsed = body.classList.toggle('collapsed');
-                btn.classList.toggle('collapsed', collapsed);
-                btn.title = collapsed ? 'Expand' : 'Collapse';
-                historicalAllSectionsCollapsed = [...$$('.ha-collapse-btn')].every(b => {
-                    const id = b.dataset.target;
-                    const el = id ? document.getElementById(id) : null;
-                    return el && el.classList.contains('collapsed');
-                });
-                const globalBtn = $('h-btn-collapse-all');
-                if (globalBtn) {
-                    globalBtn.textContent = historicalAllSectionsCollapsed ? '⇱ Expand All' : '⇲ Collapse All';
-                    globalBtn.title = historicalAllSectionsCollapsed ? 'Expand all sections' : 'Collapse all sections';
-                }
-                if (!collapsed) await renderHistoricalSection(bodyId);
-            });
-        });
-
-        // Global Collapse / Expand All
-        $('h-btn-collapse-all')?.addEventListener('click', async () => {
-            const expanding = historicalAllSectionsCollapsed;
-            applyHistoricalSectionsCollapsed(!historicalAllSectionsCollapsed);
-            if (expanding) {
-                renderAll();
-            }
-        });
-    }
-
-    // ── Metric Toggles (show/hide individual chart cards) ──
-    function initMetricToggles() {
-        $$('.ha-toggle[data-chart]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const chartId = btn.dataset.chart;
-                const wrap = document.getElementById('wrap-' + chartId);
-                if (!wrap) return;
-                const active = btn.classList.toggle('active');
-                wrap.style.display = active ? '' : 'none';
-                // Resize visible charts after layout change
-                setTimeout(() => { Object.values(HA.charts).forEach(c => { try { c.resize() } catch (e) { } }) }, 50);
-            });
-        });
-    }
-
     // ── Reset Zoom ──
     $('h-ts-reset-zoom')?.addEventListener('click', () => {
         Object.values(HA.charts).forEach(c => {
@@ -2837,28 +2748,8 @@
     function showAnalysisActions(show) {
         const btn = $('h-btn-export-quick');
         if (btn) btn.style.display = show ? '' : 'none';
-        const collapseBtn = $('h-btn-collapse-all');
-        if (collapseBtn) collapseBtn.style.display = 'none';
         syncToolHeader();
     }
-
-    // ── Floating TOC ──
-    function showTOC(show) { const toc = $('ha-toc'); if (toc) toc.classList.toggle('visible', show) }
-    function buildTOC() {
-        const sections = $$('[data-toc]'); const list = $('ha-toc-list'); if (!list) return;
-        list.innerHTML = [...sections].map(s => `<div class="ha-toc-item" data-target="${s.id}">${s.dataset.toc}</div>`).join('');
-        list.querySelectorAll('.ha-toc-item').forEach(item => { item.addEventListener('click', () => { const t = $(item.dataset.target); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }) }) });
-        const obs = new IntersectionObserver(entries => { entries.forEach(e => { if (e.isIntersecting) { list.querySelectorAll('.ha-toc-item').forEach(i => i.classList.remove('active')); const match = list.querySelector(`[data-target="${e.target.id}"]`); if (match) match.classList.add('active') } }) }, { threshold: 0.2, rootMargin: '-60px 0px -60% 0px' });
-        sections.forEach(s => obs.observe(s));
-    }
-    $('ha-toc-toggle')?.addEventListener('click', () => $('ha-toc')?.classList.toggle('expanded'));
-
-    // ── Mobile Nav ──
-    $$('.ha-mob-btn').forEach(btn => btn.addEventListener('click', () => { const t = $(btn.dataset.scroll); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }) }));
-
-    // ── Patch openSession to show quick export ──
-    const _origOpenSession = openSession;
-    // (already defined above, just add post-render hook)
 
     // ── Chart Image Export ─────────────────────────────────────────────────
     // Injects a small hover toolbar on every .ha-chart-box with Save/Copy buttons
@@ -5893,10 +5784,6 @@
         const ok = await checkPermission();
         syncToolHeader();
         if (!ok) return;
-        buildTOC();
-        initCollapsibles();
-        initMetricToggles();
-        initChartImageMenus();
         initMLEngine();
         if (convexReady) await loadSessions();
         else $('h-sessions-list').innerHTML = '<div class="ha-empty"><div class="ha-empty-icon">⚡</div>Convex not connected.</div>';

@@ -1987,140 +1987,61 @@ body.hist-page {
 }
 
 /* ==========================================================================
-   FLOATING TABLE OF CONTENTS
-   ========================================================================== */
-.ha-toc {
-    position: fixed;
-    right: 16px;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 90;
-    display: none;
-    /* shown by JS when analysis is active */
-}
-
-.ha-toc.visible {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-}
-
-.ha-toc-toggle {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: var(--ha-surface2);
-    border: 1px solid var(--ha-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    font-size: 14px;
-    transition: all var(--ha-transition);
-    box-shadow: var(--ha-shadow);
-    margin-bottom: 4px;
-}
-
-.ha-toc-toggle:hover {
-    border-color: var(--ha-accent);
-    background: var(--ha-accent-dim);
-}
-
-.ha-toc-list {
-    display: none;
-    flex-direction: column;
-    gap: 2px;
-    background: var(--ha-surface2);
-    border: 1px solid var(--ha-border);
-    border-radius: var(--ha-radius-sm);
-    padding: 8px 6px;
-    box-shadow: var(--ha-shadow-lg);
-    max-height: 60vh;
-    overflow-y: auto;
-}
-
-.ha-toc.expanded .ha-toc-list {
-    display: flex;
-}
-
-.ha-toc-item {
-    padding: 5px 12px 5px 10px;
-    font-size: 11px;
-    color: var(--ha-text2);
-    cursor: pointer;
-    border-radius: var(--ha-radius-xs);
-    transition: all var(--ha-transition);
-    white-space: nowrap;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    border-left: 2px solid transparent;
-}
-
-.ha-toc-item:hover {
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--ha-text);
-}
-
-.ha-toc-item.active {
-    background: var(--ha-accent-dim);
-    color: var(--ha-accent);
-    border-left-color: var(--ha-accent);
-}
-
-/* ==========================================================================
-   MOBILE BOTTOM NAV
-   ========================================================================== */
-.ha-mobile-nav {
-    display: none;
-}
-
-.ha-mob-btn {
-    width: 38px;
-    height: 38px;
-    border: none;
-    background: transparent;
-    color: var(--ha-text2);
-    border-radius: var(--ha-radius-xs);
-    cursor: pointer;
-    font-size: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all var(--ha-transition);
-}
-
-.ha-mob-btn:hover,
-.ha-mob-btn.active {
-    background: var(--ha-accent-dim);
-    color: var(--ha-accent);
-}
-
-/* ==========================================================================
-   TOAST
+   APPLICATION STATUS NOTICE
    ========================================================================== */
 .ha-toast {
+    --ha-toast-tone: #38bdf8;
     position: fixed;
-    bottom: 24px;
     right: 24px;
-    padding: 10px 20px;
-    background: var(--ha-surface2);
-    border: 1px solid var(--ha-accent);
-    border-radius: var(--ha-radius-sm);
-    color: var(--ha-text);
-    font-size: 13px;
-    box-shadow: var(--ha-shadow-lg);
+    bottom: max(20px, env(safe-area-inset-bottom, 0px));
     z-index: 9999;
-    transform: translateY(20px);
+    width: min(420px, calc(100vw - 48px));
+    min-height: 54px;
+    padding: 0 6px 0 0;
+    display: grid;
+    grid-template-columns: 4px minmax(0, 1fr) 40px;
+    align-items: stretch;
+    border: 1px solid color-mix(in srgb, var(--ha-toast-tone) 36%, rgba(245, 241, 232, .13));
+    border-radius: 0;
+    color: #f5f1e8;
+    background: color-mix(in srgb, var(--ha-toast-tone) 5%, rgba(20, 20, 20, .98));
+    box-shadow: 0 18px 54px rgba(0, 0, 0, .38);
+    transform: translate3d(0, 12px, 0);
     opacity: 0;
-    transition: all 0.3s;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
 }
 
 .ha-toast.show {
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
     opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
 }
+
+.ha-toast[data-tone="success"] { --ha-toast-tone: #8fcf86; }
+.ha-toast[data-tone="warning"] { --ha-toast-tone: #f1ab6c; }
+.ha-toast[data-tone="error"] { --ha-toast-tone: #db776e; }
+.ha-toast-signal { background: var(--ha-toast-tone); }
+.ha-toast-copy { min-width: 0; padding: 11px 13px 10px; display: grid; align-content: center; gap: 5px; }
+.ha-toast-copy strong { color: var(--ha-toast-tone); font: 750 7px/1 "Space Grotesk", monospace; letter-spacing: .14em; }
+.ha-toast-copy > span { overflow-wrap: anywhere; color: rgba(245, 241, 232, .78); font: 650 11px/1.35 "Plus Jakarta Sans", sans-serif; }
+.ha-toast-dismiss { width: 40px; min-height: 40px; align-self: center; display: grid; place-items: center; border: 0; color: rgba(245, 241, 232, .48); background: transparent; cursor: pointer; }
+.ha-toast-dismiss:hover { color: var(--ha-toast-tone); background: color-mix(in srgb, var(--ha-toast-tone) 8%, transparent); }
+.ha-toast-dismiss:focus-visible { outline: 1px solid var(--ha-toast-tone); outline-offset: -4px; }
+.ha-toast-dismiss svg { width: 14px; height: 14px; }
+.ha-toast-dismiss path { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: square; }
+
+html[data-theme="light"] .ha-toast {
+    color: #1b1a18;
+    border-color: color-mix(in srgb, var(--ha-toast-tone) 42%, rgba(25, 24, 22, .16));
+    background: color-mix(in srgb, var(--ha-toast-tone) 5%, rgba(255, 253, 248, .98));
+    box-shadow: 0 18px 54px rgba(34, 29, 22, .18);
+}
+html[data-theme="light"] .ha-toast-copy > span { color: rgba(27, 26, 24, .76); }
+html[data-theme="light"] .ha-toast-dismiss { color: rgba(27, 26, 24, .48); }
 
 /* ==========================================================================
    QUALITY BADGE
@@ -2735,12 +2656,8 @@ select.ha-ca-select[multiple] option:checked {
 
 /* ≤ 1200px */
 @media (max-width: 1200px) {
-    .ha-toc {
-        display: none !important;
-    }
-
     .ha-main {
-        padding: 20px 22px calc(80px + env(safe-area-inset-bottom, 0px));
+        padding: 20px 22px max(24px, env(safe-area-inset-bottom, 0px));
     }
 
     .ha-kpi-grid {
@@ -2768,7 +2685,7 @@ select.ha-ca-select[multiple] option:checked {
     }
 
     .ha-main {
-        padding: 16px 16px calc(80px + env(safe-area-inset-bottom, 0px));
+        padding: 16px 16px max(20px, env(safe-area-inset-bottom, 0px));
     }
 
     .ha-chart-box {
@@ -2878,34 +2795,12 @@ select.ha-ca-select[multiple] option:checked {
         flex: 0 0 auto;
     }
 
-    /* Bottom section nav: body.ha-session-open toggled from historical.js */
-    body.hist-page:not(.ha-session-open) #ha-mobile-nav {
-        display: none !important;
-    }
-
-    body.hist-page.ha-session-open #ha-mobile-nav {
-        display: flex !important;
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        background: var(--ha-surface);
-        border-top: 1px solid var(--ha-border);
-        z-index: 100;
-        padding: 6px 4px;
-        padding-bottom: max(6px, env(safe-area-inset-bottom, 0px));
-        gap: 2px;
-        justify-content: space-around;
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-    }
-
     body.hist-page:not(.ha-session-open) .ha-main {
         padding: 12px 10px max(20px, env(safe-area-inset-bottom, 0px));
     }
 
     body.hist-page.ha-session-open .ha-main {
-        padding: 12px 10px calc(80px + env(safe-area-inset-bottom, 0px));
+        padding: 12px 10px max(20px, env(safe-area-inset-bottom, 0px));
     }
 
     .ha-explorer-toolbar {
@@ -3028,9 +2923,9 @@ select.ha-ca-select[multiple] option:checked {
     }
 
     .ha-toast {
-        bottom: 72px;
-        right: 12px;
-        left: 12px;
+        right: 10px;
+        bottom: max(10px, env(safe-area-inset-bottom, 0px));
+        width: calc(100vw - 20px);
     }
 }
 
@@ -3303,9 +3198,7 @@ select.ha-ca-select[multiple] option:checked {
 /* ─── Print ─── */
 @media print {
 
-    .ha-header,
-    .ha-toc,
-    .ha-mobile-nav {
+    .ha-header {
         display: none !important;
     }
 
@@ -3349,10 +3242,6 @@ body.hist-page {
         linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
     background-size: 80px 80px;
 }
-
-#h-view-analysis > section:not(#ha-core-run-brief) { display: none !important; }
-body.ha-session-open .ha-toc,
-body.ha-session-open .ha-mobile-nav { display: none !important; }
 
 .hrb-shell {
     max-width: 1480px;

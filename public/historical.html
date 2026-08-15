@@ -26,7 +26,7 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="/historical.css?v=20260815.5" />
+    <link rel="stylesheet" href="/historical.css?v=20260815.6" />
     <script>
         window.CONFIG = window.CONFIG || { CONVEX_URL: "https://wonderful-kookabura-432.convex.cloud" };
     </script>
@@ -80,8 +80,6 @@
                     <span class="ha-quality-dot" id="h-quality-dot"></span>
                     <span id="h-quality-text">—</span>
                 </div>
-                <button class="ha-btn ha-btn-ghost ha-btn-icon" id="h-btn-collapse-all" style="display:none"
-                    title="Collapse/Expand all sections">Collapse all</button>
                 <button class="ha-header-export" id="h-btn-export-quick" style="display:none"
                     title="Quick export CSV">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" /></svg>
@@ -246,6 +244,8 @@
                 </footer>
             </section>
 
+            <!-- Retired dashboard kept out of the document tree while its remaining data utilities are migrated. -->
+            <template id="h-retired-analysis">
             <!-- ─── Overview KPIs ─── -->
             <section class="ha-section" id="ha-sec-overview" data-toc="Overview">
                 <div class="ha-kpi-grid" id="h-summary-grid">
@@ -838,6 +838,7 @@
                     </div>
                 </div>
             </section>
+            </template>
 
         </div><!-- ha-view-analysis -->
 
@@ -1378,24 +1379,6 @@
         </form>
     </dialog>
 
-    <!-- Floating TOC -->
-    <nav class="ha-toc" id="ha-toc">
-        <div class="ha-toc-toggle" id="ha-toc-toggle"><span class="ha-toc-icon">☰</span></div>
-        <div class="ha-toc-list" id="ha-toc-list"></div>
-    </nav>
-
-    <!-- Mobile bottom nav -->
-    <nav class="ha-mobile-nav" id="ha-mobile-nav">
-        <button class="ha-mob-btn" data-scroll="ha-sec-overview" title="Overview">📊</button>
-        <button class="ha-mob-btn" data-scroll="ha-sec-timeseries" title="Charts">📈</button>
-        <button class="ha-mob-btn" data-scroll="ha-sec-energy" title="Energy">🔋</button>
-        <button class="ha-mob-btn" data-scroll="ha-sec-driver" title="Driver">🏎️</button>
-        <button class="ha-mob-btn" data-scroll="ha-sec-stats" title="Stats">🧮</button>
-        <button class="ha-mob-btn" data-scroll="ha-sec-map" title="Map">🗺️</button>
-        <button class="ha-mob-btn" data-scroll="ha-sec-compare" title="Compare">⚖️</button>
-        <button class="ha-mob-btn" data-scroll="ha-sec-export" title="Export">💾</button>
-    </nav>
-
     <!-- Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/convex@1.17.4/dist/browser.bundle.js"></script>
     <script src="/lib/convex-bridge.js?v=20260815.1"></script>
@@ -1407,7 +1390,7 @@
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
     <script src="/historical-engine.js?v=20260808.1"></script>
     <script src="/session-chat.js?v=20260815.2"></script>
-    <script src="/historical.js?v=20260815.2"></script>
+    <script src="/historical.js?v=20260815.3"></script>
     <script>
         (() => {
             let dashboardPrewarmPromise = null;
