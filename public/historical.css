@@ -3772,7 +3772,7 @@ body.ha-session-open .ha-header-context { justify-content: flex-end; }
 }
 .ha-search-wrap:focus-within,
 .ha-sort-wrap:focus-within { border-color: #ff6b35; box-shadow: inset 3px 0 #ff6b35; }
-.ha-search-icon { position: static; width: 17px; height: 17px; margin-left: 14px; flex: 0 0 17px; opacity: 1; fill: none; stroke: #ff6b35; stroke-width: 1.7; stroke-linecap: round; }
+.ha-search-icon { position: absolute; left: 15px; top: 50%; width: 17px; height: 17px; margin: 0; transform: translateY(-50%); opacity: 1; fill: none; stroke: #ff6b35; stroke-width: 1.7; stroke-linecap: round; pointer-events: none; }
 .ha-search-wrap .ha-input,
 .ha-sort-wrap .ha-select {
     width: 100%;
@@ -3786,6 +3786,7 @@ body.ha-session-open .ha-header-context { justify-content: flex-end; }
     box-shadow: none;
     font-size: 10px;
 }
+.ha-search-wrap .ha-input { padding-left: 44px; }
 .ha-search-wrap .ha-input::placeholder { color: rgba(245, 241, 232, .34); }
 .ha-search-clear { right: 12px; color: rgba(245, 241, 232, .42); font-size: 18px; }
 .ha-sort-wrap > span { padding-left: 13px; color: rgba(245, 241, 232, .34); font: 700 7px/1 "Space Grotesk", monospace; letter-spacing: .1em; text-transform: uppercase; }
@@ -3833,27 +3834,27 @@ body.ha-session-open .ha-header-context { justify-content: flex-end; }
 .ha-session-card.is-latest .ha-scard-rail { width: 148px; background: #ff6b35; }
 .ha-session-card.is-latest { grid-column: span 2; min-height: 316px; background: #171717; }
 .ha-scard-top { margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.ha-scard-index { color: #ff6b35; font: 700 8px/1 "Space Grotesk", monospace; letter-spacing: .16em; }
-.ha-scard-status { display: inline-flex; align-items: center; gap: 7px; color: rgba(245, 241, 232, .46); font: 700 7px/1 "Space Grotesk", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.ha-scard-index { color: #ff6b35; font: 700 10px/1 "Space Grotesk", monospace; letter-spacing: .16em; }
+.ha-scard-status { display: inline-flex; align-items: center; gap: 8px; color: rgba(245, 241, 232, .46); font: 700 9px/1 "Space Grotesk", monospace; letter-spacing: .08em; text-transform: uppercase; }
 .ha-scard-status i { width: 6px; height: 6px; border-radius: 50%; background: rgba(245, 241, 232, .36); }
 .ha-scard-status.status-complete i { background: #8fcf86; box-shadow: 0 0 0 3px rgba(143,207,134,.1); }
 .ha-scard-status.status-pending i,
 .ha-scard-status.status-archiving i { background: #e6a650; }
 .ha-scard-status.status-error i { background: #db776e; }
 .ha-scard-main { margin-top: 35px; display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; }
-.ha-scard-name { margin: 0; color: #f5f1e8; font: 600 25px/1.05 "Plus Jakarta Sans", sans-serif; letter-spacing: -.045em; }
+.ha-scard-name { margin: 0; color: #f5f1e8; font: 600 28px/1.05 "Plus Jakarta Sans", sans-serif; letter-spacing: -.045em; }
 .ha-session-card.is-latest .ha-scard-name { font-size: clamp(30px, 3.1vw, 46px); }
-.ha-scard-date { margin: 10px 0 0; color: rgba(245, 241, 232, .43); font: 500 9px/1.3 "Space Grotesk", monospace; }
-.ha-scard-open { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; color: rgba(245, 241, 232, .54); font-size: 8px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.ha-scard-date { margin: 11px 0 0; color: rgba(245, 241, 232, .43); font: 500 11px/1.3 "Space Grotesk", monospace; }
+.ha-scard-open { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; color: rgba(245, 241, 232, .54); font-size: 10px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
 .ha-session-card:hover .ha-scard-open { color: #ff6b35; }
 .ha-scard-metrics { margin: auto 0 0; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid rgba(245, 241, 232, .1); border-bottom: 1px solid rgba(245, 241, 232, .1); }
 .ha-scard-metrics > div { min-width: 0; padding: 17px 16px 16px 0; }
 .ha-scard-metrics > div + div { padding-left: 16px; border-left: 1px solid rgba(245, 241, 232, .1); }
-.ha-scard-metrics dt { color: rgba(245, 241, 232, .36); font-size: 7px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.ha-scard-metrics dd { margin: 7px 0 0; overflow: hidden; color: #f5f1e8; font: 600 13px/1.2 "Space Grotesk", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.ha-scard-metrics dt { color: rgba(245, 241, 232, .36); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.ha-scard-metrics dd { margin: 8px 0 0; overflow: hidden; color: #f5f1e8; font: 600 16px/1.2 "Space Grotesk", monospace; text-overflow: ellipsis; white-space: nowrap; }
 .ha-scard-bottom { margin-top: 17px; display: flex; align-items: center; justify-content: space-between; gap: 14px; color: rgba(245, 241, 232, .34); }
-.ha-scard-bottom span { font: 600 8px/1 "Space Grotesk", monospace; text-transform: uppercase; }
-.ha-scard-bottom code { overflow: hidden; color: rgba(245, 241, 232, .25); font: 500 8px/1 "Space Grotesk", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.ha-scard-bottom span { font: 600 10px/1 "Space Grotesk", monospace; text-transform: uppercase; }
+.ha-scard-bottom code { overflow: hidden; color: rgba(245, 241, 232, .25); font: 500 10px/1 "Space Grotesk", monospace; text-overflow: ellipsis; white-space: nowrap; }
 
 .ha-sessions-grid:has(> .ha-loading:only-child),
 .ha-sessions-grid:has(> .ha-empty:only-child) { min-height: 340px; background: rgba(20,20,20,.58); }
@@ -4812,7 +4813,7 @@ body.ha-session-open .ha-header-inner {
     flex-direction: column;
     align-items: flex-start;
     justify-content: center;
-    gap: 6px;
+    gap: 0;
     border: 0;
     border-right: 1px solid rgba(245, 241, 232, .1);
     color: rgba(245, 241, 232, .5);
@@ -4821,12 +4822,10 @@ body.ha-session-open .ha-header-inner {
     cursor: pointer;
 }
 .ha-tool-nav button[hidden] { display: none; }
-.ha-tool-nav button > span { font: 800 10px/1 "Plus Jakarta Sans", sans-serif; letter-spacing: .02em; }
-.ha-tool-nav button > small { color: rgba(245, 241, 232, .28); font: 650 7px/1 "Space Grotesk", monospace; letter-spacing: .1em; text-transform: uppercase; }
+.ha-tool-nav button > span { font: 800 14px/1 "Plus Jakarta Sans", sans-serif; letter-spacing: .01em; }
 .ha-tool-nav button:hover:not(:disabled) { color: #f5f1e8; background: rgba(255,255,255,.022); }
 .ha-tool-nav button.active { color: #f5f1e8; background: rgba(255,107,53,.035); }
 .ha-tool-nav button.active::after { content: ""; position: absolute; inset: auto 17px -1px; height: 2px; background: #ff6b35; }
-.ha-tool-nav button.active > small { color: #ff6b35; }
 .ha-tool-nav button:disabled { cursor: wait; opacity: .5; }
 .ha-header-context { padding-left: 12px; }
 .ha-header-context .ha-archive-state { flex: 0 0 auto; }
@@ -4847,6 +4846,9 @@ body.ha-session-open .ha-header-inner {
 .ha-account-trigger[aria-expanded="true"] { border-color: #ff6b35; background: rgba(255,107,53,.08); }
 .ha-account-trigger span { font: 750 13px/1 "Space Grotesk", monospace; }
 .ha-account-trigger svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: square; }
+.ha-account-trigger > span,
+.ha-account-trigger > svg { grid-area: 1 / 1; }
+.ha-account-trigger > [hidden] { display: none !important; }
 .ha-account-popover {
     position: absolute;
     top: calc(100% + 9px);
@@ -4884,10 +4886,8 @@ body.ha-session-open .ha-header-inner {
 
 html[data-theme="light"] .ha-brand > span small { color: #e85824; }
 html[data-theme="light"] .ha-tool-nav button { border-color: rgba(25,24,22,.11); color: rgba(27,26,24,.52); }
-html[data-theme="light"] .ha-tool-nav button > small { color: rgba(27,26,24,.34); }
 html[data-theme="light"] .ha-tool-nav button:hover:not(:disabled),
 html[data-theme="light"] .ha-tool-nav button.active { color: #1b1a18; background: rgba(232,88,36,.035); }
-html[data-theme="light"] .ha-tool-nav button.active > small { color: #e85824; }
 html[data-theme="light"] .ha-account-trigger { border-color: rgba(232,88,36,.48); color: #e85824; }
 html[data-theme="light"] .ha-account-popover { border-color: rgba(25,24,22,.17); color: #1b1a18; background: #fffdf8; box-shadow: 0 24px 70px rgba(34,29,22,.18); }
 html[data-theme="light"] .ha-account-popover > span { color: rgba(27,26,24,.5); }
@@ -4911,8 +4911,7 @@ html[data-theme="light"] .ha-account-popover > button kbd { color: rgba(27,26,24
     .ha-brand > span { display: none; }
     .ha-tool-nav { overflow-x: auto; }
     .ha-tool-nav button { min-width: 68px; min-height: 64px; padding-inline: 9px; align-items: center; }
-    .ha-tool-nav button > span { font-size: 8px; }
-    .ha-tool-nav button > small { display: none; }
+    .ha-tool-nav button > span { font-size: 11px; }
     .ha-tool-nav button.active::after { inset-inline: 9px; }
     .ha-header-context { padding-left: 7px !important; }
     .ha-header-export,
