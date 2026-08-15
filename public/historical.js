@@ -3034,6 +3034,8 @@
     let workspaceRewindLastVisualUpdate = 0;
     let workspaceRewindRoute = [];
     let workspaceRewindEvents = [];
+    let workspaceCatalogOpenGroups = new Set(['Transport & quality']);
+    let workspaceCatalogAvailableOnly = false;
 
     function customFields() {
         return [...HA.STAT_FIELDS, ...(Array.isArray(window.HCA_DerivedVars) ? window.HCA_DerivedVars : [])];
@@ -3307,12 +3309,56 @@
     function renderWorkspaceFieldCatalog() {
         const host = $('h-ca-integrity-catalog');
         if (!host || !S.data?.length) return;
-        host.innerHTML = HCA_TELEMETRY_GROUPS.map(([group, fields]) => `<section><header><strong>${esc(group)}</strong><span>${fields.length} fields</span></header><div>${fields.map(field => {
-            const count = S.data.reduce((total, row) => total + (row[field] !== undefined && row[field] !== null && row[field] !== '' ? 1 : 0), 0);
-            const coverage = count / S.data.length * 100;
-            const tone = coverage >= 98 ? 'is-complete' : coverage > 0 ? 'is-partial' : 'is-empty';
-            return `<article class="${tone}"><span><code>${esc(field)}</code><small>${count.toLocaleString()} records</small></span><b>${HA.fmt(coverage, coverage > 0 && coverage < 10 ? 1 : 0)}%</b><em title="${esc(formatWorkspaceFieldValue(workspaceFieldValue(field)))}">${esc(formatWorkspaceFieldValue(workspaceFieldValue(field)))}</em></article>`;
-        }).join('')}</div></section>`).join('');
+        const groups = HCA_TELEMETRY_GROUPS.map(([group, fields]) => ({
+            group,
+            fields: fields.map(field => {
+                const count = S.data.reduce((total, row) => total + (row[field] !== undefined && row[field] !== null && row[field] !== '' ? 1 : 0), 0);
+                return { field, count, coverage: count / S.data.length * 100, value: workspaceFieldValue(field) };
+            }),
+        }));
+        const visibleGroups = groups.map(item => ({
+            ...item,
+            fields: workspaceCatalogAvailableOnly ? item.fields.filter(field => field.count > 0) : item.fields,
+        })).filter(item => item.fields.length > 0);
+        const visibleFieldCount = visibleGroups.reduce((total, item) => total + item.fields.length, 0);
+        const count = $('h-ca-catalog-count');
+        if (count) count.textContent = `${visibleFieldCount} of ${groups.reduce((total, item) => total + item.fields.length, 0)} fields`;
+
+        host.innerHTML = visibleGroups.map(({ group, fields }) => {
+            const averageCoverage = HA.mean(fields.map(field => field.coverage));
+            return `<details class="haw-field-group" data-catalog-group="${esc(group)}"${workspaceCatalogOpenGroups.has(group) ? ' open' : ''}>
+                <summary><span><strong>${esc(group)}</strong><small>${fields.length} field${fields.length === 1 ? '' : 's'}</small></span><div><b>${HA.fmt(averageCoverage, 0)}%</b><em>average coverage</em></div><i aria-hidden="true"></i></summary>
+                <div class="haw-field-group-fields">${fields.map(({ field, count: fieldCount, coverage, value }) => {
+                    const tone = coverage >= 98 ? 'is-complete' : coverage > 0 ? 'is-partial' : 'is-empty';
+                    const formattedValue = formatWorkspaceFieldValue(value);
+                    return `<article class="${tone}"><span><code>${esc(field)}</code><small>${fieldCount.toLocaleString()} saved records</small></span><b>${HA.fmt(coverage, coverage > 0 && coverage < 10 ? 1 : 0)}%</b><em title="${esc(formattedValue)}">${esc(formattedValue)}</em></article>`;
+                }).join('')}</div>
+            </details>`;
+        }).join('');
+
+        host.querySelectorAll('[data-catalog-group]').forEach(details => details.addEventListener('toggle', () => {
+            const group = details.dataset.catalogGroup;
+            if (details.open) workspaceCatalogOpenGroups.add(group);
+            else workspaceCatalogOpenGroups.delete(group);
+        }));
+        const availableToggle = $('h-ca-catalog-available');
+        if (availableToggle) {
+            availableToggle.checked = workspaceCatalogAvailableOnly;
+            availableToggle.onchange = () => {
+                workspaceCatalogAvailableOnly = availableToggle.checked;
+                renderWorkspaceFieldCatalog();
+            };
+        }
+        const expand = $('h-ca-catalog-expand');
+        if (expand) expand.onclick = () => {
+            workspaceCatalogOpenGroups = new Set(visibleGroups.map(item => item.group));
+            renderWorkspaceFieldCatalog();
+        };
+        const collapse = $('h-ca-catalog-collapse');
+        if (collapse) collapse.onclick = () => {
+            workspaceCatalogOpenGroups.clear();
+            renderWorkspaceFieldCatalog();
+        };
     }
 
     function renderWorkspaceEfficiency() {
