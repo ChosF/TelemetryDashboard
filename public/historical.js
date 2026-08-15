@@ -2787,9 +2787,20 @@
     let customAnalysisInitialized = false;
     let customAnalysisSessionId = null;
     let activeWorkspaceMode = 'explore';
-    const HCA_LAYOUT_KEY = 'ecovolt_historical_workspace_v1';
-    const HCA_WORKSPACE_MODES = ['explore', 'transform', 'correlate', 'rewind', 'review'];
-    const HCA_DEFAULT_ORDER = ['relationship', 'transform', 'matrix', 'rewind', 'filters', 'statistics', 'notebook', 'preview'];
+    const HCA_LAYOUT_KEY = 'ecovolt_historical_workspace_v2';
+    const HCA_WORKSPACE_MODES = ['explore', 'rewind', 'transform', 'correlate', 'review'];
+    const HCA_DEFAULT_ORDER = ['overview', 'signals', 'relationship', 'filters', 'rewind', 'transform', 'recipes', 'quality', 'matrix', 'notebook', 'pairwise', 'review-summary', 'distribution', 'statistics', 'preview'];
+    const HCA_SIGNAL_DEFS = {
+        speed_kmh: { label: 'Speed', unit: 'km/h', color: '#ff6b35' },
+        power_w: { label: 'Power', unit: 'W', color: '#86b7a6' },
+        voltage_v: { label: 'Voltage', unit: 'V', color: '#38bdf8' },
+        current_a: { label: 'Current', unit: 'A', color: '#f1ab6c' },
+        motor_rpm: { label: 'Motor RPM', unit: 'rpm', color: '#c4a7e7' },
+        motor_temp_c: { label: 'Motor temp', unit: '°C', color: '#db776e' },
+        throttle_pct: { label: 'Throttle', unit: '%', color: '#8fcf86' },
+        brake_pct: { label: 'Brake', unit: '%', color: '#ef6a6a' },
+        g_force: { label: 'G-force', unit: 'g', color: '#d19af0' },
+    };
     let workspaceRewindMap = null;
     let workspaceRewindMarker = null;
     let workspaceRewindRows = [];
@@ -2800,6 +2811,8 @@
     let workspaceRewindStartedAt = 0;
     let workspaceRewindStartedTs = 0;
     let workspaceRewindLastVisualUpdate = 0;
+    let workspaceRewindRoute = [];
+    let workspaceRewindEvents = [];
 
     function customFields() {
         return [...HA.STAT_FIELDS, ...(Array.isArray(window.HCA_DerivedVars) ? window.HCA_DerivedVars : [])];
@@ -2811,7 +2824,7 @@
 
     function resetCustomAnalysisSessionUi() {
         disposeWorkspaceRewind();
-        ['hc-custom', 'hc-ca-correlation', 'hc-ca-rewind'].forEach(chartId => {
+        ['hc-custom', 'hc-ca-correlation', 'hc-ca-rewind', 'hc-ca-overview', 'hc-ca-quality', 'hc-ca-pairwise', 'hc-ca-distribution'].forEach(chartId => {
             const chart = HA.charts[chartId];
             if (chart) {
                 try { chart.dispose() } catch (error) { console.warn(`[historical] Failed to dispose ${chartId}`, error) }
@@ -2855,6 +2868,193 @@
         if ($('h-ca-kpi-gps')) $('h-ca-kpi-gps').textContent = (S.data || []).filter(row => Number.isFinite(row.lat) && Number.isFinite(row.lon) && row.lat !== 0 && row.lon !== 0).length.toLocaleString();
     }
 
+    function workspaceValues(key) {
+        return (S.data || []).map(row => Number(row[key])).filter(Number.isFinite);
+    }
+
+    function workspacePercentile(values, percentileValue) {
+        if (!values.length) return 0;
+        const sorted = [...values].sort((a, b) => a - b);
+        return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * percentileValue)))] ?? 0;
+    }
+
+    function workspaceExtreme(values, mode = 'max', fallback = 0) {
+        if (!values.length) return fallback;
+        return values.reduce((best, value) => mode === 'min' ? Math.min(best, value) : Math.max(best, value), values[0]);
+    }
+
+    function workspaceMetric(label, value, unit = '', detail = '', tone = '') {
+        return `<div class="haw-overview-metric${tone ? ` tone-${tone}` : ''}"><span>${esc(label)}</span><strong>${esc(String(value))}${unit ? `<small>${esc(unit)}</small>` : ''}</strong>${detail ? `<p>${esc(detail)}</p>` : ''}</div>`;
+    }
+
+    function workspaceRunEvidence() {
+        const rows = S.data || [];
+        const stats = S.stats || HA.computeSessionStats(rows);
+        const powers = workspaceValues('power_w');
+        const voltages = workspaceValues('voltage_v');
+        const currents = workspaceValues('current_a');
+        const motorTemps = workspaceValues('motor_temp_c');
+        const throttles = workspaceValues('throttle_pct');
+        const brakes = workspaceValues('brake_pct');
+        const gpsFixes = rows.filter(row => Number.isFinite(row.lat) && Number.isFinite(row.lon) && row.lat !== 0 && row.lon !== 0).length;
+        const severeEvents = rows.filter(row => row.outlierSeverity && row.outlierSeverity !== 'none').length;
+        return { rows, stats, powers, voltages, currents, motorTemps, throttles, brakes, gpsFixes, severeEvents };
+    }
+
+    function renderWorkspaceOverview() {
+        const host = $('h-ca-overview-grid');
+        if (!host || !S.data?.length) return;
+        const evidence = workspaceRunEvidence();
+        host.innerHTML = [
+            workspaceMetric('Distance', HA.fmt(evidence.stats.distance, 2), 'km', `${HA.fmt(evidence.stats.durationMin, 1)} min elapsed`, 'orange'),
+            workspaceMetric('Average speed', HA.fmt(evidence.stats.avgSpeed, 1), 'km/h', `Peak ${HA.fmt(evidence.stats.maxSpeed, 1)} km/h`, 'cyan'),
+            workspaceMetric('Energy used', HA.fmt(evidence.stats.energyWh, 1), 'Wh', `${HA.fmt(evidence.stats.efficiency, 1)} km/kWh`, 'green'),
+            workspaceMetric('Power envelope', HA.fmt(HA.mean(evidence.powers), 0), 'W avg', `P95 ${HA.fmt(workspacePercentile(evidence.powers, .95), 0)} W`, 'amber'),
+            workspaceMetric('Battery source', HA.fmt(HA.mean(evidence.voltages), 1), 'V avg', `Peak current ${HA.fmt(workspaceExtreme(evidence.currents), 1)} A`, 'teal'),
+            workspaceMetric('Motor thermal', evidence.motorTemps.length ? HA.fmt(workspaceExtreme(evidence.motorTemps), 1) : '—', evidence.motorTemps.length ? '°C max' : '', evidence.motorTemps.length ? `Average ${HA.fmt(HA.mean(evidence.motorTemps), 1)} °C` : 'Channel unavailable', evidence.motorTemps.length && workspaceExtreme(evidence.motorTemps) >= 85 ? 'red' : 'green'),
+            workspaceMetric('Driver demand', HA.fmt(HA.mean(evidence.throttles), 1), '% throttle', `${evidence.brakes.filter(value => value >= 10).length.toLocaleString()} braking samples`, 'orange'),
+            workspaceMetric('Route evidence', evidence.gpsFixes.toLocaleString(), 'GPS fixes', `${evidence.severeEvents.toLocaleString()} flagged records`, evidence.gpsFixes ? 'green' : 'red'),
+        ].join('');
+    }
+
+    function selectedWorkspaceSignals(containerId, fallback) {
+        const selected = Array.from(document.querySelectorAll(`#${containerId} input[type="checkbox"]:checked`)).map(input => input.value).filter(key => HCA_SIGNAL_DEFS[key]);
+        return selected.length ? selected : fallback;
+    }
+
+    function renderWorkspaceSignalChart(hostId = 'hc-ca-overview', signalKeys = null) {
+        if (!S.data?.length) return;
+        const keys = (signalKeys || selectedWorkspaceSignals('h-ca-signal-toggles', ['speed_kmh', 'power_w'])).slice(0, 4);
+        const stride = Math.max(1, Math.ceil(S.data.length / 1800));
+        const sample = S.data.filter((_, index) => index % stride === 0 || index === S.data.length - 1);
+        const textColor = getComputedStyle(document.body).getPropertyValue('--ha-text2').trim() || '#aaa69f';
+        const lineColor = getComputedStyle(document.body).getPropertyValue('--ha-border').trim() || 'rgba(255,255,255,.1)';
+        const yAxis = keys.map((key, index) => ({
+            type: 'value', scale: true, name: HCA_SIGNAL_DEFS[key].unit,
+            position: index % 2 === 0 ? 'left' : 'right', offset: Math.floor(index / 2) * 46,
+            nameTextStyle: { color: HCA_SIGNAL_DEFS[key].color, fontSize: 8 },
+            axisLabel: { color: textColor, fontSize: 8 }, axisLine: { show: true, lineStyle: { color: HCA_SIGNAL_DEFS[key].color, opacity: .45 } },
+            splitLine: { show: index === 0, lineStyle: { color: lineColor } },
+        }));
+        HA.initChart(hostId, {
+            animation: false,
+            tooltip: { trigger: 'axis', axisPointer: { type: 'line' } },
+            legend: { top: 2, textStyle: { color: textColor, fontSize: 8 } },
+            grid: { left: 54 + Math.floor((keys.length - 1) / 2) * 46, right: 54 + Math.floor(keys.length / 2) * 46, top: 38, bottom: 38 },
+            xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 8 }, axisLine: { lineStyle: { color: lineColor } }, splitLine: { show: false } },
+            yAxis,
+            dataZoom: [{ type: 'inside' }],
+            series: keys.map((key, index) => ({ name: HCA_SIGNAL_DEFS[key].label, type: 'line', yAxisIndex: index, data: sample.map(row => [row._ts, Number.isFinite(Number(row[key])) ? Number(row[key]) : null]), connectNulls: false, showSymbol: false, sampling: 'lttb', lineStyle: { color: HCA_SIGNAL_DEFS[key].color, width: index === 0 ? 1.8 : 1.15 }, areaStyle: index === 0 ? { color: `${HCA_SIGNAL_DEFS[key].color}12` } : undefined })),
+        });
+    }
+
+    function renderWorkspaceQuality() {
+        if (!S.data?.length) return;
+        const fields = ['speed_kmh', 'power_w', 'voltage_v', 'current_a', 'motor_rpm', 'motor_temp_c', 'throttle_pct', 'brake_pct', 'g_force', 'lat'];
+        const labels = fields.map(key => key === 'lat' ? 'GPS latitude' : (HCA_SIGNAL_DEFS[key]?.label || customFieldLabel(key)));
+        const completeness = fields.map(key => S.data.reduce((count, row) => count + (Number.isFinite(Number(row[key])) && (key !== 'lat' || Number(row[key]) !== 0) ? 1 : 0), 0) / S.data.length * 100);
+        const intervals = [];
+        let duplicates = 0;
+        for (let index = 1; index < S.data.length; index++) {
+            const delta = S.data[index]._ts - S.data[index - 1]._ts;
+            if (delta === 0) duplicates++;
+            if (delta > 0 && delta < 60000) intervals.push(delta);
+        }
+        const cadence = intervals.length ? median(intervals) : 0;
+        const gapLimit = Math.max(cadence * 3, 1000);
+        const gaps = intervals.filter(value => value > gapLimit).length;
+        const summary = $('h-ca-quality-summary');
+        if (summary) summary.innerHTML = [
+            workspaceMetric('Median cadence', HA.fmt(cadence, 0), 'ms'),
+            workspaceMetric('P95 cadence', HA.fmt(workspacePercentile(intervals, .95), 0), 'ms'),
+            workspaceMetric('Detected gaps', gaps.toLocaleString(), '', `>${HA.fmt(gapLimit, 0)} ms`, gaps ? 'amber' : 'green'),
+            workspaceMetric('Duplicate time', duplicates.toLocaleString(), 'records', '', duplicates ? 'red' : 'green'),
+        ].join('');
+        const textColor = getComputedStyle(document.body).getPropertyValue('--ha-text2').trim() || '#aaa69f';
+        HA.initChart('hc-ca-quality', {
+            animationDuration: 320, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: value => `${HA.fmt(value, 1)}%` },
+            grid: { left: 112, right: 30, top: 20, bottom: 28 }, xAxis: { type: 'value', min: 0, max: 100, axisLabel: { color: textColor, fontSize: 8, formatter: '{value}%' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,.06)' } } },
+            yAxis: { type: 'category', data: labels, axisLabel: { color: textColor, fontSize: 8 } },
+            series: [{ type: 'bar', data: completeness.map(value => ({ value: Number(value.toFixed(1)), itemStyle: { color: value >= 98 ? '#8fcf86' : value >= 80 ? '#f1ab6c' : '#db776e' } })), barMaxWidth: 16, label: { show: true, position: 'right', color: textColor, fontSize: 8, formatter: '{c}%' } }],
+        });
+    }
+
+    function renderWorkspacePairwise() {
+        if (!S.data?.length) return;
+        const xKey = $('h-ca-pairwise-x')?.value || 'speed_kmh';
+        const yKey = $('h-ca-pairwise-y')?.value || 'power_w';
+        const ceiling = Number($('h-ca-pairwise-sample')?.value) || 1200;
+        const paired = S.data.map(row => [Number(row[xKey]), Number(row[yKey])]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+        if (paired.length < 2 || xKey === yKey) {
+            $('h-ca-pairwise-insight').innerHTML = '<span>NEEDS INPUT</span><p>Choose two different numeric signals with paired data.</p>';
+            return;
+        }
+        const stride = Math.max(1, Math.ceil(paired.length / ceiling));
+        const sample = paired.filter((_, index) => index % stride === 0 || index === paired.length - 1);
+        const x = paired.map(point => point[0]);
+        const y = paired.map(point => point[1]);
+        const fit = HA.linReg(x, y);
+        const minX = workspaceExtreme(x, 'min'), maxX = workspaceExtreme(x);
+        const fitLine = [[minX, fit.m * minX + fit.b], [maxX, fit.m * maxX + fit.b]];
+        const correlation = HA.pearson(x, y);
+        const residuals = paired.map(([left, right]) => Math.abs(right - (fit.m * left + fit.b)));
+        const textColor = getComputedStyle(document.body).getPropertyValue('--ha-text2').trim() || '#aaa69f';
+        HA.initChart('hc-ca-pairwise', {
+            animation: false, tooltip: { trigger: 'item', formatter: params => `${esc(customFieldLabel(xKey))}: ${HA.fmt(params.value[0], 3)}<br>${esc(customFieldLabel(yKey))}: ${HA.fmt(params.value[1], 3)}` },
+            grid: { left: 58, right: 22, top: 24, bottom: 48 },
+            xAxis: { type: 'value', scale: true, name: customFieldLabel(xKey), nameLocation: 'middle', nameGap: 32, nameTextStyle: { color: textColor, fontSize: 8 }, axisLabel: { color: textColor, fontSize: 8 }, splitLine: { lineStyle: { color: 'rgba(255,255,255,.06)' } } },
+            yAxis: { type: 'value', scale: true, name: customFieldLabel(yKey), nameTextStyle: { color: textColor, fontSize: 8 }, axisLabel: { color: textColor, fontSize: 8 }, splitLine: { lineStyle: { color: 'rgba(255,255,255,.06)' } } },
+            series: [{ name: 'Paired samples', type: 'scatter', data: sample, symbolSize: 4, large: sample.length > 1000, itemStyle: { color: 'rgba(255,107,53,.52)' } }, { name: 'Linear fit', type: 'line', data: fitLine, showSymbol: false, lineStyle: { color: '#86b7a6', width: 2 } }],
+        });
+        const strength = Math.abs(correlation) >= .7 ? 'strong' : Math.abs(correlation) >= .4 ? 'moderate' : 'weak';
+        $('h-ca-pairwise-insight').innerHTML = `<span>${strength.toUpperCase()} RELATIONSHIP</span><strong>r ${HA.fmt(correlation, 3)} · R² ${HA.fmt(fit.r2, 3)}</strong><dl><div><dt>Paired coverage</dt><dd>${paired.length.toLocaleString()}</dd></div><div><dt>Slope</dt><dd>${HA.fmt(fit.m, 4)}</dd></div><div><dt>Median residual</dt><dd>${HA.fmt(median(residuals), 3)}</dd></div><div><dt>P95 residual</dt><dd>${HA.fmt(workspacePercentile(residuals, .95), 3)}</dd></div></dl>`;
+    }
+
+    function renderWorkspaceReviewSummary() {
+        const host = $('h-ca-review-summary');
+        if (!host || !S.data?.length) return;
+        const evidence = workspaceRunEvidence();
+        const moving = S.data.filter(row => Number(row.speed_kmh) > 1).length / S.data.length * 100;
+        const coasting = S.data.filter(row => Number(row.speed_kmh) > 1 && Number(row.throttle_pct) < 3 && Number(row.brake_pct) < 3).length / S.data.length * 100;
+        const vescDelta = S.data.map(row => Math.abs(Number(row.voltage_v) - Number(row.vesc_voltage_v))).filter(Number.isFinite);
+        host.innerHTML = [
+            ['PACE', workspaceMetric('Average / peak', `${HA.fmt(evidence.stats.avgSpeed, 1)} / ${HA.fmt(evidence.stats.maxSpeed, 1)}`, 'km/h'), workspaceMetric('Moving share', HA.fmt(moving, 1), '%')],
+            ['ENERGY', workspaceMetric('Consumed', HA.fmt(evidence.stats.energyWh, 1), 'Wh'), workspaceMetric('Efficiency', HA.fmt(evidence.stats.efficiency, 1), 'km/kWh')],
+            ['DRIVER', workspaceMetric('Coasting share', HA.fmt(coasting, 1), '%'), workspaceMetric('Brake samples', evidence.brakes.filter(value => value >= 10).length.toLocaleString())],
+            ['POWERTRAIN', workspaceMetric('Peak power', HA.fmt(workspaceExtreme(evidence.powers), 0), 'W'), workspaceMetric('Battery / VESC Δ', vescDelta.length ? HA.fmt(workspacePercentile(vescDelta, .95), 2) : '—', vescDelta.length ? 'V P95' : '')],
+            ['EVIDENCE', workspaceMetric('GPS coverage', HA.fmt(evidence.gpsFixes / S.data.length * 100, 1), '%'), workspaceMetric('Flagged records', evidence.severeEvents.toLocaleString())],
+        ].map(([title, ...cards]) => `<section><span>${title}</span><div>${cards.join('')}</div></section>`).join('');
+    }
+
+    function renderWorkspaceDistribution() {
+        if (!S.data?.length) return;
+        const key = $('h-ca-distribution-var')?.value || 'speed_kmh';
+        const bins = Math.max(6, Number($('h-ca-distribution-bins')?.value) || 20);
+        const values = workspaceValues(key);
+        if (!values.length) return;
+        const minimum = workspaceExtreme(values, 'min'), maximum = workspaceExtreme(values);
+        const width = Math.max((maximum - minimum) / bins, Number.EPSILON);
+        const counts = Array(bins).fill(0);
+        values.forEach(value => { counts[Math.min(bins - 1, Math.floor((value - minimum) / width))]++; });
+        const labels = counts.map((_, index) => HA.fmt(minimum + (index + .5) * width, Math.abs(width) < 1 ? 2 : 1));
+        const textColor = getComputedStyle(document.body).getPropertyValue('--ha-text2').trim() || '#aaa69f';
+        HA.initChart('hc-ca-distribution', {
+            animationDuration: 320, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } }, grid: { left: 50, right: 20, top: 22, bottom: 46 },
+            xAxis: { type: 'category', data: labels, name: customFieldLabel(key), nameLocation: 'middle', nameGap: 32, nameTextStyle: { color: textColor, fontSize: 8 }, axisLabel: { color: textColor, fontSize: 8, interval: Math.max(0, Math.floor(bins / 8) - 1) } },
+            yAxis: { type: 'value', name: 'Records', nameTextStyle: { color: textColor, fontSize: 8 }, axisLabel: { color: textColor, fontSize: 8 }, splitLine: { lineStyle: { color: 'rgba(255,255,255,.06)' } } },
+            series: [{ type: 'bar', data: counts, barMaxWidth: 30, itemStyle: { color: '#ff6b35' }, markLine: { silent: true, symbol: 'none', lineStyle: { color: '#86b7a6', width: 1.5 }, label: { color: textColor, fontSize: 8, formatter: 'mean' }, data: [{ xAxis: labels[Math.min(labels.length - 1, Math.floor((HA.mean(values) - minimum) / width))] }] } }],
+        });
+        if ($('h-ca-distribution-stats')) $('h-ca-distribution-stats').innerHTML = `<span>n <strong>${values.length.toLocaleString()}</strong></span><span>mean <strong>${HA.fmt(HA.mean(values), 2)}</strong></span><span>median <strong>${HA.fmt(median(values), 2)}</strong></span><span>P90 <strong>${HA.fmt(workspacePercentile(values, .9), 2)}</strong></span>`;
+    }
+
+    function renderWorkspaceMode(mode) {
+        if (!S.data?.length) return;
+        if (mode === 'explore') { renderWorkspaceOverview(); renderWorkspaceSignalChart(); }
+        if (mode === 'transform') renderWorkspaceQuality();
+        if (mode === 'correlate') renderWorkspacePairwise();
+        if (mode === 'review') { renderWorkspaceReviewSummary(); renderWorkspaceDistribution(); }
+    }
+
     function formatRewindTime(milliseconds) {
         const total = Math.max(0, Number(milliseconds) || 0);
         const minutes = Math.floor(total / 60000);
@@ -2886,6 +3086,8 @@
         workspaceRewindMap = null;
         workspaceRewindRows = [];
         workspaceRewindGps = [];
+        workspaceRewindRoute = [];
+        workspaceRewindEvents = [];
         workspaceRewindIndex = 0;
     }
 
@@ -2947,7 +3149,8 @@
             workspaceRewindMarker.setLngLat(coordinate);
             const source = workspaceRewindMap.getSource('rewind-progress');
             if (source) {
-                const progressCoordinates = workspaceRewindGps.slice(0, gps.gpsIndex + 1).map(item => [item.row.lon, item.row.lat]);
+                const progressCoordinates = (workspaceRewindRoute.length ? workspaceRewindRoute.filter(item => item.index <= workspaceRewindIndex) : workspaceRewindGps.slice(0, gps.gpsIndex + 1)).map(item => [item.row.lon, item.row.lat]);
+                if (!progressCoordinates.length || progressCoordinates[progressCoordinates.length - 1][0] !== coordinate[0] || progressCoordinates[progressCoordinates.length - 1][1] !== coordinate[1]) progressCoordinates.push(coordinate);
                 if (progressCoordinates.length === 1) progressCoordinates.push(progressCoordinates[0]);
                 source.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: progressCoordinates }, properties: {} });
             }
@@ -2958,18 +3161,7 @@
 
     function renderWorkspaceRewindChart() {
         if (!workspaceRewindRows.length) return;
-        const stride = Math.max(1, Math.ceil(workspaceRewindRows.length / 1400));
-        const sample = workspaceRewindRows.filter((_, index) => index % stride === 0 || index === workspaceRewindRows.length - 1);
-        const textColor = getComputedStyle(document.body).getPropertyValue('--ha-text2').trim() || '#aaa69f';
-        const lineColor = getComputedStyle(document.body).getPropertyValue('--ha-border').trim() || 'rgba(255,255,255,.1)';
-        HA.initChart('hc-ca-rewind', {
-            animation: false,
-            tooltip: { trigger: 'axis', axisPointer: { type: 'line' }, valueFormatter: value => HA.fmt(value, 2) },
-            grid: { left: 52, right: 52, top: 28, bottom: 34 },
-            xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 8 }, axisLine: { lineStyle: { color: lineColor } }, splitLine: { show: false } },
-            yAxis: [{ type: 'value', name: 'km/h', nameTextStyle: { color: textColor, fontSize: 8 }, axisLabel: { color: textColor, fontSize: 8 }, splitLine: { lineStyle: { color: lineColor } } }, { type: 'value', name: 'W', nameTextStyle: { color: textColor, fontSize: 8 }, axisLabel: { color: textColor, fontSize: 8 }, splitLine: { show: false } }],
-            series: [{ name: 'Speed', type: 'line', data: sample.map(row => [row._ts, row.speed_kmh]), showSymbol: false, sampling: 'lttb', lineStyle: { color: '#ff6b35', width: 1.6 }, areaStyle: { color: 'rgba(255,107,53,.08)' } }, { name: 'Power', type: 'line', yAxisIndex: 1, data: sample.map(row => [row._ts, row.power_w]), showSymbol: false, sampling: 'lttb', lineStyle: { color: '#86b7a6', width: 1, opacity: .8 } }],
-        });
+        renderWorkspaceSignalChart('hc-ca-rewind', selectedWorkspaceSignals('h-ca-rewind-signals', ['speed_kmh', 'power_w']));
         const chart = HA.charts['hc-ca-rewind'];
         chart?.getZr()?.on('click', event => {
             const point = [event.offsetX, event.offsetY];
@@ -2981,6 +3173,65 @@
                 seekWorkspaceRewind(workspaceRewindIndexForTime(timestamp));
             }
         });
+    }
+
+    function workspaceRewindRouteData(metric) {
+        if (workspaceRewindRoute.length < 2) return { type: 'FeatureCollection', features: [] };
+        const values = workspaceRewindRoute.map(item => Number(item.row[metric])).filter(Number.isFinite);
+        const minimum = values.length ? Math.min(...values) : 0;
+        const maximum = values.length ? Math.max(...values) : 1;
+        const palette = metric === 'power_w' ? ['#86b7a6', '#d5d17b', '#f1ab6c', '#ff6b35', '#db776e'] : ['#4d7c8a', '#65a4a8', '#86b7a6', '#f1ab6c', '#ff6b35'];
+        return {
+            type: 'FeatureCollection',
+            features: workspaceRewindRoute.slice(1).map((item, index) => {
+                const raw = Number(item.row[metric]);
+                const ratio = metric === 'plain' || !Number.isFinite(raw) ? .5 : Math.max(0, Math.min(1, (raw - minimum) / Math.max(Number.EPSILON, maximum - minimum)));
+                return { type: 'Feature', properties: { color: metric === 'plain' ? '#d5d1c8' : palette[Math.min(palette.length - 1, Math.floor(ratio * palette.length))] }, geometry: { type: 'LineString', coordinates: [[workspaceRewindRoute[index].row.lon, workspaceRewindRoute[index].row.lat], [item.row.lon, item.row.lat]] } };
+            }),
+        };
+    }
+
+    function updateWorkspaceRewindRouteStyle() {
+        const source = workspaceRewindMap?.getSource('rewind-route');
+        if (!source) return;
+        source.setData(workspaceRewindRouteData($('h-ca-rewind-map-metric')?.value || 'speed_kmh'));
+    }
+
+    function buildWorkspaceRewindEvents() {
+        const powerThreshold = workspacePercentile(workspaceRewindRows.map(row => Number(row.power_w)).filter(Number.isFinite), .95);
+        const events = [];
+        const lastByType = new Map();
+        const add = (type, label, index, value) => {
+            const timestamp = workspaceRewindRows[index]._ts;
+            if (timestamp - (lastByType.get(type) || -Infinity) < 4000) return;
+            lastByType.set(type, timestamp);
+            events.push({ type, label, index, timestamp, value });
+        };
+        workspaceRewindRows.forEach((row, index) => {
+            if (Number(row.brake_pct) >= 25) add('brake', 'Brake application', index, `${HA.fmt(row.brake_pct, 0)}%`);
+            if (powerThreshold > 0 && Number(row.power_w) >= powerThreshold) add('power', 'High power demand', index, `${HA.fmt(row.power_w, 0)} W`);
+            if (Number(row.motor_temp_c) >= 85) add('thermal', 'Motor thermal advisory', index, `${HA.fmt(row.motor_temp_c, 1)} °C`);
+            if (row.outlierSeverity && row.outlierSeverity !== 'none') add('quality', 'Signal anomaly', index, String(row.outlierSeverity));
+        });
+        workspaceRewindEvents = events.sort((left, right) => left.timestamp - right.timestamp).slice(0, 240);
+        const select = $('h-ca-rewind-event');
+        if (!select) return;
+        select.innerHTML = workspaceRewindEvents.length ? workspaceRewindEvents.map((event, eventIndex) => `<option value="${eventIndex}">${formatRewindTime(event.timestamp - workspaceRewindRows[0]._ts)} · ${esc(event.label)} · ${esc(event.value)}</option>`).join('') : '<option value="">No events detected</option>';
+    }
+
+    function seekWorkspaceRewindEvent(direction = 0) {
+        if (!workspaceRewindEvents.length) return;
+        let eventIndex = workspaceRewindEvents.findIndex(event => event.index > workspaceRewindIndex);
+        if (direction < 0) {
+            eventIndex = -1;
+            for (let index = workspaceRewindEvents.length - 1; index >= 0; index--) {
+                if (workspaceRewindEvents[index].index < workspaceRewindIndex) { eventIndex = index; break; }
+            }
+            if (eventIndex < 0) eventIndex = workspaceRewindEvents.length - 1;
+        } else if (eventIndex < 0) eventIndex = 0;
+        $('h-ca-rewind-event').value = String(eventIndex);
+        stopWorkspaceRewind();
+        seekWorkspaceRewind(workspaceRewindEvents[eventIndex].index);
     }
 
     function renderWorkspaceRewindMap() {
@@ -2996,8 +3247,8 @@
         if (state) state.hidden = true;
         if ($('h-ca-rewind-gps-state')) $('h-ca-rewind-gps-state').textContent = `${workspaceRewindGps.length.toLocaleString()} GPS fixes`;
         const stride = Math.max(1, Math.ceil(workspaceRewindGps.length / 1800));
-        const route = workspaceRewindGps.filter((_, index) => index % stride === 0 || index === workspaceRewindGps.length - 1);
-        const coordinates = route.map(item => [item.row.lon, item.row.lat]);
+        workspaceRewindRoute = workspaceRewindGps.filter((_, index) => index % stride === 0 || index === workspaceRewindGps.length - 1);
+        const coordinates = workspaceRewindRoute.map(item => [item.row.lon, item.row.lat]);
         const lightTheme = currentTheme() === 'light';
         workspaceRewindMap = new maplibregl.Map({
             container: 'h-ca-rewind-map',
@@ -3010,9 +3261,9 @@
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
         map.on('load', () => {
             if (map !== workspaceRewindMap) return;
-            map.addSource('rewind-route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates }, properties: {} } });
+            map.addSource('rewind-route', { type: 'geojson', data: workspaceRewindRouteData($('h-ca-rewind-map-metric')?.value || 'speed_kmh') });
             map.addSource('rewind-progress', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [coordinates[0], coordinates[0]] }, properties: {} } });
-            map.addLayer({ id: 'rewind-route', type: 'line', source: 'rewind-route', paint: { 'line-color': lightTheme ? '#706b62' : '#d5d1c8', 'line-width': 3, 'line-opacity': .46 } });
+            map.addLayer({ id: 'rewind-route', type: 'line', source: 'rewind-route', paint: { 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': .72 } });
             map.addLayer({ id: 'rewind-progress', type: 'line', source: 'rewind-progress', paint: { 'line-color': '#ff6b35', 'line-width': 4, 'line-opacity': .96 } });
             const markerElement = document.createElement('div');
             markerElement.className = 'haw-rewind-marker';
@@ -3035,6 +3286,7 @@
         workspaceRewindRows = S.data;
         workspaceRewindGps = S.data.map((row, index) => ({ row, index, gpsIndex: 0 })).filter(item => Number.isFinite(item.row.lat) && Number.isFinite(item.row.lon) && item.row.lat !== 0 && item.row.lon !== 0);
         workspaceRewindGps.forEach((item, gpsIndex) => { item.gpsIndex = gpsIndex; });
+        buildWorkspaceRewindEvents();
         renderWorkspaceRewindChart();
         renderWorkspaceRewindMap();
         seekWorkspaceRewind(0, { follow: false, instant: true });
@@ -3083,9 +3335,12 @@
                 hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
                 sizes: parsed.sizes && typeof parsed.sizes === 'object' ? parsed.sizes : {},
                 mode: HCA_WORKSPACE_MODES.includes(parsed.mode) ? parsed.mode : 'explore',
+                density: parsed.density === 'compact' ? 'compact' : 'comfortable',
+                descriptions: parsed.descriptions !== false,
+                grid: parsed.grid !== false,
             };
         } catch (_) {
-            return { order: HCA_DEFAULT_ORDER, hidden: [], sizes: {}, mode: 'explore' };
+            return { order: HCA_DEFAULT_ORDER, hidden: [], sizes: {}, mode: 'explore', density: 'comfortable', descriptions: true, grid: true };
         }
     }
 
@@ -3099,8 +3354,32 @@
             sizes: Object.fromEntries(panels.map(panel => [panel.dataset.workspacePanel,
                 panel.classList.contains('haw-panel-full') ? 'full' : panel.classList.contains('haw-panel-wide') ? 'wide' : 'standard'])),
             mode: activeWorkspaceMode,
+            density: $('h-ca-density')?.value === 'compact' ? 'compact' : 'comfortable',
+            descriptions: $('h-ca-show-descriptions')?.checked !== false,
+            grid: $('h-ca-show-grid')?.checked !== false,
         };
         try { localStorage.setItem(HCA_LAYOUT_KEY, JSON.stringify(state)); } catch (_) { }
+    }
+
+    function applyWorkspacePreferences(state = getWorkspaceLayout()) {
+        const view = $('h-view-custom-analysis');
+        if (!view) return;
+        view.dataset.density = state.density || 'comfortable';
+        view.classList.toggle('haw-hide-descriptions', state.descriptions === false);
+        view.classList.toggle('haw-no-grid', state.grid === false);
+        if ($('h-ca-density')) $('h-ca-density').value = state.density || 'comfortable';
+        if ($('h-ca-show-descriptions')) $('h-ca-show-descriptions').checked = state.descriptions !== false;
+        if ($('h-ca-show-grid')) $('h-ca-show-grid').checked = state.grid !== false;
+    }
+
+    function refreshWorkspaceViewMenu() {
+        if ($('h-ca-view-title')) $('h-ca-view-title').textContent = `${activeWorkspaceMode[0].toUpperCase()}${activeWorkspaceMode.slice(1)} view`;
+        document.querySelectorAll('[data-panel-toggle]').forEach(toggle => {
+            const panel = document.querySelector(`[data-workspace-panel="${toggle.dataset.panelToggle}"]`);
+            const relevant = (panel?.dataset.workspaceModes || '').split(/\s+/).includes(activeWorkspaceMode);
+            toggle.closest('label').hidden = !relevant;
+            if (panel) toggle.checked = panel.dataset.layoutHidden !== 'true';
+        });
     }
 
     function refreshWorkspaceVisibility() {
@@ -3108,6 +3387,7 @@
             const modes = (panel.dataset.workspaceModes || '').split(/\s+/);
             panel.hidden = panel.dataset.layoutHidden === 'true' || !modes.includes(activeWorkspaceMode);
         });
+        refreshWorkspaceViewMenu();
     }
 
     function applyWorkspaceMode(mode, persist = true) {
@@ -3125,6 +3405,7 @@
         if (persist) saveWorkspaceLayout();
         requestAnimationFrame(() => {
             if (mode === 'rewind') initWorkspaceRewind();
+            renderWorkspaceMode(mode);
             Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } });
         });
     }
@@ -3141,13 +3422,14 @@
         panels.forEach((panel, key) => {
             panel.dataset.layoutHidden = state.hidden.includes(key) ? 'true' : 'false';
             panel.classList.remove('haw-panel-wide', 'haw-panel-full');
-            const fallback = ['preview', 'rewind'].includes(key) ? 'full' : ['relationship', 'matrix', 'statistics'].includes(key) ? 'wide' : 'standard';
+            const fallback = ['overview', 'signals', 'preview', 'rewind', 'pairwise', 'review-summary', 'distribution'].includes(key) ? 'full' : ['relationship', 'matrix', 'statistics', 'quality'].includes(key) ? 'wide' : 'standard';
             const size = state.sizes[key] || fallback;
             if (size === 'wide') panel.classList.add('haw-panel-wide');
             if (size === 'full') panel.classList.add('haw-panel-full');
             const toggle = document.querySelector(`[data-panel-toggle="${key}"]`);
             if (toggle) toggle.checked = panel.dataset.layoutHidden !== 'true';
         });
+        applyWorkspacePreferences(state);
         applyWorkspaceMode(state.mode, false);
         requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
     }
@@ -3273,6 +3555,14 @@
                     sel.value = fields[0]?.key;
                 }
             });
+            if ($('h-ca-pairwise-x') && $('h-ca-pairwise-y') && $('h-ca-pairwise-x').value === $('h-ca-pairwise-y').value) {
+                $('h-ca-pairwise-x').value = fields.some(field => field.key === 'speed_kmh') ? 'speed_kmh' : fields[0]?.key;
+                $('h-ca-pairwise-y').value = fields.some(field => field.key === 'power_w') ? 'power_w' : fields[1]?.key;
+            }
+            if ($('h-ca-distribution-var') && !$('h-ca-distribution-var').dataset.initialized) {
+                $('h-ca-distribution-var').value = fields.some(field => field.key === 'speed_kmh') ? 'speed_kmh' : fields[0]?.key;
+                $('h-ca-distribution-var').dataset.initialized = 'true';
+            }
 
             const matrix = $('h-ca-matrix-vars');
             if (matrix) {
@@ -3475,6 +3765,26 @@
             workspaceRewindStartedAt = performance.now();
             workspaceRewindStartedTs = workspaceRewindRows[workspaceRewindIndex]?._ts || 0;
         });
+        $('h-ca-rewind-map-metric')?.addEventListener('change', updateWorkspaceRewindRouteStyle);
+        $('h-ca-rewind-event')?.addEventListener('change', event => {
+            const selected = workspaceRewindEvents[Number(event.target.value)];
+            if (!selected) return;
+            stopWorkspaceRewind();
+            seekWorkspaceRewind(selected.index);
+        });
+        $('h-ca-rewind-event-prev')?.addEventListener('click', () => seekWorkspaceRewindEvent(-1));
+        $('h-ca-rewind-event-next')?.addEventListener('click', () => seekWorkspaceRewindEvent(1));
+        document.querySelectorAll('#h-ca-rewind-signals input[type="checkbox"]').forEach(input => input.addEventListener('change', () => {
+            const selected = selectedWorkspaceSignals('h-ca-rewind-signals', []);
+            if (selected.length > 4) { input.checked = false; toast('Show up to four Rewind signals at once.'); }
+            renderWorkspaceRewindChart();
+            seekWorkspaceRewind(workspaceRewindIndex, { follow: false, instant: true });
+        }));
+        document.querySelectorAll('#h-ca-signal-toggles input[type="checkbox"]').forEach(input => input.addEventListener('change', () => {
+            const selected = selectedWorkspaceSignals('h-ca-signal-toggles', []);
+            if (selected.length > 4) { input.checked = false; toast('Show up to four telemetry signals at once.'); }
+            renderWorkspaceSignalChart();
+        }));
 
         // Accordion logic
         document.querySelectorAll('.ha-ca-accordion-btn').forEach(btn => {
@@ -3673,16 +3983,41 @@
         });
 
         $('h-ca-run-matrix')?.addEventListener('click', computeWorkspaceRelationships);
+        $('h-ca-pairwise-run')?.addEventListener('click', renderWorkspacePairwise);
+        $('h-ca-pairwise-x')?.addEventListener('change', renderWorkspacePairwise);
+        $('h-ca-pairwise-y')?.addEventListener('change', renderWorkspacePairwise);
+        $('h-ca-pairwise-sample')?.addEventListener('change', renderWorkspacePairwise);
+        $('h-ca-distribution-run')?.addEventListener('click', renderWorkspaceDistribution);
+        $('h-ca-distribution-var')?.addEventListener('change', renderWorkspaceDistribution);
+        $('h-ca-distribution-bins')?.addEventListener('change', renderWorkspaceDistribution);
+
+        const transformRecipes = {
+            'power-per-speed': { name: 'Power per speed', type: 'math', values: { 'h-ca-lab-var-math-a': 'power_w', 'h-ca-lab-var-math-op': '/', 'h-ca-lab-var-math-b': 'speed_kmh' } },
+            'smooth-power': { name: 'Power rolling mean', type: 'smooth', values: { 'h-ca-lab-var-smooth-a': 'power_w', 'h-ca-lab-var-smooth-op': 'sma', 'h-ca-lab-var-smooth-w': '20' } },
+            'voltage-delta': { name: 'Battery VESC delta', type: 'math', values: { 'h-ca-lab-var-math-a': 'voltage_v', 'h-ca-lab-var-math-op': '-', 'h-ca-lab-var-math-b': 'vesc_voltage_v' } },
+            'speed-delta': { name: 'Speed delta', type: 'lag', values: { 'h-ca-lab-var-lag-a': 'speed_kmh', 'h-ca-lab-var-lag-op': 'diff', 'h-ca-lab-var-lag-w': '1' } },
+            'current-z': { name: 'Current Z score', type: 'normalize', values: { 'h-ca-lab-var-normalize-a': 'current_a', 'h-ca-lab-var-normalize-op': 'zscore' } },
+        };
+        document.querySelectorAll('[data-ca-recipe]').forEach(button => button.addEventListener('click', () => {
+            const recipe = transformRecipes[button.dataset.caRecipe];
+            if (!recipe) return;
+            applyWorkspaceMode('transform');
+            $('h-ca-lab-var-name').value = recipe.name;
+            $('h-ca-lab-var-type').value = recipe.type;
+            $('h-ca-lab-var-type').dispatchEvent(new Event('change'));
+            Object.entries(recipe.values).forEach(([id, value]) => { if ($(id)) $(id).value = value; });
+            $('h-ca-lab-create-var')?.focus();
+            toast(`${recipe.name} recipe loaded · review and add to pipeline`);
+        }));
 
         const layoutMenu = $('h-ca-layout-menu');
         $('h-ca-customize')?.addEventListener('click', () => {
             if (!layoutMenu) return;
+            refreshWorkspaceViewMenu();
             layoutMenu.hidden = !layoutMenu.hidden;
-            document.body.classList.toggle('haw-layout-editing', !layoutMenu.hidden);
         });
         $('h-ca-layout-close')?.addEventListener('click', () => {
             if (layoutMenu) layoutMenu.hidden = true;
-            document.body.classList.remove('haw-layout-editing');
         });
         document.querySelectorAll('[data-panel-toggle]').forEach(toggle => {
             toggle.addEventListener('change', () => {
@@ -3690,15 +4025,35 @@
                 if (panel) panel.dataset.layoutHidden = toggle.checked ? 'false' : 'true';
                 refreshWorkspaceVisibility();
                 saveWorkspaceLayout();
-                requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
+                requestAnimationFrame(() => {
+                    renderWorkspaceMode(activeWorkspaceMode);
+                    try { workspaceRewindMap?.resize(); } catch (_) { }
+                    Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } });
+                });
             });
+        });
+        ['h-ca-density', 'h-ca-show-descriptions', 'h-ca-show-grid'].forEach(id => $(id)?.addEventListener('change', () => {
+            const state = getWorkspaceLayout();
+            state.density = $('h-ca-density')?.value === 'compact' ? 'compact' : 'comfortable';
+            state.descriptions = $('h-ca-show-descriptions')?.checked !== false;
+            state.grid = $('h-ca-show-grid')?.checked !== false;
+            applyWorkspacePreferences(state);
+            saveWorkspaceLayout();
+            requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
+        }));
+        $('h-ca-show-all')?.addEventListener('click', () => {
+            document.querySelectorAll('[data-workspace-panel]').forEach(panel => {
+                if ((panel.dataset.workspaceModes || '').split(/\s+/).includes(activeWorkspaceMode)) panel.dataset.layoutHidden = 'false';
+            });
+            refreshWorkspaceVisibility();
+            saveWorkspaceLayout();
+            renderWorkspaceMode(activeWorkspaceMode);
         });
         $('h-ca-layout-reset')?.addEventListener('click', () => {
             try { localStorage.removeItem(HCA_LAYOUT_KEY); } catch (_) { }
             applyWorkspaceLayout();
-            document.body.classList.remove('haw-layout-editing');
             if (layoutMenu) layoutMenu.hidden = true;
-            toast('Default workspace restored');
+            toast('Default tool views restored');
         });
         document.querySelectorAll('[data-workspace-panel] [data-panel-size]').forEach(button => {
             button.addEventListener('click', () => {
