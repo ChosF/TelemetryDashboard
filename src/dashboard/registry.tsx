@@ -67,6 +67,7 @@ import {
     RawTelemetryWidget,
     SessionKpisWidget,
 } from './widgets/overviewData';
+import { sampleRows } from './widgets/primitives';
 
 export const canonicalBatteryPercentage = batteryConditionPercentage;
 
@@ -76,6 +77,67 @@ function latestOf(rows: TelemetryRow[]): TelemetryRow | undefined {
 
 function finite(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
+}
+
+const OVERVIEW_TRACK_SAMPLE_LIMIT = 720;
+const OVERVIEW_TRACK_VIEWBOX = { width: 620, height: 100, paddingX: 25, paddingY: 10 } as const;
+
+interface OverviewTrackTrail {
+    path: string | null;
+    pointCount: number;
+    currentX: number;
+    currentY: number;
+}
+
+function overviewTrackTrail(rows: TelemetryRow[]): OverviewTrackTrail {
+    const points: Array<{ latitude: number; longitude: number }> = [];
+
+    for (const row of sampleRows(rows, OVERVIEW_TRACK_SAMPLE_LIMIT)) {
+        if (!finite(row.latitude) || !finite(row.longitude)) continue;
+        if (Math.abs(row.latitude) > 90 || Math.abs(row.longitude) > 180) continue;
+        if (row.latitude === 0 && row.longitude === 0) continue;
+
+        const previous = points.at(-1);
+        if (!previous || previous.latitude !== row.latitude || previous.longitude !== row.longitude) {
+            points.push({ latitude: row.latitude, longitude: row.longitude });
+        }
+    }
+
+    const centerX = OVERVIEW_TRACK_VIEWBOX.width / 2;
+    const centerY = OVERVIEW_TRACK_VIEWBOX.height / 2;
+    if (points.length === 0) return { path: null, pointCount: 0, currentX: centerX, currentY: centerY };
+    if (points.length === 1) return { path: null, pointCount: 1, currentX: centerX, currentY: centerY };
+
+    let minLatitude = Infinity;
+    let maxLatitude = -Infinity;
+    let minLongitude = Infinity;
+    let maxLongitude = -Infinity;
+    for (const point of points) {
+        minLatitude = Math.min(minLatitude, point.latitude);
+        maxLatitude = Math.max(maxLatitude, point.latitude);
+        minLongitude = Math.min(minLongitude, point.longitude);
+        maxLongitude = Math.max(maxLongitude, point.longitude);
+    }
+
+    const latitudeRange = maxLatitude - minLatitude;
+    const longitudeRange = maxLongitude - minLongitude;
+    const drawableWidth = OVERVIEW_TRACK_VIEWBOX.width - OVERVIEW_TRACK_VIEWBOX.paddingX * 2;
+    const drawableHeight = OVERVIEW_TRACK_VIEWBOX.height - OVERVIEW_TRACK_VIEWBOX.paddingY * 2;
+    const toX = (longitude: number) => longitudeRange === 0
+        ? centerX
+        : OVERVIEW_TRACK_VIEWBOX.paddingX + ((longitude - minLongitude) / longitudeRange) * drawableWidth;
+    const toY = (latitude: number) => latitudeRange === 0
+        ? centerY
+        : OVERVIEW_TRACK_VIEWBOX.height - OVERVIEW_TRACK_VIEWBOX.paddingY - ((latitude - minLatitude) / latitudeRange) * drawableHeight;
+    const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${toX(point.longitude).toFixed(1)} ${toY(point.latitude).toFixed(1)}`).join(' ');
+    const current = points.at(-1)!;
+
+    return {
+        path,
+        pointCount: points.length,
+        currentX: toX(current.longitude),
+        currentY: toY(current.latitude),
+    };
 }
 
 function formatValue(value: number | null | undefined, digits = 1, fallback = 'Unavailable'): string {
@@ -103,6 +165,13 @@ const VehiclePulseWidget: Component<WidgetRenderProps> = (props) => {
         return { label: 'Ease pace', detail: `${delta.toFixed(1)} km/h above target`, tone: 'advisory' };
     });
     const isStale = createMemo(() => !props.previewMode && !telemetryStore.isDataFresh() && props.liveRows.length > 0);
+    const trackTrail = createMemo(() => overviewTrackTrail(props.rows));
+    const trackStatus = createMemo(() => {
+        const count = trackTrail().pointCount;
+        if (count === 0) return 'Awaiting GPS trail';
+        if (count === 1) return 'GPS acquired · building trail';
+        return `${count.toLocaleString()} GPS points · trail auto-fits`;
+    });
 
     return (
         <section class="ev-pulse" aria-labelledby="vehicle-pulse-title">
@@ -139,13 +208,20 @@ const VehiclePulseWidget: Component<WidgetRenderProps> = (props) => {
                 </div>
             </div>
             <div class="ev-route-strip">
-                <div class="ev-track-schematic" aria-label="Schematic route progress">
+                <div class="ev-track-schematic" aria-label={trackStatus()}>
                     <svg viewBox="0 0 620 100" role="img">
-                        <title>Schematic route progress</title>
-                        <path class="ev-track-base" pathLength="100" d="M25,66 C90,19 165,16 228,42 C285,66 332,83 395,58 C452,35 498,11 559,28 C593,38 606,57 583,75 C548,99 485,88 449,75 C398,57 354,50 307,66 C246,87 184,91 126,77 C82,66 56,63 25,66 Z" />
-                        <path class="ev-track-fill" pathLength="100" stroke-dasharray={`${Math.min(100, Math.max(0, (distance() % 1580) / 15.8))} 100`} d="M25,66 C90,19 165,16 228,42 C285,66 332,83 395,58 C452,35 498,11 559,28 C593,38 606,57 583,75 C548,99 485,88 449,75 C398,57 354,50 307,66 C246,87 184,91 126,77 C82,66 56,63 25,66 Z" />
+                        <title>{trackStatus()}</title>
+                        <Show when={trackTrail().path}>
+                            {(path) => <>
+                                <path class="ev-track-base" d={path()} />
+                                <path class="ev-track-fill" d={path()} />
+                            </>}
+                        </Show>
+                        <Show when={trackTrail().pointCount > 0}>
+                            <circle class="ev-track-position" cx={trackTrail().currentX} cy={trackTrail().currentY} r="4" />
+                        </Show>
                     </svg>
-                    <span>GPS truth is available in Track</span>
+                    <span>{trackStatus()}</span>
                 </div>
                 <div class="ev-route-metrics">
                     <Metric label="Lap progress" value={`${Math.round((distance() % 1580) / 15.8)}%`} />

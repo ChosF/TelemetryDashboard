@@ -323,8 +323,9 @@ button.ev-signal-node { cursor: pointer; }
 .ev-track-schematic { padding-top: 18px; }
 .ev-track-schematic svg { width: 100%; height: 92px; }
 .ev-track-base, .ev-track-fill { fill: none; }
-.ev-track-base { stroke: var(--ev-line-strong); stroke-width: 7; }
-.ev-track-fill { stroke: var(--ev-cyan); stroke-width: 2; }
+.ev-track-base { stroke: var(--ev-line-strong); stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }
+.ev-track-fill { stroke: var(--ev-cyan); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ev-track-position { fill: var(--ev-cyan); stroke: var(--ev-instrument); stroke-width: 2; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--ev-cyan) 70%, transparent)); }
 .ev-track-schematic span { color: var(--ev-quiet); font: 500 8px "Space Grotesk", monospace; text-transform: uppercase; letter-spacing: 0.1em; }
 .ev-route-metrics { padding-left: 25px; display: grid; grid-template-columns: 1fr 1fr; align-content: center; gap: 20px; border-left: 1px solid var(--ev-line); }
 .ev-micro-metric strong { display: block; font: 600 17px/1.1 "Space Grotesk", monospace; font-variant-numeric: tabular-nums; }
