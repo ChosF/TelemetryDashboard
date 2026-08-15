@@ -725,6 +725,7 @@ const DashboardParity: Component = () => {
                             <div class="ev-topbar-inner">
                                 <a class="ev-brand" href="/" aria-label="EcoVolt home" onClick={navigateToLanding}>
                                     <img src="/images/logo.png" alt="" width="756" height="706" decoding="async" />
+                                    <span><strong>EcoVolt</strong><small>Telemetry</small></span>
                                 </a>
                                 <div class="ev-signal-rail" aria-live="polite">
                                     <SignalNode label={waitingPreview() ? 'Preview mode' : api().statusText()} detail={waitingPreview() ? 'Editing with sample telemetry' : api().statusDetail() ?? 'Realtime link stable'} tone={waitingPreview() ? 'orange' : telemetryStore.connectionStatus() === 'connected' ? 'green' : telemetryStore.connectionStatus() === 'failed' ? 'red' : 'amber'} active={waitingPreview() || telemetryStore.connectionStatus() === 'connected'} action={!waitingPreview() && api().canRetryConnection() ? () => void api().retryConnection() : undefined} />

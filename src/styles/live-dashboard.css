@@ -112,10 +112,15 @@
 .ev-brand {
   display: flex;
   align-items: center;
+  gap: 10px;
+  color: var(--ev-white);
   text-decoration: none;
   border-right: 1px solid var(--ev-line);
 }
 .ev-brand > img { display: block; width: auto; height: 48px; }
+.ev-brand > span { display: flex; flex-direction: column; min-width: 0; }
+.ev-brand strong { font-size: 14px; line-height: 1; letter-spacing: -0.04em; }
+.ev-brand small { margin-top: 5px; color: var(--ev-orange); font: 700 7px/1 "Space Grotesk", monospace; letter-spacing: 0.17em; text-transform: uppercase; }
 .ev-signal-rail { display: grid; grid-template-columns: repeat(4, minmax(122px, 1fr)); min-width: 0; }
 .ev-signal-node {
   position: relative;
