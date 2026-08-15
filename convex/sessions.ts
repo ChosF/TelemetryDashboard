@@ -166,6 +166,12 @@ export const listSessions = query({
                     start_time: s.start_time,
                     end_time: s.end_time,
                     record_count: s.record_count,
+                    archive_status: s.archive_status ?? "none",
+                    distance_km: s.archive_stats?.distance ?? null,
+                    energy_wh: s.archive_stats?.energyWh ?? null,
+                    efficiency_km_kwh: s.archive_stats?.efficiency ?? null,
+                    avg_speed_kmh: s.archive_stats?.avgSpeed ?? null,
+                    quality_score: s.archive_stats?.qualityScore ?? null,
                     duration_s: Math.round(
                         (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / 1000
                     ),
@@ -218,6 +224,12 @@ export const listSessions = query({
 
             const sessions = Array.from(map.values()).map(s => ({
                 ...s,
+                archive_status: "none",
+                distance_km: null,
+                energy_wh: null,
+                efficiency_km_kwh: null,
+                avg_speed_kmh: null,
+                quality_score: null,
                 duration_s: Math.round(
                     (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / 1000
                 ),

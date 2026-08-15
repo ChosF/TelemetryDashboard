@@ -407,11 +407,60 @@
         else if (sort === 'most-records') list.sort((a, b) => (b.record_count || 0) - (a.record_count || 0));
         else if (sort === 'name-asc') list.sort((a, b) => (a.session_name || '').localeCompare(b.session_name || ''));
         const tot = scopedSessions.reduce((s, x) => s + (x.record_count || 0), 0);
-        $('h-explorer-stats').innerHTML = `<span>${scopedSessions.length}</span> sessions · <span>${tot.toLocaleString()}</span> total records · <span>${list.length}</span> shown`;
-        if (!list.length) { $('h-sessions-list').innerHTML = '<div class="ha-empty"><div class="ha-empty-icon">📭</div>No sessions found</div>'; return }
-        $('h-sessions-list').innerHTML = list.map(s => {
-            const nm = s.session_name || 'Unnamed', id = s.session_id || '', dt = s.start_time ? new Date(s.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '', ct = s.record_count || 0, dur = s.duration_s ? fmtTime(s.duration_s * 1000) : '';
-            return `<div class="ha-card ha-session-card ha-animate-in" data-sid="${id}"><div class="ha-scard-top"><div class="ha-scard-name">${esc(nm)}</div><div class="ha-scard-date">${dt}</div></div><div class="ha-scard-meta"><span><b>${fmtInt(ct)}</b> records</span>${dur ? `<span>⏱ ${dur}</span>` : ''}</div><div class="ha-scard-bottom"><div class="ha-scard-id">${id.slice(0, 10)}…</div><div class="ha-scard-badge">${fmtInt(ct)}</div></div></div>`;
+        const ready = scopedSessions.filter(session => session.archive_status === 'complete').length;
+        const latest = getSessionsSortedByNewest()[0];
+        const latestLabel = latest?.start_time
+            ? new Date(latest.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : '—';
+        if ($('h-session-count')) $('h-session-count').textContent = String(scopedSessions.length).padStart(2, '0');
+        if ($('h-record-count')) $('h-record-count').textContent = tot >= 1000000 ? `${fmt(tot / 1000000, 1)}M` : tot >= 1000 ? `${fmt(tot / 1000, 1)}K` : fmtInt(tot);
+        if ($('h-ready-count')) $('h-ready-count').textContent = String(ready).padStart(2, '0');
+        if ($('h-latest-session')) $('h-latest-session').textContent = latestLabel;
+        if ($('h-results-label')) $('h-results-label').textContent = list.length === scopedSessions.length
+            ? `${list.length} ${list.length === 1 ? 'session' : 'sessions'} available`
+            : `${list.length} of ${scopedSessions.length} sessions shown`;
+        if (!list.length) {
+            $('h-sessions-list').innerHTML = `<div class="ha-empty"><span>No matching run</span><strong>Try a different session name or ID.</strong><button type="button" id="h-empty-clear">Clear search</button></div>`;
+            $('h-empty-clear')?.addEventListener('click', () => {
+                if ($('h-search')) $('h-search').value = '';
+                $('h-search-clear')?.classList.remove('visible');
+                renderSessions();
+            });
+            return;
+        }
+        $('h-sessions-list').innerHTML = list.map((s, index) => {
+            const nm = s.session_name || 'Unnamed session';
+            const id = s.session_id || '';
+            const started = s.start_time ? new Date(s.start_time) : null;
+            const date = started && Number.isFinite(started.getTime())
+                ? started.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+                : 'Date unavailable';
+            const time = started && Number.isFinite(started.getTime())
+                ? started.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                : '';
+            const ct = s.record_count || 0;
+            const dur = s.duration_s > 0 ? fmtTime(s.duration_s * 1000) : '—';
+            const archiveStatus = s.archive_status || 'none';
+            const statusLabel = archiveStatus === 'complete' ? 'Analysis ready'
+                : archiveStatus === 'archiving' || archiveStatus === 'pending' ? 'Processing archive'
+                    : archiveStatus === 'error' ? 'Archive attention' : 'Session indexed';
+            const hasStats = Number.isFinite(s.distance_km) || Number.isFinite(s.efficiency_km_kwh);
+            const metrics = hasStats ? [
+                ['Distance', `${fmt(s.distance_km, 2)} km`],
+                ['Efficiency', `${fmt(s.efficiency_km_kwh, 1)} km/kWh`],
+                ['Energy', `${fmt(s.energy_wh, 1)} Wh`],
+            ] : [
+                ['Duration', dur],
+                ['Records', fmtInt(ct)],
+                ['Avg speed', Number.isFinite(s.avg_speed_kmh) ? `${fmt(s.avg_speed_kmh, 1)} km/h` : 'Pending'],
+            ];
+            return `<button type="button" class="ha-session-card ha-animate-in${index === 0 && sort === 'newest' && !q ? ' is-latest' : ''}" data-sid="${esc(id)}" aria-label="Open ${esc(nm)}">
+                <span class="ha-scard-rail"></span>
+                <header class="ha-scard-top"><span class="ha-scard-index">RUN ${String(index + 1).padStart(2, '0')}</span><span class="ha-scard-status status-${esc(archiveStatus)}"><i></i>${statusLabel}</span></header>
+                <div class="ha-scard-main"><div><h3 class="ha-scard-name">${esc(nm)}</h3><p class="ha-scard-date">${esc(date)}${time ? ` · ${esc(time)}` : ''}</p></div><span class="ha-scard-open">Open brief <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg></span></div>
+                <dl class="ha-scard-metrics">${metrics.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl>
+                <footer class="ha-scard-bottom"><span>${fmtInt(ct)} telemetry records</span><code>${esc(id.slice(0, 12))}${id.length > 12 ? '…' : ''}</code></footer>
+            </button>`;
         }).join('');
         $$('.ha-session-card').forEach(c => {
             c.addEventListener('click', () => openSession(c.dataset.sid));

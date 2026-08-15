@@ -14,7 +14,7 @@
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
         rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="/historical.css?v=20260814.1" />
+    <link rel="stylesheet" href="/historical.css?v=20260814.2" />
     <script>
         window.CONFIG = window.CONFIG || { CONVEX_URL: "https://wonderful-kookabura-432.convex.cloud" };
     </script>
@@ -34,32 +34,37 @@
 
     <!-- ── HEADER ── -->
     <header class="ha-header">
-        <a href="/dashboard" class="ha-header-logo" title="Dashboard"><span class="ha-logo-icon">⚡</span></a>
-        <div class="ha-header-divider"></div>
-        <button class="ha-header-back" id="h-back-to-sessions" style="display:none">← Sessions</button>
-        <h1 class="ha-header-title">Historical Analysis</h1>
-        <div class="ha-header-session" id="h-active-session-label"></div>
-        <div class="ha-quality-badge" id="h-quality-badge" style="display:none">
-            <span class="ha-quality-dot" id="h-quality-dot"></span>
-            <span id="h-quality-text">—</span>
-        </div>
-        <div class="ha-header-actions">
-            <button class="ha-btn ha-btn-primary ha-btn-sm" id="h-btn-custom-analysis" style="display:none"
-                title="Run Custom Analysis">✨ Custom Analysis</button>
-            <button class="ha-btn ha-btn-ghost ha-btn-icon" id="h-btn-collapse-all" style="display:none"
-                title="Collapse/Expand all sections">⇲ Collapse All</button>
-            <button class="ha-btn ha-btn-ghost ha-btn-icon" id="h-btn-export-quick" style="display:none"
-                title="Quick export CSV">↓ CSV</button>
-            <a href="/dashboard" class="ha-header-back" style="display:inline-flex;align-items:center;gap:5px;">
-                Dashboard
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="3" width="7" height="9"></rect>
-                    <rect x="14" y="3" width="7" height="5"></rect>
-                    <rect x="14" y="12" width="7" height="9"></rect>
-                    <rect x="3" y="16" width="7" height="5"></rect>
-                </svg>
+        <div class="ha-header-inner">
+            <a href="/" class="ha-brand" aria-label="EcoVolt home">
+                <img src="/images/logo.png" alt="" width="756" height="706" />
+                <span><strong>EcoVolt</strong><small>Historical</small></span>
             </a>
+            <nav class="ha-surface-nav" aria-label="EcoVolt applications">
+                <a href="/dashboard">Live dashboard</a>
+                <a href="/dashboard/sessions" class="active" aria-current="page">Historical</a>
+                <a href="/inventory">Inventory</a>
+            </nav>
+            <div class="ha-header-context">
+                <div class="ha-archive-state"><i></i><span>Archive online</span></div>
+                <button class="ha-header-back" id="h-back-to-sessions" style="display:none">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+                    Sessions
+                </button>
+                <div class="ha-header-session" id="h-active-session-label"></div>
+                <div class="ha-quality-badge" id="h-quality-badge" style="display:none">
+                    <span class="ha-quality-dot" id="h-quality-dot"></span>
+                    <span id="h-quality-text">—</span>
+                </div>
+                <button class="ha-btn ha-btn-primary ha-btn-sm" id="h-btn-custom-analysis" style="display:none"
+                    title="Run Custom Analysis">Custom analysis</button>
+                <button class="ha-btn ha-btn-ghost ha-btn-icon" id="h-btn-collapse-all" style="display:none"
+                    title="Collapse/Expand all sections">Collapse all</button>
+                <button class="ha-header-export" id="h-btn-export-quick" style="display:none"
+                    title="Quick export CSV">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" /></svg>
+                    CSV
+                </button>
+            </div>
         </div>
     </header>
 
@@ -67,36 +72,53 @@
 
         <!-- ── EXPLORER VIEW ── -->
         <div class="ha-view active" id="h-view-explorer">
-            <div class="ha-explorer-hero">
-                <div class="ha-hero-badge">📊 Telemetry Analysis</div>
-                <h1>Historical Sessions</h1>
-                <p>Select a session to unlock synchronized charts, statistical analysis, driver scoring, and data
-                    export.</p>
-            </div>
-
-            <div class="ha-explorer-toolbar">
-                <div class="ha-search-wrap">
-                    <span class="ha-search-icon">🔍</span>
-                    <input type="text" class="ha-input" id="h-search" placeholder="Search sessions…"
-                        autocomplete="off" />
-                    <button class="ha-search-clear" id="h-search-clear" title="Clear">✕</button>
+            <section class="ha-archive-hero">
+                <div>
+                    <span class="ha-eyebrow">Historical telemetry workspace</span>
+                    <h1>Run archive.</h1>
+                    <p>Open a completed session to review its decision brief, route sectors, energy use, and the evidence that deserves attention.</p>
                 </div>
-                <select class="ha-select" id="h-sort">
-                    <option value="newest">Newest First</option>
-                    <option value="oldest">Oldest First</option>
-                    <option value="most-records">Most Records</option>
-                    <option value="name-asc">Name A–Z</option>
-                </select>
-                <button class="ha-btn ha-btn-ghost ha-btn-sm" id="h-refresh-sessions" title="Refresh session list">↺
-                    Refresh</button>
-            </div>
+                <a href="/dashboard" class="ha-live-link">
+                    <span>Return to live telemetry</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>
+                </a>
+            </section>
 
-            <div class="ha-explorer-stats" id="h-explorer-stats"></div>
-            <div id="h-sessions-list" class="ha-sessions-grid">
-                <div class="ha-loading">
-                    <div class="ha-spinner"></div><span>Loading sessions…</span>
+            <section class="ha-archive-overview" aria-label="Archive overview">
+                <article><span>Accessible sessions</span><strong id="h-session-count">—</strong><small>runs indexed</small></article>
+                <article><span>Telemetry records</span><strong id="h-record-count">—</strong><small>across archive</small></article>
+                <article><span>Analysis ready</span><strong id="h-ready-count">—</strong><small>completed archives</small></article>
+                <article><span>Latest session</span><strong id="h-latest-session">—</strong><small>most recent run</small></article>
+            </section>
+
+            <section class="ha-session-directory">
+                <header class="ha-directory-header">
+                    <div><span class="ha-eyebrow">Session register</span><h2>Choose a run</h2><p id="h-results-label">Loading the archive…</p></div>
+                    <div class="ha-explorer-toolbar">
+                        <label class="ha-search-wrap" aria-label="Search sessions">
+                            <svg class="ha-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M16 16l4 4" /></svg>
+                            <input type="search" class="ha-input" id="h-search" placeholder="Search name or session ID"
+                                autocomplete="off" />
+                            <button type="button" class="ha-search-clear" id="h-search-clear" title="Clear search" aria-label="Clear search">×</button>
+                        </label>
+                        <label class="ha-sort-wrap"><span>Sort</span><select class="ha-select" id="h-sort">
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="most-records">Most records</option>
+                            <option value="name-asc">Name A–Z</option>
+                        </select></label>
+                        <button class="ha-refresh-button" id="h-refresh-sessions" title="Refresh session list" aria-label="Refresh sessions">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 006 6.5L4 9m2 6a7 7 0 0012 2.5L20 15" /></svg>
+                        </button>
+                    </div>
+                </header>
+
+                <div id="h-sessions-list" class="ha-sessions-grid">
+                    <div class="ha-loading">
+                        <div class="ha-spinner"></div><span>Loading sessions…</span>
+                    </div>
                 </div>
-            </div>
+            </section>
         </div>
 
         <!-- ── ANALYSIS VIEW ── -->
@@ -1295,7 +1317,7 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
     <script src="/historical-engine.js?v=20260808.1"></script>
-    <script src="/historical.js?v=20260814.1"></script>
+    <script src="/historical.js?v=20260814.2"></script>
     <script>
         (() => {
             let dashboardPrewarmPromise = null;
