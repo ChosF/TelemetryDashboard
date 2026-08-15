@@ -5794,9 +5794,19 @@ html[data-theme="light"] .haw-track-map-state { background: radial-gradient(circ
 .haw-classification-grid > article i b { overflow: hidden; font: inherit; text-overflow: ellipsis; white-space: nowrap; }
 .haw-classification-grid > article i em { color: var(--haw-text); font: inherit; font-style: normal; }
 
-.haw-field-catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--haw-line); }
+.haw-field-catalog {
+    max-height: clamp(560px, 72vh, 780px);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: 1px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    background: var(--haw-line);
+}
 .haw-field-catalog > section { min-width: 0; background: var(--haw-panel); }
-.haw-field-catalog > section > header { min-height: 40px; padding: 0 13px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--haw-line); }
+.haw-field-catalog > section > header { position: sticky; top: 0; z-index: 2; min-height: 40px; padding: 0 13px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--haw-line); background: var(--haw-panel-raised); }
 .haw-field-catalog > section > header strong { color: var(--haw-accent); font: 700 8px/1 "Space Grotesk", monospace; letter-spacing: .08em; text-transform: uppercase; }
 .haw-field-catalog > section > header span { color: var(--haw-faint); font: 650 7px/1 "Space Grotesk", monospace; }
 .haw-field-catalog article { min-height: 44px; padding: 7px 12px; display: grid; grid-template-columns: minmax(150px, .8fr) 48px minmax(120px, 1fr); align-items: center; gap: 10px; border-bottom: 1px solid var(--haw-line); }
@@ -5818,6 +5828,10 @@ html[data-theme="light"] .haw-track-map-state { background: radial-gradient(circ
     .haw-classification-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .haw-field-catalog { grid-template-columns: 1fr; }
     .haw-split-charts { grid-template-columns: 1fr; }
+}
+
+@media (min-width: 1800px) {
+    .haw-field-catalog { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @media (max-width: 560px) {

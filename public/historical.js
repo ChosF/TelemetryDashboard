@@ -2945,6 +2945,14 @@
     let customAnalysisSessionId = null;
     let activeWorkspaceMode = 'explore';
     const HCA_LAYOUT_KEY = 'ecovolt_historical_workspace_v2';
+    const HCA_LAYOUT_VERSION = 3;
+    const HCA_V3_PANEL_DEFAULTS = {
+        'efficiency-estimator': 'wide',
+        'dynamics-steering': 'wide',
+        'driver-behavior': 'full',
+        'track-navigation': 'full',
+        'integrity-catalog': 'full',
+    };
     const HCA_WORKSPACE_MODES = ['explore', 'rewind', 'transform', 'correlate', 'review', 'efficiency', 'power', 'motor', 'dynamics', 'driver', 'track', 'integrity'];
     const HCA_DEFAULT_ORDER = [
         'overview', 'signals', 'relationship', 'filters', 'rewind', 'transform', 'recipes', 'quality', 'matrix', 'notebook', 'pairwise', 'review-summary', 'distribution', 'statistics', 'preview',
@@ -3155,7 +3163,19 @@
         }));
         HA.initChart(hostId, {
             animation: false,
-            tooltip: { trigger: 'axis', axisPointer: { type: 'line' } },
+            tooltip: {
+                trigger: 'axis', axisPointer: { type: 'line' },
+                formatter: params => {
+                    const items = Array.isArray(params) ? params : [params];
+                    const timestamp = items[0]?.value?.[0];
+                    const heading = Number.isFinite(Number(timestamp)) ? new Date(Number(timestamp)).toLocaleString() : '';
+                    return `${heading ? `${esc(heading)}<br>` : ''}${items.map(item => {
+                        const definition = HCA_SIGNAL_DEFS[keys[item.seriesIndex]];
+                        const value = item.value?.[1];
+                        return `${esc(item.seriesName)}: <strong>${value == null ? '—' : HA.fmt(value, Math.abs(value) < 10 ? 3 : 1)}</strong>${definition?.unit ? ` ${esc(definition.unit)}` : ''}`;
+                    }).join('<br>')}`;
+                },
+            },
             legend: { top: 2, textStyle: { color: textColor, fontSize: 8 } },
             grid: { left: 54 + Math.floor((keys.length - 1) / 2) * 46, right: 54 + Math.floor(keys.length / 2) * 46, top: 38, bottom: 38 },
             xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 8 }, axisLine: { lineStyle: { color: lineColor } }, splitLine: { show: false } },
@@ -4027,17 +4047,22 @@
     function getWorkspaceLayout() {
         try {
             const parsed = JSON.parse(localStorage.getItem(HCA_LAYOUT_KEY) || '{}');
+            const sizes = parsed.sizes && typeof parsed.sizes === 'object' ? { ...parsed.sizes } : {};
+            if (parsed.version !== HCA_LAYOUT_VERSION) {
+                Object.keys(HCA_V3_PANEL_DEFAULTS).forEach(key => { delete sizes[key]; });
+            }
             return {
+                version: HCA_LAYOUT_VERSION,
                 order: Array.isArray(parsed.order) ? parsed.order : HCA_DEFAULT_ORDER,
                 hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
-                sizes: parsed.sizes && typeof parsed.sizes === 'object' ? parsed.sizes : {},
+                sizes,
                 mode: HCA_WORKSPACE_MODES.includes(parsed.mode) ? parsed.mode : 'explore',
                 density: parsed.density === 'compact' ? 'compact' : 'comfortable',
                 descriptions: parsed.descriptions !== false,
                 grid: parsed.grid !== false,
             };
         } catch (_) {
-            return { order: HCA_DEFAULT_ORDER, hidden: [], sizes: {}, mode: 'explore', density: 'comfortable', descriptions: true, grid: true };
+            return { version: HCA_LAYOUT_VERSION, order: HCA_DEFAULT_ORDER, hidden: [], sizes: {}, mode: 'explore', density: 'comfortable', descriptions: true, grid: true };
         }
     }
 
@@ -4046,6 +4071,7 @@
         if (!grid) return;
         const panels = Array.from(grid.querySelectorAll('[data-workspace-panel]'));
         const state = {
+            version: HCA_LAYOUT_VERSION,
             order: panels.map(panel => panel.dataset.workspacePanel),
             hidden: panels.filter(panel => panel.dataset.layoutHidden === 'true').map(panel => panel.dataset.workspacePanel),
             sizes: Object.fromEntries(panels.map(panel => [panel.dataset.workspacePanel,
@@ -4119,7 +4145,9 @@
         panels.forEach((panel, key) => {
             panel.dataset.layoutHidden = state.hidden.includes(key) ? 'true' : 'false';
             panel.classList.remove('haw-panel-wide', 'haw-panel-full');
-            const fallback = ['overview', 'signals', 'preview', 'rewind', 'pairwise', 'review-summary', 'distribution', 'efficiency-summary', 'power-summary', 'motor-summary', 'dynamics-summary', 'driver-summary', 'track-summary', 'track-profile', 'integrity-summary'].includes(key) ? 'full' : ['relationship', 'matrix', 'statistics', 'quality', 'efficiency-trends', 'power-trends', 'motor-trends', 'dynamics-trends', 'driver-trends', 'track-map', 'integrity-availability'].includes(key) ? 'wide' : 'standard';
+            const fallback = HCA_V3_PANEL_DEFAULTS[key]
+                || (['overview', 'signals', 'preview', 'rewind', 'pairwise', 'review-summary', 'distribution', 'efficiency-summary', 'power-summary', 'motor-summary', 'dynamics-summary', 'driver-summary', 'track-summary', 'track-profile', 'integrity-summary'].includes(key) ? 'full'
+                    : ['relationship', 'matrix', 'statistics', 'quality', 'efficiency-trends', 'power-trends', 'motor-trends', 'dynamics-trends', 'driver-trends', 'track-map', 'integrity-availability'].includes(key) ? 'wide' : 'standard');
             const size = state.sizes[key] || fallback;
             if (size === 'wide') panel.classList.add('haw-panel-wide');
             if (size === 'full') panel.classList.add('haw-panel-full');
