@@ -4457,7 +4457,7 @@ body.ha-session-open .ha-header-context { padding-left: 12px; }
     min-height: 58px;
     padding: 0 max(16px, calc((100vw - 1536px) / 2));
     display: grid;
-    grid-template-columns: auto minmax(240px, 1fr) auto auto;
+    grid-template-columns: minmax(240px, 1fr) auto auto;
     align-items: stretch;
     border-bottom: 1px solid var(--haw-line);
     background: color-mix(in srgb, var(--haw-bg) 94%, transparent);
@@ -4670,7 +4670,7 @@ html[data-theme="light"] .haw-shortcuts-dialog::backdrop { background: rgba(48,4
     .ha-surface-nav a > small { display: none; }
     .ha-header-context .ha-btn,
     .ha-header-context .ha-header-export { display: none !important; }
-    .haw-topbar { grid-template-columns: auto minmax(170px, 1fr) auto; }
+    .haw-topbar { grid-template-columns: minmax(170px, 1fr) auto; }
     .haw-preset-control { display: none; }
     .haw-subbar { grid-template-columns: minmax(390px, 1fr) auto; overflow-x: auto; }
     .haw-runtime-state { display: none; }
@@ -4690,7 +4690,7 @@ html[data-theme="light"] .haw-shortcuts-dialog::backdrop { background: rgba(48,4
     .ha-archive-state { display: none; }
     .ha-header-back { display: none !important; }
     .haw-shell { margin-inline: -16px; }
-    .haw-topbar { position: relative; top: 0; min-height: 54px; grid-template-columns: auto minmax(0, 1fr) auto; padding: 0; }
+    .haw-topbar { position: relative; top: 0; min-height: 54px; grid-template-columns: minmax(0, 1fr) auto; padding: 0; }
     .haw-view-switch { min-height: 54px; }
     .haw-view-switch button { min-width: 64px; min-height: 54px; padding-inline: 10px; }
     .haw-command-trigger { margin: 7px; }
@@ -4712,4 +4712,129 @@ html[data-theme="light"] .haw-shortcuts-dialog::backdrop { background: rgba(48,4
     .haw-panel-header { min-height: 70px; padding: 14px; }
     .haw-stat-toolbar > div { min-width: 0; flex: 1; padding-inline: 14px; }
     .haw-shortcut-grid { grid-template-columns: 1fr; }
+}
+
+/* ─── Tool-local historical header ──────────────────────────────────────── */
+.ha-header-inner,
+body.ha-session-open .ha-header-inner {
+    grid-template-columns: 206px minmax(300px, 1fr) auto;
+}
+.ha-brand { cursor: default; }
+.ha-brand > span small { color: #ff6b35; }
+.ha-tool-nav { min-width: 0; display: flex; align-items: stretch; }
+.ha-tool-nav button {
+    position: relative;
+    min-width: 126px;
+    padding: 0 17px;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 6px;
+    border: 0;
+    border-right: 1px solid rgba(245, 241, 232, .1);
+    color: rgba(245, 241, 232, .5);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+.ha-tool-nav button[hidden] { display: none; }
+.ha-tool-nav button > span { font: 800 10px/1 "Plus Jakarta Sans", sans-serif; letter-spacing: .02em; }
+.ha-tool-nav button > small { color: rgba(245, 241, 232, .28); font: 650 7px/1 "Space Grotesk", monospace; letter-spacing: .1em; text-transform: uppercase; }
+.ha-tool-nav button:hover:not(:disabled) { color: #f5f1e8; background: rgba(255,255,255,.022); }
+.ha-tool-nav button.active { color: #f5f1e8; background: rgba(255,107,53,.035); }
+.ha-tool-nav button.active::after { content: ""; position: absolute; inset: auto 17px -1px; height: 2px; background: #ff6b35; }
+.ha-tool-nav button.active > small { color: #ff6b35; }
+.ha-tool-nav button:disabled { cursor: wait; opacity: .5; }
+.ha-header-context { padding-left: 12px; }
+.ha-header-context .ha-archive-state { flex: 0 0 auto; }
+.ha-header-session { max-width: 190px; padding-inline: 6px; }
+.ha-account-menu { position: relative; flex: 0 0 auto; }
+.ha-account-trigger {
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    display: inline-grid;
+    place-items: center;
+    border: 1px solid rgba(255,107,53,.48);
+    color: #ff6b35;
+    background: transparent;
+    cursor: pointer;
+}
+.ha-account-trigger:hover,
+.ha-account-trigger[aria-expanded="true"] { border-color: #ff6b35; background: rgba(255,107,53,.08); }
+.ha-account-trigger span { font: 750 13px/1 "Space Grotesk", monospace; }
+.ha-account-trigger svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: square; }
+.ha-account-popover {
+    position: absolute;
+    top: calc(100% + 9px);
+    right: 0;
+    z-index: 180;
+    width: 252px;
+    padding: 16px;
+    border: 1px solid rgba(245,241,232,.2);
+    color: #f5f1e8;
+    background: #151515;
+    box-shadow: 0 24px 70px rgba(0,0,0,.48);
+}
+.ha-account-popover[hidden] { display: none; }
+.ha-account-popover > strong { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ha-account-popover > span { margin: 7px 0 14px; display: block; color: rgba(245,241,232,.45); font: 600 8px/1.3 "Space Grotesk", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.ha-account-popover > button {
+    width: 100%;
+    min-height: 39px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid rgba(245,241,232,.12);
+    color: rgba(245,241,232,.76);
+    background: transparent;
+    font: 750 8px/1 "Plus Jakarta Sans", sans-serif;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+.ha-account-popover > button[hidden] { display: none; }
+.ha-account-popover > button + button { margin-top: 6px; }
+.ha-account-popover > button:hover { border-color: #ff6b35; color: #ff6b35; background: rgba(255,107,53,.05); }
+.ha-account-popover > button kbd { color: rgba(245,241,232,.34); font: 650 8px/1 "Space Grotesk", monospace; }
+
+html[data-theme="light"] .ha-brand > span small { color: #e85824; }
+html[data-theme="light"] .ha-tool-nav button { border-color: rgba(25,24,22,.11); color: rgba(27,26,24,.52); }
+html[data-theme="light"] .ha-tool-nav button > small { color: rgba(27,26,24,.34); }
+html[data-theme="light"] .ha-tool-nav button:hover:not(:disabled),
+html[data-theme="light"] .ha-tool-nav button.active { color: #1b1a18; background: rgba(232,88,36,.035); }
+html[data-theme="light"] .ha-tool-nav button.active > small { color: #e85824; }
+html[data-theme="light"] .ha-account-trigger { border-color: rgba(232,88,36,.48); color: #e85824; }
+html[data-theme="light"] .ha-account-popover { border-color: rgba(25,24,22,.17); color: #1b1a18; background: #fffdf8; box-shadow: 0 24px 70px rgba(34,29,22,.18); }
+html[data-theme="light"] .ha-account-popover > span { color: rgba(27,26,24,.5); }
+html[data-theme="light"] .ha-account-popover > button { border-color: rgba(25,24,22,.13); color: rgba(27,26,24,.75); }
+html[data-theme="light"] .ha-account-popover > button kbd { color: rgba(27,26,24,.42); }
+
+@media (max-width: 1120px) {
+    .ha-header-inner,
+    body.ha-session-open .ha-header-inner { grid-template-columns: 176px minmax(270px, 1fr) auto; padding-inline: 20px; }
+    .ha-tool-nav button { min-width: 108px; padding-inline: 13px; }
+    .ha-tool-nav button.active::after { inset-inline: 13px; }
+    .ha-header-context .ha-archive-state,
+    .ha-header-session,
+    .ha-quality-badge { display: none !important; }
+}
+
+@media (max-width: 720px) {
+    .ha-header-inner,
+    body.ha-session-open .ha-header-inner { grid-template-columns: 58px minmax(0, 1fr) auto; padding-inline: 10px; }
+    .ha-brand { min-height: 64px; border-right: 1px solid rgba(245,241,232,.1); }
+    .ha-brand > span { display: none; }
+    .ha-tool-nav { overflow-x: auto; }
+    .ha-tool-nav button { min-width: 68px; min-height: 64px; padding-inline: 9px; align-items: center; }
+    .ha-tool-nav button > span { font-size: 8px; }
+    .ha-tool-nav button > small { display: none; }
+    .ha-tool-nav button.active::after { inset-inline: 9px; }
+    .ha-header-context { padding-left: 7px !important; }
+    .ha-header-export,
+    .ha-header-context .ha-btn { display: none !important; }
+    .ha-account-trigger { width: 40px; height: 40px; }
+    .ha-account-popover { position: fixed; top: 72px; right: 10px; width: min(252px, calc(100vw - 20px)); }
 }

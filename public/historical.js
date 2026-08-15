@@ -51,6 +51,32 @@
         const customOn = $('h-view-custom-analysis')?.classList.contains('active');
         const preparingOn = $('h-view-preparing')?.classList.contains('active');
         document.body.classList.toggle('ha-session-open', !!(analysisOn || customOn || preparingOn));
+        syncToolHeader();
+    }
+
+    function syncToolHeader() {
+        const explorerOn = $('h-view-explorer')?.classList.contains('active');
+        const analysisOn = $('h-view-analysis')?.classList.contains('active');
+        const customOn = $('h-view-custom-analysis')?.classList.contains('active');
+        const preparingOn = $('h-view-preparing')?.classList.contains('active');
+        const hasSession = Boolean(S.activeSessionId);
+        const runs = $('h-back-to-sessions');
+        const brief = $('h-tool-brief');
+        const analyze = $('h-btn-custom-analysis');
+        if (brief) {
+            brief.hidden = !hasSession;
+            brief.disabled = preparingOn;
+        }
+        if (analyze) {
+            analyze.hidden = !hasSession || !canAccessCustomAnalysis;
+            analyze.disabled = preparingOn;
+        }
+        [[runs, explorerOn], [brief, analysisOn || preparingOn], [analyze, customOn]].forEach(([button, active]) => {
+            if (!button) return;
+            button.classList.toggle('active', Boolean(active));
+            if (active) button.setAttribute('aria-current', 'page');
+            else button.removeAttribute('aria-current');
+        });
     }
 
     function currentTheme() {
@@ -67,7 +93,7 @@
             toggle.setAttribute('aria-pressed', String(light));
             toggle.setAttribute('aria-label', `Switch to ${light ? 'dark' : 'light'} theme`);
         }
-        if (label) label.textContent = next === 'light' ? 'Dark' : 'Light';
+        if (label) label.textContent = next === 'light' ? 'Dark theme' : 'Light theme';
         if (persist) {
             try { localStorage.setItem('ecovolt_historical_theme', next); } catch (_) { }
         }
@@ -81,6 +107,70 @@
     applyHistoricalTheme(currentTheme(), false);
     $('h-theme-toggle')?.addEventListener('click', () => {
         applyHistoricalTheme(currentTheme() === 'light' ? 'dark' : 'light');
+        setHistoricalAccountOpen(false);
+    });
+
+    function setHistoricalAccountOpen(open) {
+        const trigger = $('h-account-trigger');
+        const popover = $('h-account-popover');
+        if (!trigger || !popover) return;
+        popover.hidden = !open;
+        trigger.setAttribute('aria-expanded', String(open));
+    }
+
+    function updateHistoricalAccount() {
+        const auth = window.AuthModule;
+        const authenticated = Boolean(auth?.isAuthenticated?.());
+        const user = auth?.getCurrentUser?.() || null;
+        const profile = auth?.getCurrentProfile?.() || null;
+        const displayName = profile?.name || user?.name || user?.email || 'EcoVolt account';
+        const avatar = $('h-account-avatar');
+        const guestIcon = $('h-account-guest-icon');
+        if (avatar) {
+            avatar.hidden = !authenticated;
+            avatar.textContent = String(displayName).trim().charAt(0).toUpperCase() || 'U';
+        }
+        if (guestIcon) guestIcon.hidden = authenticated;
+        if ($('h-account-name')) $('h-account-name').textContent = authenticated ? displayName : 'Guest access';
+        if ($('h-account-meta')) $('h-account-meta').textContent = authenticated
+            ? `${profile?.role || 'guest'} · ${profile?.approval_status || 'active'}`
+            : 'Sign in to open historical runs';
+        if ($('h-account-admin')) $('h-account-admin').hidden = !Boolean(auth?.hasPermission?.('canAccessAdmin'));
+        if ($('h-account-signout')) $('h-account-signout').hidden = !authenticated;
+        if ($('h-account-signin')) $('h-account-signin').hidden = authenticated;
+    }
+
+    $('h-account-trigger')?.addEventListener('click', event => {
+        event.stopPropagation();
+        setHistoricalAccountOpen($('h-account-popover')?.hidden !== false);
+    });
+    $('h-account-menu')?.addEventListener('click', event => event.stopPropagation());
+    document.addEventListener('click', () => setHistoricalAccountOpen(false));
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') setHistoricalAccountOpen(false);
+        const target = event.target;
+        const typing = target instanceof HTMLElement && (target.matches('input, textarea, select') || target.isContentEditable);
+        if (!typing && !event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 't') {
+            event.preventDefault();
+            $('h-theme-toggle')?.click();
+        }
+    });
+    $('h-account-admin')?.addEventListener('click', () => {
+        setHistoricalAccountOpen(false);
+        window.AuthUI?.showAdminDashboard?.();
+    });
+    $('h-account-signin')?.addEventListener('click', () => {
+        setHistoricalAccountOpen(false);
+        window.AuthUI?.showLoginModal?.();
+    });
+    $('h-account-signout')?.addEventListener('click', async () => {
+        setHistoricalAccountOpen(false);
+        await window.AuthModule?.signOut?.();
+        window.location.reload();
+    });
+    window.addEventListener('auth-state-changed', () => {
+        updateHistoricalAccount();
+        if (window.AuthModule?.isAuthenticated?.() && $('h-auth-gate')?.style.display === 'flex') window.location.reload();
     });
 
     // ── Web Worker Config ──
@@ -557,10 +647,8 @@
         $('h-view-custom-analysis').classList.remove('active');
         $('h-view-preparing').classList.remove('active');
         $('h-view-analysis').classList.add('active');
-        $('h-back-to-sessions').style.display = '';
         showTOC(false);
         showAnalysisActions(true);
-        $('h-btn-custom-analysis').style.display = canAccessCustomAnalysis ? '' : 'none';
         $('h-btn-collapse-all').style.display = 'none';
         syncHistoricalMobileChrome();
     }
@@ -569,7 +657,6 @@
         $('h-view-analysis').classList.remove('active');
         $('h-view-preparing').classList.remove('active');
         $('h-view-custom-analysis').classList.add('active');
-        $('h-btn-custom-analysis').style.display = 'none';
         $('h-btn-collapse-all').style.display = 'none';
         showTOC(false);
         syncHistoricalMobileChrome();
@@ -580,7 +667,6 @@
         $('h-view-analysis').classList.remove('active');
         $('h-view-custom-analysis').classList.remove('active');
         $('h-view-preparing').classList.add('active');
-        $('h-back-to-sessions').style.display = '';
         showTOC(false);
         showAnalysisActions(false);
         syncHistoricalMobileChrome();
@@ -829,7 +915,6 @@
         $('h-view-custom-analysis').classList.remove('active');
         $('h-view-preparing').classList.remove('active');
         $('h-view-explorer').classList.add('active');
-        $('h-back-to-sessions').style.display = 'none';
         $('h-active-session-label').textContent = '';
         $('h-quality-badge').style.display = 'none';
         showTOC(false);
@@ -869,10 +954,10 @@
         initCustomAnalysis();
     });
 
-    $('h-ca-back')?.addEventListener('click', () => {
+    function showDecisionBrief() {
+        if (!S.activeSessionId || $('h-view-preparing')?.classList.contains('active')) return;
         $('h-view-custom-analysis').classList.remove('active');
         $('h-view-analysis').classList.add('active');
-        $('h-btn-custom-analysis').style.display = canAccessCustomAnalysis ? '' : 'none';
         $('h-btn-collapse-all').style.display = '';
         showTOC(true);
         syncHistoricalMobileChrome();
@@ -881,7 +966,8 @@
         }
         // Resize standard charts when returning
         setTimeout(() => Object.values(HA.charts).forEach(c => { try { c.resize() } catch (e) { } }), 50);
-    });
+    }
+    $('h-tool-brief')?.addEventListener('click', showDecisionBrief);
 
     // ── Render All Analysis ──
     const renderedHistoricalSections = new Set();
@@ -2578,11 +2664,7 @@
         if (btn) btn.style.display = show ? '' : 'none';
         const collapseBtn = $('h-btn-collapse-all');
         if (collapseBtn) collapseBtn.style.display = 'none';
-        const customBtn = $('h-btn-custom-analysis');
-        if (customBtn) {
-            const briefIsActive = $('h-view-analysis')?.classList.contains('active');
-            customBtn.style.display = show && briefIsActive && canAccessCustomAnalysis ? '' : 'none';
-        }
+        syncToolHeader();
     }
 
     // ── Floating TOC ──
@@ -3028,7 +3110,7 @@
             }
             if (command === 'layout') $('h-ca-customize')?.click();
             if (command === 'export') $('h-ca-export-csv')?.click();
-            if (command === 'brief') $('h-ca-back')?.click();
+            if (command === 'brief') $('h-tool-brief')?.click();
             if (commandDialog?.open) commandDialog.close();
         };
 
@@ -3074,10 +3156,7 @@
                 openCommandDialog();
                 return;
             }
-            if (!workspaceIsVisible()) {
-                if (!isTypingTarget(event.target) && event.key.toLowerCase() === 't') $('h-theme-toggle')?.click();
-                return;
-            }
+            if (!workspaceIsVisible()) return;
             if (modifier && event.key === 'Enter') { event.preventDefault(); runWorkspaceCommand('run'); return; }
             if (event.altKey && ['1', '2', '3', '4'].includes(event.key)) {
                 event.preventDefault();
@@ -3089,7 +3168,6 @@
             const command = { f: 'filter', l: 'layout', e: 'export' }[event.key.toLowerCase()];
             if (command) { event.preventDefault(); runWorkspaceCommand(command); return; }
             if (event.key === '?') { event.preventDefault(); shortcutDialog?.showModal(); }
-            if (event.key.toLowerCase() === 't') { event.preventDefault(); $('h-theme-toggle')?.click(); }
         });
 
         $('h-ca-add-y-axis')?.addEventListener('click', () => addYAxisField());
@@ -4380,8 +4458,11 @@
                 console.warn('[historical] Auth init failed:', e);
             }
         }
+        updateHistoricalAccount();
 
-        const ok = await checkPermission(); if (!ok) return;
+        const ok = await checkPermission();
+        syncToolHeader();
+        if (!ok) return;
         buildTOC();
         initCollapsibles();
         initMetricToggles();
