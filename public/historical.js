@@ -4142,6 +4142,12 @@
                 playWorkspaceRewind();
             }
             if (command === 'layout') $('h-ca-customize')?.click();
+            if (command === 'full-data') {
+                const toggle = $('h-ca-full-data-toggle');
+                if (toggle?.checked) toast('Full-session data is already active.');
+                else if (!toggle?.disabled) toggle.click();
+                else toast('Full-session data is not available yet.');
+            }
             if (command === 'export') $('h-ca-export-csv')?.click();
             if (command === 'brief') $('h-tool-brief')?.click();
             if (commandDialog?.open) commandDialog.close();
@@ -4197,6 +4203,7 @@
                 return;
             }
             if (event.altKey && event.key.toLowerCase() === 'b') { event.preventDefault(); runWorkspaceCommand('brief'); return; }
+            if (event.altKey && event.key.toLowerCase() === 'f') { event.preventDefault(); runWorkspaceCommand('full-data'); return; }
             if (isTypingTarget(event.target) || commandDialog?.open || shortcutDialog?.open) return;
             if (activeWorkspaceMode === 'rewind') {
                 if (event.code === 'Space') { event.preventDefault(); playWorkspaceRewind(); return; }

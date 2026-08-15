@@ -5071,6 +5071,10 @@ html[data-theme="light"] body.hist-page .auth-modal-footer { border-color: rgba(
 .haw-data-scope[data-state="restricted"] { cursor: not-allowed; opacity: .52; }
 .haw-data-scope:has(input:disabled) { cursor: default; }
 @keyframes haw-data-scope-pulse { to { opacity: .35; } }
+html[data-theme="light"] .haw-data-scope-switch { border-color: rgba(27,26,24,.28); background: #fffdf8; }
+html[data-theme="light"] .haw-data-scope-switch::after { background: rgba(27,26,24,.42); }
+html[data-theme="light"] .haw-data-scope input:checked + .haw-data-scope-switch { border-color: #5c9a62; background: rgba(92,154,98,.1); }
+html[data-theme="light"] .haw-data-scope input:checked + .haw-data-scope-switch::after { background: #4f8f57; }
 .haw-workspace-main .haw-context-actions { justify-self: end; }
 .haw-workspace-main .haw-grid { padding-inline: 16px; }
 .haw-grid[data-mode="rewind"] [data-workspace-panel="rewind"] { grid-column: 1 / -1; }
