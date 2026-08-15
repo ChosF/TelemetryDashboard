@@ -5179,6 +5179,48 @@ body.hist-page .auth-modal-content {
 .hchat-message-body th { color: var(--hc-ink); background: var(--hc-panel-2); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
 .hchat-math-block { max-width: 100%; margin: 18px 0; padding: 14px; overflow-x: auto; border: 1px solid var(--hc-line); background: var(--hc-panel); }
 .hchat-math-inline { display: inline-block; max-width: 100%; vertical-align: middle; }
+.hchat-chart-card {
+    width: 100%;
+    margin: 22px 0 18px;
+    overflow: hidden;
+    border: 1px solid var(--hc-line);
+    background: var(--hc-panel);
+    animation: hchat-chart-in .42s cubic-bezier(.16,1,.3,1) both;
+}
+.hchat-chart-card > header {
+    min-height: 64px;
+    padding: 13px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    border-bottom: 1px solid var(--hc-line);
+}
+.hchat-chart-card > header div { min-width: 0; }
+.hchat-chart-card > header span {
+    display: block;
+    color: var(--hc-orange);
+    font: 700 8px/1 "Plus Jakarta Sans", sans-serif;
+    letter-spacing: .07em;
+}
+.hchat-chart-card > header strong {
+    display: block;
+    margin-top: 7px;
+    overflow: hidden;
+    color: var(--hc-ink);
+    font: 600 13px/1.25 "Plus Jakarta Sans", sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.hchat-chart-card > header small {
+    flex: 0 0 auto;
+    color: var(--hc-faint);
+    font: 600 8px/1 "Plus Jakarta Sans", sans-serif;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+}
+.hchat-chart-plot { width: 100%; height: 292px; }
+.hchat-chart-card.is-unavailable { padding: 18px; color: var(--hc-muted); font-size: 11px; }
 .hchat-thinking { min-height: 28px; display: flex; align-items: center; gap: 7px; color: var(--hc-muted); }
 .hchat-thinking i { width: 5px; height: 5px; border-radius: 50%; background: var(--hc-orange); animation: hchat-dot 1.1s ease-in-out infinite; }
 .hchat-thinking i:nth-child(2) { animation-delay: .12s; }
@@ -5268,6 +5310,9 @@ html[data-theme="light"] .hchat-composer-box button:disabled { color: var(--hc-f
     .hchat-message { width: calc(100% - 24px); padding: 23px 8px 25px 25px; grid-template-columns: 1fr; gap: 10px; }
     .hchat-message-rail { left: 7px; top: 25px; }
     .hchat-message-body { font-size: 12px; }
+    .hchat-chart-card > header { align-items: flex-start; }
+    .hchat-chart-card > header small { display: none; }
+    .hchat-chart-plot { height: 250px; }
     .hchat-welcome { width: calc(100% - 36px); padding-block: 42px; justify-content: flex-start; }
     .hchat-welcome h2 { font-size: clamp(38px, 12vw, 55px); }
     .hchat-prompts { grid-template-columns: 1fr; }
@@ -5283,6 +5328,7 @@ html[data-theme="light"] .hchat-composer-box button:disabled { color: var(--hc-f
 
 @keyframes hchat-shell-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes hchat-message-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
+@keyframes hchat-chart-in { from { opacity: 0; transform: translateY(8px) scale(.992); } to { opacity: 1; transform: none; } }
 @keyframes hchat-pulse { 50% { box-shadow: 0 0 0 6px rgba(255,107,53,.1); } }
 @keyframes hchat-dot { 0%, 60%, 100% { opacity: .25; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 
@@ -5290,6 +5336,7 @@ html[data-theme="light"] .hchat-composer-box button:disabled { color: var(--hc-f
     .hchat-shell,
     .hchat-message,
     .hchat-welcome,
+    .hchat-chart-card,
     .hchat-thinking i,
     .hchat-status i { animation: none !important; }
     .hchat-sidebar { transition: none; }

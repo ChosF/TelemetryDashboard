@@ -117,6 +117,7 @@
             renderCoreMap();
         }
         if (S.data.length && $('h-ca-workspace-grid')?.dataset.mode === 'track') setTimeout(renderWorkspaceTrack, 0);
+        window.SessionChatUI?.refreshCharts?.();
     }
 
     applyHistoricalTheme(currentTheme(), false);
@@ -1077,6 +1078,7 @@
             sessionId: S.activeSessionId,
             sessionName: S.activeSessionMeta?.session_name || S.activeSessionId.slice(0, 12),
             analysis: S.analysis,
+            data: S.data,
         });
         if (!options.skipHistory) {
             updateRoute(
