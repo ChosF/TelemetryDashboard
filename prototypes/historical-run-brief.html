@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0a0a">
+  <title>EcoVolt Historical — Run Brief</title>
+  <meta name="description" content="EcoVolt historical analysis prototype: a conclusion-first post-run brief.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: {
+      colors: { circuit:'#0A0A0A', instrument:'#141414', graphite:'#1E1E1E', slate:'#2A2A2A', voltage:'#FF6B35', ember:'#FF4500', energy:'#22C55E', telemetry:'#14B8A6', signal:'#06B6D4', paper:'#FAFAFA' },
+      fontFamily: { sans:['Plus Jakarta Sans','sans-serif'], data:['Space Grotesk','monospace'] },
+      boxShadow: { lift:'0 24px 80px rgba(0,0,0,.42)' }
+    }}};
+  </script>
+  <style>
+    :root{--line:rgba(250,250,250,.09);--line2:rgba(250,250,250,.18);--muted:rgba(250,250,250,.62);--quiet:rgba(250,250,250,.36)}
+    *{box-sizing:border-box} html{color-scheme:dark;background:#0a0a0a} body{margin:0;min-width:320px;overflow-x:hidden;background:#0a0a0a;color:#fafafa}
+    body:before{content:"";position:fixed;inset:0;z-index:-1;background-image:linear-gradient(rgba(255,107,53,.024) 1px,transparent 1px),linear-gradient(90deg,rgba(255,107,53,.024) 1px,transparent 1px);background-size:80px 80px}
+    button,summary,input{font:inherit} button:focus-visible,summary:focus-visible,input:focus-visible{outline:2px solid #ff6b35;outline-offset:3px}
+    .data{font-family:"Space Grotesk",monospace;font-variant-numeric:tabular-nums}.hairline{border-color:var(--line)}.muted{color:var(--muted)}.quiet{color:var(--quiet)}
+    .reveal{animation:rise .65s cubic-bezier(.16,1,.3,1) both}.delay-1{animation-delay:.08s}.delay-2{animation-delay:.16s}.delay-3{animation-delay:.24s}
+    @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+    .corner{position:relative}.corner:before,.corner:after{content:"";position:absolute;width:16px;height:16px;pointer-events:none}.corner:before{left:-1px;top:-1px;border-left:2px solid #ff6b35;border-top:2px solid #ff6b35}.corner:after{right:-1px;bottom:-1px;border-right:2px solid #ff6b35;border-bottom:2px solid #ff6b35}
+    .trace{stroke-dasharray:4000;stroke-dashoffset:4000;animation:draw 1.4s .2s ease-out forwards}@keyframes draw{to{stroke-dashoffset:0}}
+    .chart-grid line{stroke:rgba(250,250,250,.08);stroke-width:1}.chart-label{fill:rgba(250,250,250,.34);font:10px "Space Grotesk"}
+    .modal{opacity:0;pointer-events:none;transition:opacity .25s ease}.modal.open{opacity:1;pointer-events:auto}.drawer{transform:translateX(22px);transition:transform .35s cubic-bezier(.16,1,.3,1)}.open .drawer{transform:none}
+    .series.off{opacity:.25}.series-button[aria-pressed="false"]{opacity:.4;text-decoration:line-through}
+    input[type=range]{accent-color:#ff6b35}
+    @media(max-width:820px){.desktop-only{display:none!important}.top-grid{grid-template-columns:64px minmax(0,1fr) 48px!important;padding-inline:0!important}.top-grid>a{justify-content:center;padding:0!important}.top-grid>div{padding-inline:10px!important}.top-grid>div:last-child{padding:0!important}.mobile-stack{grid-template-columns:minmax(0,1fr)!important}.mobile-stack>*{grid-column:1!important;min-width:0}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.hero-score{font-size:72px!important}.brand-copy{display:none}.export-button{width:48px;padding:0!important;font-size:0!important}.export-button:after{content:'↗';font-size:17px}.session-trigger-copy{max-width:145px}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body class="font-sans antialiased selection:bg-voltage selection:text-circuit">
+  <header class="sticky top-0 z-40 border-b hairline bg-circuit/95 backdrop-blur-md">
+    <div class="top-grid mx-auto grid min-h-[72px] max-w-[1600px] grid-cols-[auto_1fr_auto] items-stretch px-5 lg:px-10">
+      <a href="#" class="flex items-center gap-3 border-r hairline pr-6 no-underline text-paper" aria-label="EcoVolt dashboard">
+        <span class="relative grid h-8 w-8 place-items-center border border-voltage/60"><i class="h-[3px] w-4 -skew-x-[28deg] bg-voltage"></i></span>
+        <span class="brand-copy text-[12px] font-extrabold tracking-[.16em]">ECOVOLT <small class="data block text-[8px] font-medium tracking-[.18em] quiet">ANALYSIS / 01</small></span>
+      </a>
+      <div class="flex min-w-0 items-center gap-4 px-5 lg:px-7">
+        <button id="sessionButton" class="group flex min-w-0 items-center gap-3 text-left" aria-label="Choose another session">
+          <span class="grid h-7 w-7 place-items-center border hairline text-[11px] text-voltage transition group-hover:border-voltage">⌄</span>
+          <span class="session-trigger-copy min-w-0"><b id="sessionName" class="block truncate text-[13px]">Efficiency Run 07</b><span id="sessionMeta" class="data block truncate text-[9px] quiet">AUG 12 · 14:32 · 42M 18S</span></span>
+        </button>
+        <span class="desktop-only ml-auto flex items-center gap-2 data text-[9px] text-energy"><i class="h-1.5 w-1.5 rounded-full bg-energy"></i> ARCHIVE READY · 100%</span>
+      </div>
+      <nav class="flex items-center gap-2 border-l hairline pl-4">
+        <button id="toolsButton" class="hidden min-h-11 border hairline px-4 text-[9px] font-extrabold uppercase tracking-[.12em] transition hover:border-voltage sm:block">Analysis tools</button>
+        <button class="export-button min-h-11 bg-voltage px-4 text-[9px] font-extrabold uppercase tracking-[.12em] text-circuit transition hover:bg-ember sm:px-5">Export brief ↗</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-[1600px] px-5 pb-16 lg:px-10">
+    <section class="reveal grid min-h-[176px] grid-cols-1 items-center border-b hairline py-8 lg:grid-cols-[1fr_auto] lg:py-10">
+      <div>
+        <div class="mb-4 flex items-center gap-3 text-[9px] font-bold uppercase tracking-[.25em] text-voltage"><span>01</span><i class="h-px w-8 bg-voltage"></i>Run conclusion</div>
+        <h1 class="max-w-4xl text-[clamp(30px,4vw,62px)] font-extrabold leading-[.98] tracking-[-.045em]">A clean run with one clear<br class="desktop-only"> efficiency opportunity.</h1>
+      </div>
+      <div class="mt-7 flex items-end gap-3 border-l-0 hairline lg:mt-0 lg:border-l lg:pl-10">
+        <strong class="hero-score data text-[92px] font-medium leading-[.78] tracking-[-.08em]">82.4</strong><span class="pb-1"><b class="data block text-[12px]">/ 100</b><small class="mt-2 block text-[8px] font-bold uppercase tracking-[.16em] text-energy">Strong run</small></span>
+      </div>
+    </section>
+
+    <section class="reveal delay-1 mobile-stack grid grid-cols-12 border-l hairline">
+      <article class="corner col-span-8 border-b border-r hairline bg-instrument/90 p-6 lg:p-8">
+        <div class="flex flex-wrap items-start justify-between gap-5">
+          <div><p class="m-0 text-[9px] font-bold uppercase tracking-[.2em] muted">Decision summary</p><h2 class="mt-2 max-w-2xl text-[23px] font-bold tracking-[-.03em]">Lift 2.8 seconds earlier into sector 3.</h2><p class="mt-2 max-w-2xl text-[12px] leading-6 muted">Model estimates a <b class="text-paper">3.7% energy reduction</b> with no meaningful lap-time penalty. Confidence is high across 4 comparable runs.</p></div>
+          <span class="border border-energy/40 bg-energy/10 px-3 py-2 data text-[9px] text-energy">HIGH CONFIDENCE · 91%</span>
+        </div>
+        <div class="metric-grid mt-8 grid grid-cols-4 border-l border-t hairline">
+          <div class="border-b border-r hairline p-4"><span class="block text-[8px] font-bold uppercase tracking-[.14em] quiet">Energy used</span><strong class="data mt-3 block text-2xl font-medium">1.84 <small class="text-[11px] muted">MJ</small></strong><span class="data mt-2 block text-[9px] text-energy">−4.2% vs baseline</span></div>
+          <div class="border-b border-r hairline p-4"><span class="block text-[8px] font-bold uppercase tracking-[.14em] quiet">Mean speed</span><strong class="data mt-3 block text-2xl font-medium">27.6 <small class="text-[11px] muted">km/h</small></strong><span class="data mt-2 block text-[9px] muted">σ 2.1 km/h</span></div>
+          <div class="border-b border-r hairline p-4"><span class="block text-[8px] font-bold uppercase tracking-[.14em] quiet">Distance</span><strong class="data mt-3 block text-2xl font-medium">18.42 <small class="text-[11px] muted">km</small></strong><span class="data mt-2 block text-[9px] muted">6 laps complete</span></div>
+          <div class="border-b border-r hairline p-4"><span class="block text-[8px] font-bold uppercase tracking-[.14em] quiet">Data quality</span><strong class="data mt-3 block text-2xl font-medium">99.2 <small class="text-[11px] muted">%</small></strong><span class="data mt-2 block text-[9px] text-energy">Excellent</span></div>
+        </div>
+      </article>
+      <aside class="col-span-4 border-b border-r hairline bg-circuit/80 p-6 lg:p-8">
+        <div class="flex items-center justify-between"><p class="m-0 text-[9px] font-bold uppercase tracking-[.2em] muted">What deserves attention</p><span class="data text-[9px] quiet">03 SIGNALS</span></div>
+        <ol class="mt-5 divide-y divide-white/[.08]">
+          <li class="grid grid-cols-[28px_1fr_auto] gap-3 py-4"><span class="data text-[10px] text-voltage">01</span><div><b class="text-[12px]">Late coast transition</b><p class="mt-1 text-[10px] leading-4 muted">Sector 3 · lap 4 · 31:08</p></div><button class="jump text-[9px] font-bold uppercase text-voltage" data-time="74">View</button></li>
+          <li class="grid grid-cols-[28px_1fr_auto] gap-3 py-4"><span class="data text-[10px] text-signal">02</span><div><b class="text-[12px]">Current oscillation</b><p class="mt-1 text-[10px] leading-4 muted">6.4 A spread for 11.2 s</p></div><button class="jump text-[9px] font-bold uppercase text-voltage" data-time="46">View</button></li>
+          <li class="grid grid-cols-[28px_1fr_auto] gap-3 py-4"><span class="data text-[10px] text-energy">03</span><div><b class="text-[12px]">Best launch profile</b><p class="mt-1 text-[10px] leading-4 muted">Lap 5 · 8% below median Wh</p></div><button class="jump text-[9px] font-bold uppercase text-voltage" data-time="83">View</button></li>
+        </ol>
+      </aside>
+    </section>
+
+    <section class="reveal delay-2 border-x border-b hairline bg-instrument/80">
+      <header class="flex flex-wrap items-end justify-between gap-4 border-b hairline px-6 py-5 lg:px-8">
+        <div><div class="mb-2 flex items-center gap-3 text-[9px] font-bold uppercase tracking-[.22em] text-voltage"><span>02</span><i class="h-px w-7 bg-voltage"></i>Linked telemetry</div><h2 class="text-xl font-bold tracking-[-.025em]">The run, in one view</h2></div>
+        <div class="flex flex-wrap gap-2" id="seriesControls">
+          <button class="series-button min-h-9 border border-voltage bg-voltage/10 px-3 data text-[9px]" data-series="speed" aria-pressed="true"><i class="mr-2 inline-block h-1.5 w-1.5 bg-voltage"></i>Speed</button>
+          <button class="series-button min-h-9 border hairline px-3 data text-[9px]" data-series="power" aria-pressed="true"><i class="mr-2 inline-block h-1.5 w-1.5 bg-telemetry"></i>Power</button>
+          <button class="series-button min-h-9 border hairline px-3 data text-[9px]" data-series="target" aria-pressed="true"><i class="mr-2 inline-block h-1.5 w-1.5 bg-paper/60"></i>Optimal band</button>
+        </div>
+      </header>
+      <div class="relative overflow-hidden px-4 pt-5 lg:px-8">
+        <div class="absolute left-8 top-7 z-10 data text-[9px] quiet">KM/H</div><div class="absolute right-8 top-7 z-10 data text-[9px] quiet">WATTS</div>
+        <svg class="h-[340px] w-full" viewBox="0 0 1200 340" preserveAspectRatio="none" role="img" aria-label="Speed and power over the selected run">
+          <g class="chart-grid"><line x1="0" y1="55" x2="1200" y2="55"/><line x1="0" y1="125" x2="1200" y2="125"/><line x1="0" y1="195" x2="1200" y2="195"/><line x1="0" y1="265" x2="1200" y2="265"/><line x1="150" y1="25" x2="150" y2="300"/><line x1="400" y1="25" x2="400" y2="300"/><line x1="650" y1="25" x2="650" y2="300"/><line x1="900" y1="25" x2="900" y2="300"/><line x1="1150" y1="25" x2="1150" y2="300"/></g>
+          <path class="series trace" data-series-path="target" d="M0 158 H1200" fill="none" stroke="rgba(250,250,250,.32)" stroke-width="34"/>
+          <path class="series trace" data-series-path="power" d="M0 283 C55 274 75 118 128 106 S205 186 257 174 S342 68 395 92 S475 236 530 204 S603 76 660 111 S748 220 800 188 S875 63 934 84 S1014 220 1070 174 S1150 75 1200 101" fill="none" stroke="#14b8a6" stroke-width="2" opacity=".8"/>
+          <path class="series trace" data-series-path="speed" d="M0 292 C46 278 72 191 125 168 S210 146 262 152 S347 130 400 139 S478 150 535 144 S617 155 673 143 S754 153 810 146 S892 131 947 143 S1034 153 1087 139 S1152 146 1200 132" fill="none" stroke="#ff6b35" stroke-width="3"/>
+          <g id="cursor"><line id="cursorLine" x1="888" y1="24" x2="888" y2="301" stroke="#fafafa" stroke-width="1" opacity=".62"/><circle id="cursorDot" cx="888" cy="131" r="5" fill="#ff6b35" stroke="#0a0a0a" stroke-width="2"/></g>
+          <g class="chart-label"><text x="0" y="327">00:00</text><text x="286" y="327">10:34</text><text x="586" y="327">21:09</text><text x="886" y="327">31:43</text><text x="1150" y="327">42:18</text></g>
+        </svg>
+        <div class="grid gap-4 border-t hairline py-4 md:grid-cols-[1fr_auto] md:items-center">
+          <div><input id="timeline" class="w-full" type="range" min="0" max="100" value="74" aria-label="Chart cursor"><div class="mt-1 flex justify-between data text-[8px] quiet"><span>RUN START</span><span>DRAG TO INSPECT</span><span>RUN END</span></div></div>
+          <div class="grid min-w-[310px] grid-cols-3 border-l hairline pl-4"><div><span class="block text-[8px] uppercase tracking-[.12em] quiet">Cursor</span><b id="cursorTime" class="data mt-1 block text-[12px]">31:18</b></div><div><span class="block text-[8px] uppercase tracking-[.12em] quiet">Speed</span><b id="cursorSpeed" class="data mt-1 block text-[12px]">28.1 km/h</b></div><div><span class="block text-[8px] uppercase tracking-[.12em] quiet">Power</span><b id="cursorPower" class="data mt-1 block text-[12px]">312 W</b></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="reveal delay-3 grid border-x border-b hairline lg:grid-cols-[1.35fr_.65fr]">
+      <article class="border-b hairline bg-circuit/80 p-6 lg:border-b-0 lg:border-r lg:p-8">
+        <div class="mb-5 flex items-end justify-between"><div><div class="mb-2 text-[9px] font-bold uppercase tracking-[.22em] text-voltage">03 / Segment review</div><h2 class="text-xl font-bold">Where the run changed</h2></div><button class="text-[9px] font-bold uppercase tracking-[.1em] text-voltage">Open lap table ↗</button></div>
+        <div class="overflow-x-auto"><table class="w-full min-w-[640px] border-collapse text-left"><thead class="data text-[8px] uppercase tracking-[.12em] quiet"><tr class="border-b hairline"><th class="py-3 font-medium">Segment</th><th class="font-medium">Duration</th><th class="font-medium">Mean speed</th><th class="font-medium">Energy</th><th class="font-medium">Consistency</th><th class="font-medium">Assessment</th></tr></thead><tbody class="data text-[11px]"><tr class="border-b hairline"><td class="py-4 font-sans font-semibold">Launch / S1</td><td>02:48</td><td>24.7 km/h</td><td>129 Wh</td><td>± 1.2%</td><td class="text-energy">Best profile</td></tr><tr class="border-b hairline"><td class="py-4 font-sans font-semibold">Cruise / S2</td><td>05:13</td><td>29.1 km/h</td><td>211 Wh</td><td>± 2.8%</td><td class="muted">On target</td></tr><tr class="border-b hairline bg-voltage/[.05]"><td class="py-4 font-sans font-semibold">Approach / S3</td><td>03:44</td><td>27.8 km/h</td><td>184 Wh</td><td>± 6.1%</td><td class="text-voltage">Review coast</td></tr><tr><td class="py-4 font-sans font-semibold">Finish / S4</td><td>02:21</td><td>28.4 km/h</td><td>96 Wh</td><td>± 2.0%</td><td class="muted">On target</td></tr></tbody></table></div>
+      </article>
+      <aside class="bg-instrument/90 p-6 lg:p-8"><div class="mb-6 text-[9px] font-bold uppercase tracking-[.22em] text-voltage">Method confidence</div><div class="space-y-6"><div><div class="flex justify-between text-[10px]"><span>Energy model fit</span><b class="data">R² 0.94</b></div><div class="mt-2 h-1 bg-graphite"><i class="block h-full w-[94%] bg-energy"></i></div></div><div><div class="flex justify-between text-[10px]"><span>Optimal-speed confidence</span><b class="data">78%</b></div><div class="mt-2 h-1 bg-graphite"><i class="block h-full w-[78%] bg-voltage"></i></div></div><div><div class="flex justify-between text-[10px]"><span>Samples retained</span><b class="data">12,448 / 12,552</b></div><div class="mt-2 h-1 bg-graphite"><i class="block h-full w-[99%] bg-signal"></i></div></div></div><button id="methodButton" class="mt-8 min-h-11 w-full border hairline text-[9px] font-extrabold uppercase tracking-[.12em] transition hover:border-voltage">View methodology</button></aside>
+    </section>
+  </main>
+
+  <div id="sessionModal" class="modal fixed inset-0 z-50 bg-black/75" role="dialog" aria-modal="true" aria-labelledby="session-title">
+    <div class="drawer ml-auto h-full w-full max-w-[520px] overflow-y-auto border-l hairline bg-instrument p-6 shadow-lift lg:p-9">
+      <div class="flex items-center justify-between"><div><span class="text-[9px] font-bold uppercase tracking-[.22em] text-voltage">Session archive</span><h2 id="session-title" class="mt-2 text-2xl font-bold">Choose a run</h2></div><button class="close-modal grid h-11 w-11 place-items-center border hairline" aria-label="Close">×</button></div>
+      <label class="mt-8 block"><span class="text-[9px] font-bold uppercase tracking-[.12em] muted">Search sessions</span><input class="mt-2 min-h-12 w-full border hairline bg-circuit px-4 text-[12px] focus:border-voltage" placeholder="Name, date, driver…"></label>
+      <div class="mt-6 space-y-2" id="sessionList">
+        <button class="session-choice w-full border border-voltage bg-voltage/[.06] p-5 text-left" data-name="Efficiency Run 07" data-meta="AUG 12 · 14:32 · 42M 18S"><span class="flex justify-between"><b>Efficiency Run 07</b><small class="data text-energy">99.2% DATA</small></span><span class="data mt-2 block text-[10px] quiet">12 AUG 2026 · A. MORALES · 18.42 KM</span></button>
+        <button class="session-choice w-full border hairline p-5 text-left transition hover:border-voltage" data-name="Baseline Validation 03" data-meta="AUG 10 · 09:18 · 39M 51S"><span class="flex justify-between"><b>Baseline Validation 03</b><small class="data muted">98.8% DATA</small></span><span class="data mt-2 block text-[10px] quiet">10 AUG 2026 · M. REYES · 17.95 KM</span></button>
+        <button class="session-choice w-full border hairline p-5 text-left transition hover:border-voltage" data-name="Coast Strategy A/B" data-meta="AUG 08 · 16:05 · 45M 06S"><span class="flex justify-between"><b>Coast Strategy A/B</b><small class="data muted">97.9% DATA</small></span><span class="data mt-2 block text-[10px] quiet">08 AUG 2026 · A. MORALES · 19.06 KM</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toolsModal" class="modal fixed inset-0 z-50 bg-black/75" role="dialog" aria-modal="true" aria-labelledby="tools-title">
+    <div class="drawer ml-auto h-full w-full max-w-[470px] overflow-y-auto border-l hairline bg-instrument p-6 shadow-lift lg:p-9"><div class="flex items-center justify-between"><div><span class="text-[9px] font-bold uppercase tracking-[.22em] text-voltage">Progressive disclosure</span><h2 id="tools-title" class="mt-2 text-2xl font-bold">Analysis tools</h2></div><button class="close-modal grid h-11 w-11 place-items-center border hairline" aria-label="Close">×</button></div><p class="mt-6 text-[12px] leading-6 muted">Specialized controls stay here until the analyst needs them. The brief remains focused on the result.</p><div class="mt-7 divide-y divide-white/[.08] border-y hairline"><button class="flex min-h-16 w-full items-center justify-between text-left"><span><b class="block text-[12px]">Custom signal plot</b><small class="mt-1 block text-[10px] quiet">Choose fields, transforms, axes</small></span><span class="text-voltage">→</span></button><button class="flex min-h-16 w-full items-center justify-between text-left"><span><b class="block text-[12px]">Statistical notebook</b><small class="mt-1 block text-[10px] quiet">Distribution, correlation, outliers</small></span><span class="text-voltage">→</span></button><button class="flex min-h-16 w-full items-center justify-between text-left"><span><b class="block text-[12px]">Compare against another run</b><small class="mt-1 block text-[10px] quiet">Align by time, distance, or lap</small></span><span class="text-voltage">→</span></button><button class="flex min-h-16 w-full items-center justify-between text-left"><span><b class="block text-[12px]">Raw data and export</b><small class="mt-1 block text-[10px] quiet">CSV, JSON, selected interval</small></span><span class="text-voltage">→</span></button></div></div>
+  </div>
+
+  <script>
+    const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+    const openModal=id=>$(id).classList.add('open'); const closeModals=()=>$$('.modal').forEach(m=>m.classList.remove('open'));
+    $('#sessionButton').onclick=()=>openModal('#sessionModal'); $('#toolsButton').onclick=()=>openModal('#toolsModal'); $('#methodButton').onclick=()=>openModal('#toolsModal'); $$('.close-modal').forEach(b=>b.onclick=closeModals); $$('.modal').forEach(m=>m.onclick=e=>{if(e.target===m)closeModals()});
+    $$('.session-choice').forEach(b=>b.onclick=()=>{$('#sessionName').textContent=b.dataset.name;$('#sessionMeta').textContent=b.dataset.meta;closeModals()});
+    $$('.series-button').forEach(b=>b.onclick=()=>{const on=b.getAttribute('aria-pressed')==='true';b.setAttribute('aria-pressed',String(!on));document.querySelector(`[data-series-path="${b.dataset.series}"]`).classList.toggle('off',on)});
+    function setCursor(v){const x=Number(v)*12;$('#cursorLine').setAttribute('x1',x);$('#cursorLine').setAttribute('x2',x);$('#cursorDot').setAttribute('cx',x);$('#cursorDot').setAttribute('cy',148-Math.sin(Number(v)/8)*18);const total=2538*Number(v)/100;$('#cursorTime').textContent=`${String(Math.floor(total/60)).padStart(2,'0')}:${String(Math.floor(total%60)).padStart(2,'0')}`;$('#cursorSpeed').textContent=`${(26.4+Math.sin(Number(v)/7)*2.4).toFixed(1)} km/h`;$('#cursorPower').textContent=`${Math.round(288+Math.cos(Number(v)/6)*54)} W`}
+    $('#timeline').oninput=e=>setCursor(e.target.value); $$('.jump').forEach(b=>b.onclick=()=>{$('#timeline').value=b.dataset.time;setCursor(b.dataset.time);$('#timeline').scrollIntoView({behavior:'smooth',block:'center'})});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals()});
+  </script>
+</body>
+</html>

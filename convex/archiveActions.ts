@@ -7,6 +7,7 @@ import { internalAction, type ActionCtx } from "./_generated/server";
 import type { ArchiveSourceRecord } from "./archives";
 import type { Id } from "./_generated/dataModel";
 import type { ArchivePartSummary, ArchiveStats } from "./archiveValidators";
+import { buildSessionAnalysisInput } from "./sessionAnalysisMath";
 
 const RECORDS_PER_PART = 3000;
 const PREVIEW_POINTS_PER_PART = 160;
@@ -324,13 +325,22 @@ async function finalizeSessionArchive(ctx: ActionCtx, sessionId: string): Promis
   ));
 
   try {
-    return await ctx.runMutation(internal.archives.finalizeArchive, {
+    const finalized = await ctx.runMutation(internal.archives.finalizeArchive, {
       sessionId,
       completedAt: new Date().toISOString(),
       overviewStorageId,
       overviewPointCount: overviewRecords.length,
       stats,
     });
+    if (finalized) {
+      const input = buildSessionAnalysisInput(sessionId, overviewRecords, stats);
+      await ctx.runMutation(internal.sessionAnalysis.reserveAutomatic, {
+        sessionId,
+        input,
+        requestedAt: new Date().toISOString(),
+      });
+    }
+    return finalized;
   } catch (error) {
     await ctx.storage.delete(overviewStorageId);
     throw error;

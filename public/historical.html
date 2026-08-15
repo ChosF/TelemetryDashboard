@@ -11,10 +11,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
         rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="/historical.css?v=20260810.1" />
+    <link rel="stylesheet" href="/historical.css?v=20260814.1" />
     <script>
         window.CONFIG = window.CONFIG || { CONVEX_URL: "https://wonderful-kookabura-432.convex.cloud" };
     </script>
@@ -101,6 +101,68 @@
 
         <!-- ── ANALYSIS VIEW ── -->
         <div class="ha-view" id="h-view-analysis">
+
+            <section class="hrb-shell" id="ha-core-run-brief">
+                <div class="hrb-kicker-row">
+                    <span class="hrb-kicker">POST-RUN BRIEF</span>
+                    <span class="hrb-ai-state" id="h-core-ai-state"><i></i> Deterministic brief</span>
+                </div>
+
+                <div class="hrb-hero">
+                    <div class="hrb-hero-copy">
+                        <div class="hrb-session-meta" id="h-core-session-meta">SESSION COMPLETE</div>
+                        <h2 id="h-core-verdict">Building the run brief…</h2>
+                        <p id="h-core-summary">The essential telemetry evidence is being prepared.</p>
+                    </div>
+                    <div class="hrb-score" aria-label="Run score">
+                        <span class="hrb-score-label">RUN SCORE</span>
+                        <strong id="h-core-score">—</strong>
+                        <span class="hrb-score-denominator">/ 100</span>
+                    </div>
+                </div>
+
+                <div class="hrb-metrics" aria-label="Essential run metrics">
+                    <article><span>Distance</span><strong id="h-core-distance">—</strong><small>km</small></article>
+                    <article><span>Energy used</span><strong id="h-core-energy">—</strong><small>Wh</small></article>
+                    <article><span>Efficiency</span><strong id="h-core-efficiency">—</strong><small>km/kWh</small></article>
+                    <article><span>Average speed</span><strong id="h-core-speed">—</strong><small>km/h</small></article>
+                </div>
+
+                <div class="hrb-decision-grid">
+                    <article class="hrb-panel hrb-decision">
+                        <div class="hrb-panel-label"><span>01</span> Decision summary</div>
+                        <h3 id="h-core-decision-title">Hold the current baseline</h3>
+                        <p id="h-core-decision-copy">The deterministic evidence will identify the clearest next-run decision.</p>
+                        <div class="hrb-impact"><span>EXPECTED IMPACT</span><strong id="h-core-decision-impact">Establishing baseline</strong></div>
+                    </article>
+                    <article class="hrb-panel hrb-attention-panel">
+                        <div class="hrb-panel-label"><span>02</span> What deserves attention</div>
+                        <div class="hrb-attention-list" id="h-core-attention"></div>
+                    </article>
+                </div>
+
+                <section class="hrb-route-room">
+                    <div class="hrb-route-head">
+                        <div>
+                            <div class="hrb-panel-label"><span>03</span> Route breakdown</div>
+                            <h3>Where the run changed</h3>
+                        </div>
+                        <button class="hrb-fit-button" id="h-core-map-fit" type="button">Fit route</button>
+                    </div>
+                    <div class="hrb-route-layout">
+                        <div class="hrb-map-wrap">
+                            <div class="hrb-map" id="h-core-map"></div>
+                            <div class="hrb-map-legend"><span><i class="s1"></i>S1</span><span><i class="s2"></i>S2</span><span><i class="s3"></i>S3</span><span><i class="s4"></i>S4</span></div>
+                        </div>
+                        <div class="hrb-sector-list" id="h-core-sectors"></div>
+                    </div>
+                </section>
+
+                <footer class="hrb-evidence-note">
+                    <span id="h-core-evidence-note">Calculated from the bounded session overview.</span>
+                    <span id="h-core-caveat">Review conclusions against engineering context before changing strategy.</span>
+                </footer>
+            </section>
 
             <!-- ─── Overview KPIs ─── -->
             <section class="ha-section" id="ha-sec-overview" data-toc="Overview">
@@ -1227,13 +1289,13 @@
 
     <!-- Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/convex@1.17.4/dist/browser.bundle.js"></script>
-    <script src="/lib/convex-bridge.js?v=20260810.1"></script>
+    <script src="/lib/convex-bridge.js?v=20260814.1"></script>
     <script src="/auth.js"></script>
     <script src="/auth-ui.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
     <script src="/historical-engine.js?v=20260808.1"></script>
-    <script src="/historical.js?v=20260810.1"></script>
+    <script src="/historical.js?v=20260814.1"></script>
     <script>
         (() => {
             let dashboardPrewarmPromise = null;

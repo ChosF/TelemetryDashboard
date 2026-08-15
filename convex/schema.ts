@@ -4,6 +4,11 @@ import {
   archivePartSummaryValidator,
   archiveStatsValidator,
 } from "./archiveValidators";
+import {
+  sessionAnalysisInputValidator,
+  sessionAnalysisResultValidator,
+  sessionAnalysisStatusValidator,
+} from "./sessionAnalysisValidators";
 
 export default defineSchema({
   // Custom Convex-native auth tables. Passwords use versioned, adaptive hashes;
@@ -127,6 +132,24 @@ export default defineSchema({
     created_at: v.string(),
   })
     .index("by_session_part", ["session_id", "part_number"]),
+
+  // One compact, versioned post-run brief per session. The input contains only
+  // deterministic aggregate evidence; raw telemetry is never sent to Gemini.
+  sessionAnalyses: defineTable({
+    session_id: v.string(),
+    version: v.string(),
+    model: v.string(),
+    status: sessionAnalysisStatusValidator,
+    input: v.optional(sessionAnalysisInputValidator),
+    result: v.optional(sessionAnalysisResultValidator),
+    attempts: v.number(),
+    requested_at: v.string(),
+    started_at: v.optional(v.string()),
+    completed_at: v.optional(v.string()),
+    error: v.optional(v.string()),
+  })
+    .index("by_session_version", ["session_id", "version"])
+    .index("by_status_requested_at", ["status", "requested_at"]),
 
   // Telemetry data table - stores all vehicle sensor data
 

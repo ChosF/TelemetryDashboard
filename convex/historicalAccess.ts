@@ -1,4 +1,4 @@
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { getCurrentUserId } from "./authHelpers";
 
 export const EXTERNAL_HISTORICAL_LIMIT_DAYS = 7;
@@ -10,7 +10,7 @@ export type HistoricalAccess = {
 };
 
 export async function getHistoricalAccess(
-  ctx: QueryCtx,
+  ctx: Pick<QueryCtx | MutationCtx, "db">,
   token?: string,
 ): Promise<HistoricalAccess> {
   if (!token) {
@@ -42,7 +42,7 @@ export async function getHistoricalAccess(
 }
 
 export async function canAccessHistoricalSession(
-  ctx: QueryCtx,
+  ctx: Pick<QueryCtx | MutationCtx, "db">,
   sessionId: string,
   access: HistoricalAccess,
 ): Promise<boolean> {

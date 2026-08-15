@@ -431,6 +431,39 @@ const ConvexBridge = (function () {
         });
     }
 
+    async function getSessionAnalysis(sessionId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        return await client.query('sessionAnalysis:get', {
+            sessionId,
+            token: getAuthToken() || undefined,
+        });
+    }
+
+    async function ensureSessionAnalysis(sessionId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        return await client.mutation('sessionAnalysis:ensure', {
+            sessionId,
+            token: getAuthToken() || undefined,
+        });
+    }
+
+    function subscribeToSessionAnalysis(sessionId, onUpdate) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        const subKey = `session-analysis:${sessionId}`;
+        if (activeSubscriptions.has(subKey)) activeSubscriptions.get(subKey)();
+        const unsubscribe = client.onUpdate(
+            'sessionAnalysis:get',
+            { sessionId, token: getAuthToken() || undefined },
+            onUpdate,
+        );
+        activeSubscriptions.set(subKey, unsubscribe);
+        return () => {
+            if (!activeSubscriptions.has(subKey)) return;
+            activeSubscriptions.get(subKey)();
+            activeSubscriptions.delete(subKey);
+        };
+    }
+
     /**
      * Get ALL records for a session.
      *
@@ -704,6 +737,8 @@ const ConvexBridge = (function () {
         kickstartSessions,
         getSessionPreview,
         getSessionArchiveStatus,
+        getSessionAnalysis,
+        ensureSessionAnalysis,
         getSessionRecords,
         getRecentRecords,
         getLatestRecord,
@@ -712,6 +747,7 @@ const ConvexBridge = (function () {
         subscribeToSession,
         subscribeToRecentRecords,
         subscribeToSessions,
+        subscribeToSessionAnalysis,
         unsubscribeAll,
         isConnected,
         close

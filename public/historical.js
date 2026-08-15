@@ -11,7 +11,8 @@
         sessions: [], activeSessionId: null, activeSessionMeta: null,
         data: [], compareData: [], map: null, stats: null, compareStats: null,
         isPreview: false, statsExact: false, fullDataPromise: null,
-        archiveStatus: 'none',
+        archiveStatus: 'none', coreMap: null, coreSectors: [],
+        analysis: null, analysisUnsubscribe: null,
     };
     let historicalLimit = Infinity;
     let canAccessCustomAnalysis = true;
@@ -425,10 +426,10 @@
         $('h-view-custom-analysis').classList.remove('active');
         $('h-view-analysis').classList.add('active');
         $('h-back-to-sessions').style.display = '';
-        showTOC(true);
+        showTOC(false);
         showAnalysisActions(true);
-        $('h-btn-custom-analysis').style.display = canAccessCustomAnalysis ? '' : 'none';
-        $('h-btn-collapse-all').style.display = '';
+        $('h-btn-custom-analysis').style.display = 'none';
+        $('h-btn-collapse-all').style.display = 'none';
         syncHistoricalMobileChrome();
     }
 
@@ -561,8 +562,11 @@
         showAnalysisActions(false);
         disposeCharts();
         if (S.map) { try { S.map.remove() } catch (e) { } } S.map = null;
+        if (S.coreMap) { try { S.coreMap.remove() } catch (e) { } } S.coreMap = null;
+        if (S.analysisUnsubscribe) { try { S.analysisUnsubscribe() } catch (e) { } } S.analysisUnsubscribe = null;
         clearArchiveStatusPoll();
         S.data = []; S.stats = null; S.isPreview = false; S.statsExact = false; S.fullDataPromise = null; S.archiveStatus = 'none';
+        S.analysis = null; S.coreSectors = [];
         S.activeSessionId = null;
         if (!options.skipHistory) {
             updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, !!options.replaceHistory);
@@ -609,8 +613,298 @@
     function renderInitialHistoricalView() {
         renderedHistoricalSections.clear();
         if (!S.data.length) return;
+        renderCoreHistoricalView(S.data);
         renderSummary(S.data);
         renderQualityBadge(S.data);
+        connectCoreSessionAnalysis();
+    }
+
+    const CORE_SECTOR_COLORS = ['#ff6b35', '#f1ab6c', '#86b7a6', '#d5d1c8'];
+
+    function coreFinite(value, fallback = 0) {
+        return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+    }
+
+    function buildCoreSectors(data) {
+        const sectors = [];
+        for (let sectorIndex = 0; sectorIndex < 4; sectorIndex++) {
+            const start = Math.floor(data.length * sectorIndex / 4);
+            const end = sectorIndex === 3 ? data.length : Math.floor(data.length * (sectorIndex + 1) / 4);
+            const rows = data.slice(start, end);
+            let distanceKm = 0, energyWh = 0, speedSum = 0, speedSqSum = 0, powerSum = 0;
+            let maxSpeed = 0, peakPower = 0, stopped = 0, anomalies = 0;
+            rows.forEach((row, index) => {
+                const speed = Math.max(0, coreFinite(row.speed_kmh));
+                const power = coreFinite(row.power_w);
+                speedSum += speed;
+                speedSqSum += speed * speed;
+                powerSum += power;
+                maxSpeed = Math.max(maxSpeed, speed);
+                peakPower = Math.max(peakPower, power);
+                if (speed < 1) stopped++;
+                if ((row.quality ?? 100) < 70 || (row.outlierSeverity && row.outlierSeverity !== 'none')) anomalies++;
+                if (!index) return;
+                const previous = rows[index - 1];
+                const dtSeconds = Math.min(30, Math.max(0, (row._ts - previous._ts) / 1000));
+                distanceKm += ((speed + coreFinite(previous.speed_kmh)) / 2) * dtSeconds / 3600;
+                energyWh += ((power + coreFinite(previous.power_w)) / 2) * dtSeconds / 3600;
+            });
+            const avgSpeed = rows.length ? speedSum / rows.length : 0;
+            const speedStd = Math.sqrt(Math.max(0, rows.length ? speedSqSum / rows.length - avgSpeed * avgSpeed : 0));
+            const gps = rows
+                .filter(row => Number.isFinite(row.lat) && Number.isFinite(row.lon) && (row.lat !== 0 || row.lon !== 0))
+                .map(row => [row.lon, row.lat]);
+            sectors.push({
+                index: sectorIndex + 1,
+                color: CORE_SECTOR_COLORS[sectorIndex],
+                rows,
+                gps,
+                distanceKm,
+                energyWh: Math.max(0, energyWh),
+                avgSpeed,
+                maxSpeed,
+                avgPower: rows.length ? powerSum / rows.length : 0,
+                peakPower,
+                speedStd,
+                stoppedPct: rows.length ? stopped / rows.length * 100 : 0,
+                anomalies,
+                assessment: 'Reviewing',
+                detail: 'Chronological quarter of the run.',
+            });
+        }
+        return sectors;
+    }
+
+    function coreDeterministicBrief(sectors) {
+        const quality = Math.max(0, Math.min(100, coreFinite(S.stats?.qualityScore, 100)));
+        const avgVariation = sectors.reduce((sum, sector) => sum + sector.speedStd, 0) / Math.max(1, sectors.length);
+        const stopped = sectors.reduce((sum, sector) => sum + sector.stoppedPct, 0) / Math.max(1, sectors.length);
+        const score = Math.round(quality * .45 + Math.max(0, 100 - avgVariation * 8) * .35 + Math.max(0, 100 - stopped) * .2);
+        const ranked = sectors
+            .filter(sector => sector.distanceKm > .015)
+            .map(sector => ({ ...sector, whPerKm: sector.energyWh / sector.distanceKm }))
+            .sort((a, b) => b.whPerKm - a.whPerKm);
+        const worst = ranked[0] || sectors.reduce((a, b) => a.avgPower > b.avgPower ? a : b);
+        const best = ranked[ranked.length - 1] || sectors.reduce((a, b) => a.avgPower < b.avgPower ? a : b);
+        const energySpread = best?.whPerKm > 0 ? (worst.whPerKm / best.whPerKm - 1) * 100 : 0;
+        const variable = [...sectors].sort((a, b) => b.speedStd - a.speedStd)[0];
+
+        sectors.forEach(sector => {
+            const whKm = sector.distanceKm > .015 ? sector.energyWh / sector.distanceKm : null;
+            sector.assessment = sector.index === worst.index && energySpread > 12 ? 'Highest demand'
+                : sector.index === best.index && energySpread > 12 ? 'Best baseline'
+                    : sector.speedStd > avgVariation * 1.2 ? 'Variable pace' : 'Controlled';
+            sector.detail = whKm == null
+                ? `${fmt(sector.avgPower, 0)} W average power with limited distance evidence.`
+                : `${fmt(whKm, 1)} Wh/km · ${fmt(sector.speedStd, 1)} km/h speed variation.`;
+        });
+
+        const attention = [];
+        if (energySpread > 12) attention.push({
+            severity: 'opportunity',
+            title: `Sector ${worst.index} consumed the most energy per kilometre`,
+            detail: `Its deterministic demand was ${fmt(energySpread, 0)}% above the best sector baseline.`,
+            evidence: `${fmt(worst.whPerKm, 1)} Wh/km`,
+            sectorIndex: worst.index,
+        });
+        attention.push({
+            severity: variable.speedStd > 3 ? 'warning' : 'positive',
+            title: variable.speedStd > 3 ? `Sector ${variable.index} had the least stable pace` : 'Pacing remained controlled',
+            detail: variable.speedStd > 3 ? 'Speed variation is the clearest controllable stability signal.' : 'No sector shows a large speed-variation penalty.',
+            evidence: `σ ${fmt(variable.speedStd, 1)} km/h`,
+            sectorIndex: variable.index,
+        });
+        attention.push(quality < 85 ? {
+            severity: 'warning', title: 'Treat some conclusions with caution',
+            detail: 'Telemetry quality reduced the confidence of this run brief.', evidence: `${fmt(quality, 0)}% quality`,
+        } : {
+            severity: 'positive', title: 'Telemetry evidence is analysis-ready',
+            detail: 'The bounded overview is sufficiently complete for a reliable first brief.', evidence: `${fmt(quality, 0)}% quality`,
+        });
+
+        return {
+            score,
+            verdict: energySpread > 12 ? `The next gain is concentrated in Sector ${worst.index}.` : 'This run establishes a controlled, usable baseline.',
+            summary: energySpread > 12
+                ? `Energy demand varied materially across the route while the rest of the run remained comparatively stable.`
+                : `No single sector dominates the loss profile; pacing consistency is the most useful baseline signal.`,
+            decision: {
+                title: energySpread > 12 ? `Reduce demand in Sector ${worst.index}` : 'Preserve the current strategy for the next comparison',
+                explanation: energySpread > 12
+                    ? `Use Sector ${best.index} as the internal reference and reduce avoidable power or pace variation in Sector ${worst.index}.`
+                    : 'Repeat the run with the same operating plan before changing multiple variables at once.',
+                estimatedImpact: energySpread > 12 ? `Close a ${fmt(energySpread, 0)}% sector efficiency gap` : 'Higher-confidence comparison',
+            },
+            attention,
+            caveat: S.isPreview ? 'Sector metrics use the bounded overview; full-resolution export remains separate.' : 'Deterministic conclusions use the complete loaded session.',
+        };
+    }
+
+    function renderCoreAttention(items) {
+        const root = $('h-core-attention');
+        if (!root) return;
+        root.innerHTML = (items || []).slice(0, 3).map(item => `
+            <div class="hrb-attention-item ${esc(item.severity || 'opportunity')}" data-sector="${item.sectorIndex || ''}">
+                <i class="hrb-attention-mark"></i>
+                <div><h4>${esc(item.title || 'Review required')}</h4><p>${esc(item.detail || '')}</p></div>
+                <b>${esc(item.evidence || '')}</b>
+            </div>`).join('');
+        root.querySelectorAll('[data-sector]').forEach(item => item.addEventListener('click', () => {
+            const index = Number(item.dataset.sector);
+            if (index) focusCoreSector(index);
+        }));
+    }
+
+    function renderCoreSectorList() {
+        const insights = new Map((S.analysis?.result?.sectorInsights || []).map(item => [item.sectorIndex, item]));
+        $('h-core-sectors').innerHTML = S.coreSectors.map(sector => {
+            const insight = insights.get(sector.index);
+            return `<article class="hrb-sector" data-sector="${sector.index}" style="--sector-color:${sector.color}">
+                <div class="hrb-sector-top"><span class="hrb-sector-name"><i></i>Sector ${sector.index}</span><span class="hrb-sector-assessment">${esc(insight?.assessment || sector.assessment)}</span></div>
+                <div class="hrb-sector-metrics">
+                    <div><span>Avg speed</span><strong>${fmt(sector.avgSpeed, 1)} km/h</strong></div>
+                    <div><span>Energy</span><strong>${fmt(sector.energyWh, 1)} Wh</strong></div>
+                    <div><span>Avg power</span><strong>${fmt(sector.avgPower, 0)} W</strong></div>
+                </div>
+                <p class="hrb-sector-detail">${esc(insight?.detail || sector.detail)}</p>
+            </article>`;
+        }).join('');
+        $('h-core-sectors').querySelectorAll('[data-sector]').forEach(card => {
+            card.addEventListener('click', () => focusCoreSector(Number(card.dataset.sector)));
+        });
+    }
+
+    function coreRouteBounds(coordinates) {
+        if (!coordinates.length || typeof maplibregl === 'undefined') return null;
+        const bounds = new maplibregl.LngLatBounds(coordinates[0], coordinates[0]);
+        coordinates.slice(1).forEach(point => bounds.extend(point));
+        return bounds;
+    }
+
+    function fitCoreRoute(coordinates = S.coreSectors.flatMap(sector => sector.gps)) {
+        const bounds = coreRouteBounds(coordinates);
+        if (bounds && S.coreMap) S.coreMap.fitBounds(bounds, { padding: 62, duration: 650, maxZoom: 16 });
+    }
+
+    function focusCoreSector(index) {
+        const sector = S.coreSectors.find(item => item.index === index);
+        if (!sector) return;
+        $('h-core-sectors')?.querySelectorAll('.hrb-sector').forEach(card => card.classList.toggle('active', Number(card.dataset.sector) === index));
+        if (sector.gps.length > 1) fitCoreRoute(sector.gps);
+    }
+
+    function renderCoreMap() {
+        const container = $('h-core-map');
+        if (!container) return;
+        if (S.coreMap) { try { S.coreMap.remove() } catch (e) { } S.coreMap = null; }
+        const allGps = S.coreSectors.flatMap(sector => sector.gps);
+        if (allGps.length < 2 || typeof maplibregl === 'undefined') {
+            container.innerHTML = '<div class="hrb-map-empty"><strong>No GPS route captured</strong><span>The sector breakdown remains available from time, speed and power.</span></div>';
+            return;
+        }
+        container.innerHTML = '';
+        S.coreMap = new maplibregl.Map({
+            container: 'h-core-map',
+            style: {
+                version: 8,
+                sources: { dark: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'], tileSize: 256 } },
+                layers: [{ id: 'dark', type: 'raster', source: 'dark', paint: { 'raster-opacity': .72 } }],
+            },
+            center: allGps[Math.floor(allGps.length / 2)],
+            zoom: 13,
+            attributionControl: false,
+        });
+        S.coreMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+        S.coreMap.on('load', () => {
+            S.coreSectors.forEach(sector => {
+                if (sector.gps.length < 2) return;
+                const sourceId = `core-sector-${sector.index}`;
+                S.coreMap.addSource(sourceId, { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: sector.gps } } });
+                S.coreMap.addLayer({ id: sourceId, type: 'line', source: sourceId, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': sector.color, 'line-width': 5, 'line-opacity': .96 } });
+                S.coreMap.on('click', sourceId, () => focusCoreSector(sector.index));
+                S.coreMap.on('mouseenter', sourceId, () => { S.coreMap.getCanvas().style.cursor = 'pointer'; });
+                S.coreMap.on('mouseleave', sourceId, () => { S.coreMap.getCanvas().style.cursor = ''; });
+            });
+            fitCoreRoute();
+        });
+        $('h-core-map-fit').onclick = () => fitCoreRoute();
+    }
+
+    function renderCoreHistoricalView(data) {
+        S.coreSectors = buildCoreSectors(data);
+        const brief = coreDeterministicBrief(S.coreSectors);
+        const meta = S.activeSessionMeta;
+        const started = meta?.start_time ? new Date(meta.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
+        $('h-core-session-meta').textContent = [meta?.session_name || S.activeSessionId?.slice(0, 12), started, fmtTime(coreFinite(S.stats?.durationMin) * 60000)].filter(Boolean).join(' · ');
+        $('h-core-verdict').textContent = brief.verdict;
+        $('h-core-summary').textContent = brief.summary;
+        $('h-core-score').textContent = brief.score;
+        $('h-core-distance').textContent = fmt(S.stats?.distance, 2);
+        $('h-core-energy').textContent = fmt(S.stats?.energyWh, 1);
+        $('h-core-efficiency').textContent = fmt(S.stats?.efficiency, 1);
+        $('h-core-speed').textContent = fmt(S.stats?.avgSpeed, 1);
+        $('h-core-decision-title').textContent = brief.decision.title;
+        $('h-core-decision-copy').textContent = brief.decision.explanation;
+        $('h-core-decision-impact').textContent = brief.decision.estimatedImpact;
+        $('h-core-caveat').textContent = brief.caveat;
+        $('h-core-evidence-note').textContent = `${fmtInt(S.stats?.recordCount || data.length)} records · ${fmtInt(data.length)} overview points · deterministic sector calculations`;
+        renderCoreAttention(brief.attention);
+        renderCoreSectorList();
+        renderCoreMap();
+    }
+
+    function renderSavedCoreAnalysis(analysis) {
+        S.analysis = analysis;
+        const state = $('h-core-ai-state');
+        state.className = 'hrb-ai-state';
+        if (analysis?.available && analysis.result) {
+            const result = analysis.result;
+            state.classList.add('is-complete');
+            state.innerHTML = '<i></i> Gemini brief saved';
+            $('h-core-verdict').textContent = result.verdict;
+            $('h-core-summary').textContent = result.summary;
+            $('h-core-score').textContent = Math.round(result.score);
+            $('h-core-decision-title').textContent = result.decision.title;
+            $('h-core-decision-copy').textContent = result.decision.explanation;
+            $('h-core-decision-impact').textContent = result.decision.estimatedImpact;
+            $('h-core-caveat').textContent = result.caveat;
+            renderCoreAttention(result.attention);
+            renderCoreSectorList();
+            return;
+        }
+        if (analysis?.status === 'pending' || analysis?.status === 'running') {
+            state.classList.add('is-running');
+            state.innerHTML = `<i></i> ${analysis.status === 'running' ? 'Gemini analyzing' : 'Gemini queued'}`;
+        } else if (analysis?.status === 'error') {
+            state.classList.add('is-error');
+            state.innerHTML = '<i></i> Deterministic brief · AI unavailable';
+        } else {
+            state.innerHTML = '<i></i> Deterministic brief';
+        }
+    }
+
+    async function connectCoreSessionAnalysis() {
+        const sessionId = S.activeSessionId;
+        if (!sessionId || !convexReady || !ConvexBridge.subscribeToSessionAnalysis) return;
+        if (S.analysisUnsubscribe) { try { S.analysisUnsubscribe() } catch (e) { } }
+        S.analysisUnsubscribe = ConvexBridge.subscribeToSessionAnalysis(sessionId, analysis => {
+            if (S.activeSessionId === sessionId) renderSavedCoreAnalysis(analysis);
+        });
+        try {
+            const current = await ConvexBridge.getSessionAnalysis(sessionId);
+            if (S.activeSessionId !== sessionId) return;
+            renderSavedCoreAnalysis(current);
+            if ((current.status === 'missing' || current.status === 'error') && S.archiveStatus === 'complete') {
+                await ConvexBridge.ensureSessionAnalysis(sessionId);
+            } else if (current.status === 'missing') {
+                const state = $('h-core-ai-state');
+                state.className = 'hrb-ai-state is-running';
+                state.innerHTML = '<i></i> AI queues after archive';
+            }
+        } catch (error) {
+            console.warn('[historical] Saved run brief unavailable:', error);
+            renderSavedCoreAnalysis({ status: 'error' });
+        }
     }
 
     async function ensureFullSessionData(reason = 'full-resolution analysis') {
@@ -2005,9 +2299,9 @@
         const btn = $('h-btn-export-quick');
         if (btn) btn.style.display = show ? '' : 'none';
         const collapseBtn = $('h-btn-collapse-all');
-        if (collapseBtn) collapseBtn.style.display = show ? '' : 'none';
+        if (collapseBtn) collapseBtn.style.display = 'none';
         const customBtn = $('h-btn-custom-analysis');
-        if (customBtn) customBtn.style.display = show && canAccessCustomAnalysis ? '' : 'none';
+        if (customBtn) customBtn.style.display = 'none';
     }
 
     // ── Floating TOC ──
