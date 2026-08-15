@@ -863,33 +863,13 @@
                     </div>
                 </header>
 
-                <div class="haw-subbar">
-                    <nav class="haw-mode-nav" aria-label="Analysis tasks">
-                        <button type="button" data-workspace-mode="explore" class="active"><kbd>1</kbd> Explore</button>
-                        <button type="button" data-workspace-mode="transform"><kbd>2</kbd> Transform</button>
-                        <button type="button" data-workspace-mode="correlate"><kbd>3</kbd> Correlate</button>
-                        <button type="button" data-workspace-mode="review"><kbd>4</kbd> Review</button>
-                    </nav>
-                    <div class="haw-runtime-state">
-                        <span class="ha-ca-status" id="h-ca-status">Ready</span>
-                        <span><strong id="h-ca-kpi-records">—</strong> rows</span>
-                        <span><strong id="h-ca-kpi-variables">—</strong> variables</span>
-                        <span><strong id="h-ca-kpi-derived">0</strong> derived</span>
-                        <span><strong id="h-ca-kpi-output">—</strong> output</span>
-                    </div>
-                    <div class="haw-context-actions">
-                        <button type="button" class="haw-icon-button" id="h-ca-export-png" title="Save current chart as PNG">PNG</button>
-                        <button type="button" class="haw-icon-button" id="h-ca-export-csv" title="Export current data selection as CSV">CSV</button>
-                        <button type="button" class="haw-icon-button" id="h-ca-clear" title="Reset analysis controls">Reset</button>
-                    </div>
-                </div>
-
                 <aside class="haw-layout-menu" id="h-ca-layout-menu" hidden>
                     <div><span>Workspace panels</span><button type="button" id="h-ca-layout-close" aria-label="Close workspace settings">×</button></div>
                     <p>Show only the instruments needed for this question. Drag panel headers to reorder them.</p>
                     <label><input type="checkbox" data-panel-toggle="relationship" checked> Relationship canvas</label>
                     <label><input type="checkbox" data-panel-toggle="transform" checked> Transformation pipeline</label>
                     <label><input type="checkbox" data-panel-toggle="matrix" checked> Correlation and lag</label>
+                    <label><input type="checkbox" data-panel-toggle="rewind" checked> GPS session rewind</label>
                     <label><input type="checkbox" data-panel-toggle="filters" checked> Filters and highlights</label>
                     <label><input type="checkbox" data-panel-toggle="statistics" checked> Statistical summary</label>
                     <label><input type="checkbox" data-panel-toggle="notebook" checked> Quick calculations</label>
@@ -897,7 +877,37 @@
                     <button type="button" class="haw-layout-reset" id="h-ca-layout-reset">Restore default layout</button>
                 </aside>
 
-                <div class="haw-grid" id="h-ca-workspace-grid" data-mode="explore">
+                <div class="haw-workspace-body">
+                    <aside class="haw-mode-rail">
+                        <div class="haw-rail-heading"><span>Analyze</span><small>Workspace tools</small></div>
+                        <nav class="haw-mode-nav" aria-label="Analysis tools">
+                            <button type="button" data-workspace-mode="explore" class="active"><kbd>1</kbd><span>Explore<small>Plot & filter</small></span></button>
+                            <button type="button" data-workspace-mode="transform"><kbd>2</kbd><span>Transform<small>Build variables</small></span></button>
+                            <button type="button" data-workspace-mode="correlate"><kbd>3</kbd><span>Correlate<small>Find dependence</small></span></button>
+                            <button type="button" data-workspace-mode="rewind"><kbd>4</kbd><span>Rewind<small>Replay the route</small></span></button>
+                            <button type="button" data-workspace-mode="review"><kbd>5</kbd><span>Review<small>Inspect output</small></span></button>
+                        </nav>
+                        <div class="haw-rail-foot"><kbd>Ctrl K</kbd><span>Find any tool</span></div>
+                    </aside>
+
+                    <div class="haw-workspace-main">
+                        <div class="haw-subbar">
+                            <div class="haw-runtime-state">
+                                <span class="ha-ca-status" id="h-ca-status">Ready</span>
+                                <span><strong id="h-ca-kpi-records">—</strong> rows</span>
+                                <span><strong id="h-ca-kpi-variables">—</strong> variables</span>
+                                <span><strong id="h-ca-kpi-derived">0</strong> derived</span>
+                                <span><strong id="h-ca-kpi-output">—</strong> output</span>
+                                <span><strong id="h-ca-kpi-gps">—</strong> GPS fixes</span>
+                            </div>
+                            <div class="haw-context-actions">
+                                <button type="button" class="haw-icon-button" id="h-ca-export-png" title="Save current chart as PNG">PNG</button>
+                                <button type="button" class="haw-icon-button" id="h-ca-export-csv" title="Export current data selection as CSV">CSV</button>
+                                <button type="button" class="haw-icon-button" id="h-ca-clear" title="Reset analysis controls">Reset</button>
+                            </div>
+                        </div>
+
+                        <div class="haw-grid" id="h-ca-workspace-grid" data-mode="explore">
                     <article class="haw-panel haw-panel-wide" data-workspace-panel="relationship" data-workspace-modes="explore" draggable="true">
                         <header class="haw-panel-header">
                             <div><span class="haw-panel-index">01 / RELATIONSHIP</span><h3>Cross-variable canvas</h3><p>Overlay variables over time or test one variable directly against another.</p></div>
@@ -963,8 +973,45 @@
                         </div>
                     </article>
 
+                    <article class="haw-panel haw-panel-full haw-rewind-panel" data-workspace-panel="rewind" data-workspace-modes="rewind" draggable="true">
+                        <header class="haw-panel-header">
+                            <div><span class="haw-panel-index">04 / REWIND</span><h3>GPS session rewind</h3><p>Replay the run against its archived telemetry. Scrub the timeline to inspect exactly what the vehicle was doing anywhere on the route.</p></div>
+                            <div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div>
+                        </header>
+                        <div class="haw-rewind-layout">
+                            <div class="haw-rewind-visual">
+                                <div class="haw-rewind-map" id="h-ca-rewind-map"></div>
+                                <div class="haw-rewind-map-state" id="h-ca-rewind-map-state"><strong>Preparing route</strong><span>Checking this session for GPS fixes.</span></div>
+                                <div class="haw-rewind-map-badge"><i></i><span id="h-ca-rewind-gps-state">GPS route</span></div>
+                            </div>
+                            <aside class="haw-rewind-deck">
+                                <div class="haw-rewind-time"><span>PLAYHEAD</span><strong id="h-ca-rewind-time">00:00.0</strong><small id="h-ca-rewind-total">/ 00:00.0</small></div>
+                                <div class="haw-rewind-metrics">
+                                    <div><span>Speed</span><strong id="h-ca-rewind-speed">—</strong><small>km/h</small></div>
+                                    <div><span>Power</span><strong id="h-ca-rewind-power">—</strong><small>W</small></div>
+                                    <div><span>Voltage</span><strong id="h-ca-rewind-voltage">—</strong><small>V</small></div>
+                                    <div><span>Current</span><strong id="h-ca-rewind-current">—</strong><small>A</small></div>
+                                </div>
+                                <label class="haw-rewind-scrubber"><span>Session position</span><input type="range" id="h-ca-rewind-range" min="0" max="1000" value="0" step="1"></label>
+                                <div class="haw-rewind-controls">
+                                    <button type="button" id="h-ca-rewind-start" title="Jump to start">|‹</button>
+                                    <button type="button" id="h-ca-rewind-back" title="Step backward">−5s</button>
+                                    <button type="button" class="haw-rewind-play" id="h-ca-rewind-play" aria-label="Play session rewind">Play</button>
+                                    <button type="button" id="h-ca-rewind-forward" title="Step forward">+5s</button>
+                                    <button type="button" id="h-ca-rewind-end" title="Jump to end">›|</button>
+                                </div>
+                                <div class="haw-rewind-options">
+                                    <label><span>Playback</span><select id="h-ca-rewind-rate" class="ha-select ha-ca-select"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label>
+                                    <label class="haw-check-control"><input type="checkbox" id="h-ca-rewind-follow" checked><span>Follow vehicle</span></label>
+                                </div>
+                                <div class="haw-rewind-sample"><span id="h-ca-rewind-record">Record 1 / —</span><strong id="h-ca-rewind-clock">—</strong><small id="h-ca-rewind-coordinates">No position selected</small></div>
+                            </aside>
+                            <div class="haw-rewind-chart"><div class="ha-chart-box" id="hc-ca-rewind"></div></div>
+                        </div>
+                    </article>
+
                     <article class="haw-panel" data-workspace-panel="filters" data-workspace-modes="explore transform" draggable="true">
-                        <header class="haw-panel-header"><div><span class="haw-panel-index">04 / SAMPLE</span><h3>Filter and emphasize</h3><p>Define the population before drawing conclusions.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">05 / SAMPLE</span><h3>Filter and emphasize</h3><p>Define the population before drawing conclusions.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
                         <div class="haw-panel-body">
                             <div class="haw-subhead"><span>Inclusion rules</span><button type="button" id="h-ca-add-filter">+ rule</button></div><div id="h-ca-filters" class="ha-ca-filters"><span class="haw-empty-inline">All valid records included</span></div>
                             <div class="haw-subhead"><span>Point highlights</span><button type="button" id="h-ca-add-highlight">+ highlight</button></div><div id="h-ca-highlights" class="ha-ca-filters"><span class="haw-empty-inline">No highlighted condition</span></div>
@@ -973,12 +1020,12 @@
                     </article>
 
                     <article class="haw-panel haw-panel-wide" data-workspace-panel="statistics" data-workspace-modes="review" draggable="true">
-                        <header class="haw-panel-header"><div><span class="haw-panel-index">05 / OUTPUT</span><h3>Statistical summary</h3><p>Distribution and relationship evidence for every plotted response.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">06 / OUTPUT</span><h3>Statistical summary</h3><p>Distribution and relationship evidence for every plotted response.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
                         <div class="ha-ca-stats-grid" id="h-ca-stats-grid"><div class="ha-ca-stat-empty">Run the relationship canvas to populate descriptive statistics.</div></div>
                     </article>
 
                     <article class="haw-panel" data-workspace-panel="notebook" data-workspace-modes="correlate" draggable="true">
-                        <header class="haw-panel-header"><div><span class="haw-panel-index">06 / QUICK TEST</span><h3>Calculation notebook</h3><p>Pin one statistic or pairwise test without rebuilding the canvas.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">07 / QUICK TEST</span><h3>Calculation notebook</h3><p>Pin one statistic or pairwise test without rebuilding the canvas.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
                         <div class="haw-panel-body">
                             <label class="haw-full-field"><span>Test mode</span><select class="ha-select ha-ca-select" id="h-ca-lab-stat-mode"><option value="rel">Relationship</option><option value="single">Single variable</option></select></label>
                             <div class="ha-ca-lab-builder" id="h-ca-lab-stat-single-grp" style="display:none"><select class="ha-select ha-ca-select" id="h-ca-lab-stat-op"><option value="mean">Mean</option><option value="median">Median</option><option value="stddev">Standard deviation</option><option value="variance">Variance</option><option value="skewness">Skewness</option><option value="p90">90th percentile</option><option value="max">Maximum</option><option value="min">Minimum</option><option value="integral">Integral</option></select><select class="ha-select ha-ca-select h-ca-vars-dropdown" id="h-ca-lab-stat-var"></select></div>
@@ -988,9 +1035,11 @@
                     </article>
 
                     <article class="haw-panel haw-panel-full" data-workspace-panel="preview" data-workspace-modes="review" draggable="true">
-                        <header class="haw-panel-header"><div><span class="haw-panel-index">07 / DATASET</span><h3>Analysis frame</h3><p>A bounded preview of the exact variables sent to the current analysis.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
+                        <header class="haw-panel-header"><div><span class="haw-panel-index">08 / DATASET</span><h3>Analysis frame</h3><p>A bounded preview of the exact variables sent to the current analysis.</p></div><div class="haw-panel-tools"><button type="button" data-panel-size title="Change panel width">↔</button><span class="haw-drag-handle" title="Drag to reorder">⋮⋮</span></div></header>
                         <div class="haw-data-preview" id="h-ca-data-preview"><div class="ha-ca-stat-empty">Run an analysis to inspect its output frame.</div></div>
                     </article>
+                        </div>
+                    </div>
                 </div>
             </section>
         </div>
@@ -1003,9 +1052,11 @@
                 <button type="button" data-command="explore"><span>Open Explore</span><kbd>Alt 1</kbd></button>
                 <button type="button" data-command="transform"><span>Open Transform</span><kbd>Alt 2</kbd></button>
                 <button type="button" data-command="correlate"><span>Open Correlate</span><kbd>Alt 3</kbd></button>
-                <button type="button" data-command="review"><span>Open Review</span><kbd>Alt 4</kbd></button>
+                <button type="button" data-command="rewind"><span>Open GPS Rewind</span><kbd>Alt 4</kbd></button>
+                <button type="button" data-command="review"><span>Open Review</span><kbd>Alt 5</kbd></button>
                 <span class="haw-command-group">Actions</span>
                 <button type="button" data-command="filter"><span>Add an inclusion rule</span><kbd>F</kbd></button>
+                <button type="button" data-command="rewind-play"><span>Play or pause GPS Rewind</span><kbd>Space</kbd></button>
                 <button type="button" data-command="layout"><span>Customize workspace</span><kbd>L</kbd></button>
                 <button type="button" data-command="export"><span>Export current frame</span><kbd>E</kbd></button>
                 <button type="button" data-command="brief"><span>Return to decision brief</span><kbd>Alt B</kbd></button>
@@ -1017,8 +1068,9 @@
             <header><div><span class="haw-panel-index">KEYBOARD</span><h2 id="h-ca-shortcuts-title">Move through analysis faster.</h2></div><button type="button" id="h-ca-shortcuts-close" aria-label="Close keyboard shortcuts">×</button></header>
             <div class="haw-shortcut-grid">
                 <div><kbd>Ctrl K</kbd><span>Command menu</span></div><div><kbd>Ctrl ↵</kbd><span>Run analysis</span></div>
-                <div><kbd>Alt 1–4</kbd><span>Switch task</span></div><div><kbd>Alt B</kbd><span>Decision brief</span></div>
+                <div><kbd>Alt 1–5</kbd><span>Switch tool</span></div><div><kbd>Alt B</kbd><span>Decision brief</span></div>
                 <div><kbd>F</kbd><span>Add filter</span></div><div><kbd>L</kbd><span>Customize layout</span></div>
+                <div><kbd>Space</kbd><span>Play / pause Rewind</span></div><div><kbd>← →</kbd><span>Step Rewind 5 seconds</span></div>
                 <div><kbd>E</kbd><span>Export CSV</span></div><div><kbd>?</kbd><span>Show shortcuts</span></div>
             </div>
         </dialog>

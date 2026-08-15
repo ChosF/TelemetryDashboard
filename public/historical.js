@@ -939,6 +939,7 @@
         disposeCharts();
         if (S.map) { try { S.map.remove() } catch (e) { } } S.map = null;
         if (S.coreMap) { try { S.coreMap.remove() } catch (e) { } } S.coreMap = null;
+        disposeWorkspaceRewind();
         if (S.analysisUnsubscribe) { try { S.analysisUnsubscribe() } catch (e) { } } S.analysisUnsubscribe = null;
         clearArchiveStatusPoll();
         S.data = []; S.stats = null; S.isPreview = false; S.statsExact = false; S.fullDataPromise = null; S.archiveStatus = 'none';
@@ -2787,7 +2788,18 @@
     let customAnalysisSessionId = null;
     let activeWorkspaceMode = 'explore';
     const HCA_LAYOUT_KEY = 'ecovolt_historical_workspace_v1';
-    const HCA_DEFAULT_ORDER = ['relationship', 'transform', 'matrix', 'filters', 'statistics', 'notebook', 'preview'];
+    const HCA_WORKSPACE_MODES = ['explore', 'transform', 'correlate', 'rewind', 'review'];
+    const HCA_DEFAULT_ORDER = ['relationship', 'transform', 'matrix', 'rewind', 'filters', 'statistics', 'notebook', 'preview'];
+    let workspaceRewindMap = null;
+    let workspaceRewindMarker = null;
+    let workspaceRewindRows = [];
+    let workspaceRewindGps = [];
+    let workspaceRewindIndex = 0;
+    let workspaceRewindFrame = null;
+    let workspaceRewindPlaying = false;
+    let workspaceRewindStartedAt = 0;
+    let workspaceRewindStartedTs = 0;
+    let workspaceRewindLastVisualUpdate = 0;
 
     function customFields() {
         return [...HA.STAT_FIELDS, ...(Array.isArray(window.HCA_DerivedVars) ? window.HCA_DerivedVars : [])];
@@ -2798,7 +2810,8 @@
     }
 
     function resetCustomAnalysisSessionUi() {
-        ['hc-custom', 'hc-ca-correlation'].forEach(chartId => {
+        disposeWorkspaceRewind();
+        ['hc-custom', 'hc-ca-correlation', 'hc-ca-rewind'].forEach(chartId => {
             const chart = HA.charts[chartId];
             if (chart) {
                 try { chart.dispose() } catch (error) { console.warn(`[historical] Failed to dispose ${chartId}`, error) }
@@ -2839,6 +2852,227 @@
         if ($('h-ca-kpi-variables')) $('h-ca-kpi-variables').textContent = fields.length.toLocaleString();
         if ($('h-ca-kpi-derived')) $('h-ca-kpi-derived').textContent = (window.HCA_DerivedVars?.length || 0).toLocaleString();
         if ($('h-ca-kpi-output') && outputPoints != null) $('h-ca-kpi-output').textContent = Number(outputPoints).toLocaleString();
+        if ($('h-ca-kpi-gps')) $('h-ca-kpi-gps').textContent = (S.data || []).filter(row => Number.isFinite(row.lat) && Number.isFinite(row.lon) && row.lat !== 0 && row.lon !== 0).length.toLocaleString();
+    }
+
+    function formatRewindTime(milliseconds) {
+        const total = Math.max(0, Number(milliseconds) || 0);
+        const minutes = Math.floor(total / 60000);
+        const seconds = Math.floor((total % 60000) / 1000);
+        const tenths = Math.floor((total % 1000) / 100);
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${tenths}`;
+    }
+
+    function stopWorkspaceRewind() {
+        workspaceRewindPlaying = false;
+        if (workspaceRewindFrame != null) cancelAnimationFrame(workspaceRewindFrame);
+        workspaceRewindFrame = null;
+        const play = $('h-ca-rewind-play');
+        if (play) {
+            play.textContent = 'Play';
+            play.setAttribute('aria-label', 'Play session rewind');
+        }
+    }
+
+    function disposeWorkspaceRewind() {
+        stopWorkspaceRewind();
+        if (workspaceRewindMarker) {
+            try { workspaceRewindMarker.remove(); } catch (_) { }
+        }
+        if (workspaceRewindMap) {
+            try { workspaceRewindMap.remove(); } catch (_) { }
+        }
+        workspaceRewindMarker = null;
+        workspaceRewindMap = null;
+        workspaceRewindRows = [];
+        workspaceRewindGps = [];
+        workspaceRewindIndex = 0;
+    }
+
+    function workspaceRewindIndexForTime(timestamp) {
+        let low = 0;
+        let high = Math.max(0, workspaceRewindRows.length - 1);
+        while (low < high) {
+            const middle = Math.floor((low + high) / 2);
+            if (workspaceRewindRows[middle]._ts < timestamp) low = middle + 1;
+            else high = middle;
+        }
+        if (low > 0 && Math.abs(workspaceRewindRows[low - 1]._ts - timestamp) < Math.abs(workspaceRewindRows[low]._ts - timestamp)) return low - 1;
+        return low;
+    }
+
+    function workspaceRewindGpsForIndex(index) {
+        if (!workspaceRewindGps.length) return null;
+        let low = 0;
+        let high = workspaceRewindGps.length - 1;
+        while (low < high) {
+            const middle = Math.ceil((low + high) / 2);
+            if (workspaceRewindGps[middle].index <= index) low = middle;
+            else high = middle - 1;
+        }
+        return workspaceRewindGps[low];
+    }
+
+    function setWorkspaceRewindChartPlayhead(timestamp) {
+        const chart = HA.charts['hc-ca-rewind'];
+        if (!chart) return;
+        try {
+            chart.setOption({ series: [{ markLine: { silent: true, symbol: 'none', animation: false, label: { show: false }, lineStyle: { color: '#f5f1e8', width: 1, opacity: .72 }, data: [{ xAxis: timestamp }] } }] }, false, true);
+        } catch (_) { }
+    }
+
+    function seekWorkspaceRewind(index, options = {}) {
+        if (!workspaceRewindRows.length) return;
+        workspaceRewindIndex = Math.max(0, Math.min(workspaceRewindRows.length - 1, Number(index) || 0));
+        const row = workspaceRewindRows[workspaceRewindIndex];
+        const firstTs = workspaceRewindRows[0]._ts;
+        const lastTs = workspaceRewindRows[workspaceRewindRows.length - 1]._ts;
+        const elapsed = row._ts - firstTs;
+        const duration = Math.max(1, lastTs - firstTs);
+        const range = $('h-ca-rewind-range');
+        if (range) range.value = String(Math.round(elapsed / duration * 1000));
+        if ($('h-ca-rewind-time')) $('h-ca-rewind-time').textContent = formatRewindTime(elapsed);
+        if ($('h-ca-rewind-total')) $('h-ca-rewind-total').textContent = `/ ${formatRewindTime(duration)}`;
+        if ($('h-ca-rewind-speed')) $('h-ca-rewind-speed').textContent = HA.fmt(row.speed_kmh, 1);
+        if ($('h-ca-rewind-power')) $('h-ca-rewind-power').textContent = HA.fmt(row.power_w, 0);
+        if ($('h-ca-rewind-voltage')) $('h-ca-rewind-voltage').textContent = HA.fmt(row.voltage_v, 1);
+        if ($('h-ca-rewind-current')) $('h-ca-rewind-current').textContent = HA.fmt(row.current_a, 1);
+        if ($('h-ca-rewind-record')) $('h-ca-rewind-record').textContent = `Record ${(workspaceRewindIndex + 1).toLocaleString()} / ${workspaceRewindRows.length.toLocaleString()}`;
+        if ($('h-ca-rewind-clock')) $('h-ca-rewind-clock').textContent = new Date(row._ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 1 });
+
+        const gps = workspaceRewindGpsForIndex(workspaceRewindIndex);
+        if ($('h-ca-rewind-coordinates')) $('h-ca-rewind-coordinates').textContent = gps ? `${gps.row.lat.toFixed(6)}, ${gps.row.lon.toFixed(6)}` : 'No GPS fix at this point';
+        if (gps && workspaceRewindMap && workspaceRewindMarker) {
+            const coordinate = [gps.row.lon, gps.row.lat];
+            workspaceRewindMarker.setLngLat(coordinate);
+            const source = workspaceRewindMap.getSource('rewind-progress');
+            if (source) {
+                const progressCoordinates = workspaceRewindGps.slice(0, gps.gpsIndex + 1).map(item => [item.row.lon, item.row.lat]);
+                if (progressCoordinates.length === 1) progressCoordinates.push(progressCoordinates[0]);
+                source.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: progressCoordinates }, properties: {} });
+            }
+            if ($('h-ca-rewind-follow')?.checked && options.follow !== false) workspaceRewindMap.jumpTo({ center: coordinate });
+        }
+        setWorkspaceRewindChartPlayhead(row._ts);
+    }
+
+    function renderWorkspaceRewindChart() {
+        if (!workspaceRewindRows.length) return;
+        const stride = Math.max(1, Math.ceil(workspaceRewindRows.length / 1400));
+        const sample = workspaceRewindRows.filter((_, index) => index % stride === 0 || index === workspaceRewindRows.length - 1);
+        const textColor = getComputedStyle(document.body).getPropertyValue('--ha-text2').trim() || '#aaa69f';
+        const lineColor = getComputedStyle(document.body).getPropertyValue('--ha-border').trim() || 'rgba(255,255,255,.1)';
+        HA.initChart('hc-ca-rewind', {
+            animation: false,
+            tooltip: { trigger: 'axis', axisPointer: { type: 'line' }, valueFormatter: value => HA.fmt(value, 2) },
+            grid: { left: 52, right: 52, top: 28, bottom: 34 },
+            xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 8 }, axisLine: { lineStyle: { color: lineColor } }, splitLine: { show: false } },
+            yAxis: [{ type: 'value', name: 'km/h', nameTextStyle: { color: textColor, fontSize: 8 }, axisLabel: { color: textColor, fontSize: 8 }, splitLine: { lineStyle: { color: lineColor } } }, { type: 'value', name: 'W', nameTextStyle: { color: textColor, fontSize: 8 }, axisLabel: { color: textColor, fontSize: 8 }, splitLine: { show: false } }],
+            series: [{ name: 'Speed', type: 'line', data: sample.map(row => [row._ts, row.speed_kmh]), showSymbol: false, sampling: 'lttb', lineStyle: { color: '#ff6b35', width: 1.6 }, areaStyle: { color: 'rgba(255,107,53,.08)' } }, { name: 'Power', type: 'line', yAxisIndex: 1, data: sample.map(row => [row._ts, row.power_w]), showSymbol: false, sampling: 'lttb', lineStyle: { color: '#86b7a6', width: 1, opacity: .8 } }],
+        });
+        const chart = HA.charts['hc-ca-rewind'];
+        chart?.getZr()?.on('click', event => {
+            const point = [event.offsetX, event.offsetY];
+            if (!chart.containPixel({ gridIndex: 0 }, point)) return;
+            const converted = chart.convertFromPixel({ xAxisIndex: 0 }, point);
+            const timestamp = Array.isArray(converted) ? converted[0] : converted;
+            if (Number.isFinite(timestamp)) {
+                stopWorkspaceRewind();
+                seekWorkspaceRewind(workspaceRewindIndexForTime(timestamp));
+            }
+        });
+    }
+
+    function renderWorkspaceRewindMap() {
+        const state = $('h-ca-rewind-map-state');
+        if (workspaceRewindGps.length < 2 || typeof maplibregl === 'undefined') {
+            if (state) {
+                state.hidden = false;
+                state.innerHTML = '<strong>No GPS route captured</strong><span>Rewind still synchronizes the telemetry timeline and vehicle readings.</span>';
+            }
+            if ($('h-ca-rewind-gps-state')) $('h-ca-rewind-gps-state').textContent = 'Telemetry only';
+            return;
+        }
+        if (state) state.hidden = true;
+        if ($('h-ca-rewind-gps-state')) $('h-ca-rewind-gps-state').textContent = `${workspaceRewindGps.length.toLocaleString()} GPS fixes`;
+        const stride = Math.max(1, Math.ceil(workspaceRewindGps.length / 1800));
+        const route = workspaceRewindGps.filter((_, index) => index % stride === 0 || index === workspaceRewindGps.length - 1);
+        const coordinates = route.map(item => [item.row.lon, item.row.lat]);
+        const lightTheme = currentTheme() === 'light';
+        workspaceRewindMap = new maplibregl.Map({
+            container: 'h-ca-rewind-map',
+            style: { version: 8, sources: { base: { type: 'raster', tiles: [`https://basemaps.cartocdn.com/${lightTheme ? 'light_all' : 'dark_all'}/{z}/{x}/{y}{r}.png`], tileSize: 256 } }, layers: [{ id: 'base', type: 'raster', source: 'base' }] },
+            center: coordinates[0],
+            zoom: 14,
+            attributionControl: false,
+        });
+        const map = workspaceRewindMap;
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+        map.on('load', () => {
+            if (map !== workspaceRewindMap) return;
+            map.addSource('rewind-route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates }, properties: {} } });
+            map.addSource('rewind-progress', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [coordinates[0], coordinates[0]] }, properties: {} } });
+            map.addLayer({ id: 'rewind-route', type: 'line', source: 'rewind-route', paint: { 'line-color': lightTheme ? '#706b62' : '#d5d1c8', 'line-width': 3, 'line-opacity': .46 } });
+            map.addLayer({ id: 'rewind-progress', type: 'line', source: 'rewind-progress', paint: { 'line-color': '#ff6b35', 'line-width': 4, 'line-opacity': .96 } });
+            const markerElement = document.createElement('div');
+            markerElement.className = 'haw-rewind-marker';
+            workspaceRewindMarker = new maplibregl.Marker({ element: markerElement }).setLngLat(coordinates[0]).addTo(map);
+            const bounds = coordinates.reduce((result, coordinate) => result.extend(coordinate), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+            map.fitBounds(bounds, { padding: 52, duration: 0, maxZoom: 17 });
+            seekWorkspaceRewind(workspaceRewindIndex, { follow: false, instant: true });
+        });
+    }
+
+    function initWorkspaceRewind(force = false) {
+        if (!S.data?.length) return;
+        if (!force && workspaceRewindRows === S.data && HA.charts['hc-ca-rewind']) {
+            requestAnimationFrame(() => {
+                try { workspaceRewindMap?.resize(); HA.charts['hc-ca-rewind']?.resize(); } catch (_) { }
+            });
+            return;
+        }
+        disposeWorkspaceRewind();
+        workspaceRewindRows = S.data;
+        workspaceRewindGps = S.data.map((row, index) => ({ row, index, gpsIndex: 0 })).filter(item => Number.isFinite(item.row.lat) && Number.isFinite(item.row.lon) && item.row.lat !== 0 && item.row.lon !== 0);
+        workspaceRewindGps.forEach((item, gpsIndex) => { item.gpsIndex = gpsIndex; });
+        renderWorkspaceRewindChart();
+        renderWorkspaceRewindMap();
+        seekWorkspaceRewind(0, { follow: false, instant: true });
+    }
+
+    function playWorkspaceRewind() {
+        if (!workspaceRewindRows.length) initWorkspaceRewind();
+        if (!workspaceRewindRows.length) return;
+        if (workspaceRewindPlaying) {
+            stopWorkspaceRewind();
+            return;
+        }
+        if (workspaceRewindIndex >= workspaceRewindRows.length - 1) seekWorkspaceRewind(0, { follow: false, instant: true });
+        workspaceRewindPlaying = true;
+        workspaceRewindStartedAt = performance.now();
+        workspaceRewindStartedTs = workspaceRewindRows[workspaceRewindIndex]._ts;
+        const play = $('h-ca-rewind-play');
+        if (play) {
+            play.textContent = 'Pause';
+            play.setAttribute('aria-label', 'Pause session rewind');
+        }
+        const tick = now => {
+            if (!workspaceRewindPlaying) return;
+            const rate = Number($('h-ca-rewind-rate')?.value) || 1;
+            const targetTs = workspaceRewindStartedTs + (now - workspaceRewindStartedAt) * rate;
+            const index = workspaceRewindIndexForTime(targetTs);
+            if (now - workspaceRewindLastVisualUpdate > 70 || index >= workspaceRewindRows.length - 1) {
+                workspaceRewindLastVisualUpdate = now;
+                seekWorkspaceRewind(index);
+            }
+            if (targetTs >= workspaceRewindRows[workspaceRewindRows.length - 1]._ts) {
+                seekWorkspaceRewind(workspaceRewindRows.length - 1);
+                stopWorkspaceRewind();
+                return;
+            }
+            workspaceRewindFrame = requestAnimationFrame(tick);
+        };
+        workspaceRewindFrame = requestAnimationFrame(tick);
     }
 
     function getWorkspaceLayout() {
@@ -2848,7 +3082,7 @@
                 order: Array.isArray(parsed.order) ? parsed.order : HCA_DEFAULT_ORDER,
                 hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
                 sizes: parsed.sizes && typeof parsed.sizes === 'object' ? parsed.sizes : {},
-                mode: ['explore', 'transform', 'correlate', 'review'].includes(parsed.mode) ? parsed.mode : 'explore',
+                mode: HCA_WORKSPACE_MODES.includes(parsed.mode) ? parsed.mode : 'explore',
             };
         } catch (_) {
             return { order: HCA_DEFAULT_ORDER, hidden: [], sizes: {}, mode: 'explore' };
@@ -2877,7 +3111,8 @@
     }
 
     function applyWorkspaceMode(mode, persist = true) {
-        if (!['explore', 'transform', 'correlate', 'review'].includes(mode)) return;
+        if (!HCA_WORKSPACE_MODES.includes(mode)) return;
+        if (activeWorkspaceMode === 'rewind' && mode !== 'rewind') stopWorkspaceRewind();
         activeWorkspaceMode = mode;
         const grid = $('h-ca-workspace-grid');
         if (grid) grid.dataset.mode = mode;
@@ -2888,7 +3123,10 @@
         });
         refreshWorkspaceVisibility();
         if (persist) saveWorkspaceLayout();
-        requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
+        requestAnimationFrame(() => {
+            if (mode === 'rewind') initWorkspaceRewind();
+            Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } });
+        });
     }
 
     function applyWorkspaceLayout() {
@@ -2903,7 +3141,7 @@
         panels.forEach((panel, key) => {
             panel.dataset.layoutHidden = state.hidden.includes(key) ? 'true' : 'false';
             panel.classList.remove('haw-panel-wide', 'haw-panel-full');
-            const fallback = key === 'preview' ? 'full' : ['relationship', 'matrix', 'statistics'].includes(key) ? 'wide' : 'standard';
+            const fallback = ['preview', 'rewind'].includes(key) ? 'full' : ['relationship', 'matrix', 'statistics'].includes(key) ? 'wide' : 'standard';
             const size = state.sizes[key] || fallback;
             if (size === 'wide') panel.classList.add('haw-panel-wide');
             if (size === 'full') panel.classList.add('haw-panel-full');
@@ -3117,13 +3355,19 @@
         };
         const runWorkspaceCommand = command => {
             if (command === 'run') $('h-ca-generate')?.click();
-            if (['explore', 'transform', 'correlate', 'review'].includes(command)) {
+            if (HCA_WORKSPACE_MODES.includes(command)) {
                 applyWorkspaceMode(command);
                 if (command === 'correlate' && !HA.charts['hc-ca-correlation']) void computeWorkspaceRelationships();
+                if (command === 'rewind') initWorkspaceRewind();
             }
             if (command === 'filter') {
                 applyWorkspaceMode('explore');
                 $('h-ca-add-filter')?.click();
+            }
+            if (command === 'rewind-play') {
+                applyWorkspaceMode('rewind');
+                initWorkspaceRewind();
+                playWorkspaceRewind();
             }
             if (command === 'layout') $('h-ca-customize')?.click();
             if (command === 'export') $('h-ca-export-csv')?.click();
@@ -3175,19 +3419,62 @@
             }
             if (!workspaceIsVisible()) return;
             if (modifier && event.key === 'Enter') { event.preventDefault(); runWorkspaceCommand('run'); return; }
-            if (event.altKey && ['1', '2', '3', '4'].includes(event.key)) {
+            if (event.altKey && ['1', '2', '3', '4', '5'].includes(event.key)) {
                 event.preventDefault();
-                runWorkspaceCommand(['explore', 'transform', 'correlate', 'review'][Number(event.key) - 1]);
+                runWorkspaceCommand(HCA_WORKSPACE_MODES[Number(event.key) - 1]);
                 return;
             }
             if (event.altKey && event.key.toLowerCase() === 'b') { event.preventDefault(); runWorkspaceCommand('brief'); return; }
             if (isTypingTarget(event.target) || commandDialog?.open || shortcutDialog?.open) return;
+            if (activeWorkspaceMode === 'rewind') {
+                if (event.code === 'Space') { event.preventDefault(); playWorkspaceRewind(); return; }
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    stopWorkspaceRewind();
+                    const direction = event.key === 'ArrowRight' ? 1 : -1;
+                    const jump = event.shiftKey ? 10000 : 5000;
+                    const target = workspaceRewindRows[workspaceRewindIndex]?._ts + direction * jump;
+                    seekWorkspaceRewind(workspaceRewindIndexForTime(target));
+                    return;
+                }
+                if (event.key === 'Home' || event.key === 'End') {
+                    event.preventDefault();
+                    stopWorkspaceRewind();
+                    seekWorkspaceRewind(event.key === 'Home' ? 0 : workspaceRewindRows.length - 1, { follow: false, instant: true });
+                    return;
+                }
+            }
             const command = { f: 'filter', l: 'layout', e: 'export' }[event.key.toLowerCase()];
             if (command) { event.preventDefault(); runWorkspaceCommand(command); return; }
             if (event.key === '?') { event.preventDefault(); shortcutDialog?.showModal(); }
         });
 
         $('h-ca-add-y-axis')?.addEventListener('click', () => addYAxisField());
+
+        $('h-ca-rewind-play')?.addEventListener('click', playWorkspaceRewind);
+        $('h-ca-rewind-range')?.addEventListener('input', event => {
+            stopWorkspaceRewind();
+            const firstTs = workspaceRewindRows[0]?._ts;
+            const lastTs = workspaceRewindRows[workspaceRewindRows.length - 1]?._ts;
+            if (!Number.isFinite(firstTs) || !Number.isFinite(lastTs)) return;
+            const targetTs = firstTs + (lastTs - firstTs) * Number(event.target.value) / 1000;
+            seekWorkspaceRewind(workspaceRewindIndexForTime(targetTs), { instant: true });
+        });
+        $('h-ca-rewind-start')?.addEventListener('click', () => { stopWorkspaceRewind(); seekWorkspaceRewind(0, { follow: false, instant: true }); });
+        $('h-ca-rewind-end')?.addEventListener('click', () => { stopWorkspaceRewind(); seekWorkspaceRewind(workspaceRewindRows.length - 1, { follow: false, instant: true }); });
+        $('h-ca-rewind-back')?.addEventListener('click', () => {
+            stopWorkspaceRewind();
+            seekWorkspaceRewind(workspaceRewindIndexForTime((workspaceRewindRows[workspaceRewindIndex]?._ts || 0) - 5000));
+        });
+        $('h-ca-rewind-forward')?.addEventListener('click', () => {
+            stopWorkspaceRewind();
+            seekWorkspaceRewind(workspaceRewindIndexForTime((workspaceRewindRows[workspaceRewindIndex]?._ts || 0) + 5000));
+        });
+        $('h-ca-rewind-rate')?.addEventListener('change', () => {
+            if (!workspaceRewindPlaying) return;
+            workspaceRewindStartedAt = performance.now();
+            workspaceRewindStartedTs = workspaceRewindRows[workspaceRewindIndex]?._ts || 0;
+        });
 
         // Accordion logic
         document.querySelectorAll('.ha-ca-accordion-btn').forEach(btn => {
@@ -3594,6 +3881,8 @@
                 const axes = yContainer.querySelectorAll('.ha-ca-filter-row');
                 for (let i = 1; i < axes.length; i++) axes[i].remove();
             }
+            stopWorkspaceRewind();
+            seekWorkspaceRewind(0, { follow: false, instant: true });
             updateWorkspaceKpis();
         });
 
