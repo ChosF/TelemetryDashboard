@@ -4717,7 +4717,7 @@ html[data-theme="light"] .haw-shortcuts-dialog::backdrop { background: rgba(48,4
 body.ha-session-open .ha-header-inner {
     grid-template-columns: 206px minmax(300px, 1fr) auto;
 }
-.ha-brand { cursor: default; }
+.ha-brand { cursor: pointer; }
 .ha-brand > span small { color: #ff6b35; }
 .ha-tool-nav { min-width: 0; display: flex; align-items: stretch; }
 .ha-tool-nav button {
