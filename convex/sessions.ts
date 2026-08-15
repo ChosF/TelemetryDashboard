@@ -326,6 +326,14 @@ export const deleteSessionOwnedDataBatch = internalMutation({
             .query("sessionAnalyses")
             .withIndex("by_session_version", (q) => q.eq("session_id", args.sessionId))
             .take(relatedBatchSize);
+        const chatThreadRows = await ctx.db
+            .query("sessionChatThreads")
+            .withIndex("by_session_updated_at", (q) => q.eq("session_id", args.sessionId))
+            .take(relatedBatchSize);
+        const chatMessageRows = await ctx.db
+            .query("sessionChatMessages")
+            .withIndex("by_session_sequence", (q) => q.eq("session_id", args.sessionId))
+            .take(telemetryBatchSize);
 
         for (const archive of archiveRows) {
             await ctx.storage.delete(archive.storage_id);
@@ -335,11 +343,15 @@ export const deleteSessionOwnedDataBatch = internalMutation({
             ...telemetryRows.map((row) => ctx.db.delete(row._id)),
             ...archiveRows.map((row) => ctx.db.delete(row._id)),
             ...analysisRows.map((row) => ctx.db.delete(row._id)),
+            ...chatThreadRows.map((row) => ctx.db.delete(row._id)),
+            ...chatMessageRows.map((row) => ctx.db.delete(row._id)),
         ]);
 
         const mayHaveMore = telemetryRows.length === telemetryBatchSize
             || archiveRows.length === relatedBatchSize
-            || analysisRows.length === relatedBatchSize;
+            || analysisRows.length === relatedBatchSize
+            || chatThreadRows.length === relatedBatchSize
+            || chatMessageRows.length === telemetryBatchSize;
         if (mayHaveMore) {
             await ctx.scheduler.runAfter(0, internal.sessions.deleteSessionOwnedDataBatch, {
                 sessionId: args.sessionId,

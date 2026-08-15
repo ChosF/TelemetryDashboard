@@ -9,6 +9,10 @@ import {
   sessionAnalysisResultValidator,
   sessionAnalysisStatusValidator,
 } from "./sessionAnalysisValidators";
+import {
+  sessionChatMessageRoleValidator,
+  sessionChatMessageStatusValidator,
+} from "./sessionChatValidators";
 
 export default defineSchema({
   // Custom Convex-native auth tables. Passwords use versioned, adaptive hashes;
@@ -150,6 +154,40 @@ export default defineSchema({
   })
     .index("by_session_version", ["session_id", "version"])
     .index("by_status_requested_at", ["status", "requested_at"]),
+
+  // User-owned conversations about one completed run. Full transcripts remain
+  // available in Convex while model calls use a rolling summary and short tail.
+  sessionChatThreads: defineTable({
+    ownerId: v.id("authUsers"),
+    session_id: v.string(),
+    title: v.string(),
+    title_generated: v.boolean(),
+    model: v.string(),
+    message_count: v.number(),
+    next_sequence: v.number(),
+    context_summary: v.string(),
+    summary_through_sequence: v.number(),
+    pending_assistant_message_id: v.optional(v.id("sessionChatMessages")),
+    created_at: v.number(),
+    updated_at: v.number(),
+    last_message_at: v.number(),
+  })
+    .index("by_owner_session_updated_at", ["ownerId", "session_id", "updated_at"])
+    .index("by_session_updated_at", ["session_id", "updated_at"]),
+
+  sessionChatMessages: defineTable({
+    threadId: v.id("sessionChatThreads"),
+    session_id: v.string(),
+    sequence: v.number(),
+    role: sessionChatMessageRoleValidator,
+    status: sessionChatMessageStatusValidator,
+    content: v.string(),
+    error: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_thread_sequence", ["threadId", "sequence"])
+    .index("by_session_sequence", ["session_id", "sequence"]),
 
   // Telemetry data table - stores all vehicle sensor data
 

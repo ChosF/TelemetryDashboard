@@ -447,6 +447,47 @@ const ConvexBridge = (function () {
         });
     }
 
+    async function listSessionChatThreads(sessionId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        return await client.query('sessionChat:listThreads', {
+            sessionId,
+            token: getAuthToken() || undefined,
+        });
+    }
+
+    async function createSessionChatThread(sessionId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        return await client.mutation('sessionChat:createThread', {
+            sessionId,
+            token: getAuthToken() || undefined,
+        });
+    }
+
+    async function listSessionChatMessages(threadId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        return await client.query('sessionChat:listMessages', {
+            threadId,
+            token: getAuthToken() || undefined,
+        });
+    }
+
+    async function sendSessionChatMessage(threadId, content) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        return await client.mutation('sessionChat:sendMessage', {
+            threadId,
+            content,
+            token: getAuthToken() || undefined,
+        });
+    }
+
+    async function deleteSessionChatThread(threadId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        return await client.mutation('sessionChat:deleteThread', {
+            threadId,
+            token: getAuthToken() || undefined,
+        });
+    }
+
     async function deleteSession(sessionId) {
         if (!client) throw new Error('ConvexBridge not initialized');
         const token = getAuthToken();
@@ -461,6 +502,40 @@ const ConvexBridge = (function () {
         const unsubscribe = client.onUpdate(
             'sessionAnalysis:get',
             { sessionId, token: getAuthToken() || undefined },
+            onUpdate,
+        );
+        activeSubscriptions.set(subKey, unsubscribe);
+        return () => {
+            if (!activeSubscriptions.has(subKey)) return;
+            activeSubscriptions.get(subKey)();
+            activeSubscriptions.delete(subKey);
+        };
+    }
+
+    function subscribeToSessionChatThreads(sessionId, onUpdate) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        const subKey = `session-chat-threads:${sessionId}`;
+        if (activeSubscriptions.has(subKey)) activeSubscriptions.get(subKey)();
+        const unsubscribe = client.onUpdate(
+            'sessionChat:listThreads',
+            { sessionId, token: getAuthToken() || undefined },
+            onUpdate,
+        );
+        activeSubscriptions.set(subKey, unsubscribe);
+        return () => {
+            if (!activeSubscriptions.has(subKey)) return;
+            activeSubscriptions.get(subKey)();
+            activeSubscriptions.delete(subKey);
+        };
+    }
+
+    function subscribeToSessionChatMessages(threadId, onUpdate) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        const subKey = `session-chat-messages:${threadId}`;
+        if (activeSubscriptions.has(subKey)) activeSubscriptions.get(subKey)();
+        const unsubscribe = client.onUpdate(
+            'sessionChat:listMessages',
+            { threadId, token: getAuthToken() || undefined },
             onUpdate,
         );
         activeSubscriptions.set(subKey, unsubscribe);
@@ -746,6 +821,11 @@ const ConvexBridge = (function () {
         getSessionArchiveStatus,
         getSessionAnalysis,
         ensureSessionAnalysis,
+        listSessionChatThreads,
+        createSessionChatThread,
+        listSessionChatMessages,
+        sendSessionChatMessage,
+        deleteSessionChatThread,
         deleteSession,
         getSessionRecords,
         getRecentRecords,
@@ -756,6 +836,8 @@ const ConvexBridge = (function () {
         subscribeToRecentRecords,
         subscribeToSessions,
         subscribeToSessionAnalysis,
+        subscribeToSessionChatThreads,
+        subscribeToSessionChatMessages,
         unsubscribeAll,
         isConnected,
         close

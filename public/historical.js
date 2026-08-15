@@ -22,16 +22,21 @@
     let externalDataPointLimit = Infinity;
     const HIST_ROUTE_BASE = '/historical';
     const HIST_CUSTOM_ROUTE = '/historical/custom';
+    const HIST_AI_ROUTE = '/historical/ai';
     const HIST_SESSIONS_ROUTE = '/dashboard/sessions';
 
     function parseHistoricalRoute() {
         const rawPath = window.location.pathname || '';
         const pathname = rawPath.endsWith('/') && rawPath.length > 1 ? rawPath.slice(0, -1) : rawPath;
+        if (pathname === HIST_AI_ROUTE) {
+            const sid = new URL(window.location.href).searchParams.get('sessionId');
+            return { view: 'ai', sessionId: sid || null };
+        }
         if (pathname === HIST_CUSTOM_ROUTE) {
             const sid = new URL(window.location.href).searchParams.get('sessionId');
             return { view: 'custom', sessionId: sid || null };
         }
-        if (pathname.startsWith(`${HIST_ROUTE_BASE}/`) && pathname !== HIST_CUSTOM_ROUTE) {
+        if (pathname.startsWith(`${HIST_ROUTE_BASE}/`) && pathname !== HIST_CUSTOM_ROUTE && pathname !== HIST_AI_ROUTE) {
             const sessionId = decodeURIComponent(pathname.slice((`${HIST_ROUTE_BASE}/`).length));
             if (sessionId) return { view: 'analysis', sessionId };
         }
@@ -51,8 +56,9 @@
     function syncHistoricalMobileChrome() {
         const analysisOn = $('h-view-analysis')?.classList.contains('active');
         const customOn = $('h-view-custom-analysis')?.classList.contains('active');
+        const aiOn = $('h-view-ai')?.classList.contains('active');
         const preparingOn = $('h-view-preparing')?.classList.contains('active');
-        document.body.classList.toggle('ha-session-open', !!(analysisOn || customOn || preparingOn));
+        document.body.classList.toggle('ha-session-open', !!(analysisOn || customOn || aiOn || preparingOn));
         syncToolHeader();
     }
 
@@ -60,11 +66,13 @@
         const explorerOn = $('h-view-explorer')?.classList.contains('active');
         const analysisOn = $('h-view-analysis')?.classList.contains('active');
         const customOn = $('h-view-custom-analysis')?.classList.contains('active');
+        const aiOn = $('h-view-ai')?.classList.contains('active');
         const preparingOn = $('h-view-preparing')?.classList.contains('active');
         const hasSession = Boolean(S.activeSessionId);
         const runs = $('h-back-to-sessions');
         const brief = $('h-tool-brief');
         const analyze = $('h-btn-custom-analysis');
+        const askAi = $('h-tool-ai');
         if (brief) {
             brief.hidden = !hasSession;
             brief.disabled = preparingOn;
@@ -73,7 +81,11 @@
             analyze.hidden = !hasSession || !canAccessCustomAnalysis;
             analyze.disabled = preparingOn;
         }
-        [[runs, explorerOn], [brief, analysisOn || preparingOn], [analyze, customOn]].forEach(([button, active]) => {
+        if (askAi) {
+            askAi.hidden = !hasSession;
+            askAi.disabled = preparingOn;
+        }
+        [[runs, explorerOn], [brief, analysisOn || preparingOn], [analyze, customOn], [askAi, aiOn]].forEach(([button, active]) => {
             if (!button) return;
             button.classList.toggle('active', Boolean(active));
             if (active) button.setAttribute('aria-current', 'page');
@@ -699,8 +711,10 @@
 
     // ── Open Session ──
     function showAnalysisView() {
+        window.SessionChatUI?.close?.();
         $('h-view-explorer').classList.remove('active');
         $('h-view-custom-analysis').classList.remove('active');
+        $('h-view-ai')?.classList.remove('active');
         $('h-view-preparing').classList.remove('active');
         $('h-view-analysis').classList.add('active');
         showTOC(false);
@@ -711,17 +725,20 @@
 
     function showCustomAnalysisView() {
         $('h-view-analysis').classList.remove('active');
+        $('h-view-ai')?.classList.remove('active');
         $('h-view-preparing').classList.remove('active');
         $('h-view-custom-analysis').classList.add('active');
         $('h-btn-collapse-all').style.display = 'none';
         showTOC(false);
         syncHistoricalMobileChrome();
+        window.SessionChatUI?.close?.();
     }
 
     function showPreparationView() {
         $('h-view-explorer').classList.remove('active');
         $('h-view-analysis').classList.remove('active');
         $('h-view-custom-analysis').classList.remove('active');
+        $('h-view-ai')?.classList.remove('active');
         $('h-view-preparing').classList.add('active');
         showTOC(false);
         showAnalysisActions(false);
@@ -959,6 +976,8 @@
                     );
                 }
                 initCustomAnalysis();
+            } else if (options.openAiAfterLoad) {
+                await showSessionChat({ skipHistory: true });
             }
         } catch (error) {
             if (!preparationIsCurrent(sid, preparationToken)) return;
@@ -979,6 +998,7 @@
         S.preparationToken += 1;
         $('h-view-analysis').classList.remove('active');
         $('h-view-custom-analysis').classList.remove('active');
+        $('h-view-ai')?.classList.remove('active');
         $('h-view-preparing').classList.remove('active');
         $('h-view-explorer').classList.add('active');
         $('h-active-session-label').textContent = '';
@@ -991,6 +1011,7 @@
         disposeWorkspaceRewind();
         disposeWorkspaceTrackMap();
         if (S.analysisUnsubscribe) { try { S.analysisUnsubscribe() } catch (e) { } } S.analysisUnsubscribe = null;
+        window.SessionChatUI?.close?.();
         clearArchiveStatusPoll();
         S.data = []; S.stats = null; S.isPreview = false; S.statsExact = false; S.fullDataPromise = null; S.archiveStatus = 'none';
         S.previewData = null; S.previewStats = null; S.previewStatsExact = false; S.fullData = null; S.fullStats = null;
@@ -1011,6 +1032,7 @@
             toast('Custom Analysis is not available for external accounts.');
             return;
         }
+        window.SessionChatUI?.close?.();
         showCustomAnalysisView();
         if (S.activeSessionId) {
             updateRoute(
@@ -1026,7 +1048,9 @@
     function showDecisionBrief() {
         if (!S.activeSessionId || $('h-view-preparing')?.classList.contains('active')) return;
         $('h-view-custom-analysis').classList.remove('active');
+        $('h-view-ai')?.classList.remove('active');
         $('h-view-analysis').classList.add('active');
+        window.SessionChatUI?.close?.();
         $('h-btn-collapse-all').style.display = '';
         showTOC(true);
         syncHistoricalMobileChrome();
@@ -1037,6 +1061,33 @@
         setTimeout(() => Object.values(HA.charts).forEach(c => { try { c.resize() } catch (e) { } }), 50);
     }
     $('h-tool-brief')?.addEventListener('click', showDecisionBrief);
+
+    async function showSessionChat(options = {}) {
+        if (!S.activeSessionId || $('h-view-preparing')?.classList.contains('active')) return;
+        $('h-view-explorer').classList.remove('active');
+        $('h-view-analysis').classList.remove('active');
+        $('h-view-custom-analysis').classList.remove('active');
+        $('h-view-preparing').classList.remove('active');
+        $('h-view-ai')?.classList.add('active');
+        $('h-btn-collapse-all').style.display = 'none';
+        showTOC(false);
+        showAnalysisActions(false);
+        syncHistoricalMobileChrome();
+        await window.SessionChatUI?.open?.({
+            sessionId: S.activeSessionId,
+            sessionName: S.activeSessionMeta?.session_name || S.activeSessionId.slice(0, 12),
+            analysis: S.analysis,
+        });
+        if (!options.skipHistory) {
+            updateRoute(
+                HIST_AI_ROUTE,
+                { view: 'ai', sessionId: S.activeSessionId },
+                false,
+                new URLSearchParams({ sessionId: S.activeSessionId }),
+            );
+        }
+    }
+    $('h-tool-ai')?.addEventListener('click', () => void showSessionChat());
 
     // ── Render All Analysis ──
     const renderedHistoricalSections = new Set();
@@ -5607,6 +5658,8 @@
             await openSession(initialRoute.sessionId, { skipHistory: true, replaceHistory: true });
         } else if (initialRoute.view === 'custom' && initialRoute.sessionId && canAccessCustomAnalysis) {
             await openSession(initialRoute.sessionId, { skipHistory: true, replaceHistory: true, openCustomAfterLoad: true });
+        } else if (initialRoute.view === 'ai' && initialRoute.sessionId) {
+            await openSession(initialRoute.sessionId, { skipHistory: true, replaceHistory: true, openAiAfterLoad: true });
         } else if (initialRoute.view === 'custom') {
             if (initialRoute.sessionId) {
                 await openSession(initialRoute.sessionId, { skipHistory: true, replaceHistory: true });
@@ -5651,6 +5704,19 @@
             if (S.activeSessionId && S.data?.length) {
                 showCustomAnalysisView();
                 initCustomAnalysis();
+            } else {
+                backToSessions({ skipHistory: true });
+            }
+            return;
+        }
+
+        if (route.view === 'ai') {
+            if (route.sessionId && (S.activeSessionId !== route.sessionId || !S.data?.length)) {
+                await openSession(route.sessionId, { skipHistory: true, replaceHistory: true, openAiAfterLoad: true });
+                return;
+            }
+            if (S.activeSessionId && S.data?.length) {
+                await showSessionChat({ skipHistory: true });
             } else {
                 backToSessions({ skipHistory: true });
             }

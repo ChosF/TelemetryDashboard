@@ -14,6 +14,7 @@
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
         rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" />
     <link rel="stylesheet" href="/auth-styles.css" />
     <script>
         (() => {
@@ -25,7 +26,7 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="/historical.css?v=20260814.7" />
+    <link rel="stylesheet" href="/historical.css?v=20260815.1" />
     <script>
         window.CONFIG = window.CONFIG || { CONVEX_URL: "https://wonderful-kookabura-432.convex.cloud" };
     </script>
@@ -71,6 +72,7 @@
                 <button type="button" id="h-back-to-sessions" class="active" aria-current="page"><span>Runs</span></button>
                 <button type="button" id="h-tool-brief" hidden><span>Brief</span></button>
                 <button type="button" id="h-btn-custom-analysis" hidden><span>Analyze</span></button>
+                <button type="button" id="h-tool-ai" hidden><span>Ask AI</span></button>
             </nav>
             <div class="ha-header-context">
                 <div class="ha-header-session" id="h-active-session-label"></div>
@@ -839,6 +841,61 @@
 
         </div><!-- ha-view-analysis -->
 
+        <!-- ── SESSION AI ── -->
+        <div class="ha-view" id="h-view-ai">
+            <section class="hchat-shell" id="h-chat-shell" aria-label="Session AI workspace">
+                <button type="button" class="hchat-sidebar-scrim" id="h-chat-sidebar-scrim" aria-label="Close conversations"></button>
+                <aside class="hchat-sidebar">
+                    <header class="hchat-sidebar-head">
+                        <div><span>SESSION MEMORY</span><strong>Conversations</strong></div>
+                        <button type="button" id="h-chat-new" title="New conversation" aria-label="New conversation">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                        </button>
+                    </header>
+                    <div class="hchat-thread-list" id="h-chat-thread-list"></div>
+                    <footer class="hchat-sidebar-foot">
+                        <span><i></i>FULL TRANSCRIPTS SAVED</span>
+                        <small>Answers use compact run evidence + rolling memory</small>
+                    </footer>
+                </aside>
+
+                <div class="hchat-stage">
+                    <header class="hchat-topbar">
+                        <div class="hchat-topbar-main">
+                            <button type="button" class="hchat-sidebar-toggle" id="h-chat-sidebar-toggle" aria-label="Show conversations" aria-expanded="false">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM9 5v14"/></svg>
+                            </button>
+                            <div><span>RUN COPILOT</span><strong id="h-chat-session-name">Selected run</strong></div>
+                        </div>
+                        <div class="hchat-status is-ready" id="h-chat-status"><i></i>READY FOR A QUESTION</div>
+                        <button type="button" class="hchat-delete" id="h-chat-delete" title="Delete conversation" aria-label="Delete conversation" disabled>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg>
+                        </button>
+                    </header>
+
+                    <div class="hchat-context" aria-label="AI context scope">
+                        <span class="hchat-context-label">CONTEXT / BOUNDED</span>
+                        <span id="h-chat-context-quality">Brief context</span>
+                        <span id="h-chat-context-sectors">Four sectors summarized</span>
+                        <span id="h-chat-context-score">Saved brief linked</span>
+                        <b>GEMINI 3.7 FLASH</b>
+                    </div>
+
+                    <div class="hchat-messages" id="h-chat-messages" aria-live="polite"></div>
+
+                    <footer class="hchat-composer-wrap">
+                        <div class="hchat-composer-box">
+                            <textarea id="h-chat-composer" rows="1" maxlength="6000" placeholder="Ask about efficiency, sectors, anomalies, or a calculation…" aria-label="Question about this session"></textarea>
+                            <button type="button" id="h-chat-send" aria-label="Send question" disabled>
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 5 16 7-16 7 3-7-3-7Zm3 7h13"/></svg>
+                            </button>
+                        </div>
+                        <div class="hchat-composer-meta"><span>ENTER TO SEND · SHIFT + ENTER FOR A NEW LINE</span><span>MARKDOWN + LATEX</span></div>
+                    </footer>
+                </div>
+            </section>
+        </div>
+
         <!-- ── ANALYSIS WORKSPACE ── -->
         <div class="ha-view" id="h-view-custom-analysis">
             <section class="haw-shell">
@@ -1303,13 +1360,16 @@
 
     <!-- Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/convex@1.17.4/dist/browser.bundle.js"></script>
-    <script src="/lib/convex-bridge.js?v=20260814.1"></script>
+    <script src="/lib/convex-bridge.js?v=20260815.1"></script>
     <script src="/auth.js"></script>
     <script src="/auth-ui.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
     <script src="/historical-engine.js?v=20260808.1"></script>
-    <script src="/historical.js?v=20260814.7"></script>
+    <script src="/session-chat.js?v=20260815.1"></script>
+    <script src="/historical.js?v=20260815.1"></script>
     <script>
         (() => {
             let dashboardPrewarmPromise = null;
