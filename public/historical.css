@@ -4946,6 +4946,8 @@ body.hist-page .auth-modal-content {
 /* ─── Session AI workspace ─────────────────────────────────────────────── */
 #h-view-ai {
     --hc-bg: #0d0d0d;
+    --hc-chrome: rgba(13,13,13,.96);
+    --hc-sidebar: #111;
     --hc-panel: #141414;
     --hc-panel-2: #191919;
     --hc-ink: #f5f1e8;
@@ -4975,7 +4977,7 @@ body.hist-page .auth-modal-content {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
     border-right: 1px solid var(--hc-line);
-    background: #111;
+    background: var(--hc-sidebar);
 }
 .hchat-sidebar-head {
     min-height: 92px;
@@ -5083,7 +5085,7 @@ body.hist-page .auth-modal-content {
     gap: 16px;
     align-items: center;
     border-bottom: 1px solid var(--hc-line);
-    background: rgba(13,13,13,.92);
+    background: var(--hc-chrome);
 }
 .hchat-topbar-main { min-width: 0; display: flex; align-items: center; gap: 13px; }
 .hchat-sidebar-toggle { display: none; }
@@ -5200,8 +5202,8 @@ body.hist-page .auth-modal-content {
 .hchat-prompts button { min-height: 62px; padding: 14px 16px; border: 0; color: rgba(245,241,232,.66); background: var(--hc-panel); font: 600 10px/1.5 "Plus Jakarta Sans", sans-serif; text-align: left; cursor: pointer; }
 .hchat-prompts button:hover { color: var(--hc-ink); background: var(--hc-panel-2); box-shadow: inset 2px 0 var(--hc-orange); }
 
-.hchat-composer-wrap { position: relative; z-index: 2; padding: 16px 24px 18px; border-top: 1px solid var(--hc-line); background: rgba(13,13,13,.96); }
-.hchat-composer-box { width: min(930px, 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 52px; border: 1px solid rgba(245,241,232,.18); background: var(--hc-panel); transition: border-color .18s ease, box-shadow .18s ease; }
+.hchat-composer-wrap { position: relative; z-index: 2; padding: 16px 24px 18px; border-top: 1px solid var(--hc-line); background: var(--hc-chrome); }
+.hchat-composer-box { width: min(930px, 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 52px; border: 1px solid var(--hc-line); background: var(--hc-panel); transition: border-color .18s ease, box-shadow .18s ease; }
 .hchat-composer-box:focus-within { border-color: var(--hc-orange); box-shadow: inset 3px 0 var(--hc-orange); }
 .hchat-composer-box textarea { width: 100%; min-height: 52px; max-height: 170px; padding: 16px 18px; resize: none; overflow-y: auto; border: 0; outline: 0; color: var(--hc-ink); background: transparent; font: 500 12px/1.6 "Plus Jakarta Sans", sans-serif; }
 .hchat-composer-box textarea::placeholder { color: var(--hc-faint); }
@@ -5214,6 +5216,8 @@ body.hist-page .auth-modal-content {
 
 html[data-theme="light"] #h-view-ai {
     --hc-bg: #f7f4ed;
+    --hc-chrome: rgba(247,244,237,.97);
+    --hc-sidebar: #f1eee6;
     --hc-panel: #fffdf8;
     --hc-panel-2: #f0ece3;
     --hc-ink: #1b1a18;
@@ -5223,7 +5227,6 @@ html[data-theme="light"] #h-view-ai {
     --hc-orange: #e85824;
     --hc-green: #4d9462;
 }
-html[data-theme="light"] .hchat-sidebar { background: #f1eee6; }
 html[data-theme="light"] .hchat-message-body { color: rgba(27,26,24,.78); }
 html[data-theme="light"] .hchat-message-body code,
 html[data-theme="light"] .hchat-message-body pre { background: #eeeadf; }
