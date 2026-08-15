@@ -126,12 +126,12 @@
         const profile = auth?.getCurrentProfile?.() || null;
         const displayName = profile?.name || user?.name || user?.email || 'EcoVolt account';
         const avatar = $('h-account-avatar');
-        const guestIcon = $('h-account-guest-icon');
         if (avatar) {
-            avatar.hidden = !authenticated;
-            avatar.textContent = String(displayName).trim().charAt(0).toUpperCase() || 'U';
+            avatar.classList.toggle('is-guest', !authenticated);
+            avatar.innerHTML = authenticated
+                ? esc(String(displayName).trim().charAt(0).toUpperCase() || 'U')
+                : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.25" r="3.25"/><path d="M6.25 19c.55-3.4 2.5-5.1 5.75-5.1s5.2 1.7 5.75 5.1"/></svg>';
         }
-        if (guestIcon) guestIcon.hidden = authenticated;
         if ($('h-account-name')) $('h-account-name').textContent = authenticated ? displayName : 'Guest access';
         if ($('h-account-meta')) $('h-account-meta').textContent = authenticated
             ? `${profile?.role || 'guest'} · ${profile?.approval_status || 'active'}`

@@ -4844,11 +4844,14 @@ body.ha-session-open .ha-header-inner {
 }
 .ha-account-trigger:hover,
 .ha-account-trigger[aria-expanded="true"] { border-color: #ff6b35; background: rgba(255,107,53,.08); }
-.ha-account-trigger span { font: 750 13px/1 "Space Grotesk", monospace; }
-.ha-account-trigger svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: square; }
-.ha-account-trigger > span,
-.ha-account-trigger > svg { grid-area: 1 / 1; }
-.ha-account-trigger > [hidden] { display: none !important; }
+.ha-account-trigger span {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    font: 750 14px/1 "Space Grotesk", monospace;
+}
+.ha-account-trigger svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
 .ha-account-popover {
     position: absolute;
     top: calc(100% + 9px);
