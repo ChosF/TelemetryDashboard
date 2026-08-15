@@ -159,10 +159,27 @@
         setHistoricalAccountOpen(false);
         window.AuthUI?.showAdminDashboard?.();
     });
-    $('h-account-signin')?.addEventListener('click', () => {
+    function openHistoricalLogin() {
         setHistoricalAccountOpen(false);
         window.AuthUI?.showLoginModal?.();
-    });
+        requestAnimationFrame(() => {
+            const modal = document.querySelector('.auth-modal');
+            const title = modal?.querySelector('.auth-modal-title');
+            const subtitle = modal?.querySelector('.auth-modal-subtitle');
+            if (modal) {
+                modal.setAttribute('role', 'dialog');
+                modal.setAttribute('aria-modal', 'true');
+                modal.setAttribute('aria-labelledby', 'historical-login-title');
+            }
+            if (title) {
+                title.id = 'historical-login-title';
+                title.textContent = 'Sign in';
+            }
+            if (subtitle) subtitle.textContent = 'Continue to EcoVolt Run Intelligence';
+        });
+    }
+    $('h-account-signin')?.addEventListener('click', openHistoricalLogin);
+    $('h-auth-login')?.addEventListener('click', openHistoricalLogin);
     $('h-account-signout')?.addEventListener('click', async () => {
         setHistoricalAccountOpen(false);
         await window.AuthModule?.signOut?.();

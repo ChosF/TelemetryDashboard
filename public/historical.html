@@ -25,7 +25,7 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="/historical.css?v=20260814.6" />
+    <link rel="stylesheet" href="/historical.css?v=20260814.7" />
     <script>
         window.CONFIG = window.CONFIG || { CONVEX_URL: "https://wonderful-kookabura-432.convex.cloud" };
     </script>
@@ -34,13 +34,30 @@
 <body class="hist-page">
 
     <!-- Auth Gate -->
-    <div id="h-auth-gate" class="h-auth-gate" style="display:none">
-        <div class="h-auth-gate-content">
-            <div class="h-auth-gate-icon">🔒</div>
-            <h2>Access Restricted</h2>
-            <p>Historical analysis requires <b>External</b>, <b>Internal</b>, or <b>Admin</b> access.</p>
-            <a href="/dashboard" class="ha-btn ha-btn-primary">← Back to Dashboard</a>
-        </div>
+    <div id="h-auth-gate" class="h-auth-gate" style="display:none" role="dialog" aria-modal="true" aria-labelledby="h-auth-title">
+        <section class="h-auth-gate-content">
+            <header class="h-auth-gate-header">
+                <div class="h-auth-gate-brand"><img src="/images/logo.png" alt="" width="756" height="706"><span><strong>EcoVolt</strong><small>Run intelligence</small></span></div>
+                <span class="h-auth-gate-state"><i></i>Protected workspace</span>
+            </header>
+            <div class="h-auth-gate-body">
+                <div class="h-auth-gate-signal" aria-hidden="true">
+                    <svg viewBox="0 0 48 48"><rect x="12" y="21" width="24" height="19"/><path d="M17 21v-5a7 7 0 0 1 14 0v5M24 28v6"/></svg>
+                    <span>AUTH / 401</span>
+                </div>
+                <div class="h-auth-gate-copy">
+                    <span class="ha-eyebrow">Historical telemetry access</span>
+                    <h2 id="h-auth-title">Sign in to review completed runs.</h2>
+                    <p>Decision briefs, route evidence, and analysis tools are available to approved External, Internal, and Admin accounts.</p>
+                    <div class="h-auth-gate-roles" aria-label="Eligible access levels"><span>External</span><span>Internal</span><span>Admin</span></div>
+                    <div class="h-auth-gate-actions">
+                        <button type="button" id="h-auth-login">Login</button>
+                        <a href="/dashboard">Back to dashboard</a>
+                    </div>
+                </div>
+            </div>
+            <footer><span><i></i>Account verification required</span><span>Archive data remains protected</span></footer>
+        </section>
     </div>
 
     <!-- ── HEADER ── -->
@@ -1046,7 +1063,7 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
     <script src="/historical-engine.js?v=20260808.1"></script>
-    <script src="/historical.js?v=20260814.6"></script>
+    <script src="/historical.js?v=20260814.7"></script>
     <script>
         (() => {
             let dashboardPrewarmPromise = null;
