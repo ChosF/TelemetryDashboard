@@ -2686,6 +2686,7 @@
     // ── Custom Analysis Logic ──────────────────────────────────────────────
     let customAnalysisInitialized = false;
     let customAnalysisSessionId = null;
+    let activeWorkspaceMode = 'explore';
     const HCA_LAYOUT_KEY = 'ecovolt_historical_workspace_v1';
     const HCA_DEFAULT_ORDER = ['relationship', 'transform', 'matrix', 'filters', 'statistics', 'notebook', 'preview'];
 
@@ -2730,13 +2731,6 @@
     }
 
     function updateCustomAnalysisScope() {
-        const scope = $('h-ca-data-scope');
-        if (!scope) return;
-        const availablePoints = S.data.length;
-        const totalRecords = Number(S.stats?.recordCount || availablePoints);
-        scope.textContent = S.isPreview
-            ? `Optimized mode: ${availablePoints.toLocaleString()} evenly distributed points represent ${totalRecords.toLocaleString()} records. Custom calculations stay on this preview and do not fetch the full session.`
-            : `Full in-memory session: ${availablePoints.toLocaleString()} records available for custom calculations.`;
         updateWorkspaceKpis();
     }
 
@@ -2755,9 +2749,10 @@
                 order: Array.isArray(parsed.order) ? parsed.order : HCA_DEFAULT_ORDER,
                 hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
                 sizes: parsed.sizes && typeof parsed.sizes === 'object' ? parsed.sizes : {},
+                mode: ['explore', 'transform', 'correlate', 'review'].includes(parsed.mode) ? parsed.mode : 'explore',
             };
         } catch (_) {
-            return { order: HCA_DEFAULT_ORDER, hidden: [], sizes: {} };
+            return { order: HCA_DEFAULT_ORDER, hidden: [], sizes: {}, mode: 'explore' };
         }
     }
 
@@ -2767,11 +2762,34 @@
         const panels = Array.from(grid.querySelectorAll('[data-workspace-panel]'));
         const state = {
             order: panels.map(panel => panel.dataset.workspacePanel),
-            hidden: panels.filter(panel => panel.hidden).map(panel => panel.dataset.workspacePanel),
+            hidden: panels.filter(panel => panel.dataset.layoutHidden === 'true').map(panel => panel.dataset.workspacePanel),
             sizes: Object.fromEntries(panels.map(panel => [panel.dataset.workspacePanel,
                 panel.classList.contains('haw-panel-full') ? 'full' : panel.classList.contains('haw-panel-wide') ? 'wide' : 'standard'])),
+            mode: activeWorkspaceMode,
         };
         try { localStorage.setItem(HCA_LAYOUT_KEY, JSON.stringify(state)); } catch (_) { }
+    }
+
+    function refreshWorkspaceVisibility() {
+        document.querySelectorAll('[data-workspace-panel]').forEach(panel => {
+            const modes = (panel.dataset.workspaceModes || '').split(/\s+/);
+            panel.hidden = panel.dataset.layoutHidden === 'true' || !modes.includes(activeWorkspaceMode);
+        });
+    }
+
+    function applyWorkspaceMode(mode, persist = true) {
+        if (!['explore', 'transform', 'correlate', 'review'].includes(mode)) return;
+        activeWorkspaceMode = mode;
+        const grid = $('h-ca-workspace-grid');
+        if (grid) grid.dataset.mode = mode;
+        document.querySelectorAll('[data-workspace-mode]').forEach(button => {
+            const active = button.dataset.workspaceMode === mode;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-current', active ? 'page' : 'false');
+        });
+        refreshWorkspaceVisibility();
+        if (persist) saveWorkspaceLayout();
+        requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
     }
 
     function applyWorkspaceLayout() {
@@ -2784,15 +2802,16 @@
             if (panel) grid.appendChild(panel);
         });
         panels.forEach((panel, key) => {
-            panel.hidden = state.hidden.includes(key);
+            panel.dataset.layoutHidden = state.hidden.includes(key) ? 'true' : 'false';
             panel.classList.remove('haw-panel-wide', 'haw-panel-full');
             const fallback = key === 'preview' ? 'full' : ['relationship', 'matrix', 'statistics'].includes(key) ? 'wide' : 'standard';
             const size = state.sizes[key] || fallback;
             if (size === 'wide') panel.classList.add('haw-panel-wide');
             if (size === 'full') panel.classList.add('haw-panel-full');
             const toggle = document.querySelector(`[data-panel-toggle="${key}"]`);
-            if (toggle) toggle.checked = !panel.hidden;
+            if (toggle) toggle.checked = panel.dataset.layoutHidden !== 'true';
         });
+        applyWorkspaceMode(state.mode, false);
         requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
     }
 
@@ -2971,10 +2990,107 @@
         // All controls below are stable DOM nodes. Bind them exactly once;
         // subsequent session opens only refresh their data-backed options.
         if (customAnalysisInitialized) {
-            setTimeout(() => $('h-ca-preset')?.dispatchEvent(new Event('change')), 0);
+            setTimeout(() => {
+                $('h-ca-preset')?.dispatchEvent(new Event('change'));
+                if (activeWorkspaceMode === 'correlate') void computeWorkspaceRelationships();
+            }, 0);
             return;
         }
         customAnalysisInitialized = true;
+
+        const commandDialog = $('h-ca-command-dialog');
+        const shortcutDialog = $('h-ca-shortcuts-dialog');
+        const commandInput = $('h-ca-command-input');
+        const commandButtons = Array.from(document.querySelectorAll('#h-ca-command-list [data-command]'));
+        const workspaceIsVisible = () => $('h-view-custom-analysis')?.classList.contains('active');
+        const isTypingTarget = target => target instanceof HTMLElement && (
+            target.matches('input, textarea, select') || target.isContentEditable
+        );
+        const openCommandDialog = () => {
+            if (!workspaceIsVisible() || !commandDialog) return;
+            if (!commandDialog.open) commandDialog.showModal();
+            if (commandInput) {
+                commandInput.value = '';
+                commandButtons.forEach(button => { button.hidden = false; button.classList.remove('is-selected'); });
+                commandButtons[0]?.classList.add('is-selected');
+                requestAnimationFrame(() => commandInput.focus());
+            }
+        };
+        const runWorkspaceCommand = command => {
+            if (command === 'run') $('h-ca-generate')?.click();
+            if (['explore', 'transform', 'correlate', 'review'].includes(command)) {
+                applyWorkspaceMode(command);
+                if (command === 'correlate' && !HA.charts['hc-ca-correlation']) void computeWorkspaceRelationships();
+            }
+            if (command === 'filter') {
+                applyWorkspaceMode('explore');
+                $('h-ca-add-filter')?.click();
+            }
+            if (command === 'layout') $('h-ca-customize')?.click();
+            if (command === 'export') $('h-ca-export-csv')?.click();
+            if (command === 'brief') $('h-ca-back')?.click();
+            if (commandDialog?.open) commandDialog.close();
+        };
+
+        document.querySelectorAll('[data-workspace-mode]').forEach(button => {
+            button.addEventListener('click', () => runWorkspaceCommand(button.dataset.workspaceMode));
+        });
+        $('h-ca-command-open')?.addEventListener('click', openCommandDialog);
+        $('h-ca-shortcuts-open')?.addEventListener('click', () => { if (!shortcutDialog?.open) shortcutDialog?.showModal(); });
+        $('h-ca-shortcuts-close')?.addEventListener('click', () => shortcutDialog?.close());
+        [commandDialog, shortcutDialog].forEach(dialog => dialog?.addEventListener('click', event => {
+            if (event.target === dialog) dialog.close();
+        }));
+        commandButtons.forEach(button => button.addEventListener('click', () => runWorkspaceCommand(button.dataset.command)));
+        commandInput?.addEventListener('input', () => {
+            const query = commandInput.value.trim().toLowerCase();
+            const visible = commandButtons.filter(button => {
+                const matches = !query || button.textContent.toLowerCase().includes(query);
+                button.hidden = !matches;
+                button.classList.remove('is-selected');
+                return matches;
+            });
+            visible[0]?.classList.add('is-selected');
+        });
+        commandInput?.addEventListener('keydown', event => {
+            const visible = commandButtons.filter(button => !button.hidden);
+            if (!visible.length) return;
+            const current = Math.max(0, visible.findIndex(button => button.classList.contains('is-selected')));
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                visible[current]?.classList.remove('is-selected');
+                const direction = event.key === 'ArrowDown' ? 1 : -1;
+                visible[(current + direction + visible.length) % visible.length].classList.add('is-selected');
+            }
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                runWorkspaceCommand(visible[current]?.dataset.command);
+            }
+        });
+        document.addEventListener('keydown', event => {
+            const modifier = event.ctrlKey || event.metaKey;
+            if (modifier && (event.key.toLowerCase() === 'k' || event.key === '`')) {
+                event.preventDefault();
+                openCommandDialog();
+                return;
+            }
+            if (!workspaceIsVisible()) {
+                if (!isTypingTarget(event.target) && event.key.toLowerCase() === 't') $('h-theme-toggle')?.click();
+                return;
+            }
+            if (modifier && event.key === 'Enter') { event.preventDefault(); runWorkspaceCommand('run'); return; }
+            if (event.altKey && ['1', '2', '3', '4'].includes(event.key)) {
+                event.preventDefault();
+                runWorkspaceCommand(['explore', 'transform', 'correlate', 'review'][Number(event.key) - 1]);
+                return;
+            }
+            if (event.altKey && event.key.toLowerCase() === 'b') { event.preventDefault(); runWorkspaceCommand('brief'); return; }
+            if (isTypingTarget(event.target) || commandDialog?.open || shortcutDialog?.open) return;
+            const command = { f: 'filter', l: 'layout', e: 'export' }[event.key.toLowerCase()];
+            if (command) { event.preventDefault(); runWorkspaceCommand(command); return; }
+            if (event.key === '?') { event.preventDefault(); shortcutDialog?.showModal(); }
+            if (event.key.toLowerCase() === 't') { event.preventDefault(); $('h-theme-toggle')?.click(); }
+        });
 
         $('h-ca-add-y-axis')?.addEventListener('click', () => addYAxisField());
 
@@ -3180,12 +3296,17 @@
         $('h-ca-customize')?.addEventListener('click', () => {
             if (!layoutMenu) return;
             layoutMenu.hidden = !layoutMenu.hidden;
+            document.body.classList.toggle('haw-layout-editing', !layoutMenu.hidden);
         });
-        $('h-ca-layout-close')?.addEventListener('click', () => { if (layoutMenu) layoutMenu.hidden = true; });
+        $('h-ca-layout-close')?.addEventListener('click', () => {
+            if (layoutMenu) layoutMenu.hidden = true;
+            document.body.classList.remove('haw-layout-editing');
+        });
         document.querySelectorAll('[data-panel-toggle]').forEach(toggle => {
             toggle.addEventListener('change', () => {
                 const panel = document.querySelector(`[data-workspace-panel="${toggle.dataset.panelToggle}"]`);
-                if (panel) panel.hidden = !toggle.checked;
+                if (panel) panel.dataset.layoutHidden = toggle.checked ? 'false' : 'true';
+                refreshWorkspaceVisibility();
                 saveWorkspaceLayout();
                 requestAnimationFrame(() => Object.values(HA.charts).forEach(chart => { try { chart.resize() } catch (_) { } }));
             });
@@ -3193,6 +3314,8 @@
         $('h-ca-layout-reset')?.addEventListener('click', () => {
             try { localStorage.removeItem(HCA_LAYOUT_KEY); } catch (_) { }
             applyWorkspaceLayout();
+            document.body.classList.remove('haw-layout-editing');
+            if (layoutMenu) layoutMenu.hidden = true;
             toast('Default workspace restored');
         });
         document.querySelectorAll('[data-workspace-panel] [data-panel-size]').forEach(button => {
@@ -3249,7 +3372,6 @@
             if (preset.matrix[0]) $('h-ca-lag-x').value = preset.matrix[0];
             if (preset.matrix[1]) $('h-ca-lag-y').value = preset.matrix[1];
             generateCustomAnalysis();
-            computeWorkspaceRelationships();
         });
 
         // Attach Generate click handler
@@ -3383,7 +3505,10 @@
         // Attach Export Handlers
         $('h-ca-export-png')?.addEventListener('click', customExportPNG);
         $('h-ca-export-csv')?.addEventListener('click', customExportCSV);
-        setTimeout(() => $('h-ca-preset')?.dispatchEvent(new Event('change')), 0);
+        setTimeout(() => {
+            $('h-ca-preset')?.dispatchEvent(new Event('change'));
+            if (activeWorkspaceMode === 'correlate') void computeWorkspaceRelationships();
+        }, 0);
     }
 
     async function generateCustomAnalysis() {
@@ -3545,44 +3670,49 @@
     function renderCustomStats(xData, ySeriesObj, xKey, isAlgo) {
         const grid = $('h-ca-stats-grid');
         if (!grid) return;
+        const entries = Object.entries(ySeriesObj);
+        if (!entries.length) {
+            grid.innerHTML = '<div class="ha-ca-stat-empty">Run an analysis to compare its statistical evidence.</div>';
+            return;
+        }
 
-        const html = [];
-        const mkStat = (lbl, val) => `<div class="ha-ca-stat-item"><div class="ha-ca-stat-label">${lbl}</div><div class="ha-ca-stat-value">${val}</div></div>`;
-
-        for (const [key, yData] of Object.entries(ySeriesObj)) {
+        const isTime = xKey === '_ts';
+        const totalPts = entries[0][1].length;
+        const xLabel = isTime ? 'Elapsed time' : customFieldLabel(xKey);
+        const relationshipHeader = isTime ? 'Integral' : 'Pearson r';
+        const fitHeader = isTime ? 'Coverage' : 'Linear R²';
+        const rows = entries.map(([key, yData]) => {
             const yLabel = isAlgo ? key : customFieldLabel(key);
-
             const meanY = HA.mean(yData);
             const yMax = yData.reduce((best, value) => value > best ? value : best, -Infinity);
             const yMin = yData.reduce((best, value) => value < best ? value : best, Infinity);
             const stdDevY = HA.stddev(yData);
             const skewY = HA.skewness(yData);
+            const relationship = isTime ? HA.integral(xData, yData) / 1000 : HA.pearson(xData, yData);
+            const fit = isTime ? yData.length / Math.max(1, xData.length) : HA.linReg(xData, yData).r2;
+            const strength = isTime ? 'neutral' : Math.abs(relationship) >= .7 ? 'strong' : Math.abs(relationship) >= .4 ? 'moderate' : 'weak';
+            return `<tr>
+                <th scope="row"><strong>${esc(yLabel)}</strong><small>${yData.length.toLocaleString()} paired values</small></th>
+                <td>${HA.fmt(meanY, 3)}</td>
+                <td><span class="haw-stat-range">${HA.fmt(yMin, 3)} <i>to</i> ${HA.fmt(yMax, 3)}</span></td>
+                <td>${HA.fmt(stdDevY, 3)}</td>
+                <td>${HA.fmt(skewY, 3)}</td>
+                <td><span class="haw-stat-signal" data-strength="${strength}">${HA.fmt(relationship, 3)}</span></td>
+                <td>${isTime ? `${HA.fmt(fit * 100, 1)}%` : HA.fmt(fit, 3)}</td>
+            </tr>`;
+        }).join('');
 
-            html.push(`<div class="haw-stat-section-title">${esc(yLabel)} data</div>`);
-
-            html.push(mkStat(`Mean`, HA.fmt(meanY, 3)));
-            html.push(mkStat(`Max`, HA.fmt(yMax, 3)));
-            html.push(mkStat(`Min`, HA.fmt(yMin, 3)));
-            html.push(mkStat(`Std Dev`, HA.fmt(stdDevY, 3)));
-            html.push(mkStat(`Skewness`, HA.fmt(skewY, 3)));
-
-            if (xKey === '_ts') {
-                const integral = HA.integral(xData, yData);
-                html.push(mkStat(`Integral ∑(Area)`, HA.fmt(integral / 1000, 2)));
-            } else if (!isAlgo) {
-                const pearson = HA.pearson(xData, yData);
-                const lr = HA.linReg(xData, yData);
-                html.push(mkStat(`Pearson (r)`, HA.fmt(pearson, 3)));
-                html.push(mkStat(`Linear R²`, HA.fmt(lr.r2, 3)));
-            }
-        }
-
-        let totalPts = 0;
-        if (Object.keys(ySeriesObj).length > 0) totalPts = ySeriesObj[Object.keys(ySeriesObj)[0]].length;
-        html.push(`<div style="grid-column: 1 / -1; margin-top: 10px;"></div>`);
-        html.push(mkStat(`Total Points`, totalPts.toLocaleString()));
-
-        grid.innerHTML = html.join('');
+        grid.innerHTML = `
+            <div class="haw-stat-toolbar">
+                <div><span>Comparison basis</span><strong>${esc(xLabel)}</strong></div>
+                <div><span>Matched rows</span><strong>${totalPts.toLocaleString()}</strong></div>
+            </div>
+            <div class="haw-stat-table-wrap">
+                <table class="haw-stat-table">
+                    <thead><tr><th>Response variable</th><th>Mean</th><th>Observed range</th><th>Std dev</th><th>Skew</th><th>${relationshipHeader}</th><th>${fitHeader}</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
     }
 
     function validPointsStr(n) {
