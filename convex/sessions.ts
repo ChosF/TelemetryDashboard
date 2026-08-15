@@ -1,7 +1,7 @@
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import { paginationOptsValidator } from "convex/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { getHistoricalAccess } from "./historicalAccess";
 
 const liveSessionStateValidator = v.object({
@@ -255,9 +255,99 @@ export const listSessions = query({
     },
 });
 
+const deleteSessionResultValidator = v.object({
+    deleted: v.boolean(),
+    cleanupScheduled: v.boolean(),
+});
+
+/**
+ * Remove a completed run from the archive. The visible session document is
+ * deleted transactionally, then session-owned telemetry, archive parts and
+ * saved analyses are reclaimed in small internal batches.
+ */
+export const deleteSession = mutation({
+    args: {
+        sessionId: v.string(),
+        token: v.string(),
+    },
+    returns: deleteSessionResultValidator,
+    handler: async (ctx, args) => {
+        const access = await getHistoricalAccess(ctx, args.token);
+        if (access.role !== "admin") {
+            throw new ConvexError({ code: "FORBIDDEN", message: "Admin access is required." });
+        }
+
+        const liveState = await ctx.db
+            .query("liveSessionState")
+            .withIndex("by_state_key", (q) => q.eq("state_key", "dashboard"))
+            .unique();
+        if (liveState?.status === "active" && liveState.session_id === args.sessionId) {
+            throw new ConvexError({ code: "ACTIVE_SESSION", message: "The active run cannot be deleted." });
+        }
+
+        const session = await ctx.db
+            .query("sessions")
+            .withIndex("by_session_id", (q) => q.eq("session_id", args.sessionId))
+            .unique();
+
+        if (session?.overview_storage_id) {
+            await ctx.storage.delete(session.overview_storage_id);
+        }
+        if (session) await ctx.db.delete(session._id);
+        if (liveState?.session_id === args.sessionId) await ctx.db.delete(liveState._id);
+
+        await ctx.scheduler.runAfter(0, internal.sessions.deleteSessionOwnedDataBatch, {
+            sessionId: args.sessionId,
+        });
+        return { deleted: session !== null, cleanupScheduled: true };
+    },
+});
+
 // ──────────────────────────────────────────────────────────────────────────────
 // INTERNAL MUTATIONS  (called by insertTelemetryBatch and kickstartSessions)
 // ──────────────────────────────────────────────────────────────────────────────
+
+/** Bounded, retry-safe cleanup for all data and storage owned by one session. */
+export const deleteSessionOwnedDataBatch = internalMutation({
+    args: { sessionId: v.string() },
+    returns: v.null(),
+    handler: async (ctx, args) => {
+        const telemetryBatchSize = 250;
+        const relatedBatchSize = 20;
+        const telemetryRows = await ctx.db
+            .query("telemetry")
+            .withIndex("by_session_timestamp", (q) => q.eq("session_id", args.sessionId))
+            .take(telemetryBatchSize);
+        const archiveRows = await ctx.db
+            .query("telemetryArchives")
+            .withIndex("by_session_part", (q) => q.eq("session_id", args.sessionId))
+            .take(relatedBatchSize);
+        const analysisRows = await ctx.db
+            .query("sessionAnalyses")
+            .withIndex("by_session_version", (q) => q.eq("session_id", args.sessionId))
+            .take(relatedBatchSize);
+
+        for (const archive of archiveRows) {
+            await ctx.storage.delete(archive.storage_id);
+            if (archive.preview_storage_id) await ctx.storage.delete(archive.preview_storage_id);
+        }
+        await Promise.all([
+            ...telemetryRows.map((row) => ctx.db.delete(row._id)),
+            ...archiveRows.map((row) => ctx.db.delete(row._id)),
+            ...analysisRows.map((row) => ctx.db.delete(row._id)),
+        ]);
+
+        const mayHaveMore = telemetryRows.length === telemetryBatchSize
+            || archiveRows.length === relatedBatchSize
+            || analysisRows.length === relatedBatchSize;
+        if (mayHaveMore) {
+            await ctx.scheduler.runAfter(0, internal.sessions.deleteSessionOwnedDataBatch, {
+                sessionId: args.sessionId,
+            });
+        }
+        return null;
+    },
+});
 
 /**
  * Upsert a session metadata document.

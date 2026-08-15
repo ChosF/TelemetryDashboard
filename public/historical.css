@@ -3834,3 +3834,280 @@ body.ha-session-open .ha-header-context { justify-content: flex-end; }
     .ha-scard-metrics > div + div { padding-left: 10px; }
     .ha-scard-metrics dd { font-size: 11px; }
 }
+
+/* ─── Theme control, run preparation, and admin actions ──────────────────── */
+.ha-theme-toggle {
+    min-height: 40px;
+    padding: 0 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid rgba(245, 241, 232, .15);
+    border-radius: 0;
+    color: rgba(245, 241, 232, .72);
+    background: transparent;
+    font: 800 8px/1 "Plus Jakarta Sans", sans-serif;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+.ha-theme-toggle:hover { border-color: #ff6b35; color: #ff6b35; }
+.ha-theme-toggle svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.ha-theme-moon { display: none; }
+
+.ha-session-card { padding: 0; }
+.ha-session-open-area {
+    width: 100%;
+    min-height: inherit;
+    padding: 26px 28px 22px;
+    display: flex;
+    flex-direction: column;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.ha-session-open-area:focus-visible { outline: 2px solid #ff6b35; outline-offset: -3px; }
+.ha-session-delete {
+    position: absolute;
+    top: 19px;
+    right: 19px;
+    z-index: 3;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid transparent;
+    color: rgba(245, 241, 232, .3);
+    background: transparent;
+    cursor: pointer;
+}
+.ha-session-delete:hover,
+.ha-session-delete:focus-visible { border-color: rgba(219, 119, 110, .48); color: #db776e; background: rgba(219,119,110,.06); outline: none; }
+.ha-session-delete svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.ha-session-card:has(.ha-session-delete) .ha-scard-status { margin-right: 34px; }
+
+.ha-prep-shell {
+    width: min(920px, 100%);
+    min-height: calc(100dvh - 148px);
+    margin: 0 auto;
+    padding: clamp(52px, 9vh, 104px) 0 64px;
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto 1fr;
+    column-gap: clamp(28px, 5vw, 66px);
+    align-content: center;
+}
+.ha-prep-index {
+    grid-column: 1;
+    color: rgba(245,241,232,.38);
+    font: 700 9px/1 "Space Grotesk", monospace;
+    letter-spacing: .15em;
+}
+.ha-prep-signal {
+    grid-column: 1;
+    grid-row: 2 / span 3;
+    position: relative;
+    width: 58px;
+    height: 58px;
+    margin-top: 29px;
+    border: 1px solid rgba(245,241,232,.18);
+}
+.ha-prep-signal::before,
+.ha-prep-signal::after { content: ""; position: absolute; background: rgba(245,241,232,.13); }
+.ha-prep-signal::before { left: 50%; top: -18px; width: 1px; height: 94px; }
+.ha-prep-signal::after { top: 50%; left: -18px; width: 94px; height: 1px; }
+.ha-prep-signal span { position: absolute; inset: 17px; border: 1px solid #ff6b35; border-radius: 50%; animation: ha-prep-pulse 1.8s ease-in-out infinite; }
+.ha-prep-signal i { position: absolute; inset: 25px; z-index: 1; border-radius: 50%; background: #ff6b35; }
+.ha-prep-signal.is-error span { border-color: #db776e; animation: none; }
+.ha-prep-signal.is-error i { background: #db776e; }
+@keyframes ha-prep-pulse { 0%, 100% { transform: scale(.78); opacity: .45; } 50% { transform: scale(1.12); opacity: 1; } }
+.ha-prep-copy { grid-column: 2; grid-row: 1 / span 2; }
+.ha-prep-copy h1 {
+    max-width: 720px;
+    margin: 18px 0 0;
+    color: #f5f1e8;
+    font: 600 clamp(42px, 6vw, 72px)/.96 "Plus Jakarta Sans", sans-serif;
+    letter-spacing: -.065em;
+}
+.ha-prep-copy p { max-width: 590px; margin: 22px 0 0; color: rgba(245,241,232,.55); font-size: 13px; line-height: 1.7; }
+.ha-prep-progress { grid-column: 2; grid-row: 3; position: relative; height: 2px; margin-top: 48px; overflow: hidden; background: rgba(245,241,232,.13); }
+.ha-prep-progress span { display: block; height: 100%; width: 0; background: #ff6b35; transition: width .4s ease; }
+.ha-prep-progress.indeterminate span { width: 34%; animation: ha-prep-progress 1.5s ease-in-out infinite; }
+@keyframes ha-prep-progress { from { transform: translateX(-110%); } to { transform: translateX(310%); } }
+.ha-prep-steps { grid-column: 2; grid-row: 4; display: grid; grid-template-columns: repeat(2, 1fr); border-bottom: 1px solid rgba(245,241,232,.12); }
+.ha-prep-steps > div { min-height: 88px; padding: 22px 18px 18px 0; display: grid; grid-template-columns: 9px 1fr; column-gap: 10px; color: rgba(245,241,232,.34); }
+.ha-prep-steps > div + div { padding-left: 22px; border-left: 1px solid rgba(245,241,232,.12); }
+.ha-prep-steps i { width: 7px; height: 7px; margin-top: 2px; border-radius: 50%; background: currentColor; }
+.ha-prep-steps span { font: 700 9px/1 "Space Grotesk", monospace; letter-spacing: .12em; text-transform: uppercase; }
+.ha-prep-steps small { grid-column: 2; margin-top: 9px; font: 500 9px/1.35 "Space Grotesk", monospace; }
+.ha-prep-steps .active { color: #f5f1e8; }
+.ha-prep-steps .active i { background: #ff6b35; box-shadow: 0 0 0 4px rgba(255,107,53,.1); }
+.ha-prep-steps .complete { color: rgba(245,241,232,.55); }
+.ha-prep-steps .complete i { background: #8fcf86; }
+.ha-prep-actions { grid-column: 2; grid-row: 5; align-self: end; padding-top: 38px; display: flex; align-items: center; gap: 10px; }
+.ha-prep-cancel,
+.ha-prep-retry { min-height: 42px; padding: 0 15px; border: 1px solid rgba(245,241,232,.18); color: rgba(245,241,232,.62); background: transparent; font: 800 8px/1 "Plus Jakarta Sans", sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.ha-prep-retry { border-color: #ff6b35; color: #ff6b35; }
+.ha-prep-cancel:hover { color: #f5f1e8; border-color: rgba(245,241,232,.38); }
+
+.ha-delete-dialog {
+    width: min(500px, calc(100% - 32px));
+    padding: 0;
+    border: 1px solid rgba(245,241,232,.17);
+    border-radius: 0;
+    color: #f5f1e8;
+    background: #141414;
+    box-shadow: 0 28px 90px rgba(0,0,0,.55);
+}
+.ha-delete-dialog::backdrop { background: rgba(5,5,5,.72); backdrop-filter: blur(4px); }
+.ha-delete-dialog form { padding: 34px; }
+.ha-delete-dialog h2 { margin: 18px 0 0; font: 600 34px/1 "Plus Jakarta Sans", sans-serif; letter-spacing: -.055em; }
+.ha-delete-dialog p { margin: 18px 0 0; color: rgba(245,241,232,.55); font-size: 12px; line-height: 1.7; }
+.ha-delete-dialog p strong { color: #f5f1e8; }
+.ha-delete-dialog-actions { margin-top: 30px; padding-top: 20px; display: flex; justify-content: flex-end; gap: 9px; border-top: 1px solid rgba(245,241,232,.11); }
+.ha-delete-dialog-actions button { min-height: 42px; padding: 0 15px; border: 1px solid rgba(245,241,232,.18); color: #f5f1e8; background: transparent; font: 800 8px/1 "Plus Jakarta Sans", sans-serif; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
+.ha-delete-dialog-actions .ha-dialog-delete { border-color: rgba(219,119,110,.6); color: #e58a82; }
+.ha-delete-dialog-actions .ha-dialog-delete:hover { color: #fff; background: #b9534b; border-color: #b9534b; }
+
+.hrb-hero { gap: 52px; padding-top: 46px; }
+.hrb-hero h2 { max-width: 860px; font-size: clamp(36px, 4.35vw, 60px); line-height: 1; }
+.hrb-hero p { max-width: 700px; margin-top: 18px; font-size: 14px; line-height: 1.6; }
+
+@media (max-width: 720px) {
+    .ha-theme-toggle { width: 40px; padding: 0; justify-content: center; }
+    .ha-theme-toggle span { display: none; }
+    .ha-session-open-area { padding: 22px 20px 19px; }
+    .ha-session-delete { top: 15px; right: 14px; }
+    .ha-prep-shell { min-height: calc(100dvh - 120px); padding: 54px 0 46px; grid-template-columns: 1fr; }
+    .ha-prep-index { grid-column: 1; }
+    .ha-prep-signal { grid-column: 1; grid-row: 2; width: 48px; height: 48px; margin: 32px 0; }
+    .ha-prep-signal span { inset: 14px; }
+    .ha-prep-signal i { inset: 21px; }
+    .ha-prep-copy { grid-column: 1; grid-row: 3; }
+    .ha-prep-copy h1 { font-size: clamp(40px, 13vw, 58px); }
+    .ha-prep-progress { grid-column: 1; grid-row: 4; margin-top: 38px; }
+    .ha-prep-steps { grid-column: 1; grid-row: 5; }
+    .ha-prep-actions { grid-column: 1; grid-row: 6; padding-top: 34px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ha-prep-signal span,
+    .ha-prep-progress.indeterminate span { animation-duration: 4s; }
+}
+
+/* ─── Technical light theme ──────────────────────────────────────────────── */
+html[data-theme="light"] body.hist-page {
+    --ha-accent: #e85824;
+    --ha-accent-dim: rgba(232,88,36,.09);
+    --ha-accent-glow: rgba(232,88,36,.18);
+    --ha-bg: #f2efe8;
+    --ha-bg2: #f8f5ee;
+    --ha-bg3: #ece8df;
+    --ha-surface: rgba(255,253,248,.94);
+    --ha-surface2: rgba(248,245,238,.96);
+    --ha-border: rgba(25,24,22,.12);
+    --ha-border-hover: rgba(232,88,36,.32);
+    --ha-text: #1b1a18;
+    --ha-text2: rgba(27,26,24,.62);
+    --ha-text3: rgba(27,26,24,.38);
+    --hrb-ink: #1b1a18;
+    --hrb-muted: #77736b;
+    --hrb-panel: #fffdf8;
+    --hrb-panel-2: #f4f0e8;
+    --hrb-line: rgba(25,24,22,.13);
+    --hrb-orange: #e85824;
+    --hrb-green: #347c4b;
+    color: #1b1a18;
+    background-color: #f2efe8;
+    background-image: linear-gradient(rgba(25,24,22,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(25,24,22,.035) 1px, transparent 1px);
+}
+html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(25,24,22,.16); }
+html[data-theme="light"] .ha-header { border-color: rgba(25,24,22,.13); background: rgba(248,245,238,.95); }
+html[data-theme="light"] .ha-brand { border-color: rgba(25,24,22,.13); color: #1b1a18; }
+html[data-theme="light"] .ha-brand img { filter: none; }
+html[data-theme="light"] .ha-brand small,
+html[data-theme="light"] .ha-eyebrow,
+html[data-theme="light"] .ha-scard-index { color: #e85824; }
+html[data-theme="light"] .ha-surface-nav a { color: rgba(27,26,24,.52); }
+html[data-theme="light"] .ha-surface-nav a:hover { color: #1b1a18; background: rgba(25,24,22,.025); }
+html[data-theme="light"] .ha-surface-nav a.active { color: #1b1a18; }
+html[data-theme="light"] .ha-surface-nav { border-color: rgba(25,24,22,.13); }
+html[data-theme="light"] .ha-archive-state { color: rgba(27,26,24,.5); }
+html[data-theme="light"] .ha-theme-toggle,
+html[data-theme="light"] .ha-header-back,
+html[data-theme="light"] .ha-header-export { border-color: rgba(25,24,22,.16); color: #1b1a18; }
+html[data-theme="light"] .ha-theme-sun { display: none; }
+html[data-theme="light"] .ha-theme-moon { display: block; }
+html[data-theme="light"] .ha-header-session { color: #1b1a18; }
+html[data-theme="light"] .ha-archive-hero { border-color: rgba(25,24,22,.13); }
+html[data-theme="light"] .ha-archive-hero h1,
+html[data-theme="light"] .ha-directory-header h2,
+html[data-theme="light"] .ha-scard-name { color: #1b1a18; }
+html[data-theme="light"] .ha-archive-hero p { color: rgba(27,26,24,.62); }
+html[data-theme="light"] .ha-live-link { border-color: rgba(25,24,22,.18); color: #1b1a18; background: rgba(255,253,248,.72); }
+html[data-theme="light"] .ha-archive-overview { border-color: rgba(25,24,22,.13); }
+html[data-theme="light"] .ha-archive-overview article { border-color: rgba(25,24,22,.13); background: rgba(255,253,248,.72); }
+html[data-theme="light"] .ha-archive-overview span { color: rgba(27,26,24,.5); }
+html[data-theme="light"] .ha-archive-overview strong { color: #1b1a18; }
+html[data-theme="light"] .ha-archive-overview small { color: rgba(27,26,24,.4); }
+html[data-theme="light"] .ha-directory-header { border-color: rgba(25,24,22,.13); }
+html[data-theme="light"] .ha-directory-header p { color: rgba(27,26,24,.46); }
+html[data-theme="light"] .ha-search-wrap,
+html[data-theme="light"] .ha-sort-wrap,
+html[data-theme="light"] .ha-refresh-button { border-color: rgba(25,24,22,.16); color: #1b1a18; background: rgba(255,253,248,.8); }
+html[data-theme="light"] .ha-search-wrap .ha-input,
+html[data-theme="light"] .ha-sort-wrap .ha-select { color: #1b1a18; }
+html[data-theme="light"] .ha-search-wrap .ha-input::placeholder,
+html[data-theme="light"] .ha-sort-wrap > span,
+html[data-theme="light"] .ha-search-clear { color: rgba(27,26,24,.4); }
+html[data-theme="light"] .ha-sessions-grid { background: rgba(25,24,22,.13); }
+html[data-theme="light"] .ha-session-card,
+html[data-theme="light"] .ha-session-card.is-latest { color: #1b1a18; background: #fffdf8; }
+html[data-theme="light"] .ha-session-card:hover { background: #f8f4ec; }
+html[data-theme="light"] .ha-scard-status,
+html[data-theme="light"] .ha-scard-date,
+html[data-theme="light"] .ha-scard-open,
+html[data-theme="light"] .ha-scard-bottom { color: rgba(27,26,24,.5); }
+html[data-theme="light"] .ha-scard-metrics { border-color: rgba(25,24,22,.11); }
+html[data-theme="light"] .ha-scard-metrics > div + div { border-color: rgba(25,24,22,.11); }
+html[data-theme="light"] .ha-scard-metrics dt { color: rgba(27,26,24,.42); }
+html[data-theme="light"] .ha-scard-metrics dd { color: #1b1a18; }
+html[data-theme="light"] .ha-scard-bottom code { color: rgba(27,26,24,.32); }
+html[data-theme="light"] .ha-session-delete { color: rgba(27,26,24,.32); }
+html[data-theme="light"] .ha-empty { color: rgba(27,26,24,.5); }
+html[data-theme="light"] .ha-empty > strong { color: #1b1a18; }
+html[data-theme="light"] .ha-empty > button { border-color: rgba(25,24,22,.18); color: #1b1a18; }
+
+html[data-theme="light"] .hrb-hero p,
+html[data-theme="light"] .hrb-decision p { color: #69655e; }
+html[data-theme="light"] .hrb-attention-item b { color: #5f5b54; }
+html[data-theme="light"] .hrb-sector-detail { color: #6f6a62; }
+html[data-theme="light"] .hrb-evidence-note { color: #77726a; }
+html[data-theme="light"] .hrb-map { background: #ebe7de; }
+html[data-theme="light"] .hrb-map .maplibregl-ctrl-group { background: #fffdf8; }
+html[data-theme="light"] .hrb-map .maplibregl-ctrl button { filter: none; }
+html[data-theme="light"] .hrb-map-legend { color: #4c4944; background: rgba(255,253,248,.9); }
+
+html[data-theme="light"] .ha-prep-index,
+html[data-theme="light"] .ha-prep-copy p { color: rgba(27,26,24,.52); }
+html[data-theme="light"] .ha-prep-copy h1 { color: #1b1a18; }
+html[data-theme="light"] .ha-prep-signal { border-color: rgba(25,24,22,.18); }
+html[data-theme="light"] .ha-prep-signal::before,
+html[data-theme="light"] .ha-prep-signal::after { background: rgba(25,24,22,.13); }
+html[data-theme="light"] .ha-prep-progress { background: rgba(25,24,22,.14); }
+html[data-theme="light"] .ha-prep-steps { border-color: rgba(25,24,22,.13); }
+html[data-theme="light"] .ha-prep-steps > div { color: rgba(27,26,24,.36); }
+html[data-theme="light"] .ha-prep-steps > div + div { border-color: rgba(25,24,22,.13); }
+html[data-theme="light"] .ha-prep-steps .active { color: #1b1a18; }
+html[data-theme="light"] .ha-prep-steps .complete { color: rgba(27,26,24,.58); }
+html[data-theme="light"] .ha-prep-cancel { border-color: rgba(25,24,22,.18); color: rgba(27,26,24,.65); }
+
+html[data-theme="light"] .ha-delete-dialog { border-color: rgba(25,24,22,.16); color: #1b1a18; background: #fffdf8; box-shadow: 0 28px 90px rgba(34,29,22,.2); }
+html[data-theme="light"] .ha-delete-dialog::backdrop { background: rgba(48,43,36,.38); }
+html[data-theme="light"] .ha-delete-dialog p { color: rgba(27,26,24,.6); }
+html[data-theme="light"] .ha-delete-dialog p strong { color: #1b1a18; }
+html[data-theme="light"] .ha-delete-dialog-actions { border-color: rgba(25,24,22,.12); }
+html[data-theme="light"] .ha-delete-dialog-actions button { border-color: rgba(25,24,22,.18); color: #1b1a18; }

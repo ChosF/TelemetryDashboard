@@ -1,6 +1,8 @@
 import { type Infer, v } from "convex/values";
 
-export const SESSION_ANALYSIS_VERSION = "run-brief-v1";
+// Bump the version whenever the saved brief contract changes. Existing briefs
+// remain immutable while the compact contract is generated once on demand.
+export const SESSION_ANALYSIS_VERSION = "run-brief-v2-compact";
 export const SESSION_ANALYSIS_MODEL = "gemini-3.7-flash";
 
 export const sessionSectorMetricsValidator = v.object({

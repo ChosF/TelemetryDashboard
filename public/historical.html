@@ -14,7 +14,17 @@
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
         rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="/historical.css?v=20260814.2" />
+    <script>
+        (() => {
+            try {
+                const saved = localStorage.getItem('ecovolt_historical_theme');
+                document.documentElement.dataset.theme = saved || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+            } catch (_) {
+                document.documentElement.dataset.theme = 'dark';
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="/historical.css?v=20260814.3" />
     <script>
         window.CONFIG = window.CONFIG || { CONVEX_URL: "https://wonderful-kookabura-432.convex.cloud" };
     </script>
@@ -46,6 +56,11 @@
             </nav>
             <div class="ha-header-context">
                 <div class="ha-archive-state"><i></i><span>Archive online</span></div>
+                <button class="ha-theme-toggle" id="h-theme-toggle" type="button" aria-label="Switch to light theme" aria-pressed="false">
+                    <svg class="ha-theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5" /><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+                    <svg class="ha-theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.2A8.5 8.5 0 0 1 8.8 4a8.5 8.5 0 1 0 11.2 11.2Z" /></svg>
+                    <span id="h-theme-label">Light</span>
+                </button>
                 <button class="ha-header-back" id="h-back-to-sessions" style="display:none">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
                     Sessions
@@ -87,7 +102,7 @@
             <section class="ha-archive-overview" aria-label="Archive overview">
                 <article><span>Accessible sessions</span><strong id="h-session-count">—</strong><small>runs indexed</small></article>
                 <article><span>Telemetry records</span><strong id="h-record-count">—</strong><small>across archive</small></article>
-                <article><span>Analysis ready</span><strong id="h-ready-count">—</strong><small>completed archives</small></article>
+                <article><span>Archive ready</span><strong id="h-ready-count">—</strong><small>completed archives</small></article>
                 <article><span>Latest session</span><strong id="h-latest-session">—</strong><small>most recent run</small></article>
             </section>
 
@@ -117,6 +132,30 @@
                     <div class="ha-loading">
                         <div class="ha-spinner"></div><span>Loading sessions…</span>
                     </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- ── RUN PREPARATION ── -->
+        <div class="ha-view" id="h-view-preparing" aria-live="polite">
+            <section class="ha-prep-shell">
+                <div class="ha-prep-index" id="h-prep-index">01 / 02</div>
+                <div class="ha-prep-signal" aria-hidden="true"><span></span><i></i></div>
+                <div class="ha-prep-copy">
+                    <span class="ha-eyebrow" id="h-prep-eyebrow">Preparing archive</span>
+                    <h1 id="h-prep-title">Preparing telemetry archive</h1>
+                    <p id="h-prep-detail">Convex is compressing the completed run into its analysis-ready record.</p>
+                </div>
+                <div class="ha-prep-progress" id="h-prep-progress" role="progressbar" aria-label="Run preparation progress" aria-valuemin="0" aria-valuemax="100">
+                    <span id="h-prep-progress-fill"></span>
+                </div>
+                <div class="ha-prep-steps" aria-label="Preparation stages">
+                    <div id="h-prep-archive-step" class="active"><i></i><span>Archive</span><small id="h-prep-archive-meta">Checking run state</small></div>
+                    <div id="h-prep-ai-step"><i></i><span>AI brief</span><small id="h-prep-ai-meta">Waiting for archive</small></div>
+                </div>
+                <div class="ha-prep-actions">
+                    <button type="button" id="h-prep-retry" class="ha-prep-retry" hidden>Retry</button>
+                    <button type="button" id="h-prep-cancel" class="ha-prep-cancel">Back to sessions</button>
                 </div>
             </section>
         </div>
@@ -1291,6 +1330,18 @@
 
     </main>
 
+    <dialog class="ha-delete-dialog" id="h-delete-run-dialog" aria-labelledby="h-delete-run-title">
+        <form method="dialog">
+            <span class="ha-eyebrow">Admin action</span>
+            <h2 id="h-delete-run-title">Delete this run?</h2>
+            <p><strong id="h-delete-run-name">Selected run</strong> and its telemetry archive, saved AI brief, and metadata will be permanently removed.</p>
+            <div class="ha-delete-dialog-actions">
+                <button value="cancel" class="ha-dialog-cancel">Keep run</button>
+                <button value="confirm" class="ha-dialog-delete" id="h-delete-run-confirm">Delete permanently</button>
+            </div>
+        </form>
+    </dialog>
+
     <!-- Floating TOC -->
     <nav class="ha-toc" id="ha-toc">
         <div class="ha-toc-toggle" id="ha-toc-toggle"><span class="ha-toc-icon">☰</span></div>
@@ -1317,7 +1368,7 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
     <script src="/historical-engine.js?v=20260808.1"></script>
-    <script src="/historical.js?v=20260814.2"></script>
+    <script src="/historical.js?v=20260814.3"></script>
     <script>
         (() => {
             let dashboardPrewarmPromise = null;

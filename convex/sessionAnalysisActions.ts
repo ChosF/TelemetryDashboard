@@ -19,8 +19,8 @@ const RESPONSE_SCHEMA = {
   additionalProperties: false,
   required: ["verdict", "summary", "score", "confidence", "decision", "attention", "sectorInsights", "caveat"],
   properties: {
-    verdict: { type: "string", description: "One decisive sentence, maximum 110 characters." },
-    summary: { type: "string", description: "Two concise evidence-based sentences." },
+    verdict: { type: "string", description: "A decisive 6-12 word headline, maximum 72 characters." },
+    summary: { type: "string", description: "One evidence-based sentence, maximum 28 words." },
     score: { type: "number", minimum: 0, maximum: 100 },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
     decision: {
@@ -28,24 +28,24 @@ const RESPONSE_SCHEMA = {
       additionalProperties: false,
       required: ["title", "explanation", "estimatedImpact"],
       properties: {
-        title: { type: "string" },
-        explanation: { type: "string" },
-        estimatedImpact: { type: "string" },
+        title: { type: "string", description: "A direct action, maximum 9 words." },
+        explanation: { type: "string", description: "One sentence, maximum 22 words." },
+        estimatedImpact: { type: "string", description: "One measurable outcome, maximum 14 words." },
       },
     },
     attention: {
       type: "array",
       minItems: 1,
-      maxItems: 3,
+      maxItems: 2,
       items: {
         type: "object",
         additionalProperties: false,
         required: ["severity", "title", "detail", "evidence"],
         properties: {
           severity: { type: "string", enum: ["opportunity", "warning", "positive"] },
-          title: { type: "string" },
-          detail: { type: "string" },
-          evidence: { type: "string" },
+          title: { type: "string", description: "Maximum 7 words." },
+          detail: { type: "string", description: "One sentence, maximum 18 words." },
+          evidence: { type: "string", description: "A compact metric-led phrase, maximum 12 words." },
           sectorIndex: { type: "integer", minimum: 1, maximum: 4 },
         },
       },
@@ -60,12 +60,12 @@ const RESPONSE_SCHEMA = {
         required: ["sectorIndex", "assessment", "detail"],
         properties: {
           sectorIndex: { type: "integer", minimum: 1, maximum: 4 },
-          assessment: { type: "string" },
-          detail: { type: "string" },
+          assessment: { type: "string", description: "Maximum 5 words." },
+          detail: { type: "string", description: "One sentence, maximum 16 words." },
         },
       },
     },
-    caveat: { type: "string" },
+    caveat: { type: "string", description: "One short sentence, maximum 18 words." },
   },
 };
 
@@ -84,7 +84,7 @@ function validateResult(value: unknown): SessionAnalysisResult {
   const decision = raw.decision && typeof raw.decision === "object"
     ? raw.decision as Record<string, unknown>
     : {};
-  const attentionRaw = Array.isArray(raw.attention) ? raw.attention.slice(0, 3) : [];
+  const attentionRaw = Array.isArray(raw.attention) ? raw.attention.slice(0, 2) : [];
   const sectorsRaw = Array.isArray(raw.sectorInsights) ? raw.sectorInsights.slice(0, 4) : [];
 
   const attention = attentionRaw.map((item) => {
@@ -95,9 +95,9 @@ function validateResult(value: unknown): SessionAnalysisResult {
     const sector = Math.round(number(record.sectorIndex, 0, 4));
     return {
       severity,
-      title: text(record.title, 80),
-      detail: text(record.detail, 240),
-      evidence: text(record.evidence, 150),
+      title: text(record.title, 56),
+      detail: text(record.detail, 130),
+      evidence: text(record.evidence, 86),
       ...(sector >= 1 ? { sectorIndex: sector } : {}),
     };
   }).filter((item) => item.title && item.detail && item.evidence);
@@ -106,8 +106,8 @@ function validateResult(value: unknown): SessionAnalysisResult {
     const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
     return {
       sectorIndex: Math.round(number(record.sectorIndex, index + 1, index + 1)),
-      assessment: text(record.assessment, 60),
-      detail: text(record.detail, 180),
+      assessment: text(record.assessment, 42),
+      detail: text(record.detail, 110),
     };
   });
 
@@ -115,18 +115,18 @@ function validateResult(value: unknown): SessionAnalysisResult {
     ? raw.confidence
     : "low";
   const result: SessionAnalysisResult = {
-    verdict: text(raw.verdict, 110),
-    summary: text(raw.summary, 420),
+    verdict: text(raw.verdict, 72),
+    summary: text(raw.summary, 190),
     score: Math.round(number(raw.score, 0, 100)),
     confidence,
     decision: {
-      title: text(decision.title, 90),
-      explanation: text(decision.explanation, 300),
-      estimatedImpact: text(decision.estimatedImpact, 140),
+      title: text(decision.title, 64),
+      explanation: text(decision.explanation, 150),
+      estimatedImpact: text(decision.estimatedImpact, 96),
     },
     attention,
     sectorInsights,
-    caveat: text(raw.caveat, 220),
+    caveat: text(raw.caveat, 120),
   };
   if (!result.verdict || !result.summary || !result.decision.title || attention.length === 0 || sectorInsights.length !== 4) {
     throw new Error("Gemini analysis was incomplete");
@@ -188,6 +188,7 @@ export const generate = internalAction({
                 "Use only the supplied deterministic evidence. Never invent causes, comparisons, or measurements.",
                 "Prioritize the single decision that most improves energy efficiency without compromising run stability.",
                 "Write for an engineering team: concise, direct, professional, and explicit about uncertainty.",
+                "Every field must be immediately scannable. Use one sentence at most per field, never repeat a metric, and omit explanatory filler.",
                 "Sector numbers are chronological quarters of the run. No external tools, grounding, or hidden calculations are available.",
               ].join(" ") }],
             },
@@ -199,7 +200,7 @@ export const generate = internalAction({
             }],
             generationConfig: {
               temperature: 0.15,
-              maxOutputTokens: 1800,
+              maxOutputTokens: 900,
               responseMimeType: "application/json",
               responseJsonSchema: RESPONSE_SCHEMA,
             },

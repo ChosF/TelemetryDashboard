@@ -447,6 +447,13 @@ const ConvexBridge = (function () {
         });
     }
 
+    async function deleteSession(sessionId) {
+        if (!client) throw new Error('ConvexBridge not initialized');
+        const token = getAuthToken();
+        if (!token) throw new Error('Admin authentication is required');
+        return await client.mutation('sessions:deleteSession', { sessionId, token });
+    }
+
     function subscribeToSessionAnalysis(sessionId, onUpdate) {
         if (!client) throw new Error('ConvexBridge not initialized');
         const subKey = `session-analysis:${sessionId}`;
@@ -739,6 +746,7 @@ const ConvexBridge = (function () {
         getSessionArchiveStatus,
         getSessionAnalysis,
         ensureSessionAnalysis,
+        deleteSession,
         getSessionRecords,
         getRecentRecords,
         getLatestRecord,

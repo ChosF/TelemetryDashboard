@@ -12,10 +12,11 @@
         data: [], compareData: [], map: null, stats: null, compareStats: null,
         isPreview: false, statsExact: false, fullDataPromise: null,
         archiveStatus: 'none', coreMap: null, coreSectors: [],
-        analysis: null, analysisUnsubscribe: null,
+        analysis: null, analysisUnsubscribe: null, preparationToken: 0,
     };
     let historicalLimit = Infinity;
     let canAccessCustomAnalysis = true;
+    let isAdmin = false;
     let externalDataPointLimit = Infinity;
     const HIST_ROUTE_BASE = '/historical';
     const HIST_CUSTOM_ROUTE = '/historical/custom';
@@ -48,8 +49,39 @@
     function syncHistoricalMobileChrome() {
         const analysisOn = $('h-view-analysis')?.classList.contains('active');
         const customOn = $('h-view-custom-analysis')?.classList.contains('active');
-        document.body.classList.toggle('ha-session-open', !!(analysisOn || customOn));
+        const preparingOn = $('h-view-preparing')?.classList.contains('active');
+        document.body.classList.toggle('ha-session-open', !!(analysisOn || customOn || preparingOn));
     }
+
+    function currentTheme() {
+        return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+    }
+
+    function applyHistoricalTheme(theme, persist = true) {
+        const next = theme === 'light' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        const toggle = $('h-theme-toggle');
+        const label = $('h-theme-label');
+        if (toggle) {
+            const light = next === 'light';
+            toggle.setAttribute('aria-pressed', String(light));
+            toggle.setAttribute('aria-label', `Switch to ${light ? 'dark' : 'light'} theme`);
+        }
+        if (label) label.textContent = next === 'light' ? 'Dark' : 'Light';
+        if (persist) {
+            try { localStorage.setItem('ecovolt_historical_theme', next); } catch (_) { }
+        }
+        if (S.coreMap && S.data.length) {
+            try { S.coreMap.remove() } catch (_) { }
+            S.coreMap = null;
+            renderCoreMap();
+        }
+    }
+
+    applyHistoricalTheme(currentTheme(), false);
+    $('h-theme-toggle')?.addEventListener('click', () => {
+        applyHistoricalTheme(currentTheme() === 'light' ? 'dark' : 'light');
+    });
 
     // ── Web Worker Config ──
     const histWorker = new Worker('/workers/historical-worker.js?v=20260719.3');
@@ -317,6 +349,7 @@
             }
             historicalLimit = p.historicalLimit || Infinity;
             const role = p.role || 'guest';
+            isAdmin = role === 'admin';
             canAccessCustomAnalysis = role !== 'external';
             const configuredDownloadLimit = Number.isFinite(p.downloadLimit) && p.downloadLimit > 0
                 ? Math.floor(p.downloadLimit)
@@ -397,6 +430,49 @@
         }
     }
 
+    let pendingDeleteSessionId = null;
+
+    async function deleteHistoricalRun(sessionId) {
+        const session = S.sessions.find(item => item.session_id === sessionId);
+        if (!sessionId || !isAdmin || !ConvexBridge.deleteSession) return;
+        toast(`Deleting ${session?.session_name || 'run'}…`);
+        try {
+            await ConvexBridge.deleteSession(sessionId);
+            S.sessions = S.sessions.filter(item => item.session_id !== sessionId);
+            sessionLoadControllers.delete(sessionId);
+            if (S.activeSessionId === sessionId) backToSessions({ replaceHistory: true });
+            renderSessions();
+            toast('Run deleted. Background cleanup is underway.');
+        } catch (error) {
+            const message = String(error?.data?.message || error?.message || 'Run deletion failed');
+            toast(message.toLowerCase().includes('active') ? 'The active run cannot be deleted.' : 'Could not delete this run.');
+            console.error('[historical] Run deletion failed:', error);
+        }
+    }
+
+    function requestRunDeletion(sessionId) {
+        if (!isAdmin) return;
+        const session = S.sessions.find(item => item.session_id === sessionId);
+        pendingDeleteSessionId = sessionId;
+        if ($('h-delete-run-name')) $('h-delete-run-name').textContent = session?.session_name || sessionId.slice(0, 12);
+        const dialog = $('h-delete-run-dialog');
+        if (dialog?.showModal) {
+            dialog.returnValue = '';
+            dialog.showModal();
+            return;
+        }
+        if (window.confirm(`Delete ${session?.session_name || 'this run'} permanently?`)) {
+            void deleteHistoricalRun(sessionId);
+        }
+    }
+
+    $('h-delete-run-dialog')?.addEventListener('close', () => {
+        const dialog = $('h-delete-run-dialog');
+        const sessionId = pendingDeleteSessionId;
+        pendingDeleteSessionId = null;
+        if (dialog?.returnValue === 'confirm' && sessionId) void deleteHistoricalRun(sessionId);
+    });
+
     function renderSessions() {
         const q = ($('h-search')?.value || '').toLowerCase();
         const sort = $('h-sort')?.value || 'newest';
@@ -441,7 +517,7 @@
             const ct = s.record_count || 0;
             const dur = s.duration_s > 0 ? fmtTime(s.duration_s * 1000) : '—';
             const archiveStatus = s.archive_status || 'none';
-            const statusLabel = archiveStatus === 'complete' ? 'Analysis ready'
+            const statusLabel = archiveStatus === 'complete' ? 'Archive ready'
                 : archiveStatus === 'archiving' || archiveStatus === 'pending' ? 'Processing archive'
                     : archiveStatus === 'error' ? 'Archive attention' : 'Session indexed';
             const hasStats = Number.isFinite(s.distance_km) || Number.isFinite(s.efficiency_km_kwh);
@@ -454,16 +530,22 @@
                 ['Records', fmtInt(ct)],
                 ['Avg speed', Number.isFinite(s.avg_speed_kmh) ? `${fmt(s.avg_speed_kmh, 1)} km/h` : 'Pending'],
             ];
-            return `<button type="button" class="ha-session-card ha-animate-in${index === 0 && sort === 'newest' && !q ? ' is-latest' : ''}" data-sid="${esc(id)}" aria-label="Open ${esc(nm)}">
+            return `<article class="ha-session-card ha-animate-in${index === 0 && sort === 'newest' && !q ? ' is-latest' : ''}">
                 <span class="ha-scard-rail"></span>
-                <header class="ha-scard-top"><span class="ha-scard-index">RUN ${String(index + 1).padStart(2, '0')}</span><span class="ha-scard-status status-${esc(archiveStatus)}"><i></i>${statusLabel}</span></header>
-                <div class="ha-scard-main"><div><h3 class="ha-scard-name">${esc(nm)}</h3><p class="ha-scard-date">${esc(date)}${time ? ` · ${esc(time)}` : ''}</p></div><span class="ha-scard-open">Open brief <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg></span></div>
-                <dl class="ha-scard-metrics">${metrics.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl>
-                <footer class="ha-scard-bottom"><span>${fmtInt(ct)} telemetry records</span><code>${esc(id.slice(0, 12))}${id.length > 12 ? '…' : ''}</code></footer>
-            </button>`;
+                <button type="button" class="ha-session-open-area" data-sid="${esc(id)}" aria-label="Open ${esc(nm)}">
+                    <header class="ha-scard-top"><span class="ha-scard-index">RUN ${String(index + 1).padStart(2, '0')}</span><span class="ha-scard-status status-${esc(archiveStatus)}"><i></i>${statusLabel}</span></header>
+                    <div class="ha-scard-main"><div><h3 class="ha-scard-name">${esc(nm)}</h3><p class="ha-scard-date">${esc(date)}${time ? ` · ${esc(time)}` : ''}</p></div><span class="ha-scard-open">Open brief <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg></span></div>
+                    <dl class="ha-scard-metrics">${metrics.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl>
+                    <footer class="ha-scard-bottom"><span>${fmtInt(ct)} telemetry records</span><code>${esc(id.slice(0, 12))}${id.length > 12 ? '…' : ''}</code></footer>
+                </button>
+                ${isAdmin ? `<button type="button" class="ha-session-delete" data-delete-sid="${esc(id)}" aria-label="Delete ${esc(nm)}" title="Delete run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" /></svg></button>` : ''}
+            </article>`;
         }).join('');
-        $$('.ha-session-card').forEach(c => {
+        $$('.ha-session-open-area').forEach(c => {
             c.addEventListener('click', () => openSession(c.dataset.sid));
+        });
+        $$('.ha-session-delete').forEach(button => {
+            button.addEventListener('click', () => requestRunDeletion(button.dataset.deleteSid));
         });
     }
 
@@ -473,6 +555,7 @@
     function showAnalysisView() {
         $('h-view-explorer').classList.remove('active');
         $('h-view-custom-analysis').classList.remove('active');
+        $('h-view-preparing').classList.remove('active');
         $('h-view-analysis').classList.add('active');
         $('h-back-to-sessions').style.display = '';
         showTOC(false);
@@ -484,11 +567,156 @@
 
     function showCustomAnalysisView() {
         $('h-view-analysis').classList.remove('active');
+        $('h-view-preparing').classList.remove('active');
         $('h-view-custom-analysis').classList.add('active');
         $('h-btn-custom-analysis').style.display = 'none';
         $('h-btn-collapse-all').style.display = 'none';
         showTOC(false);
         syncHistoricalMobileChrome();
+    }
+
+    function showPreparationView() {
+        $('h-view-explorer').classList.remove('active');
+        $('h-view-analysis').classList.remove('active');
+        $('h-view-custom-analysis').classList.remove('active');
+        $('h-view-preparing').classList.add('active');
+        $('h-back-to-sessions').style.display = '';
+        showTOC(false);
+        showAnalysisActions(false);
+        syncHistoricalMobileChrome();
+    }
+
+    function updatePreparationScreen({ stage, title, detail, progress = null, archiveMeta = null, aiMeta = null }) {
+        const isAi = stage === 'ai';
+        $('h-prep-index').textContent = isAi ? '02 / 02' : '01 / 02';
+        $('h-prep-eyebrow').textContent = isAi ? 'Analysis in progress' : 'Preparing archive';
+        $('h-prep-title').textContent = title;
+        $('h-prep-detail').textContent = detail;
+        $('h-prep-archive-step').classList.toggle('complete', isAi);
+        $('h-prep-archive-step').classList.toggle('active', !isAi);
+        $('h-prep-ai-step').classList.toggle('active', isAi);
+        if (archiveMeta) $('h-prep-archive-meta').textContent = archiveMeta;
+        if (aiMeta) $('h-prep-ai-meta').textContent = aiMeta;
+        const bar = $('h-prep-progress');
+        const fill = $('h-prep-progress-fill');
+        const determinate = Number.isFinite(progress);
+        bar.classList.toggle('indeterminate', !determinate);
+        if (determinate) {
+            const value = Math.max(0, Math.min(100, Math.round(progress)));
+            fill.style.width = `${value}%`;
+            bar.setAttribute('aria-valuenow', String(value));
+        } else {
+            fill.style.width = '';
+            bar.removeAttribute('aria-valuenow');
+        }
+        $('h-prep-retry').hidden = true;
+        $('h-prep-signal')?.classList.remove('is-error');
+    }
+
+    function showPreparationError(title, detail, retry) {
+        $('h-prep-eyebrow').textContent = 'Preparation paused';
+        $('h-prep-title').textContent = title;
+        $('h-prep-detail').textContent = detail;
+        $('h-prep-progress').classList.remove('indeterminate');
+        $('h-prep-progress-fill').style.width = '0%';
+        $('h-prep-signal')?.classList.add('is-error');
+        const button = $('h-prep-retry');
+        button.hidden = false;
+        button.onclick = retry;
+    }
+
+    function preparationIsCurrent(sessionId, token) {
+        return S.activeSessionId === sessionId && S.preparationToken === token;
+    }
+
+    function wait(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function waitForArchiveReady(sessionId, token) {
+        while (preparationIsCurrent(sessionId, token)) {
+            const status = await ConvexBridge.getSessionArchiveStatus(sessionId);
+            if (!preparationIsCurrent(sessionId, token)) return null;
+            S.archiveStatus = status?.status || 'none';
+            const total = Math.max(0, Number(status?.recordCount) || Number(S.activeSessionMeta?.record_count) || 0);
+            const archived = Math.max(0, Number(status?.archivedRecordCount) || 0);
+            const progress = total > 0 ? Math.min(99, archived / total * 100) : null;
+            updatePreparationScreen({
+                stage: 'archive',
+                title: S.archiveStatus === 'archiving' ? 'Preparing telemetry archive' : 'Waiting for the completed run',
+                detail: S.archiveStatus === 'archiving'
+                    ? 'Convex is compressing the run into its analysis-ready record.'
+                    : 'The brief will open automatically when the archive is ready.',
+                progress,
+                archiveMeta: total > 0 ? `${fmtInt(archived)} of ${fmtInt(total)} records` : 'Checking archive state',
+                aiMeta: 'Waiting for archive',
+            });
+            if (status?.complete) return status;
+            if (status?.status === 'error') {
+                const error = new Error('The telemetry archive needs attention before this run can be analyzed.');
+                error.code = 'ARCHIVE_ERROR';
+                throw error;
+            }
+            if (status?.status === 'missing' || status?.status === 'restricted') {
+                const error = new Error('This run is no longer available.');
+                error.code = 'SESSION_UNAVAILABLE';
+                throw error;
+            }
+            await wait(status?.status === 'archiving' ? 5000 : 12000);
+        }
+        return null;
+    }
+
+    async function waitForSavedAnalysis(sessionId, token) {
+        let current = await ConvexBridge.getSessionAnalysis(sessionId);
+        if (!preparationIsCurrent(sessionId, token)) return null;
+        if (current?.available && current.result) return current;
+
+        if (current?.status === 'missing' || current?.status === 'error') {
+            const ensured = await ConvexBridge.ensureSessionAnalysis(sessionId);
+            if (ensured?.status === 'error' && !ensured?.scheduled) return current;
+        }
+        updatePreparationScreen({
+            stage: 'ai',
+            title: 'Building the AI brief',
+            detail: 'AI is turning deterministic run evidence into a concise decision brief.',
+            archiveMeta: 'Archive ready',
+            aiMeta: current?.status === 'running' ? 'Analyzing evidence' : 'Queued',
+        });
+
+        return await new Promise((resolve, reject) => {
+            let unsubscribe = null;
+            let settled = false;
+            const cancelCheck = setInterval(() => {
+                if (!preparationIsCurrent(sessionId, token)) finish(null);
+            }, 500);
+            const finish = (value, error = null) => {
+                if (settled) return;
+                settled = true;
+                clearInterval(cancelCheck);
+                if (unsubscribe) { try { unsubscribe() } catch (_) { } }
+                if (S.analysisUnsubscribe === unsubscribe) S.analysisUnsubscribe = null;
+                if (error) reject(error);
+                else resolve(value);
+            };
+            try {
+                unsubscribe = ConvexBridge.subscribeToSessionAnalysis(sessionId, analysis => {
+                    if (!preparationIsCurrent(sessionId, token)) return finish(null);
+                    const statusLabel = analysis?.status === 'running' ? 'Analyzing evidence' : 'Queued';
+                    $('h-prep-ai-meta').textContent = statusLabel;
+                    if (analysis?.available && analysis.result) finish(analysis);
+                    else if (analysis?.status === 'error') finish(analysis);
+                });
+                if (settled) {
+                    try { unsubscribe() } catch (_) { }
+                    unsubscribe = null;
+                } else {
+                    S.analysisUnsubscribe = unsubscribe;
+                }
+            } catch (error) {
+                finish(null, error);
+            }
+        });
     }
 
     async function openSession(sid, options = {}) {
@@ -508,16 +736,19 @@
             return;
         }
 
+        S.preparationToken += 1;
+        const preparationToken = S.preparationToken;
+        if (S.analysisUnsubscribe) { try { S.analysisUnsubscribe() } catch (_) { } }
+        S.analysisUnsubscribe = null;
         S.activeSessionId = sid;
         S.activeSessionMeta = S.sessions.find(s => s.session_id === sid);
         clearArchiveStatusPoll();
-        S.archiveStatus = 'none';
+        S.archiveStatus = S.activeSessionMeta?.archive_status || 'none';
         S.isPreview = false;
         updateFullExportAvailability();
         const label = $('h-active-session-label');
         if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
-        showAnalysisView();
-        // Fresh session open: start with every analysis module collapsed (matches user expectation vs HTML defaults).
+        showPreparationView();
         applyHistoricalSectionsCollapsed(true);
         if (!options.skipHistory) {
             updateRoute(
@@ -527,27 +758,24 @@
             );
         }
 
-        // Loading state
-        const grid = $('h-summary-grid');
-        if (grid) grid.style.opacity = '0.4';
-
-        const controller = getOrCreateSessionLoadController(sid, S.activeSessionMeta);
         let unsubscribeProgress = null;
-        const updateLoadingLabel = (progress) => {
-            if (!label || S.activeSessionId !== sid) return;
-            label.textContent = `Loading ${clampProgress(progress)}%`;
-        };
-
-        updateLoadingLabel(controller.progress);
-        unsubscribeProgress = subscribeSessionLoad(controller, (snapshot) => {
-            updateLoadingLabel(snapshot.progress);
-        });
-
-
         try {
-            const { normalized, stats, statsExact, isPreview, archiveStatus } = await controller.promise;
-            if (S.activeSessionId !== sid) return;
+            const archive = await waitForArchiveReady(sid, preparationToken);
+            if (!archive || !preparationIsCurrent(sid, preparationToken)) return;
 
+            const controller = getOrCreateSessionLoadController(sid, S.activeSessionMeta);
+            unsubscribeProgress = subscribeSessionLoad(controller, snapshot => {
+                if (preparationIsCurrent(sid, preparationToken) && snapshot.status === 'loading') {
+                    $('h-prep-archive-meta').textContent = `Archive ready · loading ${clampProgress(snapshot.progress)}%`;
+                }
+            });
+            const [sessionPayload, analysis] = await Promise.all([
+                controller.promise,
+                waitForSavedAnalysis(sid, preparationToken),
+            ]);
+            if (!preparationIsCurrent(sid, preparationToken)) return;
+
+            const { normalized, stats, statsExact, isPreview, archiveStatus } = sessionPayload;
             const cappedData = applyExternalDataCap(normalized);
             S.data = cappedData;
             S.stats = stats;
@@ -555,54 +783,51 @@
             S.isPreview = isPreview;
             S.archiveStatus = archiveStatus;
             S.fullDataPromise = null;
+            S.analysis = analysis;
             updateFullExportAvailability();
 
-            // Restore label after load
-            if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
-
-            if (!S.data.length) {
-                if ((controller.expectedTotal || 0) > 0) {
-                    toast('Failed to load this session correctly. Please retry.');
-                } else {
-                    toast('No data for this session');
-                }
-                return;
-            }
+            if (!S.data.length) throw new Error('No telemetry data is available for this run.');
+            showAnalysisView();
+            renderInitialHistoricalView();
+            if (analysis) renderSavedCoreAnalysis(analysis);
             if (cappedData.length < normalized.length) {
                 toast(`External access limited to ${externalDataPointLimit.toLocaleString()} representative points.`);
             }
-            renderInitialHistoricalView();
-            if (grid) grid.style.opacity = '1';
-        } catch (e) {
-            if (S.activeSessionId !== sid) return;
-            console.error('Session Load Error:', e);
-            toast('Failed to load session data');
-            if (label) label.textContent = S.activeSessionMeta?.session_name || sid.slice(0, 12);
-            if (grid) grid.style.opacity = '1';
-        } finally {
-            if (grid && S.activeSessionId === sid) grid.style.opacity = '1';
-            if (unsubscribeProgress) unsubscribeProgress();
-        }
-        populateCompareSelect();
-        showAnalysisActions(true);
-        if (options.openCustomAfterLoad && canAccessCustomAnalysis) {
-            showCustomAnalysisView();
-            if (!options.skipHistory) {
-                updateRoute(
-                    HIST_CUSTOM_ROUTE,
-                    { view: 'custom', sessionId: sid },
-                    false,
-                    new URLSearchParams({ sessionId: sid })
-                );
+            populateCompareSelect();
+            showAnalysisActions(true);
+
+            if (options.openCustomAfterLoad && canAccessCustomAnalysis) {
+                showCustomAnalysisView();
+                if (!options.skipHistory) {
+                    updateRoute(
+                        HIST_CUSTOM_ROUTE,
+                        { view: 'custom', sessionId: sid },
+                        false,
+                        new URLSearchParams({ sessionId: sid })
+                    );
+                }
+                initCustomAnalysis();
             }
-            initCustomAnalysis();
+        } catch (error) {
+            if (!preparationIsCurrent(sid, preparationToken)) return;
+            console.error('[historical] Run preparation failed:', error);
+            const archiveFailed = error?.code === 'ARCHIVE_ERROR';
+            showPreparationError(
+                archiveFailed ? 'Archive needs attention' : 'Run preparation paused',
+                error?.message || 'The run could not be prepared. Try again in a moment.',
+                () => void openSession(sid, { ...options, forceAllow: true, skipHistory: true }),
+            );
+        } finally {
+            if (unsubscribeProgress) unsubscribeProgress();
         }
     }
 
 
     function backToSessions(options = {}) {
+        S.preparationToken += 1;
         $('h-view-analysis').classList.remove('active');
         $('h-view-custom-analysis').classList.remove('active');
+        $('h-view-preparing').classList.remove('active');
         $('h-view-explorer').classList.add('active');
         $('h-back-to-sessions').style.display = 'none';
         $('h-active-session-label').textContent = '';
@@ -617,12 +842,14 @@
         S.data = []; S.stats = null; S.isPreview = false; S.statsExact = false; S.fullDataPromise = null; S.archiveStatus = 'none';
         S.analysis = null; S.coreSectors = [];
         S.activeSessionId = null;
+        S.activeSessionMeta = null;
         if (!options.skipHistory) {
             updateRoute(HIST_SESSIONS_ROUTE, { view: 'sessions', sessionId: null }, !!options.replaceHistory);
         }
         syncHistoricalMobileChrome();
     }
     $('h-back-to-sessions')?.addEventListener('click', backToSessions);
+    $('h-prep-cancel')?.addEventListener('click', backToSessions);
 
     // ── Custom Analysis Routing ──
     $('h-btn-custom-analysis')?.addEventListener('click', async () => {
@@ -852,12 +1079,14 @@
             return;
         }
         container.innerHTML = '';
+        const lightTheme = currentTheme() === 'light';
+        const baseSourceId = lightTheme ? 'light' : 'dark';
         S.coreMap = new maplibregl.Map({
             container: 'h-core-map',
             style: {
                 version: 8,
-                sources: { dark: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'], tileSize: 256 } },
-                layers: [{ id: 'dark', type: 'raster', source: 'dark', paint: { 'raster-opacity': .72 } }],
+                sources: { [baseSourceId]: { type: 'raster', tiles: [`https://basemaps.cartocdn.com/${lightTheme ? 'light_all' : 'dark_all'}/{z}/{x}/{y}{r}.png`], tileSize: 256 } },
+                layers: [{ id: baseSourceId, type: 'raster', source: baseSourceId, paint: { 'raster-opacity': lightTheme ? .9 : .72 } }],
             },
             center: allGps[Math.floor(allGps.length / 2)],
             zoom: 13,
@@ -909,7 +1138,7 @@
         if (analysis?.available && analysis.result) {
             const result = analysis.result;
             state.classList.add('is-complete');
-            state.innerHTML = '<i></i> Gemini brief saved';
+            state.innerHTML = '<i></i> AI brief saved';
             $('h-core-verdict').textContent = result.verdict;
             $('h-core-summary').textContent = result.summary;
             $('h-core-score').textContent = Math.round(result.score);
@@ -923,7 +1152,7 @@
         }
         if (analysis?.status === 'pending' || analysis?.status === 'running') {
             state.classList.add('is-running');
-            state.innerHTML = `<i></i> ${analysis.status === 'running' ? 'Gemini analyzing' : 'Gemini queued'}`;
+            state.innerHTML = `<i></i> ${analysis.status === 'running' ? 'AI analyzing' : 'AI queued'}`;
         } else if (analysis?.status === 'error') {
             state.classList.add('is-error');
             state.innerHTML = '<i></i> Deterministic brief · AI unavailable';
