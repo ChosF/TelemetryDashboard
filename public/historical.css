@@ -5108,18 +5108,16 @@ body.hist-page .auth-modal-content {
     color: var(--hc-faint);
     background: var(--hc-panel);
     font-family: "Plus Jakarta Sans", sans-serif;
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 1.2;
-    letter-spacing: .035em;
-    text-rendering: geometricPrecision;
-    font-synthesis: none;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: .02em;
     white-space: nowrap;
 }
 .hchat-context > span,
 .hchat-context > b { padding: 0 15px; border-left: 1px solid var(--hc-line); }
 .hchat-context > :first-child { padding-left: 0; border-left: 0; }
-.hchat-context .hchat-context-label { color: var(--hc-orange); letter-spacing: .055em; }
+.hchat-context .hchat-context-label { color: var(--hc-orange); font-weight: 700; letter-spacing: .04em; }
 .hchat-context > b { margin-left: auto; color: var(--hc-muted); font-weight: 700; }
 
 .hchat-messages {
